@@ -51,13 +51,13 @@ def buildHumanReadableSchedule(Yns, twilightMap, all_targets_frame, nNightsInSem
     # fill in the "unused" slots...those that were held empty because a target needed multiple slots. Fill in those accordingly
     for n in range(nNightsInSemester-1, -1, -1):
         for s in range(nSlotsInNight-1, -1, -1):
-            if combined_semester_schedule[n][s] in listnames:
+            if combined_semester_schedule[n+all_dates_dict[current_day]][s] in listnames:
             #if combined_semester_schedule[n][s] != '' and combined_semester_schedule[n][s] != 'X' and combined_semester_schedule[n][s] != '*' and combined_semester_schedule[n][s] != 'X*' and combined_semester_schedule[n][s] != 'XW' and combined_semester_schedule[n][s] != 'X*W':
-                target_name = combined_semester_schedule[n][s]
+                target_name = combined_semester_schedule[n+all_dates_dict[current_day]][s]
                 slotsneededperExposure = slotsNeededDict[target_name]
                 if slotsneededperExposure > 1:
                     for e in range(1, slotsneededperExposure):
-                        combined_semester_schedule[n][s+e] += target_name
+                        combined_semester_schedule[n+all_dates_dict[current_day]][s+e] += target_name
 
     return combined_semester_schedule
 

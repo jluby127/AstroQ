@@ -16,19 +16,37 @@ import astropy.units as u
 import gurobipy as gp
 from gurobipy import GRB
 
-# sys.path.append("/Users/jack/Documents/Github/optimalAllocation/")
+# KPF-CC specific files
 import helperFunctions as hf
 import twilightFunctions as tw
 import reportingFunctions as rf
 
-# set a few flags
-runOptimalAllocation = True
+# set a few parameters and flags
+# these should be the only things that need changing as we test CPU usage
+runOptimalAllocation = False
 if runOptimalAllocation:
     SolveTime = 1200
     runRound2 = False
 else:
     SolveTime = 300
     runRound2 = False # false for now
+# The slot size, in minutes. Also determines the access_map used.
+STEP = 10
+
+# set your output directory here
+# I suggest specifying something so that it doesn't autosave
+# to the same directory as the run files and crowds up the GitHub repo.
+outputdir = "/Users/jack/Desktop/"
+# this represents the day of the semester we are scheduling
+# for now this parameter only sets the number of days left in the semester,
+# and therefore the number of slots in the semester
+# and therefore the size of the Yns, Wns, etc variables.
+# For testing CPU usage, always set this to '2024-02-01' as this
+# was the first day of the 2024A semester.
+current_day = '2024-07-01'
+semesterLetter = 'A'
+semesterYear = current_day[:4]
+
 
 start_all = time.time()
 
@@ -37,18 +55,11 @@ start_all = time.time()
 #               Set up logistics parameters
 # -------------------------------------------------------------------
 # -------------------------------------------------------------------
-outputdir = "/Users/jack/Desktop/"
-current_day = '2024-07-01'
-
-semesterLetter = 'A'
-semesterYear = '2024'
 semester_start_date, semesterLength = hf.getSemesterInfo(semesterYear, semesterLetter)
 all_dates_dict = hf.buildDayDateDictionary(semester_start_date, semesterLength)
 dates_in_semester = list(all_dates_dict.keys())
 nNightsInSemester = hf.currentDayTracker(current_day, all_dates_dict)
 
-# the slot size, in minutes. Also determines the access map.
-STEP = 10
 accessmapfile = "kpfcc_v2_files/2024A_AccessibilityMaps__" + str(STEP) + "minSlot_14Hr.pkl"
 
 nQuartersInNight = 4
@@ -81,6 +92,8 @@ for n,row in all_targets_frame.iterrows():
     exptime = row['Exposure_Time']
     slotsneededperExposure = math.ceil(exptime/(STEP*60.))
     slotsNeededDict[name] = slotsneededperExposure
+    #if slotsneededperExposure > 1:
+    #    print(name, slotsneededperExposure)
 
 # sub-divide target list into only those that are more than 1 unique night of observations
 # later, single shot observations are scheduled in Round 3
@@ -180,7 +193,6 @@ print("Constraint: no other exposures can start in multi-slot exposures")
 # Velibor's new logic
 for n,row in all_targets_frame.iterrows():
     name = row['Starname']
-    exptime = row['Exposure_Time']
     slotsneededperExposure = slotsNeededDict[name]
     if (slotsneededperExposure > 1):
         for s in range(nSlotsInSemester):
@@ -356,7 +368,7 @@ print("Setting objective.")
 m.setObjective(gp.quicksum(Thn[name] for name in all_targets_frame['Starname']), GRB.MINIMIZE)
 
 m.params.TimeLimit = SolveTime
-m.params.MIPGap = 0.31 # can stop at 1% gap or better
+m.params.MIPGap = 0.01 # can stop at 1% gap or better
 m.update()
 m.optimize()
 
