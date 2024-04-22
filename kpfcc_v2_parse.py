@@ -25,20 +25,16 @@ import twilightFunctions as tw
 import reportingFunctions as rf
 
 def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twilight_times,
-                           outputdir, slot_size, run_optimal_allocation,
-                           gurobi_output, plot_results, time_limit):
+                           outputdir, STEP, runOptimalAllocation, runRound2,
+                           enforcedNO_file, enforcedYES_file,
+                           gurobi_output, plot_results, SolveTime):
 
     # set a few parameters and flags
-    # these should be the only things that need changing as we test CPU usage
-    runOptimalAllocation = run_optimal_allocation
+    # if computing optimal allocation, don't run extra rounds and extend time limit
     if runOptimalAllocation:
-        SolveTime = time_limit
+        if current_day != ['2024-02-01']:
+            current_day = ['2024-02-01']
         runRound2 = False
-    else:
-        SolveTime = time_limit
-        runRound2 = False # false for now
-    # The slot size, in minutes. Also determines the access_map used.
-    STEP = slot_size
 
     # I suggest your output directory be something so that it doesn't autosave
     # to the same directory as the run files and crowds up the GitHub repo.
@@ -52,8 +48,7 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
     # For testing CPU usage, always set this to '2024-02-01' as this
     # was the first day of the 2024A semester.
     current_day = current_day[0]
-    semesterLetter = 'A'
-    semesterYear = str(current_day[:4])
+    semesterYear = str(current_day)[:4]
 
 
     start_all = time.time()
@@ -63,7 +58,7 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
     #               Set up logistics parameters
     # -------------------------------------------------------------------
     # -------------------------------------------------------------------
-    semester_start_date, semesterLength = hf.getSemesterInfo(semesterYear, semesterLetter)
+    semester_start_date, semesterLength = hf.getSemesterInfo(current_day)
     all_dates_dict = hf.buildDayDateDictionary(semester_start_date, semesterLength)
     dates_in_semester = list(all_dates_dict.keys())
     nNightsInSemester = hf.currentDayTracker(current_day, all_dates_dict)
@@ -206,26 +201,10 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
             for s in range(nSlotsInSemester):
                 m.addConstr((slotsneededperExposure-1)*Yns[name,s] <= ( (slotsneededperExposure - 1) - gp.quicksum(Yns[name2,s+t] for name2 in all_targets_frame['Starname'] for t in range(1, min(slotsneededperExposure, nSlotsInSemester - s)))), 'dont_Start_Exposure_' + str(name) + "_" + str(s) + "s")
 
-    print("Constraint: only 1 exposures per slot")
+    print("Constraint: only 1 exposure per slot")
     # Enforce only one exposure per slot
     for s in range(nSlotsInSemester):
         m.addConstr(gp.quicksum(Yns[name,s] for name in all_targets_frame['Starname']) <= 1, 'ensure_singleOb_perSlot_' + str(s) + "s")
-
-    if runOptimalAllocation == False:
-        print("Constraint: enforce allocation map")
-        # Enforce zeros when we are not allocated the telescope
-        # Enforce zeros when target cannot be completed before an allocation ends
-        for s in range(nSlotsInSemester):
-            for k,row in all_targets_frame.iterrows():
-                name = row['Starname']
-                exptime = row['Exposure_Time']
-                slotsneededperExposure = math.ceil(exptime/(STEP*60.))
-
-                m.addConstr(Yns[name,s] <= allocation_map[s], 'allocationMatch_' + name + "_" + str(s) + "s")
-
-                if slotsneededperExposure > 1:
-                    if np.sum(allocation_map[s:s+slotsneededperExposure]) != slotsneededperExposure:
-                        m.addConstr(Yns[name,s] == 0, 'cantComplete' + name + "_" + str(s) + "s")
 
     print("Constraint: enforce twilight times")
     # Enforce twilight times within each quarter
@@ -258,7 +237,7 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
                 try:
                     m.addConstr(Wnd[name,d] <= 1 - Wnd[name,d+dlta], 'enforce_internightCadence_' + str(name) + "_" + str(d) + "_" + str(dlta) + "dlta")
                 except:
-                    # enter this except when the internightcadence brings us beyond the end of the semester (i think)
+                    # enter this except when the inter-night cadence brings us beyond the end of the semester (i think)
                     counter += 1
                     continue
 
@@ -293,6 +272,7 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
         print("Solve the optimal allocation.")
 
         # Constraints on the way the allocation map can be filled
+        # these can and should be edited on a semester by semester basis
         maxQuarters = 150
         maxNights = 60
         minQuarterSelection = 5
@@ -332,6 +312,27 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
             # Cannot have only 1st and 4th quarters allocated (no end-cap half)
             m.addConstr(Anq[d,0] + (Un[d]-Anq[d,1]) + (Un[d]-Anq[d,2]) + Anq[d,3] <= 3*Un[d], "NoEndCapHalf_" + str(d) + "d")
 
+        # enforce that certain nights/quarters CANNOT or MUST be chosen
+        if enforcedNO_file != 'nofilename.csv':
+            print("Constraint: enforcing quarters that cannot be chosen.")
+            enforcedNO = buildEnforcedDates(enforcedNO_file, all_dates_dict)
+            enforcedYES = buildEnforcedDates(enforcedYES_file, all_dates_dict)
+            for i in range(len(enforcedNO)):
+                night = enforcedNO[i][0]
+                quart = enforcedNO[i][1]
+                m.addConstr(Anq[night,quart] == 0, "enforcedNO_" + str(night) + "d_" + str(quart) + 'q')
+        else:
+            print("No specific quarters forbidden from being chosen.")
+        if enforcedYES_file != 'nofilename.csv':
+            print("Constraint: enforcing quarters that must be chosen.")
+            for i in range(len(enforcedYES)):
+                night = enforcedYES[i][0]
+                quart = enforcedYES[i][1]
+                m.addConstr(Anq[night,quart] == 1, "enforcedYES_" + str(night) + "d_" + str(quart) + 'q')
+        else:
+            print("No specific quarters have to be chosen.")
+
+
         # Aesthetic constraints:
         # -----------------
         aesthetic = True
@@ -359,7 +360,21 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
         else:
             print("No aesthetic constraints.")
 
+    else:
+        print("Constraint: enforce allocation map")
+        # Enforce zeros when we are not allocated the telescope
+        # Enforce zeros when target cannot be completed before an allocation ends
+        for s in range(nSlotsInSemester):
+            for k,row in all_targets_frame.iterrows():
+                name = row['Starname']
+                exptime = row['Exposure_Time']
+                slotsneededperExposure = math.ceil(exptime/(STEP*60.))
 
+                m.addConstr(Yns[name,s] <= allocation_map[s], 'allocationMatch_' + name + "_" + str(s) + "s")
+
+                if slotsneededperExposure > 1:
+                    if np.sum(allocation_map[s:s+slotsneededperExposure]) != slotsneededperExposure:
+                        m.addConstr(Yns[name,s] == 0, 'cantComplete' + name + "_" + str(s) + "s")
 
 
     endtime2 = time.time()
@@ -377,7 +392,7 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
 
     m.params.TimeLimit = SolveTime
     m.Params.OutputFlag = gurobi_output
-    m.params.MIPGap = 0.01 # can stop at 1% gap or better
+    m.params.MIPGap = 0.01 # can stop at 1% gap or better to prevent it from spending lots of time on marginally better solutions
     m.update()
     m.optimize()
 
@@ -464,7 +479,7 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
         first_stage_objval = m.objval
         eps = 5 # allow a tolerance
 
-        m.params.TimeLimit = 900
+        m.params.TimeLimit = SolveTime
         m.Params.OutputFlag = gurobi_output
         m.params.MIPGap = 0.25 # stop at 5% gap, this is good enough and leaves some room for standards
         m.addConstr(gp.quicksum(Thn[name] for name in all_targets_frame['Starname']) <= first_stage_objval + eps)
