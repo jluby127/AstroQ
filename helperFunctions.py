@@ -62,13 +62,21 @@ def buildHumanReadableSchedule(Yns, twilightMap, all_targets_frame, nNightsInSem
     return combined_semester_schedule
 
 
-def getSemesterInfo(semesterYear, semesterLetter):
+def getSemesterInfo(current_day):
+    if current_day[5:7] in ['02', '03', '04', '05', '06', '07']:
+        semesterLetter = 'A'
+    elif current_day[5:7] in ['08', '09', '10', '11', '12', '01']:
+        semesterLetter = 'B'
+    else:
+        print("invalid date")
+    semesterYear = current_day[:4]
+
     if semesterLetter == 'A':
         semester_start_date = semesterYear + '-02-01'
         # check if this is a leap year
-        if int(semesterYear) in np.arange(2024, 2228, 4):
-            # Note from Jack Lubin in the year 2024: in the year 2228 you'll have to update this line for another 200 years.
-            # The new line should be: np.arange(2228, 2428, 4)
+        if int(semesterYear) in np.arange(2024, 2128, 4):
+            # Note from Jack Lubin in the year 2024: in the year 2128 you'll have to update this line for another 200 years.
+            # The new line should be: np.arange(2128, 2228, 4)
             semesterLength = 182
         else:
             semesterLength = 181
@@ -151,3 +159,12 @@ def buildTwilightMap(windowsPerNight, nSlotsInQuarter):
         quarterslots.extend(quarterslots)
         nightly_twilight_map.append(quarterslots)
     return nightly_twilight_map
+
+def buildEnforcedDates(filename, all_dates_dict):
+    enforced_dates = []
+    selections = pd.read_csv(filename)
+    for s in range(len(selections)):
+        night = all_dates_dict[selections['date'][s]]
+        pair = [night, selections['quarter'][s]]
+        enforced_dates.append(pair)
+    return enforced_dates
