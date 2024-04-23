@@ -119,10 +119,11 @@ def buildCOF(outputdir, current_day, all_targets_frame, all_dates_dict, combined
 
 
 
-def buildAllocationPicture(allocation_schedule, nNightsInSemester, nQuartersInNight, startingNight, outputdir):
+def buildAllocationPicture(allocation_schedule, nNightsInSemester, nQuartersInNight, startingNight, all_dates_dict, outputdir):
+    dateslist = list(all_dates_dict.keys())
+    ff = open(outputdir + "AllocationPicture_stats.txt", "w")
 
     fig = pt.figure(figsize=(12,5))
-
     q1s = 0
     q2s = 0
     q3s = 0
@@ -136,18 +137,26 @@ def buildAllocationPicture(allocation_schedule, nNightsInSemester, nQuartersInNi
         if allocation_schedule[j][0] == 1.:
             q1s += 1
             pt.axvline(startingNight + j, ymin=0., ymax=0.25, color='b')
+            date_info = dateslist[startingNight + j] + " - q0"
+            ff.write(date_info + "\n")
 
         if allocation_schedule[j][1] == 1.:
             q2s += 1
             pt.axvline(startingNight + j, ymin=0.25, ymax=0.5, color='b')
+            date_info = dateslist[startingNight + j] + " - q1"
+            ff.write(date_info + "\n")
 
         if allocation_schedule[j][2] == 1.:
             q3s += 1
             pt.axvline(startingNight + j, ymin=0.5, ymax=0.75, color='b')
+            date_info = dateslist[startingNight + j] + " - q2"
+            ff.write(date_info + "\n")
 
         if allocation_schedule[j][3] == 1.:
             q4s += 1
             pt.axvline(startingNight + j, ymin=0.75, ymax=1.0, color='b')
+            date_info = dateslist[startingNight + j] + " - q3"
+            ff.write(date_info + "\n")
 
 
         allocated_quarters = np.sum(allocation_schedule[j])
@@ -174,7 +183,10 @@ def buildAllocationPicture(allocation_schedule, nNightsInSemester, nQuartersInNi
     pt.axhline(4, color='k', linestyle='-')
     pt.savefig(outputdir + "AllocationPicture.png", dpi=300, bbox_inches='tight', facecolor='w')
 
-    ff = open(outputdir + "AllocationPicture_stats.txt", "w")
+    ff.write("\n")
+    ff.write("\n")
+    ff.write("\n")
+    ff.write("\n")
     ff.write("There are " + str(q1s) + " first quarters." + "\n")
     ff.write("There are " + str(q2s) + " second quarters." + "\n")
     ff.write("There are " + str(q3s) + " third quarters." + "\n")

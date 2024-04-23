@@ -206,13 +206,47 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
     for s in range(nSlotsInSemester):
         m.addConstr(gp.quicksum(Yns[name,s] for name in all_targets_frame['Starname']) <= 1, 'ensure_singleOb_perSlot_' + str(s) + "s")
 
+    # print("Constraint: enforce twilight times")
+    # # Enforce twilight times within each quarter
+    # for n in range(nNightsInSemester):
+    #     for q in range(nQuartersInNight):
+    #         start = n*nSlotsInQuarter*nQuartersInNight + q*nSlotsInQuarter
+    #         end  = start + nSlotsInQuarter
+    #         m.addConstr(gp.quicksum(Yns[name,s] for s in range(start,end) for name in all_targets_frame['Starname']) <= int(AvailableSlotsInGivenNight[n]/nQuartersInNight), "ensure_max_slots_used_in_quarter_" + str(n) + "n_" + str(q) + "q")
+
+    # print("Constraint: enforce twilight times")
+    # # Enforce twilight times within each quarter
+    # counter = 0
+    # for n in range(nNightsInSemester):
+    #     for q in range(nQuartersInNight):
+    #         start = n*nSlotsInQuarter*nQuartersInNight + q*nSlotsInQuarter + int(AvailableSlotsInGivenNight[n]/nQuartersInNight)
+    #         end  = start + nSlotsInQuarter
+    #         for s in range(start,end):
+    #             for name in all_targets_frame['Starname']:
+    #                 try:
+    #                     m.addConstr(Yns[name,s] == 0, "ensure_noObs_inTwilight_" + str(n) + "n_" + str(q) + "q_" + str(s) + "s_" + name)
+    #                     #m.addConstr(gp.quicksum(Yns[name,s] for s in range(start,end) for name in all_targets_frame['Starname']) == 0, "ensure_noObs_inTwilight_" + str(n) + "n_" + str(q) + "q")
+    #                 except:
+    #                     counter += 1
+    # print("counter = " + str(counter))
+    # print("i suspect counter should equal # of requests: ", len(all_targets_frame))
+
     print("Constraint: enforce twilight times")
     # Enforce twilight times within each quarter
+    counter = 0
     for n in range(nNightsInSemester):
         for q in range(nQuartersInNight):
-            start = n*nSlotsInQuarter*nQuartersInNight + q*nSlotsInQuarter
-            end  = start + nSlotsInQuarter
-            m.addConstr(gp.quicksum(Yns[name,s] for s in range(start,end) for name in all_targets_frame['Starname']) <= int(AvailableSlotsInGivenNight[n]/nQuartersInNight), "ensure_max_slots_used_in_quarter_" + str(n) + "n_" + str(q) + "q")
+            quarterstart = n*nSlotsInNight + q*nSlotsInQuarter
+            start = quarterstart + int(AvailableSlotsInGivenNight[n]/nQuartersInNight)
+            end  = quarterstart + nSlotsInQuarter
+            for s in range(start,end):
+                for name in all_targets_frame['Starname']:
+                    try:
+                        m.addConstr(Yns[name,s] == 0, "ensure_noObs_inTwilight_" + str(n) + "n_" + str(q) + "q_" + str(s) + "s_" + name)
+                    except:
+                        counter += 1
+    print("counter = " + str(counter))
+    print("I suspect counter should equal # of requests: ", len(all_targets_frame))
 
     print("Constraint: exposure can't start if it won't complete in the night")
     # Enforce that an exposure cannot start if it will not complete within the same night
@@ -220,11 +254,19 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
         end_night_slot = d*nSlotsInNight + nSlotsInNight - int(AvailableSlotsInGivenNight[d]/nQuartersInNight) - 1 # the -1 is to account for python indexing
         for t,row in all_targets_frame.iterrows():
             name = row['Starname']
-            exptime = row['Exposure_Time']
-            slotsneededperExposure = math.ceil(exptime/(STEP*60.))
-            if slotsneededperExposure > 1:
-                for e in range(0, slotsneededperExposure-1): # the -1 is so because a target can be started if it just barely fits
+            if slotsNeededDict[name] > 1:
+                for e in range(0, slotsNeededDict[name]-1): # the -1 is so because a target can be started if it just barely fits
                     m.addConstr(Yns[name,end_night_slot-e] == 0, 'dont_start_near_endof_night_' + name + "_" + str(end_night_slot) + 's_' + str(e) + 'e')
+
+    for d in range(nNightsInSemester):
+        end_night_slot = d*nSlotsInNight + nSlotsInNight - int(AvailableSlotsInGivenNight[d]/nQuartersInNight) - 1 # the -1 is to account for python indexing
+        for t,row in all_targets_frame.iterrows():
+            name = row['Starname']
+            if slotsNeededDict[name] > 1:
+                for e in range(0, slotsNeededDict[name]-1): # the -1 is so because a target can be started if it just barely fits
+                    m.addConstr(Yns[name,end_night_slot-e] == 0, 'dont_start_near_endof_night_' + name + "_" + str(end_night_slot) + 's_' + str(e) + 'e')
+
+
 
     print("Constraint: inter-night cadence")
     # Constrain the inter-night cadence
@@ -289,6 +331,14 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
                 m.addConstr(Un[d] >= Anq[d,q], "relatedUnique_andNonUnique_lowerbound_" + str(d) + "d_" + str(q) + "q")
             m.addConstr(Un[d] <= gp.quicksum(Anq[d,q] for q in range(nQuartersInNight)), "relatedUnique_andNonUnique_upperbound_" + str(d) + "d")
 
+        print("Constraint: cannot observe if night/quarter is not allocated.")
+        # if quarter is not allocated, all slots in quarter must be zero
+        for s in range(nSlotsInSemester):
+            for name in all_targets_frame['Starname']:
+                d = int(s/nSlotsInNight)
+                q = int((s%nSlotsInNight)/nSlotsInQuarter)
+                m.addConstr(Yns[name, s] <= Anq[d, q], "dontSched_ifNot_Allocated_"+ str(d) + "d_" + str(q) + "q_" + str(s) + "s_" + name)
+
         print("Constraint: setting max number of unique nights allocated.")
         # No more than a maximum number of unique nights can be allocated
         m.addConstr(gp.quicksum(Un[d] for d in range(nNightsInSemester)) <= maxNights, "maximumNightsAllocated")
@@ -315,8 +365,7 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
         # enforce that certain nights/quarters CANNOT or MUST be chosen
         if enforcedNO_file != 'nofilename.csv':
             print("Constraint: enforcing quarters that cannot be chosen.")
-            enforcedNO = buildEnforcedDates(enforcedNO_file, all_dates_dict)
-            enforcedYES = buildEnforcedDates(enforcedYES_file, all_dates_dict)
+            enforcedNO = hf.buildEnforcedDates(enforcedNO_file, all_dates_dict)
             for i in range(len(enforcedNO)):
                 night = enforcedNO[i][0]
                 quart = enforcedNO[i][1]
@@ -325,6 +374,7 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
             print("No specific quarters forbidden from being chosen.")
         if enforcedYES_file != 'nofilename.csv':
             print("Constraint: enforcing quarters that must be chosen.")
+            enforcedYES = hf.buildEnforcedDates(enforcedYES_file, all_dates_dict)
             for i in range(len(enforcedYES)):
                 night = enforcedYES[i][0]
                 quart = enforcedYES[i][1]
@@ -367,13 +417,9 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
         for s in range(nSlotsInSemester):
             for k,row in all_targets_frame.iterrows():
                 name = row['Starname']
-                exptime = row['Exposure_Time']
-                slotsneededperExposure = math.ceil(exptime/(STEP*60.))
-
                 m.addConstr(Yns[name,s] <= allocation_map[s], 'allocationMatch_' + name + "_" + str(s) + "s")
-
-                if slotsneededperExposure > 1:
-                    if np.sum(allocation_map[s:s+slotsneededperExposure]) != slotsneededperExposure:
+                if slotsNeededDict[name] > 1:
+                    if np.sum(allocation_map[s:s+slotsNeededDict[name]]) != slotsNeededDict[name]:
                         m.addConstr(Yns[name,s] == 0, 'cantComplete' + name + "_" + str(s) + "s")
 
 
@@ -433,6 +479,12 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
             else:
                 allocation_schedule_1d.append(0)
         allocation_schedule = np.reshape(allocation_schedule_1d, (nNightsInSemester, nQuartersInNight))
+        # print("ALLOCATION MAP BELOW")
+        # print()
+        # print()
+        # print(allocation_schedule)
+        # print()
+        # print()
         allocation_schedule_full = allocation_schedule
         holder = np.zeros(np.shape(allocation_schedule))
         allocation_map, allocation_map_NS, weathered_map = hf.buildNonAllocatedMap(allocation_schedule, holder, AvailableSlotsInGivenNight, nSlotsInSemester, nNightsInSemester, nQuartersInNight, nSlotsInQuarter, nSlotsInNight)
@@ -457,9 +509,10 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
     if plot_results:
         # Only generate the COF for results of Round 1.
         rf.buildCOF(outputdir, current_day, all_targets_frame, all_dates_dict, combined_semester_schedule, dates_in_semester)
-        rf.buildAllocationPicture(allocation_schedule_full, nNightsInSemester, nQuartersInNight, startingNight, outputdir)
+        rf.buildAllocationPicture(allocation_schedule_full, nNightsInSemester, nQuartersInNight, startingNight, all_dates_dict, outputdir)
 
     endtime4 = time.time()
+    print("Total Time to complete Round 1: " + str(np.round(endtime4-start_all,3)))
     filename.write("Total Time to complete Round 1: " + str(np.round(endtime4-start_all,3)) + "\n")
     filename.write("\n")
     filename.write("\n")
@@ -481,7 +534,7 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
 
         m.params.TimeLimit = SolveTime
         m.Params.OutputFlag = gurobi_output
-        m.params.MIPGap = 0.25 # stop at 5% gap, this is good enough and leaves some room for standards
+        m.params.MIPGap = 0.05 # stop at 5% gap, this is good enough and leaves some room for including standard stars
         m.addConstr(gp.quicksum(Thn[name] for name in all_targets_frame['Starname']) <= first_stage_objval + eps)
         m.setObjective(gp.quicksum(slotsNeededDict[name]*Yns[name,s] for name in all_targets_frame['Starname'] for s in range(nSlotsInSemester)), GRB.MAXIMIZE)
         m.update()
