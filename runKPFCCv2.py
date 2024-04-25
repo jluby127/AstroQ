@@ -19,9 +19,12 @@ args = parser.parse_args()
 
 # -------- 2024A Info ---------
 dirpath = '/Users/jack/Documents/Github/optimalAllocation/'
+pastDatabase = "/Users/jack/Desktop/testJump_allObs2024A.csv"
+starmap_template_filename = "kpfcc_v2_files/KPF_2024A_Template.csv"
 request_sheet = dirpath + "kpfcc_v2_files/requests.csv"
 allocated_nights =  dirpath + "kpfcc_v2_files/2024A_Binary_Schedule.txt"
 twilight_times =  dirpath + "kpfcc_v2_files/twilight_times.csv"
+turnFile = "kpfcc_v2_files/turnOnOffDates_2024A.csv"
 access_map = dirpath + "kpfcc_v2_files/2024A_AccessibilityMaps__" + str(args.slot_size) + "minSlot_14Hr.pkl"
 enforcedNoDatesfile = "kpfcc_v2_files/enforcedNODates.csv"
 enforcedYesDatesfile = "kpfcc_v2_files/enforcedYESDates.csv"
@@ -32,5 +35,5 @@ import kpfcc_v2_parse
 kpfcc_v2_parse.runKPFCCv2(args.schedule_dates, request_sheet, allocated_nights, access_map, twilight_times,
                            args.folder + 'KPFCC_' + str(args.schedule_dates[0]) + '_Outputs/', args.slot_size,
                            args.run_optimal_allocation, args.run_extra_rounds,
-                           enforcedNoDatesfile, enforcedYesDatesfile, 
+                           enforcedNoDatesfile, enforcedYesDatesfile, pastDatabase, starmap_template_filename, turnFile,
                            args.gurobi_output, args.plot_results, args.time_limit)
