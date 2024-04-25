@@ -495,6 +495,7 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
 
     round = 'Round 1'
     rf.buildFullnessReport(allocation_schedule, twilightMap, combined_semester_schedule, nSlotsInQuarter, nSlotsInSemester, all_targets_frame, outputdir, STEP, round)
+    np.savetxt('/Users/jack/Desktop/raw_combined_semester_schedule.txt', combined_semester_schedule, delimiter=',', fmt="%s")
 
     filename = open(outputdir + "runReport.txt", "a")
     theta_n_var = []
