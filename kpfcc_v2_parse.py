@@ -29,7 +29,8 @@ import processingFunctions as pf
 
 def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twilight_times,
                            outputdir, STEP, runOptimalAllocation, runRound2,
-                           enforcedNO_file, enforcedYES_file, pastDatabase, starmap_template_filename, turnFile,
+                           pastDatabase, starmap_template_filename, turnFile,
+                           enforcedNO_file, enforcedYES_file, nonqueueMap, nonqueueMap_str, nonqueueObs_info,
                            gurobi_output, plot_results, SolveTime):
 
     # set a few parameters and flags
@@ -140,7 +141,22 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
         print("Sampling out weather losses")
         # Randomly sample out 30% of allocated quarters to simulate weather loss
         allocation_schedule_long = np.array(allocation_schedule_full).flatten()
-        allindices = [i for i in range(len(allocation_schedule_long)) if allocation_schedule_long[i] == 1]
+        # These are the non-queue nights/quarters. Do not allow them to be weathered out.
+        protectedWeather = pd.read_csv(nonqueueObs_info)
+        protectedQuarters = []
+        for b in range(len(protectedWeather)):
+            night = (all_dates_dict[protectedWeather['Date'][b]] - all_dates_dict[current_day])*4
+            quartlist = list(protectedWeather['Quarters'][b])
+            quarts = []
+            for l in range(len(quartlist)):
+                try:
+                    val = int(quartlist[l])
+                    quarts.append(val)
+                except:
+                    continue
+            for q in range(len(quarts)):
+                protectedQuarters.append(night + q)
+        allindices = [i for i in range(len(allocation_schedule_long)) if allocation_schedule_long[i] == 1 and i not in protectedQuarters]
         weatherlosses = np.random.choice(allindices, int(0.3*len(allindices)), replace=False)
         for w in weatherlosses:
             allocation_schedule_long[w] = 0
@@ -270,13 +286,13 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
                 for e in range(0, slotsNeededDict[name]-1): # the -1 is so because a target can be started if it just barely fits
                     m.addConstr(Yns[name,end_night_slot-e] == 0, 'dont_start_near_endof_night_' + name + "_" + str(end_night_slot) + 's_' + str(e) + 'e')
 
-    for d in range(nNightsInSemester):
-        end_night_slot = d*nSlotsInNight + nSlotsInNight - int(AvailableSlotsInGivenNight[d]/nQuartersInNight) - 1 # the -1 is to account for python indexing
-        for t,row in all_targets_frame.iterrows():
-            name = row['Starname']
-            if slotsNeededDict[name] > 1:
-                for e in range(0, slotsNeededDict[name]-1): # the -1 is so because a target can be started if it just barely fits
-                    m.addConstr(Yns[name,end_night_slot-e] == 0, 'dont_start_near_endof_night_' + name + "_" + str(end_night_slot) + 's_' + str(e) + 'e')
+    # for d in range(nNightsInSemester):
+    #     end_night_slot = d*nSlotsInNight + nSlotsInNight - int(AvailableSlotsInGivenNight[d]/nQuartersInNight) - 1 # the -1 is to account for python indexing
+    #     for t,row in all_targets_frame.iterrows():
+    #         name = row['Starname']
+    #         if slotsNeededDict[name] > 1:
+    #             for e in range(0, slotsNeededDict[name]-1): # the -1 is so because a target can be started if it just barely fits
+    #                 m.addConstr(Yns[name,end_night_slot-e] == 0, 'dont_start_near_endof_night_' + name + "_" + str(end_night_slot) + 's_' + str(e) + 'e')
 
     print("Constraint: inter-night cadence of future observations.")
     # Constrain the inter-night cadence
@@ -306,6 +322,17 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
                 doublediff = internightcadence - diff
                 for e in range(doublediff):
                     m.addConstr(Wnd[name,e] == 0, 'enforce_internightCadence_fromStart_' + str(name) + "_" + str(e) + "e")
+
+    if nonqueueMap != 'nofilename.csv':
+        print("Constraint: certain slots on allocated nights must be zero to accommodate Non-Queue observations.")
+        nonqueuemap_slots_ints = np.loadtxt(nonqueueMap, delimiter=',', dtype=int)
+        nonqueuemap_slots_ints = nonqueuemap_slots_ints.flatten()
+        for s in range(nSlotsInSemester):
+            nonqueueslot = int(nonqueuemap_slots_ints[s + startingSlot])
+            for name in all_targets_frame['Starname']:
+                m.addConstr(Yns[name,s] <= nonqueueslot, 'enforce_NonQueueSlots_' + str(name) + "_" + str(s) + "s")
+    else:
+        print("No non-queue observations are scheduled.")
 
     print("Constraint: only observe if accessible")
     # Ensure that a target cannot be scheduled at a time when it is not accessible
@@ -507,13 +534,14 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
         allocation_schedule_full = allocation_schedule
         holder = np.zeros(np.shape(allocation_schedule))
         allocation_map, allocation_map_NS, weathered_map = hf.buildNonAllocatedMap(allocation_schedule, holder, AvailableSlotsInGivenNight, nSlotsInSemester, nNightsInSemester, nQuartersInNight, nSlotsInQuarter, nSlotsInNight)
-        combined_semester_schedule = hf.buildHumanReadableSchedule(Yns, twilightMap, all_targets_frame, nNightsInSemester, nSlotsInNight, AvailableSlotsInGivenNight, nSlotsInQuarter, all_dates_dict, current_day, allocation_map_NS, weathered_map, slotsNeededDict)
+        combined_semester_schedule = hf.buildHumanReadableSchedule(Yns, twilightMap, all_targets_frame, nNightsInSemester, nSlotsInNight, AvailableSlotsInGivenNight, nSlotsInQuarter, all_dates_dict, current_day, allocation_map_NS, weathered_map, slotsNeededDict, nonqueueMap_str)
     else:
         allocation_schedule_full
-        combined_semester_schedule = hf.buildHumanReadableSchedule(Yns, twilightMap, all_targets_frame, nNightsInSemester, nSlotsInNight, AvailableSlotsInGivenNight, nSlotsInQuarter, all_dates_dict, current_day, allocation_map_NS, weathered_map, slotsNeededDict)
+        combined_semester_schedule = hf.buildHumanReadableSchedule(Yns, twilightMap, all_targets_frame, nNightsInSemester, nSlotsInNight, AvailableSlotsInGivenNight, nSlotsInQuarter, all_dates_dict, current_day, allocation_map_NS, weathered_map, slotsNeededDict, nonqueueMap_str)
 
     round = 'Round 1'
     rf.buildFullnessReport(allocation_schedule, twilightMap, combined_semester_schedule, nSlotsInQuarter, nSlotsInSemester, all_targets_frame, outputdir, STEP, round)
+    np.savetxt(outputdir + 'raw_combined_semester_schedule.txt', combined_semester_schedule, delimiter=',', fmt="%s")
 
     filename = open(outputdir + "runReport.txt", "a")
     theta_n_var = []
@@ -531,9 +559,10 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
         for i in range(len(all_targets_frame)):
             starmap = rf.buildObservedMap_past(pastObs_Info[all_targets_frame['Starname'][i]][1], pastObs_Info[all_targets_frame['Starname'][i]][2], pastObs_Info[all_targets_frame['Starname'][i]][3], starmap_template_filename)
             starmap_updated = rf.buildObservedMap_future(all_targets_frame['Starname'][i], slotsNeededDict[all_targets_frame['Starname'][i]], combined_semester_schedule, starmap, all_dates_dict[current_day])
+            #if optimalAllocation:
+            #    pd.to_csv(outputdir + "/FirstForecasts/Forecast_" + str(all_targets_frame['Starname'][i]) + "_semester.csv", index=False)
             all_starmaps[all_targets_frame['Starname'][i]] = starmap_updated
             rf.writeCadencePlotFile(all_targets_frame['Starname'][i], i, starmap, turnFile, all_targets_frame, outputdir, unique_hstdates_observed, current_day)
-        # rf.buildCOF(outputdir, current_day, all_targets_frame, all_dates_dict, combined_semester_schedule, starmap_maps)
         rf.buildCOF(outputdir, current_day, all_targets_frame, all_dates_dict, all_starmaps, allocation_map_NS_fullsemester)
         rf.buildAllocationPicture(allocation_schedule_full, nNightsInSemester, nQuartersInNight, startingNight, all_dates_dict, outputdir)
 
@@ -588,6 +617,7 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
 
         round = 'Round 2'
         rf.buildFullnessReport(allocation_schedule, twilightMap, combined_semester_schedule, nSlotsInQuarter, nSlotsInSemester, all_targets_frame, outputdir, STEP, round)
+        np.savetxt(outputdir + 'Bonus_raw_combined_semester_schedule.txt', combined_semester_schedule, delimiter=',', fmt="%s")
 
         filename = open(outputdir + "runReport.txt", "a")
         theta_n_var = []

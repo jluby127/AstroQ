@@ -119,7 +119,6 @@ def getQuartersObserved(timestamp, utcdate, twilight):
 
 
 def getNobs_on_Night(star_past_obs, unique_hstdates_observed):
-
     Nobs_on_date = []
     for i in range(len(unique_hstdates_observed)):
         datemask = star_past_obs['hstDate'] == unique_hstdates_observed[i]

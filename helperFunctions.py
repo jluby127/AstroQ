@@ -13,7 +13,10 @@ import astroplan as apl
 import astropy.units as u
 
 
-def buildHumanReadableSchedule(Yns, twilightMap, all_targets_frame, nNightsInSemester, nSlotsInNight, AvailableSlotsInGivenNight, nSlotsInQuarter, all_dates_dict, current_day, allocation_map_NS, weathered_map, slotsNeededDict):
+def buildHumanReadableSchedule(Yns, twilightMap, all_targets_frame, nNightsInSemester, nSlotsInNight, AvailableSlotsInGivenNight, nSlotsInQuarter, all_dates_dict, current_day, allocation_map_NS, weathered_map, slotsNeededDict, nonqueueMap_str):
+
+    if nonqueueMap_str != 'nofilename.csv':
+        nonqueuemap_slots_strs = np.loadtxt(nonqueueMap_str, delimiter=',', dtype=str)
 
     # retrieve the first order semester schedule
     semester_schedule = []
@@ -37,6 +40,7 @@ def buildHumanReadableSchedule(Yns, twilightMap, all_targets_frame, nNightsInSem
     for n in range(nNightsInSemester):
         for s in range(nSlotsInNight):
             slotallocated = ''
+            slotallocated += str(nonqueuemap_slots_strs[n + all_dates_dict[current_day]][s])
             if allocation_map_NS[n][s] == 0:
                 slotallocated += 'X'
             if twilightMap[n][s] == 1:

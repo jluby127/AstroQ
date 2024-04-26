@@ -8,6 +8,7 @@ parser.add_argument('-l','--time_limit', help='Max time spent optimizing (s)',ty
 parser.add_argument('-s','--slot_size', help='The slot size (min)',type=int, default=10)
 parser.add_argument('-b','--enforcedNO', help='The quarters that must not be chosen in optimal allocation', type=str, default='nofilename.csv')
 parser.add_argument('-w','--enforcedYES', help='The quarters that yes must be chosen in optimal allocation', type=str, default='nofilename.csv')
+parser.add_argument('-nq','--enforcedNonQueue', help='The slots that must not be chosen because they are allocated to Non Queue observations', type=str, default='nofilename.csv')
 
 
 parser.add_argument('-g','--gurobi_output',action='store_true', help='Activate Gurobi console outputs',default=True)
@@ -20,7 +21,7 @@ args = parser.parse_args()
 # -------- 2024A Info ---------
 dirpath = '/Users/jack/Documents/Github/optimalAllocation/'
 pastDatabase = "/Users/jack/Desktop/testJump_allObs2024A.csv"
-starmap_template_filename = "kpfcc_v2_files/KPF_2024A_Template.csv"
+starmap_template_filename = "kpfcc_v2_files/KPF_2024A_Template_all.csv"
 request_sheet = dirpath + "kpfcc_v2_files/requests.csv"
 allocated_nights =  dirpath + "kpfcc_v2_files/2024A_Binary_Schedule.txt"
 twilight_times =  dirpath + "kpfcc_v2_files/twilight_times.csv"
@@ -28,6 +29,9 @@ turnFile = "kpfcc_v2_files/turnOnOffDates_2024A.csv"
 access_map = dirpath + "kpfcc_v2_files/2024A_AccessibilityMaps__" + str(args.slot_size) + "minSlot_14Hr.pkl"
 enforcedNoDatesfile = "kpfcc_v2_files/enforcedNODates.csv"
 enforcedYesDatesfile = "kpfcc_v2_files/enforcedYESDates.csv"
+nonqueueMap = "kpfcc_v2_files/NonQueueMap.txt"
+nonqueueMap_str = "kpfcc_v2_files/NonQueueMap_str.txt"
+nonqueueObs_info = "kpfcc_v2_files/nonQueueObs_descriptions.csv"
 
 # import sys
 # sys.path.append(dirpath)
@@ -35,5 +39,6 @@ import kpfcc_v2_parse
 kpfcc_v2_parse.runKPFCCv2(args.schedule_dates, request_sheet, allocated_nights, access_map, twilight_times,
                            args.folder + 'KPFCC_' + str(args.schedule_dates[0]) + '_Outputs/', args.slot_size,
                            args.run_optimal_allocation, args.run_extra_rounds,
-                           enforcedNoDatesfile, enforcedYesDatesfile, pastDatabase, starmap_template_filename, turnFile,
+                           pastDatabase, starmap_template_filename, turnFile,
+                           enforcedNoDatesfile, enforcedYesDatesfile, nonqueueMap, nonqueueMap_str, nonqueueObs_info,
                            args.gurobi_output, args.plot_results, args.time_limit)
