@@ -102,13 +102,56 @@ def buildCOF(outputdir, current_day, all_targets_frame, all_dates_dict, starmap_
 
         commentsfile.write('#' + str(program) + '_trueComplete:' + str(round(y[-1],2)) + '\n')
 
+    # # now run through one more time with dummy date to build a 1-to-1 line
+    # newrunning = 0
+    # for e in range(len(dates_in_semester)):
+    #     x.append(dates_in_semester[e])
+    #     newrunning += 1
+    #     y.append(round((newrunning/len(dates_in_semester))*100,2))
+    #     prog.append('Even Burn Rate Line')
+    #     totobs.append(len(dates_in_semester))
+
     programdata = pd.DataFrame({"Program":prog, "Date":x, "Percent Complete (Observations)":y, "Total Obs Requested":totobs})
+    programdata.to_csv(commentsfile, index=False)
 
-    fig = px.line(programdata, x="Date", y="Percent Complete (Observations)", hover_data=['Total Obs Requested'],
-                color='Program',title='Cumulative Observation Function - N_Obs')
+    # fig = px.line(programdata, x="Date", y="Percent Complete (Observations)", hover_data=['Total Obs Requested'],
+    #             color='Program',title='Cumulative Observation Function - N_Obs')
 
-    # newyvals = np.linspace(0, len(programdata['Date'])/100)
-    # fig.add_trace(go.Scatter(x=[programdata['Date'][0],programdata['Date'][-1]], y=[0, 100], name="1-to-1", line_shape='linear'))
+    originalforecast = pd.read_csv('/Users/jack/Desktop/oldfebforecast3.csv', comment='#')
+    Program = ['Even Burn Rate', 'Even Burn Rate', 'Even Burn Rate', 'Even Burn Rate']
+    Date = ['2024-02-01', '2024-02-24', '2024-07-29', '2024-07-31']
+    PercentComplete = [0, 0, 100, 100]
+    TotalObsRequested = [100, 100, 100, 100]
+    burnrateline = pd.DataFrame({"Program":Program,"Date":Date,"Percent Complete (Observations)":PercentComplete,"Total Obs Requested":TotalObsRequested})
+
+    fig = px.line(burnrateline, x="Date", y="Percent Complete (Observations)", hover_data=['Total Obs Requested'],
+                    color='Program',title='Cumulative Observation Function - N_Obs')
+
+    # there are 30 colors here, hopefully this is enough for a given semester.
+    # colors = ['red', 'blue', 'green', 'yellow', 'cyan', 'purple', 'darkorange', 'brown',
+    #           'firebrick', 'cornflowerblue', 'lime', 'gold', 'magenta', 'gray',
+    #            'pink', 'royalblue', 'forestgreen', 'khaki', 'paleturquoise', 'blueviolet', 'moccasin',
+    #           'salmon', 'steelblue', 'yellowgreen', 'darkkhaki', 'aquamarine', 'orchid', 'sandybrown', 'peru', 'gray'
+    #          ]
+    # light colors don't look good. Only use same core colors and just repeat as needed
+    colors = ['red', 'blue', 'green', 'purple', 'darkorange', 'brown', 'gold', 'forestgreen', 'firebrick', 'royalblue',
+            'red', 'blue', 'green', 'purple', 'darkorange', 'brown', 'gold', 'forestgreen', 'firebrick', 'royalblue',
+            'red', 'blue', 'green', 'purple', 'darkorange', 'brown', 'gold', 'forestgreen', 'firebrick', 'royalblue',
+            'red', 'blue', 'green', 'purple', 'darkorange', 'brown', 'gold', 'forestgreen', 'firebrick', 'royalblue',
+            'red', 'blue', 'green', 'purple', 'darkorange', 'brown', 'gold', 'forestgreen', 'firebrick', 'royalblue',
+            'red', 'blue', 'green', 'purple', 'darkorange', 'brown', 'gold', 'forestgreen', 'firebrick', 'royalblue',
+            ]
+
+    progs = originalforecast['Program'].unique()
+    for i in range(len(progs)):
+        progmask = programdata['Program'] == progs[i]
+        progmask_original = originalforecast['Program'] == progs[i]
+
+        fig.add_trace(go.Scatter(x=originalforecast['Date'][progmask_original], y=originalforecast['Percent Complete (Observations)'][progmask_original], name=progs[i],
+                             line=dict(color=colors[i], width=2, dash='dash')))
+
+        fig.add_trace(go.Scatter(x=programdata['Date'][progmask], y=programdata['Percent Complete (Observations)'][progmask], name=progs[i],
+                             line=dict(color=colors[i], width=2)))
 
     fig.add_vrect(
             x0=current_day,
