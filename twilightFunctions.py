@@ -194,3 +194,48 @@ def reorderAccessibility(AccessibilityMap, AvailableSlotsInGivenNight, nSlotsInN
 
     #reorderedMap = np.array(reorderedMap).flatten()
     return reorderedMap
+
+
+def reorderAccessibilityOneDay(OneDayMap, AvailableSlotsInTheNight, nSlotsInNight):
+    # This function re-orders the slots within a night.
+    # In reality, all slots that are constrained as unobservable due to twilight occur at the beginning and end of the night
+    # However, we want to redistribute those twilight slots to have an even number within each of the 4 quarters of the night
+    # The idea being that each of the 4 quarters must have the same number of available slots, ie the same length of time.
+    #
+    # This function returns the same information encoded in the given AccessibilityMap, but with the slots redistributed evenly within the 4 quarters of each night.
+    #
+    # This version of the function operates on a single day at a time, specifically for the non-queue observations
+    # because it fills slots that the NonQueue Obs YES needs as 0's and the slots that it DOESN'T need as 1's.
+
+    edge = int((nSlotsInNight - int(AvailableSlotsInTheNight))/2)
+    flag1 = (AvailableSlotsInTheNight/4)%1 != 0
+    subset = OneDayMap[edge-1:-edge]
+    nightwindowsPer_quarter = len(subset)/4
+    flag2 = nightwindowsPer_quarter%1 != 0
+    nightwindowsPer_quarter = int(nightwindowsPer_quarter)
+
+    # lets do this manually for simplicity
+    q1 = []
+    for w in range(nightwindowsPer_quarter*0, nightwindowsPer_quarter*1):
+        q1.append(subset[w])
+    q2 = []
+    for w in range(nightwindowsPer_quarter*1, nightwindowsPer_quarter*2):
+        q2.append(subset[w])
+    q3 = []
+    for w in range(nightwindowsPer_quarter*2, nightwindowsPer_quarter*3):
+        q3.append(subset[w])
+    q4 = []
+    for w in range(nightwindowsPer_quarter*3, nightwindowsPer_quarter*4):
+        q4.append(subset[w])
+
+    comblen = len(q1)+len(q2)+len(q3)+len(q4)
+    bufflen = int((nSlotsInNight-comblen)/4)
+    buffer0 = [1]*bufflen
+    q1.extend(buffer0)
+    q2.extend(buffer0)
+    q3.extend(buffer0)
+    q4.extend(buffer0)
+
+    combine = q1 + q2 + q3 + q4
+
+    return combine
