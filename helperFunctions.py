@@ -11,6 +11,9 @@ from astropy.time import TimeDelta
 import astropy as apy
 import astroplan as apl
 import astropy.units as u
+dirpath = '/Users/jack/Documents/Github/optimalAllocation/'
+sys.path.append(dirpath)
+import twilightFunctions as tw
 
 
 def buildHumanReadableSchedule(Yns, twilightMap, all_targets_frame, nNightsInSemester, nSlotsInNight, AvailableSlotsInGivenNight, nSlotsInQuarter, all_dates_dict, current_day, allocation_map_NS, weathered_map, slotsNeededDict, nonqueueMap_str):
@@ -132,12 +135,15 @@ def buildNonAllocatedMap(allocation_schedule, weatherDiff, AvailableSlotsInGiven
     return allocation_map, allocation_map_NS, allocation_map_weathered_NS
 
 
-def buildTwilightMap(windowsPerNight, nSlotsInQuarter):
+def buildTwilightMap(windowsPerNight, nSlotsInQuarter, invert=False, reorder=False):
 
     nightly_twilight_map = []
     for i in range(len(windowsPerNight)):
 
-        quarterslots = [0]*nSlotsInQuarter
+        if invert:
+            quarterslots = [1]*nSlotsInQuarter
+        else:
+            quarterslots = [0]*nSlotsInQuarter
         for j in range(nSlotsInQuarter):
 
 #             # due to large/quantized slot sizes, some "leftover" twilight time might get evenly spread across the 4
@@ -157,11 +163,19 @@ def buildTwilightMap(windowsPerNight, nSlotsInQuarter):
 
             extra = 0
             if j > int(windowsPerNight[i]/4) - extra:
-                quarterslots[j] = 1
+                if invert:
+                    quarterslots[j] = 0
+                else:
+                    quarterslots[j] = 1
         quarterslots.extend(quarterslots)
         # second 'extend' is doubling the already doubled length
         quarterslots.extend(quarterslots)
-        nightly_twilight_map.append(quarterslots)
+        if reorder:
+            reordered_quarterslots = tw.reorderAccessibilityOneDay(quarterslots, windowsPerNight[i], nSlotsInQuarter*4)
+            nightly_twilight_map.append(reordered_quarterslots)
+        else:
+            nightly_twilight_map.append(quarterslots)
+
     return nightly_twilight_map
 
 def buildEnforcedDates(filename, all_dates_dict):

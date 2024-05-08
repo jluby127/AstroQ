@@ -170,28 +170,29 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
         # Also process the past to build the starmap for each target.
         # Only do this when not running optimal allocation as there should be no "past" when determining the distribution of nights
         pastObs_Info = {}
-        database = pd.read_csv(pastDatabase)
-        for i in range(len(all_targets_frame['Starname'])):
-            starmask = database['star_id'] == all_targets_frame['Starname'][i]
-            star_past_obs = database[starmask]
-            star_past_obs.sort_values(by='utctime', inplace=True)
-            star_past_obs.reset_index(inplace=True)
+        if runOptimalAllocation == False:
+            database = pd.read_csv(pastDatabase)
+            for i in range(len(all_targets_frame['Starname'])):
+                starmask = database['star_id'] == all_targets_frame['Starname'][i]
+                star_past_obs = database[starmask]
+                star_past_obs.sort_values(by='utctime', inplace=True)
+                star_past_obs.reset_index(inplace=True)
 
-            total_past_observations = len(star_past_obs)
-            total_open_shutter_time = np.sum(star_past_obs['exposure_time'])
-            star_past_obs, unique_hstdates_observed, quarterObserved = pf.getUniqueNights(star_past_obs, twilight_frame)
-            if len(unique_hstdates_observed) > 0:
-                mostRecentObservationDate = unique_hstdates_observed[-1]
-            else:
-                mostRecentObservationDate = '0000-00-00'
-            Nobs_on_date = pf.getNobs_on_Night(star_past_obs, unique_hstdates_observed)
+                total_past_observations = len(star_past_obs)
+                total_open_shutter_time = np.sum(star_past_obs['exposure_time'])
+                star_past_obs, unique_hstdates_observed, quarterObserved = pf.getUniqueNights(star_past_obs, twilight_frame)
+                if len(unique_hstdates_observed) > 0:
+                    mostRecentObservationDate = unique_hstdates_observed[-1]
+                else:
+                    mostRecentObservationDate = '0000-00-00'
+                Nobs_on_date = pf.getNobs_on_Night(star_past_obs, unique_hstdates_observed)
 
-            # within the pastObs_Info dictionary, each target's data is always in the given order:
-            # element 0 = the calendar date of the most recent observation (HST date)
-            # element 1 = the list of calendar dates with at least one observation
-            # element 2 = the list of the quarter where the observation took place on the corresponding unique night from element 1's list (if multi visits, then this is for the first visit)
-            # element 3 = the list of the number of observations that took place on the corresponding unique night from element 1's list
-            pastObs_Info[all_targets_frame['Starname'][i]] = [mostRecentObservationDate, unique_hstdates_observed, quarterObserved, Nobs_on_date]
+                # within the pastObs_Info dictionary, each target's data is always in the given order:
+                # element 0 = the calendar date of the most recent observation (HST date)
+                # element 1 = the list of calendar dates with at least one observation
+                # element 2 = the list of the quarter where the observation took place on the corresponding unique night from element 1's list (if multi visits, then this is for the first visit)
+                # element 3 = the list of the number of observations that took place on the corresponding unique night from element 1's list
+                pastObs_Info[all_targets_frame['Starname'][i]] = [mostRecentObservationDate, unique_hstdates_observed, quarterObserved, Nobs_on_date]
 
 
     # -------------------------------------------------------------------
@@ -261,6 +262,15 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
 
     print("Constraint: enforce twilight times")
     # Enforce twilight times within each quarter
+
+    ### newer logic
+    # twilightMap_1D = np.array(hf.buildTwilightMap(AvailableSlotsInGivenNight, nSlotsInQuarter, invert=True, reorder=True))
+    # twilightMap_1D = twilightMap_1D.flatten()
+    # for s in range(nSlotsInSemester):
+    #     for name in all_targets_frame['Starname']:
+    #         m.addConstr(Yns[name,s] <= twilightMap_1D[s], 'twilightMatch_' + name + "_" + str(s) + "s")
+
+    ### older logic
     counter = 0
     for n in range(nNightsInSemester):
         for q in range(nQuartersInNight):
@@ -273,8 +283,6 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
                         m.addConstr(Yns[name,s] == 0, "ensure_noObs_inTwilight_" + str(n) + "n_" + str(q) + "q_" + str(s) + "s_" + name)
                     except:
                         counter += 1
-    #print("counter = " + str(counter))
-    #print("I suspect counter should equal # of requests: ", len(all_targets_frame))
 
     print("Constraint: exposure can't start if it won't complete in the night")
     # Enforce that an exposure cannot start if it will not complete within the same night
@@ -309,19 +317,20 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, access_map, twiligh
                     counter += 1
                     continue
 
-    print("Constraint: first observation of new schedule can't violate past inter-night cadence.")
-    for t,row in all_targets_frame.iterrows():
-        name = row['Starname']
-        internightcadence = int(row['Inter_Night_Cadence'])
-        dateLastObserved = pastObs_Info[name][0]
-        if dateLastObserved != '0000-00-00':
-            dateLastObserved_number = all_dates_dict[dateLastObserved]
-            today_number = all_dates_dict[current_day]
-            diff = today_number - dateLastObserved_number
-            if diff < internightcadence:
-                doublediff = internightcadence - diff
-                for e in range(doublediff):
-                    m.addConstr(Wnd[name,e] == 0, 'enforce_internightCadence_fromStart_' + str(name) + "_" + str(e) + "e")
+    if runOptimalAllocation == False:
+        print("Constraint: first observation of new schedule can't violate past inter-night cadence.")
+        for t,row in all_targets_frame.iterrows():
+            name = row['Starname']
+            internightcadence = int(row['Inter_Night_Cadence'])
+            dateLastObserved = pastObs_Info[name][0]
+            if dateLastObserved != '0000-00-00':
+                dateLastObserved_number = all_dates_dict[dateLastObserved]
+                today_number = all_dates_dict[current_day]
+                diff = today_number - dateLastObserved_number
+                if diff < internightcadence:
+                    doublediff = internightcadence - diff
+                    for e in range(doublediff):
+                        m.addConstr(Wnd[name,e] == 0, 'enforce_internightCadence_fromStart_' + str(name) + "_" + str(e) + "e")
 
     if nonqueueMap != 'nofilename.csv':
         print("Constraint: certain slots on allocated nights must be zero to accommodate Non-Queue observations.")
