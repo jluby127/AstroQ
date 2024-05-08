@@ -238,4 +238,4 @@ def reorderAccessibilityOneDay(OneDayMap, AvailableSlotsInTheNight, nSlotsInNigh
 
     combine = q1 + q2 + q3 + q4
 
-    return combine
+    return np.array(combine)

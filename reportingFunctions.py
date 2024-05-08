@@ -117,7 +117,7 @@ def buildCOF(outputdir, current_day, all_targets_frame, all_dates_dict, starmap_
     # fig = px.line(programdata, x="Date", y="Percent Complete (Observations)", hover_data=['Total Obs Requested'],
     #             color='Program',title='Cumulative Observation Function - N_Obs')
 
-    originalforecast = pd.read_csv('/Users/jack/Desktop/oldfebforecast3.csv', comment='#')
+    originalforecast = pd.read_csv('/Users/jack/Documents/KPF_CC/PlotlyTesting/feb2024B_forecast.csv', comment='#')
     Program = ['Even Burn Rate', 'Even Burn Rate', 'Even Burn Rate', 'Even Burn Rate']
     Date = ['2024-02-01', '2024-02-24', '2024-07-29', '2024-07-31']
     PercentComplete = [0, 0, 100, 100]
