@@ -25,48 +25,45 @@ def buildFullnessReport(allocation_schedule, twilightMap, combined_semester_sche
     file = open(outputdir + "runReport.txt", "a")
     file.write("Stats for " + str(round) + "\n")
     file.write("------------------------------------------------------" + "\n")
-    # Compute how full the semester is
-    nights_on_sky = []
-    twilight_slots_on_sky_nights = 0
-    for b in range(len(allocation_schedule)):
-        if np.sum(allocation_schedule[b]) > 0:
-            nights_on_sky.append(1)
-            twilight_slots_on_sky_nights += ((np.sum(twilightMap[b])/4)*np.sum(allocation_schedule[b]))
-        else:
-            nights_on_sky.append(0)
 
     listnames = list(all_targets_frame['Starname'])
-    slot_used_counter = 0
-    for c in range(len(combined_semester_schedule)):
-        for d in range(len(combined_semester_schedule[c])):
-            if combined_semester_schedule[c][d] in listnames:
-            #if combined_semester_schedule[c][d] != '' and combined_semester_schedule[c][d] != 'X' and combined_semester_schedule[c][d] != 'X*' and combined_semester_schedule[c][d] != '*' and combined_semester_schedule[n][s] != 'XW' and combined_semester_schedule[n][s] != 'X*W':
-                slot_used_counter += 1
-
-    total_available_slots = np.sum(np.array(allocation_schedule).flatten())*nSlotsInQuarter - twilight_slots_on_sky_nights
+    unavailable = 0
+    unused = 0
+    used = 0
+    for b in range(len(combined_semester_schedule)):
+        before = ''
+        for c in range(len(combined_semester_schedule[b])):
+            if "X" in combined_semester_schedule[b][c] or "*" in combined_semester_schedule[b][c]:
+                unavailable += 1
+            if combined_semester_schedule[b][c] == "":
+                unused += 1
+            if combined_semester_schedule[b][c] in listnames:
+                used += 1
+    available = unused + used
     file.write("N slots in semester:" + str(nSlotsInSemester) + "\n")
-    file.write("N available slots: " + str(int(total_available_slots)) + "\n")
-    file.write("N slots scheduled: " + str(slot_used_counter) + "\n")
+    file.write("N available slots: " + str(available) + "\n")
+    file.write("N slots scheduled: " + str(used) + "\n")
+    file.write("N slots left empty: " + str(unused) + "\n")
 
     totalslotsrequested = 0
     for i in range(len(all_targets_frame)):
-        totalslotsrequested += all_targets_frame['N_Unique_Nights_Per_Semester'][i]*math.ceil(all_targets_frame['Exposure_Time'][i]/(STEP*60.))
+        totalslotsrequested += all_targets_frame['N_Unique_Nights_Per_Semester'][i]*math.ceil(all_targets_frame['Nominal_ExpTime'][i]/(STEP*60.))
     file.write("N slots requested (total): " + str(totalslotsrequested) + "\n")
-    percentage = np.round((slot_used_counter*100)/total_available_slots,3) # round((slot_used_counter*100)/total_available_slots,3)
+    percentage = np.round((used*100)/available,3) # round((slot_used_counter*100)/total_available_slots,3)
     file.write("Percent full: " + str(percentage) + "%." + "\n")
     file.close()
 
-    ff = open(outputdir + "semester_schedule.txt", "w")
-    for ind in range(len(combined_semester_schedule)):
-        ff.write("This is day " + str(ind) + "\n")
-        ff.write("Q1: " + str(combined_semester_schedule[ind][nSlotsInQuarter*0:nSlotsInQuarter*1]) + "\n")
-        ff.write("Q2: " + str(combined_semester_schedule[ind][nSlotsInQuarter*1:nSlotsInQuarter*2]) + "\n")
-        ff.write("Q3: " + str(combined_semester_schedule[ind][nSlotsInQuarter*2:nSlotsInQuarter*3]) + "\n")
-        ff.write("Q4: " + str(combined_semester_schedule[ind][nSlotsInQuarter*3:nSlotsInQuarter*4]) + "\n")
-        ff.write("--------------------------------------------------------------------------------------" + "\n")
-    ff.close()
+    # ff = open(outputdir + "semester_schedule.txt", "w")
+    # for ind in range(len(combined_semester_schedule)):
+    #     ff.write("This is day " + str(ind) + "\n")
+    #     ff.write("Q1: " + str(combined_semester_schedule[ind][nSlotsInQuarter*0:nSlotsInQuarter*1]) + "\n")
+    #     ff.write("Q2: " + str(combined_semester_schedule[ind][nSlotsInQuarter*1:nSlotsInQuarter*2]) + "\n")
+    #     ff.write("Q3: " + str(combined_semester_schedule[ind][nSlotsInQuarter*2:nSlotsInQuarter*3]) + "\n")
+    #     ff.write("Q4: " + str(combined_semester_schedule[ind][nSlotsInQuarter*3:nSlotsInQuarter*4]) + "\n")
+    #     ff.write("--------------------------------------------------------------------------------------" + "\n")
+    # ff.close()
 
-def buildCOF(outputdir, current_day, all_targets_frame, all_dates_dict, starmap_maps, allocation_map_NS_fullsemester):
+def buildCOF(outputdir, current_day, all_targets_frame, all_dates_dict, starmap_maps, compare_original):
     dates_in_semester = list(all_dates_dict.keys())
     x = []
     y = []
@@ -80,7 +77,7 @@ def buildCOF(outputdir, current_day, all_targets_frame, all_dates_dict, starmap_
         programDict = all_targets_frame[programMask]
         programDict.reset_index(inplace=True)
         if program == 'S001':
-            tot_obs = len(programDict)*extra
+            tot_obs = len(programDict)#*extra
         else:
             tot_obs = 0
             for t in range(len(programDict)):
@@ -102,37 +99,21 @@ def buildCOF(outputdir, current_day, all_targets_frame, all_dates_dict, starmap_
 
         commentsfile.write('#' + str(program) + '_trueComplete:' + str(round(y[-1],2)) + '\n')
 
-    # # now run through one more time with dummy date to build a 1-to-1 line
-    # newrunning = 0
-    # for e in range(len(dates_in_semester)):
-    #     x.append(dates_in_semester[e])
-    #     newrunning += 1
-    #     y.append(round((newrunning/len(dates_in_semester))*100,2))
-    #     prog.append('Even Burn Rate Line')
-    #     totobs.append(len(dates_in_semester))
+    Date = ['2024-08-01', '2025-01-31']
+    PercentComplete = [0, 100]
+    TotalObsRequested = [100, 100]
+    for b in range(2):
+        prog.append('Even Burn Rate')
+        x.append(Date[b])
+        y.append(PercentComplete[b])
+        totobs.append(TotalObsRequested[b])
 
     programdata = pd.DataFrame({"Program":prog, "Date":x, "Percent Complete (Observations)":y, "Total Obs Requested":totobs})
     programdata.to_csv(commentsfile, index=False)
 
-    # fig = px.line(programdata, x="Date", y="Percent Complete (Observations)", hover_data=['Total Obs Requested'],
-    #             color='Program',title='Cumulative Observation Function - N_Obs')
+    fig = px.line(programdata, x="Date", y="Percent Complete (Observations)", hover_data=['Total Obs Requested'],
+                color='Program',title='Cumulative Observation Function - N_Obs')
 
-    originalforecast = pd.read_csv('/Users/jack/Documents/KPF_CC/PlotlyTesting/feb2024B_forecast.csv', comment='#')
-    Program = ['Even Burn Rate', 'Even Burn Rate', 'Even Burn Rate', 'Even Burn Rate']
-    Date = ['2024-02-01', '2024-02-24', '2024-07-29', '2024-07-31']
-    PercentComplete = [0, 0, 100, 100]
-    TotalObsRequested = [100, 100, 100, 100]
-    burnrateline = pd.DataFrame({"Program":Program,"Date":Date,"Percent Complete (Observations)":PercentComplete,"Total Obs Requested":TotalObsRequested})
-
-    fig = px.line(burnrateline, x="Date", y="Percent Complete (Observations)", hover_data=['Total Obs Requested'],
-                    color='Program',title='Cumulative Observation Function - N_Obs')
-
-    # there are 30 colors here, hopefully this is enough for a given semester.
-    # colors = ['red', 'blue', 'green', 'yellow', 'cyan', 'purple', 'darkorange', 'brown',
-    #           'firebrick', 'cornflowerblue', 'lime', 'gold', 'magenta', 'gray',
-    #            'pink', 'royalblue', 'forestgreen', 'khaki', 'paleturquoise', 'blueviolet', 'moccasin',
-    #           'salmon', 'steelblue', 'yellowgreen', 'darkkhaki', 'aquamarine', 'orchid', 'sandybrown', 'peru', 'gray'
-    #          ]
     # light colors don't look good. Only use same core colors and just repeat as needed
     colors = ['red', 'blue', 'green', 'purple', 'darkorange', 'brown', 'gold', 'forestgreen', 'firebrick', 'royalblue',
             'red', 'blue', 'green', 'purple', 'darkorange', 'brown', 'gold', 'forestgreen', 'firebrick', 'royalblue',
@@ -142,16 +123,18 @@ def buildCOF(outputdir, current_day, all_targets_frame, all_dates_dict, starmap_
             'red', 'blue', 'green', 'purple', 'darkorange', 'brown', 'gold', 'forestgreen', 'firebrick', 'royalblue',
             ]
 
-    progs = originalforecast['Program'].unique()
-    for i in range(len(progs)):
-        progmask = programdata['Program'] == progs[i]
-        progmask_original = originalforecast['Program'] == progs[i]
+    if compare_original:
+        originalforecast = pd.read_csv('/Users/jack/Documents/KPF_CC/PlotlyTesting/feb2024B_forecast.csv', comment='#')
+        progs = originalforecast['Program'].unique()
+        for i in range(len(progs)):
+            progmask = programdata['Program'] == progs[i]
+            progmask_original = originalforecast['Program'] == progs[i]
 
-        fig.add_trace(go.Scatter(x=originalforecast['Date'][progmask_original], y=originalforecast['Percent Complete (Observations)'][progmask_original], name=progs[i],
-                             line=dict(color=colors[i], width=2, dash='dash')))
+            fig.add_trace(go.Scatter(x=originalforecast['Date'][progmask_original], y=originalforecast['Percent Complete (Observations)'][progmask_original], name=progs[i],
+                                 line=dict(color=colors[i], width=2, dash='dash')))
 
-        fig.add_trace(go.Scatter(x=programdata['Date'][progmask], y=programdata['Percent Complete (Observations)'][progmask], name=progs[i],
-                             line=dict(color=colors[i], width=2)))
+            fig.add_trace(go.Scatter(x=programdata['Date'][progmask], y=programdata['Percent Complete (Observations)'][progmask], name=progs[i],
+                                 line=dict(color=colors[i], width=2)))
 
     fig.add_vrect(
             x0=current_day,
@@ -163,13 +146,16 @@ def buildCOF(outputdir, current_day, all_targets_frame, all_dates_dict, starmap_
             line_color='black',
             annotation_position="bottom left"
         )
-    fig.write_html(outputdir + "/COF_Nobs_" + str(current_day) + ".html")
+    # fig.write_html(outputdir + "/COF_Nobs_" + str(current_day) + ".html")
+    fig.write_html(outputdir + "/COF_Plot_V-.html")
 
 
 
 def buildAllocationPicture(allocation_schedule, nNightsInSemester, nQuartersInNight, startingNight, all_dates_dict, outputdir):
     dateslist = list(all_dates_dict.keys())
     ff = open(outputdir + "AllocationPicture_stats.txt", "w")
+    fff = open(outputdir + "AllocationMap.txt", "w")
+    fff.write('Date,Q1,Q2,Q3,Q4\n')
 
     fig = pt.figure(figsize=(12,5))
     q1s = 0
@@ -182,30 +168,38 @@ def buildAllocationPicture(allocation_schedule, nNightsInSemester, nQuartersInNi
     count3 = 0
     count4 = 0
     for j in range(len(allocation_schedule)):
+        holder = [0, 0, 0, 0]
         if allocation_schedule[j][0] == 1.:
             q1s += 1
             pt.axvline(startingNight + j, ymin=0., ymax=0.25, color='b')
             date_info = dateslist[startingNight + j] + " - q0"
             ff.write(date_info + "\n")
+            holder[0] = 1
 
         if allocation_schedule[j][1] == 1.:
             q2s += 1
             pt.axvline(startingNight + j, ymin=0.25, ymax=0.5, color='b')
             date_info = dateslist[startingNight + j] + " - q1"
             ff.write(date_info + "\n")
+            holder[1] = 1
 
         if allocation_schedule[j][2] == 1.:
             q3s += 1
             pt.axvline(startingNight + j, ymin=0.5, ymax=0.75, color='b')
             date_info = dateslist[startingNight + j] + " - q2"
             ff.write(date_info + "\n")
+            holder[2] = 1
 
         if allocation_schedule[j][3] == 1.:
             q4s += 1
             pt.axvline(startingNight + j, ymin=0.75, ymax=1.0, color='b')
             date_info = dateslist[startingNight + j] + " - q3"
             ff.write(date_info + "\n")
+            holder[3] = 1
 
+
+        line = str(dateslist[startingNight + j]) + "," + str(holder[0]) + "," + str(holder[1]) + "," + str(holder[2]) + "," + str(holder[3]) + "\n"
+        fff.write(line)
 
         allocated_quarters = np.sum(allocation_schedule[j])
         if allocated_quarters == 0:
@@ -251,6 +245,7 @@ def buildAllocationPicture(allocation_schedule, nNightsInSemester, nQuartersInNi
     ff.write("Total quarters allocated: " + str(total_quarters) + "\n")
     ff.write("Total unique nights allocated: " + str(total_nights) + "\n")
     ff.close()
+    fff.close()
 
 
 def buildBinaryAllocationMap(outputdir, allocation_schedule):
@@ -290,15 +285,16 @@ def quarterDeterminer(value, nSlotsPerNight):
         print("Houston, we've had a problem. No valid quarter.")
     return quart
 
-def buildObservedMap_future(targetname, slotsPerExposure, combined_semester_schedule, starmap, current_day_number):
+def buildObservedMap_future(targetname, slotsPerExposure, combined_semester_schedule, starmap, current_day_number, slotsNeededDict):
     observed = [False]*len(starmap)
     N_observed = [0]*len(starmap)
     for i in range(len(combined_semester_schedule)):
         if targetname in combined_semester_schedule[i]:
+            exptimeslots = slotsNeededDict[targetname]
             ind = list(combined_semester_schedule[i]).index(targetname)
             quart = quarterDeterminer(ind, 84)
             starmap['Observed'][i*4 + quart] = True
-            starmap['N_obs'][i*4 + quart] = list(combined_semester_schedule[i]).count(targetname) #int(combined_semester_schedule[i].count(targetname)/slotsPerExposure)
+            starmap['N_obs'][i*4 + quart] = list(combined_semester_schedule[i]).count(targetname)/exptimeslots #int(combined_semester_schedule[i].count(targetname)/slotsPerExposure)
     return starmap
 
 def writeCadencePlotFile(targetname, target_counter, starmap, turnFile, all_targets_frame, outputdir, unique_hstdates_observed, current_day):
@@ -306,7 +302,7 @@ def writeCadencePlotFile(targetname, target_counter, starmap, turnFile, all_targ
     request_id = all_targets_frame.index[all_targets_frame['Starname']==str(targetname)][0]
     request_name = all_targets_frame.loc[request_id,'Starname']
     program_code = all_targets_frame.loc[request_id,'Program_Code']
-    print("Plotting cadence for star [" + str(request_name) + "] in program [" + str(program_code) + "]...target #" + str(target_counter) + " of " + str(len(all_targets_frame)) + ".")
+    #print("Plotting cadence for star [" + str(request_name) + "] in program [" + str(program_code) + "]...target #" + str(target_counter) + " of " + str(len(all_targets_frame)) + ".")
 
     n_obs_desired = all_targets_frame.loc[request_id,'Total_Observations_Requested']
     n_obs_taken = len(unique_hstdates_observed)
@@ -335,3 +331,19 @@ def writeCadencePlotFile(targetname, target_counter, starmap, turnFile, all_targ
     starmap = starmap[starmap.Allocated == True]
     starmap.to_csv(commentsfile, index=False)
     commentsfile.close()
+
+
+def makeTemplateFile(all_dates_dict, filename):
+    # filename = "/Users/jack/Desktop/template_star_observed.csv"
+    date = []
+    quart = []
+    for i in range(len(all_dates_dict)):
+        for j in range(4):
+            date.append(all_dates_dict[i])
+            quart.append(j + 0.5)
+    starmap = pd.DataFrame({"Date":date, "Quarter":quart})
+    starmap['Weathered'] = [False]*len(date)
+    starmap['Allocated'] = [False]*len(date)
+
+    starmap.to_csv(filename, index=False)
+    print("Template file saved to ", filename)
