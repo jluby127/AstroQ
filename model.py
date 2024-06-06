@@ -24,7 +24,7 @@ class TTPModel(object):
 
     def create_nodes(self):
         dur = np.round((self.nightends-self.nightstarts).jd*24*60,0)*60
-        t = np.arange(self.nightstarts.jd,self.nightends.jd,TimeDelta(60,format='sec'))
+        t = np.arange(self.nightstarts.jd,self.nightends.jd,TimeDelta(60,format='sec').jd)
         t = Time(t,format='jd')
 
         # Make a lookup table for node index -> star index
@@ -62,7 +62,7 @@ class TTPModel(object):
                 AZ = self.observatory.observer.altaz(t, s.target)
                 alt=AZ.alt.deg
                 az=AZ.az.deg
-                good = np.where(self.observatory.isup(alt,az) == 1)
+                good = np.where(self.observatory.is_up(alt,az) == 1)[0]
                 if len(good > 0):
                     te.append(np.round(((t[good[0]]+TimeDelta(s.exptime*60,format='sec'))-t[0]).jd*24*60,1))
                     if t[good[-1]].jd < self.nightends.jd:
@@ -73,7 +73,7 @@ class TTPModel(object):
                     print('Target {} does not meet observability requirements'.format(s.name))
                     te.append(0)
                     tl.append(0)
-        
+
         self.te = np.array(te)
         self.tl = np.array(tl)
         self.tau_exp = np.array(tau_exp)
@@ -89,10 +89,10 @@ class TTPModel(object):
         samples_per_slot = max(night_dur/(M*cad),3) # Evaluate at least every thirty minutes
 
         slot_bounds = Time(np.linspace(self.nightstarts.jd,self.nightends.jd,M+1,endpoint=True),format='jd')
-        
+
         t = []
         for m in range(M):
-            times_to_eval = np.linspace(slot_bounds[m],slot_bounds[m+1],samples_per_slot)
+            times_to_eval = np.linspace(slot_bounds[m].jd,slot_bounds[m+1].jd,samples_per_slot)
             t.append([item for item in times_to_eval])
         times = Time(t,format='jd')
 
@@ -113,22 +113,29 @@ class TTPModel(object):
         coordinate_matrix.append([(0,0) for item in times])
 
         def to_wrap_frame(angle):
-            if self.wrapangle:
-                angle += (360-self.wrapangle)
+            if self.observatory.wrapLimitAngle:
+                angle += (360-self.observatory.wrapLimitAngle)
                 if angle >= 360:
                     angle -= 360
             return angle
-        
+
         def max_ang_sep(targ1,targ2,slot):
 
             slot_ind_start = slot*samples_per_slot
             slot_ind_end = (slot+1)*samples_per_slot-1
 
-            coords1 = coordinate_matrix[targ1,slot_ind_start:slot_ind_end].T
-            coords2 = coordinate_matrix[targ2,slot_ind_start:slot_ind_end].T
+            # coords1 = coordinate_matrix[targ1,slot_ind_start:slot_ind_end].T
+            # coords2 = coordinate_matrix[targ2,slot_ind_start:slot_ind_end].T
+            coords1 = np.array(coordinate_matrix[targ1]).T[slot_ind_start:slot_ind_end+1]
+            coords2 = np.array(coordinate_matrix[targ2]).T[slot_ind_start:slot_ind_end+1]
+
+            print(np.shape(coordinate_matrix))
+            print(np.shape(coords1))
+            print(np.shape(coords1[0]))
+            print(coords1[0])
 
             alt1 = coords1[0]
-            alt2 = coords2[0]                         
+            alt2 = coords2[0]
             az1 = to_wrap_frame(coords1[1])
             az2 = to_wrap_frame(coords2[1])
 
@@ -167,7 +174,7 @@ class TTPModel(object):
         tijm = Mod.addVars(range(N),range(N),range(M),vtype=GRB.CONTINUOUS,name='tijm')
         ti = Mod.addVars(range(N),vtype=GRB.CONTINUOUS,lb=0,name='ti')
 
-        tijmdef = Mod.addConstrs((ti[i] == gp.quicksum(tijm[i,j,m] for j in range(N)[1:] for m in range(M)) 
+        tijmdef = Mod.addConstrs((ti[i] == gp.quicksum(tijm[i,j,m] for j in range(N)[1:] for m in range(M))
                             for i in range(N)[:-1]),'tijm_def')
         start_origin = Mod.addConstr(gp.quicksum(Xijm[0,j,m] for j in range(N) for m in range(M)) == 1,
                         'start_origin')
@@ -178,12 +185,12 @@ class TTPModel(object):
         flow_constr = Mod.addConstrs(((gp.quicksum(Xijm[i,k,m] for i in range(N)[:-1] for m in range(M))
                         - gp.quicksum(Xijm[k,j,m] for j in range(N)[1:] for m in range(M)) == 0)
                         for k in range(N)[:-1][1:]), 'flow_constr')
-        exp_constr = Mod.addConstrs((ti[j] >= gp.quicksum(tijm[i,j,m] + (tau_slew[(i,j,m)] + tau_exp[j])*Xijm[i,j,m] 
+        exp_constr = Mod.addConstrs((ti[j] >= gp.quicksum(tijm[i,j,m] + (tau_slew[(i,j,m)] + tau_exp[j])*Xijm[i,j,m]
                         for i in range(N)[:-1] for m in range(M)) for j in range(N)[1:])
                         , 'exp_constr')
         t_min = Mod.addConstrs(((tijm[i,j,m] >= w[m]*Xijm[i,j,m]) for j in range(N) for m in range(M)
                         for i in range(N)),'t_min')
-        t_max = Mod.addConstrs((tijm[i,j,m] <= w[m+1]*Xijm[i,j,m] for j in range(N) for m in range(M) 
+        t_max = Mod.addConstrs((tijm[i,j,m] <= w[m+1]*Xijm[i,j,m] for j in range(N) for m in range(M)
                         for i in range(N)),'t_max')
         rise_constr = Mod.addConstrs((ti[i] >= te[i]*Yi[i] for i in range(N)),'rise_constr')
         set_constr = Mod.addConstrs((ti[i] <= tl[i]*Yi[i] for i in range(N)),'set_constr')
@@ -193,15 +200,15 @@ class TTPModel(object):
             indeces = self.multi_visit_ind[targ]
             intra_sep = Mod.addConstrs(((gp.quicksum(tijm[indeces[i],j,m] for j in range(N)[1:] for m in range(M))
                                     >= (gp.quicksum(tijm[indeces[i-1],j,m] for j in range(N)[1:] for m in range(M))
-                                    + Yi[indeces[i]]*tau_sep[targ])) 
+                                    + Yi[indeces[i]]*tau_sep[targ]))
                                     for i in range(len(indeces))[1:]),'intra_sep_constr')
 
         # Normalize the weighting in the objective to ensure observations are maximized
         priority_param = 50
         slew_param = 1/100
 
-        Mod.setObjective(priority_param*gp.quicksum(Yi[j] for j in range(N)[1:-1]) 
-                            -slew_param *gp.quicksum(tau_slew[(i,j,m)]*Xijm[i,j,m] for i in range(N)[1:-1] 
+        Mod.setObjective(priority_param*gp.quicksum(Yi[j] for j in range(N)[1:-1])
+                            -slew_param *gp.quicksum(tau_slew[(i,j,m)]*Xijm[i,j,m] for i in range(N)[1:-1]
                                         for j in range(N)[1:-1] for m in range(M))
                             ,GRB.MAXIMIZE)
         print('Building TTP')
@@ -210,7 +217,7 @@ class TTPModel(object):
         Mod.update()
 
         self.gurobi_model = Mod
-        
+
 
     def solve(self):
         print('Solving TTP for {} exposures with Gurobi'.format(self.N-2))
@@ -250,7 +257,7 @@ class TTPModel(object):
                 order += 1
 
             return {'Order': orders, 'Name':names, 'Time':times}
-            
+
 
             '''if plot_results:
                 logger.info('Plotting {}'.format(current_day))
@@ -273,7 +280,7 @@ class TTPModel(object):
                     az_path.append(get_alt_az(all_targets_frame,ind_to_id[targ],time,keck)[1])
                     alt_path.append(get_alt_az(all_targets_frame,ind_to_id[targ],time1,keck)[0])
                     alt_path.append(get_alt_az(all_targets_frame,ind_to_id[targ],time,keck)[0])
-                    
+
                 time_array = []
                 for i in range(len(obs_time)):
                     if i % 2 == 0:
@@ -284,7 +291,7 @@ class TTPModel(object):
                 step = TimeDelta(2,format='sec')
                 t = np.arange(start.jd,stop.jd,step.jd)
                 t = Time(t,format='jd')
-                        
+
                 time_counter = Time(obs_time[0],format='jd')
                 time_strings = t.isot
                 observed_at_time = []
@@ -308,7 +315,7 @@ class TTPModel(object):
                     coords = apy.coordinates.SkyCoord(ra * u.hourangle, dec * u.deg, frame='icrs')
                     target = apl.FixedTarget(name=targ, coord=coords)
                     target_list.append(target)
-                    
+
                 AZ = keck.altaz(t, target_list, grid_times_targets=True)
 
                 total_azimuth_list = []
@@ -317,12 +324,12 @@ class TTPModel(object):
                 for i in range(len(AZ[0])):
                     total_azimuth_list.append(np.round(AZ[:,i].az.rad,2))
                     total_zenith_list.append(90-np.round(AZ[:,i].alt.deg,2))
-                
+
                 plotting.plot_path_2D(obs_time,az_path,alt_path,names,targ_list,
                                     plotpath,current_day)
                 plotting.animate_telescope(time_strings,total_azimuth_list,total_zenith_list,
                                         tel_az,tel_zen,observed_at_time,plotpath)
-            
+
             for pair in scheduled_targets:
                 ordered_requests.append(ind_to_id[pair[0]])
 
@@ -332,6 +339,3 @@ class TTPModel(object):
 
         else:
             print('No incumbent solution in time allotted, aborting solve. Try increasing time_limit parameter.')
-
-
-    
