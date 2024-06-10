@@ -58,14 +58,14 @@ class TTPModel(object):
                 tau_sep.append(0)
             else:
                 s = self.stars[node_to_star[i]]
-                tau_exp.append(s.exptime)
+                tau_exp.append(s.expwithreadout)
                 tau_sep.append(s.intra_night_cadence)
                 AZ = self.observatory.observer.altaz(t, s.target)
                 alt=AZ.alt.deg
                 az=AZ.az.deg
                 good = np.where(self.observatory.is_up(alt,az) == 1)[0]
                 if len(good > 0):
-                    te.append(np.round(((t[good[0]]+TimeDelta(s.exptime*60,format='sec'))-t[0]).jd*24*60,1))
+                    te.append(max(np.round(((t[good[0]]+TimeDelta(s.expwithreadout*60,format='sec'))-t[0]).jd*24*60,1),s.expwithreadout))
                     if t[good[-1]].jd < self.nightends.jd:
                         tl.append(np.round((t[good[-1]]-t[0]).jd*24*60,1))
                     elif t[good[-1]].jd >= self.nightends.jd:
@@ -91,6 +91,7 @@ class TTPModel(object):
 
         slot_bounds = Time(np.linspace(self.nightstarts.jd,self.nightends.jd,M+1,endpoint=True),format='jd')
 
+        # Sample at least 3 times per slot
         t = []
         for m in range(M):
             times_to_eval = np.linspace(slot_bounds[m].jd,slot_bounds[m+1].jd,samples_per_slot)
@@ -100,10 +101,6 @@ class TTPModel(object):
 
         nodes = self.node_to_star
         N = self.N
-        coordinate_matrix = []
-
-        # Dummy coords for start node
-        #coordinate_matrix.append([(0,0) for item in times])
 
         # Loop through targets, then evaluate coordinates at all times for all targets
         targets = []
@@ -113,11 +110,6 @@ class TTPModel(object):
         coordinate_matrix = self.observatory.observer.altaz(
                                     times,targets,grid_times_targets=True)
 
-
-        #.append([(item.alt.deg,item.az.deg) for item in altaz])
-
-        # Dummy for end
-        #coordinate_matrix.append([(0,0) for item in times])
 
         def to_wrap_frame(angle):
             if self.observatory.wrapLimitAngle:
@@ -130,23 +122,16 @@ class TTPModel(object):
             slot_ind_start = slot*samples_per_slot
             slot_ind_end = (slot+1)*samples_per_slot-1
 
-            # coords1 = coordinate_matrix[targ1,slot_ind_start:slot_ind_end].T
-            # coords2 = coordinate_matrix[targ2,slot_ind_start:slot_ind_end].T
             # Subtract 1 since there's no dummy starting node in the coordinate matrix
             coords1 = coordinate_matrix[targ1-1,slot_ind_start:slot_ind_end+1]
             coords2 = coordinate_matrix[targ2-1,slot_ind_start:slot_ind_end+1]
-
-            #print(coords1.alt.deg)
-            #print(np.shape(coordinate_matrix))
-            #print(np.shape(coords1))
-            #print(np.shape(coords1[0]))
-            #print(coords1[0])
 
             alt1 = coords1.alt.deg
             alt2 = coords2.alt.deg
             az1 = to_wrap_frame(coords1.az.deg)
             az2 = to_wrap_frame(coords2.az.deg)
 
+            # Take the maximum of all the samples, in both dimensions
             return max(max(np.abs(alt1-alt2)),max(np.abs(az1-az2)))
 
         tau_slew = defaultdict(float) # Holds minutes
@@ -161,9 +146,8 @@ class TTPModel(object):
         self.tau_slew = tau_slew
 
 
-    def to_gurobi_model(self,time_limit=300,opt_gap=0,output_flag=True):
+    def to_gurobi_model(self,time_limit=300,opt_gap=0.005,output_flag=True):
         # Translate TTP Model object into a Gurobi Model object
-
         Mod = gp.Model('TTP')
         Mod.Params.OutputFlag = output_flag
 
@@ -176,7 +160,7 @@ class TTPModel(object):
         tl = self.tl
         tau_sep = self.tau_sep
 
-
+        # Variables and Constraints, all with the same conventions as Handley 2024
         Yi = Mod.addVars(range(N),vtype=GRB.BINARY,name='Yi')
         Xijm = Mod.addVars(range(N),range(N),range(M),vtype=GRB.BINARY,name='Xijm')
         tijm = Mod.addVars(range(N),range(N),range(M),vtype=GRB.CONTINUOUS,name='tijm')
@@ -215,6 +199,7 @@ class TTPModel(object):
         priority_param = 50
         slew_param = 1/100
 
+        # Maximize number of observations, with a penalty term for long slews
         Mod.setObjective(priority_param*gp.quicksum(Yi[j] for j in range(N)[1:-1])
                             -slew_param *gp.quicksum(tau_slew[(i,j,m)]*Xijm[i,j,m] for i in range(N)[1:-1]
                                         for j in range(N)[1:-1] for m in range(M))
@@ -237,11 +222,14 @@ class TTPModel(object):
             num_scheduled = 0
             scheduled_targets = []
             for i in range(self.N)[1:-1]:
+                # Parsing Gurobi variables is difficult. We retrieve each variable
+                # by its internal gurobi name using the node index
                 Yvar = Mod.getVarByName('Yi[{}]'.format(i))
                 if np.round(Yvar.X,0) == 1:
                     num_scheduled += 1
                     v = Mod.getVarByName('ti[{}]'.format(i))
-                    scheduled_targets.append((i,int(np.round(v.X))))
+                    # Each element will have tuples as (index,time)
+                    scheduled_targets.append((i,v.X))
 
             print('{} of {} total exposures scheduled into script.'.format(num_scheduled,self.N-2))
 
@@ -252,24 +240,34 @@ class TTPModel(object):
             order = np.argsort(unordered_times)
             scheduled_targets = [scheduled_targets[i] for i in order]
 
-            stars = []
+            # Get properly ordered metadata
+            starnames = []
             orders = []
             t_starts = []
+            t_ends = []
+            n_shots = []
+            exptimes = []
+            ordered_target_nodes = []
             all_times = []
             az_path = []
             alt_path = []
             order = 0
             for pair in scheduled_targets:
                 node_ind = pair[0]
+                ordered_target_nodes.append(node_ind)
                 s = self.stars[self.node_to_star[node_ind]]
-                stars.append(s)
-                t1 = Time(self.nightstarts.jd + pair[1]/(24*60),format='jd') - TimeDelta(60*s.exptime,format='sec')
+                starnames.append(s.name)
+                n_shots.append(s.shots)
+                exptimes.append(s.exptime)
+
+                # Observation start + end times, as both time objects and as
+                # minute markers from the start of the night
+                t1 = Time(self.nightstarts.jd + pair[1]/(24*60),format='jd') - TimeDelta(60*s.expwithreadout,format='sec')
                 t2 = Time(self.nightstarts.jd + pair[1]/(24*60),format='jd')
+                t_starts.append(pair[1] - s.expwithreadout)
+                t_ends.append(pair[1])
 
-                # Observation start times
-                t_starts.append(t1)
-
-                # Add times, az_path, and alt_path as attributes for plotting
+                # Add times, az_path, and alt_path as attributes for easy plotting
                 all_times.append(t1)
                 all_times.append(t2)
                 coords_start_obs = self.observatory.observer.altaz(t1,s.target)
@@ -281,89 +279,34 @@ class TTPModel(object):
                 orders.append(order)
                 order += 1
 
-            self.schedule = {'Order': orders, 'Star':stars, 'Time':t_starts}
+            t_starts = np.array(t_starts)
+            t_ends = np.array(t_ends)
+            exptimes = np.array(exptimes)
+            n_shots = np.array(n_shots)
+            rise_times = (self.te - self.tau_exp)[ordered_target_nodes]
+            set_times = self.tl[ordered_target_nodes]
+            
+            
+            # Dictionary with simple output for user to view as dataframe
+            self.schedule = {'Order': orders, 'Starname':starnames, 'Time':[self.nightstarts.jd + t/(24*60) for t in t_starts]}
+
+            # Verbose dictionary with more metadata for plotting
+            # Only include real nodes for this step
+            self.plotly = {'Starname':starnames,
+                           'First Available':rise_times,
+                           'Last Available':set_times,
+                           'Start Exposure':t_starts,
+                           'Mid Exposure':(t_starts + t_ends)/2,
+                           'Stop Exposure':t_ends,
+                           'N_shots':n_shots,
+                           'Exposure Time (min)':exptimes,
+                           'Total Exp Time (min)':n_shots*exptimes + (45/60)*(n_shots-1)
+                           }
+            
+
             self.times = all_times
             self.az_path = az_path
             self.alt_path = alt_path
-
-
-            '''if plot_results:
-                logger.info('Plotting {}'.format(current_day))
-
-                obs_time=[]
-                az_path=[]
-                alt_path=[]
-                names=[]
-                targ_list=[]
-                for pair in scheduled_targets:
-                    targ=pair[0]
-                    time=t[pair[1]]
-                    exp=s_i[targ]
-                    targ_list.append(targ)
-                    names.append(all_targets_frame.loc[ind_to_id[targ],'Starname'])
-                    time1=time-TimeDelta(60*exp,format='sec')
-                    obs_time.append(time1.jd)
-                    obs_time.append(time.jd)
-                    az_path.append(get_alt_az(all_targets_frame,ind_to_id[targ],time1,keck)[1])
-                    az_path.append(get_alt_az(all_targets_frame,ind_to_id[targ],time,keck)[1])
-                    alt_path.append(get_alt_az(all_targets_frame,ind_to_id[targ],time1,keck)[0])
-                    alt_path.append(get_alt_az(all_targets_frame,ind_to_id[targ],time,keck)[0])
-
-                time_array = []
-                for i in range(len(obs_time)):
-                    if i % 2 == 0:
-                        time_array.append((obs_time[i] - obs_time[0])*1440)
-
-                start = Time(obs_time[0],format='jd')
-                stop = Time(obs_time[-1],format='jd')
-                step = TimeDelta(2,format='sec')
-                t = np.arange(start.jd,stop.jd,step.jd)
-                t = Time(t,format='jd')
-
-                time_counter = Time(obs_time[0],format='jd')
-                time_strings = t.isot
-                observed_at_time = []
-                tel_targs = []
-                while time_counter.jd < obs_time[-1]:
-                    ind = np.flatnonzero(time_array <= (time_counter.jd - obs_time[0])*1440)[-1]
-                    req = ind_to_id[targ_list[ind]]
-                    observed_at_time.append(ind)
-                    ra,dec = get_ra_dec(all_targets_frame,req)
-                    coords = apy.coordinates.SkyCoord(ra * u.hourangle, dec * u.deg, frame='icrs')
-                    target = apl.FixedTarget(name=targ, coord=coords)
-                    tel_targs.append(target)
-                    time_counter += TimeDelta(2,format='sec')
-
-                AZ1 = keck.altaz(t, tel_targs, grid_times_targets=False)
-                tel_az = np.round(AZ1.az.rad,2)
-                tel_zen = 90 - np.round(AZ1.alt.deg,2)
-                target_list = []
-                for targ in targ_list:
-                    ra,dec = get_ra_dec(all_targets_frame,ind_to_id[targ])
-                    coords = apy.coordinates.SkyCoord(ra * u.hourangle, dec * u.deg, frame='icrs')
-                    target = apl.FixedTarget(name=targ, coord=coords)
-                    target_list.append(target)
-
-                AZ = keck.altaz(t, target_list, grid_times_targets=True)
-
-                total_azimuth_list = []
-                total_zenith_list = []
-
-                for i in range(len(AZ[0])):
-                    total_azimuth_list.append(np.round(AZ[:,i].az.rad,2))
-                    total_zenith_list.append(90-np.round(AZ[:,i].alt.deg,2))
-
-                plotting.plot_path_2D(obs_time,az_path,alt_path,names,targ_list,
-                                    plotpath,current_day)
-                plotting.animate_telescope(time_strings,total_azimuth_list,total_zenith_list,
-                                        tel_az,tel_zen,observed_at_time,plotpath)
-
-            for pair in scheduled_targets:
-                ordered_requests.append(ind_to_id[pair[0]])
-
-            for i in range(R)[1:-1]:
-                if np.round(yi[i].X,0) == 0:
-                    extras.append(ind_to_id[i])'''
 
         else:
             print('No incumbent solution in time allotted, aborting solve. Try increasing time_limit parameter.')
