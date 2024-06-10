@@ -21,9 +21,10 @@ class star(object):
         self.dec = row['Dec']
         coords = SkyCoord(self.ra*u.deg, self.dec*u.deg, frame='icrs')
         self.target = apl.FixedTarget(name=self.name, coord=coords)
-        self.exptime = row['Exposure Time']/60 # Streamline conversion to minutes
+        self.exptime = row['Exposure Time']/60 # Seconds to minutes
         self.shots = row['Exposures Per Visit']
         self.visits = row['Visits In Night']
+        self.expwithreadout = self.exptime*self.shots + (45/60)*(self.shots-1)
         self.intra_night_cadence = row['Intra_Night_Cadence']
         self.index = index
         print(str(self.index) + ". " + str(self.name))
