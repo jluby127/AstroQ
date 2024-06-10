@@ -6,6 +6,8 @@ import astropy.units as u
 from astropy.coordinates import SkyCoord
 import plotly.graph_objects as go
 import plotly.express as px
+import matplotlib.pyplot as plt
+import os
 
 import star
 
@@ -59,3 +61,60 @@ def getOrderedList(listOfStars, order):
 
     # fig.write_html(outputdir + "/CDF_" + str(current_day) + ".html")
     fig.show()
+
+
+
+# Old imported code from kpfautoscheduler repo
+def plot_path_2D(model,outputdir=None):
+    names = [s.name for s in model.schedule['Star']]
+    times = model.times
+    az_path = model.az_path
+    alt_path = model.alt_path
+
+    obs_time = [t.jd for t in times]
+    fig, axs = plt.subplots(2,sharex=True,sharey=False,figsize = (20,8))
+    fig.patch.set_alpha(1)
+    axs[0].plot(obs_time,az_path,color = 'indigo')
+    axs[0].vlines(obs_time,0,360,linestyle = 'dashed', alpha = .5, color = 'gray')
+    axs[0].set_yticks([0,120,240,360],[0,120,240,360])
+    ax2 = axs[0].twiny()
+    ax2.set_xlim(axs[0].get_xlim())
+
+    topticks = []
+    index = 0
+    while index < len(obs_time):
+        val = (obs_time[index+1]+obs_time[index])/2
+        topticks.append(val)
+        index+=2
+
+    ax2.set_xticks(topticks)
+    ax2.set_xticklabels(names,rotation=45)
+    axs[1].plot(obs_time,alt_path,color = 'seagreen')
+    axs[1].vlines(obs_time,0,90,linestyle = 'dashed', alpha = .5, color = 'gray')
+    #axs[2].plot(obs_time,airmass_path,color = 'firebrick')
+    #axs[2].vlines(obs_time,1,3.5,linestyle = 'dashed', alpha = .5, color = 'gray')
+
+    bottomticks = []
+    bottomticks.append(obs_time[0])
+    for i in range(1,4):
+        val = obs_time[0] + i*(obs_time[-1]-obs_time[0])/4
+        bottomticks.append(val)
+    bottomticks.append(obs_time[-1])
+
+    i = 0
+    while i < len(az_path):
+        axs[0].fill_betweenx([0,360],obs_time[i],obs_time[i+1],color = 'orange',alpha = .25)
+        axs[1].fill_betweenx([0,90],obs_time[i],obs_time[i+1],color = 'orange',alpha = .25)
+        #axs[2].fill_betweenx([1,3.5],obs_time[i],obs_time[i+1],color = 'orange',alpha = .25)
+        i += 2
+
+    axs[0].set(ylabel='Azimuth Angle (Deg)')
+    axs[1].set(ylabel='Elevation Angle (Deg)')
+    #axs[2].set(ylabel='Airmass')
+    axs[1].set(xlabel='Observation Time (JD)')
+    plt.title('Telescope Path Over Time')
+    if outputdir:
+        plt.savefig(os.path.join(outputdir,'Telescope_Path'))
+    else:
+        plt.show()
+    plt.close()
