@@ -21,7 +21,7 @@ class star(object):
         self.dec = row['Dec']
         coords = SkyCoord(self.ra*u.deg, self.dec*u.deg, frame='icrs')
         self.target = apl.FixedTarget(name=self.name, coord=coords)
-        self.exptime = row['Exposure Time']
+        self.exptime = row['Exposure Time']/60 # Streamline conversion to minutes
         self.shots = row['Exposures Per Visit']
         self.visits = row['Visits In Night']
         self.intra_night_cadence = row['Intra_Night_Cadence']
