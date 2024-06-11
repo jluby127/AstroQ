@@ -285,8 +285,8 @@ class TTPModel(object):
             n_shots = np.array(n_shots)
             rise_times = (self.te - self.tau_exp)[ordered_target_nodes]
             set_times = self.tl[ordered_target_nodes]
-            
-            
+
+
             # Dictionary with simple output for user to view as dataframe
             self.schedule = {'Order': orders, 'Starname':starnames, 'Time':[self.nightstarts.jd + t/(24*60) for t in t_starts]}
 
@@ -296,13 +296,13 @@ class TTPModel(object):
                            'First Available':rise_times,
                            'Last Available':set_times,
                            'Start Exposure':t_starts,
-                           'Mid Exposure':(t_starts + t_ends)/2,
+                           'Minutes the from Start of the Night':(t_starts + t_ends)/2,
                            'Stop Exposure':t_ends,
                            'N_shots':n_shots,
                            'Exposure Time (min)':exptimes,
                            'Total Exp Time (min)':n_shots*exptimes + (45/60)*(n_shots-1)
                            }
-            
+
 
             self.times = all_times
             self.az_path = az_path
