@@ -63,6 +63,10 @@ class TTPModel(object):
                 AZ = self.observatory.observer.altaz(t, s.target)
                 alt=AZ.alt.deg
                 az=AZ.az.deg
+                # if s.name == '104067':
+                #     print("COORDS: ", s.target)
+                #     for a in range(len(alt)):
+                #         print(alt[a], az[a])
                 good = np.where(self.observatory.is_up(alt,az) == 1)[0]
                 if len(good > 0):
                     te.append(max(np.round(((t[good[0]]+TimeDelta(s.expwithreadout*60,format='sec'))-t[0]).jd*24*60,1),s.expwithreadout))
@@ -87,7 +91,7 @@ class TTPModel(object):
         self.M = M
         night_dur = (self.nightends.jd - self.nightstarts.jd)*24*60 # minutes
 
-        samples_per_slot = max(night_dur/(M*cad),3) # Evaluate at least every thirty minutes
+        samples_per_slot = int(max(night_dur/(M*cad),3)) # Evaluate at least every thirty minutes
 
         slot_bounds = Time(np.linspace(self.nightstarts.jd,self.nightends.jd,M+1,endpoint=True),format='jd')
 
@@ -146,7 +150,7 @@ class TTPModel(object):
         self.tau_slew = tau_slew
 
 
-    def to_gurobi_model(self,time_limit=300,opt_gap=0.005,output_flag=True):
+    def to_gurobi_model(self,time_limit=300,opt_gap=0.05,output_flag=True):
         # Translate TTP Model object into a Gurobi Model object
         Mod = gp.Model('TTP')
         Mod.Params.OutputFlag = output_flag

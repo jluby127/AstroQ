@@ -4,6 +4,7 @@ import astropy as ap
 import astroplan as apl
 import astropy.units as u
 from astropy.coordinates import SkyCoord
+from astropy.time import TimeDelta
 import plotly.graph_objects as go
 import plotly.express as px
 import matplotlib.pyplot as plt
@@ -11,7 +12,17 @@ import os
 
 import star
 
-def nightPlan(orderData):
+def writeStarList(orderData, starttime, current_day, outputdir=''):
+    f = open(outputdir + "ObserveOrder_" + current_day + ".txt", "w")
+    f.write("Target,StartExposure\n")
+    for i in range(len(orderData['Starname'])):
+        adjusted_timestamp = TimeDelta(orderData['Start Exposure'][i]*60,format='sec') + starttime
+        formatted_timestamp = str(adjusted_timestamp)[11:16]
+        f.write(orderData['Starname'][i] + "," + formatted_timestamp + "\n")
+    f.close()
+
+
+def nightPlan(orderData, current_day, outputdir=''):
 
     fig = px.scatter(orderData, x='Minutes the from Start of the Night', y="Starname", hover_data=['First Available', 'Last Available', 'Exposure Time (min)', "N_shots", "Total Exp Time (min)"] ,title='Night Plan') #color='Program'
 
@@ -31,13 +42,13 @@ def nightPlan(orderData):
 
             new_already_processed.append(orderData['Starname'][i])
 
-    # fig.write_html(outputdir + "/CDF_" + str(current_day) + ".html")
-    fig.show()
+    fig.write_html(outputdir + "/NightPlan_" + str(current_day) + ".html")
+    # fig.show()
 
 
 # Old imported code from kpfautoscheduler repo
-def plot_path_2D(model,outputdir=None):
-    names = [s.name for s in model.schedule['Star']]
+def plot_path_2D(model,outputdir=''):
+    names = [s for s in model.schedule['Starname']]
     times = model.times
     az_path = model.az_path
     alt_path = model.alt_path
@@ -84,8 +95,8 @@ def plot_path_2D(model,outputdir=None):
     #axs[2].set(ylabel='Airmass')
     axs[1].set(xlabel='Observation Time (JD)')
     plt.title('Telescope Path Over Time')
-    if outputdir:
-        plt.savefig(os.path.join(outputdir,'Telescope_Path'))
+    if outputdir != '':
+        plt.savefig(os.path.join(outputdir,'Telescope_Path.png'))
     else:
         plt.show()
     plt.close()
