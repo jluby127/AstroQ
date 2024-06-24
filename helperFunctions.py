@@ -43,16 +43,16 @@ def buildHumanReadableSchedule(Yns, twilightMap, all_targets_frame, nNightsInSem
     for n in range(nNightsInSemester):
         for s in range(nSlotsInNight):
             slotallocated = ''
-            if nonqueueMap_str != 'nofilename.csv':
-                slotallocated += str(nonqueuemap_slots_strs[n + all_dates_dict[current_day]][s])
-            if allocation_map_NS[n][s] == 0:
-                slotallocated += 'X'
-            if twilightMap[n][s] == 0: # remember that twilight map is "inverted" aka the 1's are time where it is night and the 0's are time where it is day/twilight.
-                slotallocated += '*'
-            if weathered_map[n][s] == 1:
-                slotallocated += 'W'
             for t in range(len(all_targets_frame)):
                 slotallocated += semester_schedule[t][n][s]
+            if nonqueueMap_str != 'nofilename.csv':
+                slotallocated += str(nonqueuemap_slots_strs[n + all_dates_dict[current_day]][s])
+            if twilightMap[n][s] == 0: # remember that twilight map is "inverted" aka the 1's are time where it is night and the 0's are time where it is day/twilight.
+                slotallocated += '*'
+            if weathered_map[n][s] == 1 and slotallocated == '':
+                slotallocated += 'W'
+            # if allocation_map_NS[n][s] == 0 and slotallocated == '':
+            #     slotallocated += 'X'
             combined_semester_schedule[n+all_dates_dict[current_day]][s] = str(slotallocated)
 
     listnames = list(all_targets_frame['Starname'])
@@ -81,6 +81,7 @@ def getSemesterInfo(current_day):
 
     if semesterLetter == 'A':
         semester_start_date = semesterYear + '-02-01'
+        semester_end_date = semesterYear + '-07-31'
         # check if this is a leap year
         if int(semesterYear) in np.arange(2024, 2128, 4):
             # Note from Jack Lubin in the year 2024: in the year 2128 you'll have to update this line for another 200 years.
@@ -90,8 +91,9 @@ def getSemesterInfo(current_day):
             semesterLength = 181
     elif semesterLetter == 'B':
         semester_start_date = semesterYear + '-08-01'
+        semester_end_date = semesterYear + '-01-31'
         semesterLength = 184
-    return semester_start_date, semesterLength, semesterYear, semesterLetter
+    return semester_start_date, semester_end_date, semesterLength, semesterYear, semesterLetter
 
 
 def buildDayDateDictionary(semester_start_date, semesterLength):

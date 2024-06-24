@@ -17,31 +17,48 @@ sys.path.append("/Users/jack/Documents/Github/optimalAllocation/")
 # import helperFunctions as hf
 # import twilightFunctions as tw
 
-def buildAllocationMap(allocation_schedule, weatherDiff, AvailableSlotsInGivenNight, twilightMaps):
+# def buildAllocationMap(allocation_schedule, weatherDiff, AvailableSlotsInGivenNight, twilightMaps):
+#     allocation_map = []
+#     allocation_map_weathered = []
+#     for n in range(len(twilightMaps)):
+#         allo_night_map = buildAllocationMapSingleNight(allocation_schedule[n], AvailableSlotsInGivenNight[n], twilightMaps[n])
+#         allocation_map.append(allo_night_map)
+#         weather_night_map = buildAllocationMapSingleNight(weatherDiff[n], AvailableSlotsInGivenNight[n], twilightMaps[n])
+#         allocation_map_weathered.append(weather_night_map)
+#     #The NS stands for Night Slot, so this version is made to be 2D whereas the allocation_map itself is a 1D list
+#     allocation_map_NS = np.reshape(allocation_map, (len(twilightMaps), len(twilightMaps[0])))
+#     allocation_map_weathered_NS = np.reshape(allocation_map_weathered, (len(twilightMaps), len(twilightMaps[0])))
+#     allocation_map = np.array(allocation_map).flatten()
+#     return allocation_map, allocation_map_NS, allocation_map_weathered_NS
+
+def buildAllocationMap(allocation_schedule, weatherDiff, AvailableSlotsInGivenNight, nSlotsInNight):
     allocation_map = []
     allocation_map_weathered = []
-    for n in range(len(twilightMaps)):
-        allo_night_map = buildAllocationMapSingleNight(allocation_schedule[n], AvailableSlotsInGivenNight[n], twilightMaps[n])
+    for n in range(len(AvailableSlotsInGivenNight)):
+        allo_night_map = buildAllocationMapSingleNight(allocation_schedule[n], AvailableSlotsInGivenNight[n], nSlotsInNight)
         allocation_map.append(allo_night_map)
-        weather_night_map = buildAllocationMapSingleNight(weatherDiff[n], AvailableSlotsInGivenNight[n], twilightMaps[n])
+        weather_night_map = buildAllocationMapSingleNight(weatherDiff[n], AvailableSlotsInGivenNight[n], nSlotsInNight)
         allocation_map_weathered.append(weather_night_map)
     #The NS stands for Night Slot, so this version is made to be 2D whereas the allocation_map itself is a 1D list
-    allocation_map_NS = np.reshape(allocation_map, (len(twilightMaps), len(twilightMaps[0])))
-    allocation_map_weathered_NS = np.reshape(allocation_map_weathered, (len(twilightMaps), len(twilightMaps[0])))
+    allocation_map_NS = np.reshape(allocation_map, (len(AvailableSlotsInGivenNight), nSlotsInNight))
+    allocation_map_weathered_NS = np.reshape(allocation_map_weathered, (len(AvailableSlotsInGivenNight), nSlotsInNight))
+    allocation_map = np.array(allocation_map).flatten()
     return allocation_map, allocation_map_NS, allocation_map_weathered_NS
 
 
-def buildAllocationMapSingleNight(An, AvailableSlotsInTheNight, twilightMapNight):
+def buildAllocationMapSingleNight(An, AvailableSlotsInTheNight, nSlotsInNight):
     # An (list) = The allocation plan for a single night, 4 elements long and filled with 1's and 0's indicating which quarters are allocated or not.
     extra = AvailableSlotsInTheNight%4
     AvailableSlotsInTheQuarter = int(AvailableSlotsInTheNight/4)
-    edge = int((len(twilightMapNight) - AvailableSlotsInTheNight)/2)
+    edge = int((nSlotsInNight - AvailableSlotsInTheNight)/2)
 
-    allomap = [0]*len(twilightMapNight) #.copy()
+    allomap = [0]*nSlotsInNight
     for i in range(len(An)):
         if An[i] == 1:
             start = edge + i*int(AvailableSlotsInTheQuarter)
             stop = start + int(AvailableSlotsInTheQuarter)
+            if i == 3: # ensure allocation goes to up to twilight time
+                stop = nSlotsInNight - edge
             for j in range(start, stop):
                 allomap[j] = 1
         else:
@@ -53,7 +70,6 @@ def buildAllocationMapSingleNight(An, AvailableSlotsInTheNight, twilightMapNight
                 allomap[j] = 0
     return allomap
 
-
 def buildTwilightMap(AvailableSlotsInTheNight, nSlotsInNight, invert=False, reorder=False):
     nightly_twilight_map = []
     for i in range(len(AvailableSlotsInTheNight)):
@@ -63,7 +79,7 @@ def buildTwilightMap(AvailableSlotsInTheNight, nSlotsInNight, invert=False, reor
             quarterslots = [0]*nSlotsInNight
         edge = int((nSlotsInNight - AvailableSlotsInTheNight[i])/2)
         for j in range(nSlotsInNight):
-            if j > edge and j <= nSlotsInNight - edge:
+            if j >= edge and j < nSlotsInNight - edge:
                 if invert:
                     quarterslots[j] = 0
                 else:

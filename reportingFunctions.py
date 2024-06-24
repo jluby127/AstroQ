@@ -40,8 +40,10 @@ def buildFullnessReport(allocation_schedule, twilightMap, combined_semester_sche
             if combined_semester_schedule[b][c] in listnames:
                 used += 1
     available = unused + used
+    available2 = np.sum(allocation_schedule.flatten())
     file.write("N slots in semester:" + str(nSlotsInSemester) + "\n")
     file.write("N available slots: " + str(available) + "\n")
+    file.write("N available slots (recalc):" + str(available2) + "\n")
     file.write("N slots scheduled: " + str(used) + "\n")
     file.write("N slots left empty: " + str(unused) + "\n")
 
@@ -50,7 +52,10 @@ def buildFullnessReport(allocation_schedule, twilightMap, combined_semester_sche
         totalslotsrequested += all_targets_frame['N_Unique_Nights_Per_Semester'][i]*math.ceil(all_targets_frame['Nominal_ExpTime'][i]/(STEP*60.))
     file.write("N slots requested (total): " + str(totalslotsrequested) + "\n")
     percentage = np.round((used*100)/available,3) # round((slot_used_counter*100)/total_available_slots,3)
+    percentage2 = np.round((used*100)/available2,3) # round((slot_used_counter*100)/total_available_slots,3)
     file.write("Percent full: " + str(percentage) + "%." + "\n")
+    file.write("Percent full (recalc): " + str(percentage2) + "%." + "\n")
+
     file.close()
 
     # ff = open(outputdir + "semester_schedule.txt", "w")
@@ -63,7 +68,7 @@ def buildFullnessReport(allocation_schedule, twilightMap, combined_semester_sche
     #     ff.write("--------------------------------------------------------------------------------------" + "\n")
     # ff.close()
 
-def buildCOF(outputdir, current_day, all_targets_frame, all_dates_dict, starmap_maps, compare_original):
+def buildCOF(outputdir, current_day, all_targets_frame, all_dates_dict, starmap_maps, notable_dates, compare_original):
     dates_in_semester = list(all_dates_dict.keys())
     x = []
     y = []
@@ -81,7 +86,8 @@ def buildCOF(outputdir, current_day, all_targets_frame, all_dates_dict, starmap_
         else:
             tot_obs = 0
             for t in range(len(programDict)):
-                tot_obs += programDict['N_Unique_Nights_Per_Semester'][t]*programDict['N_Visits_per_Night'][t]*programDict['N_Observations_per_Visit'][t]
+                #tot_obs += programDict['N_Unique_Nights_Per_Semester'][t]*programDict['N_Visits_per_Night'][t]*programDict['N_Observations_per_Visit'][t]
+                tot_obs += programDict['N_Unique_Nights_Per_Semester'][t]
 
         runningObsList = [0.]*len(starmap_maps[all_targets_frame['Starname'][0]])
         for day in range(len(runningObsList)):
@@ -99,20 +105,24 @@ def buildCOF(outputdir, current_day, all_targets_frame, all_dates_dict, starmap_
 
         commentsfile.write('#' + str(program) + '_trueComplete:' + str(round(y[-1],2)) + '\n')
 
-    Date = ['2024-08-01', '2025-01-31']
-    PercentComplete = [0, 100]
-    TotalObsRequested = [100, 100]
-    for b in range(2):
-        prog.append('Even Burn Rate')
-        x.append(Date[b])
+    # notable_dates is a 4 element list containing the following information in the following order
+    # element 1: start day of semester
+    # element 2: first day in semester that is allocated
+    # element 3: last day in semester that is allocated
+    # element 4: last day of the semester
+    BurnProg = ['Even Burn Rate']*4
+    PercentComplete = [0, 0, 100, 100]
+    TotalObsRequested = [100, 100, 100, 100]
+    #notable_dates = ['2024-08-01', '2024-08-01', '2025-01-31', '2025-01-31']
+    notable_dates = ['2024-02-01', '2024-02-24', '2024-07-28', '2024-07-31']
+    for b in range(len(notable_dates)):
+        prog.append(BurnProg[b])
+        x.append(notable_dates[b])
         y.append(PercentComplete[b])
         totobs.append(TotalObsRequested[b])
 
     programdata = pd.DataFrame({"Program":prog, "Date":x, "Percent Complete (Observations)":y, "Total Obs Requested":totobs})
     programdata.to_csv(commentsfile, index=False)
-
-    fig = px.line(programdata, x="Date", y="Percent Complete (Observations)", hover_data=['Total Obs Requested'],
-                color='Program',title='Cumulative Observation Function - N_Obs')
 
     # light colors don't look good. Only use same core colors and just repeat as needed
     colors = ['red', 'blue', 'green', 'purple', 'darkorange', 'brown', 'gold', 'forestgreen', 'firebrick', 'royalblue',
@@ -124,17 +134,22 @@ def buildCOF(outputdir, current_day, all_targets_frame, all_dates_dict, starmap_
             ]
 
     if compare_original:
+        burnrate = pd.DataFrame({"Program":BurnProg, "Date":notable_dates, "Percent Complete (Observations)":PercentComplete, "Total Obs Requested":TotalObsRequested})
+        fig = px.line(burnrate, x="Date", y="Percent Complete (Observations)", hover_data=['Total Obs Requested'],
+                color='Program',title='Cumulative Observation Function - N_Obs')
+
         originalforecast = pd.read_csv('/Users/jack/Documents/KPF_CC/PlotlyTesting/feb2024B_forecast.csv', comment='#')
         progs = originalforecast['Program'].unique()
         for i in range(len(progs)):
             progmask = programdata['Program'] == progs[i]
             progmask_original = originalforecast['Program'] == progs[i]
-
             fig.add_trace(go.Scatter(x=originalforecast['Date'][progmask_original], y=originalforecast['Percent Complete (Observations)'][progmask_original], name=progs[i],
                                  line=dict(color=colors[i], width=2, dash='dash')))
-
             fig.add_trace(go.Scatter(x=programdata['Date'][progmask], y=programdata['Percent Complete (Observations)'][progmask], name=progs[i],
                                  line=dict(color=colors[i], width=2)))
+    else:
+        fig = px.line(programdata, x="Date", y="Percent Complete (Observations)", hover_data=['Total Obs Requested'],
+                    color='Program',title='Cumulative Observation Function - N_Obs')
 
     fig.add_vrect(
             x0=current_day,
@@ -169,6 +184,7 @@ def buildAllocationPicture(allocation_schedule, nNightsInSemester, nQuartersInNi
     count4 = 0
     for j in range(len(allocation_schedule)):
         holder = [0, 0, 0, 0]
+
         if allocation_schedule[j][0] == 1.:
             q1s += 1
             pt.axvline(startingNight + j, ymin=0., ymax=0.25, color='b')
@@ -259,52 +275,66 @@ def buildBinaryAllocationMap(outputdir, allocation_schedule):
         file.write(str(line) + "\n")
     file.close()
 
-def buildObservedMap_past(unique_hstdates_observed, quarterObserved, Nobs_on_date, starmap_template_filename):
+def buildObservedMap_past(unique_hstdates_observed, quarterObserved, Nobs_on_date, starmap_template_filename, weathermap):
     starmap = pd.read_csv(starmap_template_filename)
     observed = [False]*len(starmap)
     N_observed = [0]*len(starmap)
     for i in range(len(unique_hstdates_observed)):
         ind = list(starmap['Date']).index(unique_hstdates_observed[i])
         observed[ind + int(quarterObserved[i]-0.5)] = True
-        N_observed[ind + int(quarterObserved[i]-0.5)] = Nobs_on_date[i]
+        N_observed[ind + int(quarterObserved[i]-0.5)] = 1#Nobs_on_date[i]
     starmap['Observed'] = observed
     starmap['N_obs'] = N_observed
     return starmap
 
-def quarterDeterminer(value, nSlotsPerNight):
-    if value <= int(nSlotsPerNight)/4:
+def quarterDeterminer(value, nSlotsInNight):
+    if value <= int(nSlotsInNight*(1/4.)):
         quart = 0
-    elif value <= 2*int(nSlotsPerNight)/4 and value > int(nSlotsPerNight)/4:
+    elif value <= int(nSlotsInNight*(2/4.)) and value > int(nSlotsInNight*(1/4.)):
         quart = 1
-    elif value <= 3*int(nSlotsPerNight)/4 and value > 2*int(nSlotsPerNight)/4:
+    elif value <= int(nSlotsInNight*(3/4.)) and value > int(nSlotsInNight*(2/4.)):
         quart = 2
-    elif value <= 4*int(nSlotsPerNight)/4 and value > 3*int(nSlotsPerNight)/4:
+    elif value <= nSlotsInNight and value > int(nSlotsInNight*(3/4.)):
+        quart = 3
+    elif value <= int(nSlotsInNight*(5/4.)) and value > nSlotsInNight:
         quart = 3
     else:
         quart = 0
-        print("Houston, we've had a problem. No valid quarter.")
+        print("Houston, we've had a problem. No valid quarter: ", value, nSlotsInNight)
     return quart
 
-def buildObservedMap_future(targetname, slotsPerExposure, combined_semester_schedule, starmap, current_day_number, slotsNeededDict):
+def buildObservedMap_future(targetname, slotsPerExposure, combined_semester_schedule, starmap, current_day_number, slotsNeededDict, allocationMap, weatherDiff_1D, nSlotsInNight):
     observed = [False]*len(starmap)
     N_observed = [0]*len(starmap)
     for i in range(len(combined_semester_schedule)):
         if targetname in combined_semester_schedule[i]:
             exptimeslots = slotsNeededDict[targetname]
             ind = list(combined_semester_schedule[i]).index(targetname)
-            quart = quarterDeterminer(ind, 84)
+            quart = quarterDeterminer(ind, nSlotsInNight)
             starmap['Observed'][i*4 + quart] = True
             starmap['N_obs'][i*4 + quart] = list(combined_semester_schedule[i]).count(targetname)/exptimeslots #int(combined_semester_schedule[i].count(targetname)/slotsPerExposure)
+    allocationMap_flat = allocationMap.flatten()
+    alloBool = []
+    for a in range(len(allocationMap_flat)):
+        # if targetname == '10700':
+        #     print(a, allocationMap_flat[a], bool(allocationMap_flat[a]))
+        alloBool.append(bool(allocationMap_flat[a]))
+    starmap['Allocated'] = alloBool
+    for w in range(len(weatherDiff_1D)):
+        if weatherDiff_1D[w] == 1:
+            starmap['Weathered'][w] = True
     return starmap
 
 def writeCadencePlotFile(targetname, target_counter, starmap, turnFile, all_targets_frame, outputdir, unique_hstdates_observed, current_day):
+
     turnOnOffs = pd.read_csv(turnFile)
     request_id = all_targets_frame.index[all_targets_frame['Starname']==str(targetname)][0]
     request_name = all_targets_frame.loc[request_id,'Starname']
     program_code = all_targets_frame.loc[request_id,'Program_Code']
     #print("Plotting cadence for star [" + str(request_name) + "] in program [" + str(program_code) + "]...target #" + str(target_counter) + " of " + str(len(all_targets_frame)) + ".")
 
-    n_obs_desired = all_targets_frame.loc[request_id,'Total_Observations_Requested']
+    # n_obs_desired = all_targets_frame.loc[request_id,'Total_Observations_Requested']
+    n_obs_desired = all_targets_frame.loc[request_id,'N_Unique_Nights_Per_Semester']
     n_obs_taken = len(unique_hstdates_observed)
     n_obs_scheduled = np.sum(starmap['N_obs'] - n_obs_taken)
     cadence = all_targets_frame.loc[request_id,'Inter_Night_Cadence']
