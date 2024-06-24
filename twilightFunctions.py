@@ -102,7 +102,7 @@ def getAvailableSlotsPerNight(startDate, nNightsInSemester):
 
 
 
-def determineTwilightEdges(date, twilight_frame, STEP = 10, verbose=False):
+def determineTwilightEdges(date, twilight_frame, STEP, verbose=False):
     # Using the pre-computed twilight times, determine how many slots within each night are available to the scheduler.
     # This is because each "night" in this framework is 14 hours long, designed to be longer than the longest night of the year
     # so that we always have the same fixed matrix size, and we can always "remove" slots to match the true, known length of a given night

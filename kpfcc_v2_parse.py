@@ -62,7 +62,7 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, accessmapfile, twil
     #               Set up logistics parameters
     # -------------------------------------------------------------------
     # -------------------------------------------------------------------
-    semester_start_date, semesterLength, semesterYear, semesterLetter = hf.getSemesterInfo(current_day)
+    semester_start_date, semester_end_date, semesterLength, semesterYear, semesterLetter = hf.getSemesterInfo(current_day)
     all_dates_dict = hf.buildDayDateDictionary(semester_start_date, semesterLength)
     dates_in_semester = list(all_dates_dict.keys())
     nNightsInSemester = hf.currentDayTracker(current_day, all_dates_dict)
@@ -115,13 +115,20 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, accessmapfile, twil
     # in a quarter in a given night, after accounting for non-observable times due to day/twilight.
     AvailableSlotsInGivenNight = []
     for date in dates_in_semester:
-        edge = tw.determineTwilightEdges(date, twilight_frame, verbose=False)
+        edge = tw.determineTwilightEdges(date, twilight_frame, STEP, verbose=False)
         AvailableSlotsInGivenNight.append(edge)
 
-    # Build the twilight times map
-    twilightMap = np.array(mf.buildTwilightMap(AvailableSlotsInGivenNight, nSlotsInNight, invert=False, reorder=False))
-    twilightMap_1D_flat = twilightMap.copy()
-    twilightMap_1D_flat = twilightMap_1D_flat.flatten()
+    # Build the twilight times maps
+    twilightMap_all = np.array(mf.buildTwilightMap(AvailableSlotsInGivenNight, nSlotsInNight, invert=False, reorder=False))
+
+    twilightMap_toDate = twilightMap_all.copy()
+    twilightMap_toDate = twilightMap_toDate[all_dates_dict[current_day]:]
+
+    twilightMap_all_flat = twilightMap_all.copy()
+    twilightMap_all_flat = twilightMap_all_flat.flatten()
+
+    twilightMap_toDate_flat = twilightMap_toDate.copy()
+    twilightMap_toDate_flat = twilightMap_toDate_flat.flatten()
 
     # Read in serialized pre-computed accessibility maps and deserialize it
     rewriteFlag = False
@@ -140,6 +147,7 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, accessmapfile, twil
 
     # set different constraints depending on if we are running the
     # optimal allocation algorithm or a regular semester schedule solver
+    pastObs_Info = {}
     if runOptimalAllocation == False:
         print("Solve the regular semester schedule.")
         # Read in allocation info
@@ -147,7 +155,7 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, accessmapfile, twil
         # I wanted to keep the data in the Binary Schedule for easy manual editing if needed
         allocation_schedule_load = np.loadtxt(allocated_nights, dtype=str)
         allocation_schedule_full = []
-        for a in range(all_dates_dict[current_day], len(allocation_schedule_load) - all_dates_dict[current_day]): #maybe revert back without the minus
+        for a in range(all_dates_dict[current_day], len(allocation_schedule_load)):# - all_dates_dict[current_day]): #maybe revert back without the minus
             convert = list(map(int, allocation_schedule_load[a][2:]))
             allocation_schedule_full.append(convert)
 
@@ -160,20 +168,21 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, accessmapfile, twil
         # Randomly sample out 30% of future allocated quarters to simulate weather loss
         allocation_schedule_long = np.array(allocation_schedule_full).flatten()
         # These are the non-queue nights/quarters. Do not allow them to be weathered out.
-        protectedWeather = pd.read_csv(nonqueueObs_info)
         protectedQuarters = []
-        for b in range(len(protectedWeather)):
-            night = (all_dates_dict[protectedWeather['Date'][b]] - all_dates_dict[current_day])*4
-            quartlist = list(protectedWeather['Quarters'][b])
-            quarts = []
-            for l in range(len(quartlist)):
-                try:
-                    val = int(quartlist[l])
-                    quarts.append(val)
-                except:
-                    continue
-            for q in range(len(quarts)):
-                protectedQuarters.append(night + q)
+        if nonqueueObs_info != 'nofilename.csv':
+            protectedWeather = pd.read_csv(nonqueueObs_info)
+            for b in range(len(protectedWeather)):
+                night = (all_dates_dict[protectedWeather['Date'][b]] - all_dates_dict[current_day])*4
+                quartlist = list(protectedWeather['Quarters'][b])
+                quarts = []
+                for l in range(len(quartlist)):
+                    try:
+                        val = int(quartlist[l])
+                        quarts.append(val)
+                    except:
+                        continue
+                for q in range(len(quarts)):
+                    protectedQuarters.append(night + q)
         allindices = [i for i in range(len(allocation_schedule_long)) if allocation_schedule_long[i] == 1 and i not in protectedQuarters]
         weatherlosses = np.random.choice(allindices, int(0.3*len(allindices)), replace=False)
         for w in weatherlosses:
@@ -182,26 +191,16 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, accessmapfile, twil
         weatherDiff = allocation_schedule_full - allocation_schedule
 
         # Build the allocation map
-        allocation_map, allocation_map_NS, weathered_map = mf.buildAllocationMap(allocation_schedule, weatherDiff, AvailableSlotsInGivenNight, twilightMap_1D)
-        allocation_map_fullsemester, allocation_map_NS_fullsemester, weathered_map_ignorethis = mf.buildAllocationMap(allocation_schedule_full_semester, np.zeros(np.shape(allocation_schedule_full_semester)), AvailableSlotsInGivenNight, twilightMap_1D)
+        allocation_map, allocation_map_NS, weathered_map = mf.buildAllocationMap(allocation_schedule, weatherDiff, AvailableSlotsInGivenNight, twilightMap_toDate)
+        allocation_map_fullsemester, allocation_map_NS_fullsemester, weathered_map_ignorethis = mf.buildAllocationMap(allocation_schedule_full_semester, np.zeros(np.shape(allocation_schedule_full_semester)), AvailableSlotsInGivenNight, twilightMap_all)
 
         # create the intersection of the two
-        alloAndTwiMap = np.array(allocation_map)&twilightMap_1D_flat
-
-        # allocation_map, allocation_map_NS, weathered_map = hf.buildNonAllocatedMap(allocation_schedule, weatherDiff, AvailableSlotsInGivenNight, nSlotsInSemester, nNightsInSemester, nQuartersInNight, nSlotsInQuarter, nSlotsInNight)
-        # allocation_map_fullsemester, allocation_map_NS_fullsemester, weathered_map_ignorethis = hf.buildNonAllocatedMap(allocation_schedule_full_semester, np.zeros(np.shape(allocation_schedule_full_semester)), AvailableSlotsInGivenNight, nSlotsInSemester, nNightsInSemester, nQuartersInNight, nSlotsInQuarter, nSlotsInNight)
-        # oneD_allocationMap = []
-        # for d in range(nNightsInSemester):
-        #     dayAlloMap = mf.buildAllocationMap(Anq[d], AvailableSlotsInTheNight[d], twilightMapNight[d])
-        #     oneD_allocationMap.append(dayAlloMap)
-        # oneD_allocationMap = np.array(oneD_allocationMap).flatten()
+        alloAndTwiMap = allocation_map&twilightMap_toDate_flat
 
         # Pull the database of past observations and process.
         # For each target, determine the most recent date of observations and the number of unique days observed.
         # Also process the past to build the starmap for each target.
-        # Only do this when not running optimal allocation as there should be no "past" when determining the distribution of nights
-        pastObs_Info = {}
-        if runOptimalAllocation == False:
+        if pastDatabase != 'nofilename.csv':
             database = pd.read_csv(pastDatabase)
             for i in range(len(all_targets_frame['Starname'])):
                 starmask = database['star_id'] == all_targets_frame['Starname'][i]
@@ -210,7 +209,7 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, accessmapfile, twil
                 star_past_obs.reset_index(inplace=True)
 
                 total_past_observations = len(star_past_obs)
-                total_open_shutter_time = np.sum(star_past_obs['Nominal_ExpTime'])
+                #total_open_shutter_time = np.sum(star_past_obs['Nominal_ExpTime'])
                 star_past_obs, unique_hstdates_observed, quarterObserved = pf.getUniqueNights(star_past_obs, twilight_frame)
                 if len(unique_hstdates_observed) > 0:
                     mostRecentObservationDate = unique_hstdates_observed[-1]
@@ -224,7 +223,18 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, accessmapfile, twil
                 # element 2 = the list of the quarter where the observation took place on the corresponding unique night from element 1's list (if multi visits, then this is for the first visit)
                 # element 3 = the list of the number of observations that took place on the corresponding unique night from element 1's list
                 pastObs_Info[all_targets_frame['Starname'][i]] = [mostRecentObservationDate, unique_hstdates_observed, quarterObserved, Nobs_on_date]
-
+                # print("STARNAME: ", all_targets_frame['Starname'][i])
+                # print("Most Recent Observation: ", mostRecentObservationDate)
+                # print('Unique obs dates: ', unique_hstdates_observed)
+                # print('Quarter observed: ', quarterObserved)
+                # print("nobs on date: ", Nobs_on_date)
+                # print()
+                # print(all_targets_frame['N_Observations_per_Visit'][i] * all_targets_frame['N_Visits_per_Night'][i])
+                # print(all_targets_frame['N_Unique_Nights_Per_Semester'][i])
+                # print(len(unique_hstdates_observed))
+                # print(all_targets_frame['N_Unique_Nights_Per_Semester'][i] - len(unique_hstdates_observed))
+                # print("---------------------------------------")
+                # print()
 
     # -------------------------------------------------------------------
     # -------------------------------------------------------------------
@@ -274,7 +284,7 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, accessmapfile, twil
         for name in all_targets_frame['Starname']:
             m.addConstr((gp.quicksum(Yns[name,s] for s in range(start, end)) <= 1), 'oneObsPerNight_' + str(name) + "_" + str(d) + "d")
             for s in range(start, end):
-                m.addConstr(Yns[name, s] <= Wnd[name, d], "related_Yns_Wnd_" + str(name) + "_" + str(d) + "_" + str(s))
+                m.addConstr(Yns[name, s] <=  Wnd[name, d], "related_Yns_Wnd_" + str(name) + "_" + str(d) + "_" + str(s))
 
     print("Constraint: no other exposures can start in multi-slot exposures")
     # Enforce no other exposures start within t slots if Yns[name, slot] is 1
@@ -291,18 +301,23 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, accessmapfile, twil
     for s in range(nSlotsInSemester):
         m.addConstr(gp.quicksum(Yns[name,s] for name in all_targets_frame['Starname']) <= 1, 'ensure_singleOb_perSlot_' + str(s) + "s")
 
-    print("Constraint: exposure can't start if it won't complete in the night")
-    # Enforce that an exposure cannot start if it will not complete within the same night
-    for d in range(nNightsInSemester):
-        end_night_slot = d*nSlotsInNight + nSlotsInNight - int(AvailableSlotsInGivenNight[d]/nQuartersInNight) - 1 # the -1 is to account for python indexing
-        for t,row in all_targets_frame.iterrows():
-            name = row['Starname']
-            if slotsNeededDict[name] > 1:
-                for e in range(0, slotsNeededDict[name]-1): # the -1 is so because a target can be started if it just barely fits
-                    m.addConstr(Yns[name,end_night_slot-e] == 0, 'dont_start_near_endof_night_' + name + "_" + str(end_night_slot) + 's_' + str(e) + 'e')
+    print("Constraint: exposure can't start if it won't complete in the night/quarter.")
+    # Example: a full night allocation where the 2nd quarter of the night is "weathered". In this scenario,
+    # This constraint must be applied at both the end of the 1st quarter and the end of the 4th quarter.
+    # But this constraint is not applied to the 3rd quarter: an exposure can span the boundary of 3 to 4 quarter.
+    # Enforce that an exposure cannot start if it will not complete within the same night/quarter.
+    if runOptimalAllocation == False:
+        for d in range(nNightsInSemester):
+            # end_night_slot = (d+1)*nSlotsInNight - (nSlotsInNight - int(AvailableSlotsInGivenNight[d]/2)) - 1 # the -1 is to account for python indexing
+            for s in range(nSlotsInNight - 1): # -1 so that we don't hit the end of the loop. Plus the last and second to last slot should always be allocated as 0 so no need to test.
+                if allocation_map_NS[d][s] == 1 and allocation_map_NS[d][s+1] == 0:
+                    for name in all_targets_frame['Starname']:
+                        if slotsNeededDict[name] > 1:
+                            for e in range(0, slotsNeededDict[name]-1): # the -1 is so because a target can be started if it just barely fits
+                                m.addConstr(Yns[name,s-e] == 0, 'dont_start_near_endof_night_' + name + "_" + str(s) + 's_' + str(e) + 'e')
 
     print("Constraint: inter-night cadence of future observations.")
-    # Constrain the inter-night cadence
+    # Constrain the future inter-night cadence
     counter = 0
     for d in range(nNightsInSemester):
         for t,row in all_targets_frame.iterrows():
@@ -316,16 +331,29 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, accessmapfile, twil
                     counter += 1
                     continue
 
+    # print("Constraint: multi-visit targets can only be attempted under certain conditions.")
+    # # Constrain the nights when a multi-visit target can be scheduled
+    # for t,row in all_targets_frame.iterrows():
+    #     name = row['Starname']
+    #     visits = int(row['N_Visits_per_Night'])
+    #     if visits > 1:
+    #         newexptime = (visits-1)*200 + row['N_Observations_per_Visit']*45 + row['N_Observations_per_Visit']*row['Nominal_ExpTime']
+    #         new_nslots = math.ceil(newexptime/(STEP*60.))
+    #         for d in range(nNightsInSemester):
+    #             alloAndTwiMap[d]
+
+
+
     print("Constraint: build Theta variable")
     # Construct the Theta_n variable
-    extra = 10
+    extra = 20
     for t,row in all_targets_frame.iterrows():
         name = row['Starname']
         Nobs_Unique = row['N_Unique_Nights_Per_Semester']
-        if runOptimalAllocation:
+        if pastObs_Info == {}:
             past_Unique = 0
         else:
-            past_Unique = len(pastObs_Info[all_targets_frame['Starname'][i]][1])
+            past_Unique = len(pastObs_Info[name][1])
         m.addConstr(Thn[name] >= 0, 'ensureGreaterThanZero_' + str(name))
         # normalized theta value
         # m.addConstr(Thn[name] >= (Nobs_Unique - gp.quicksum(Yns[name, s] for s in range(nSlotsInSemester)))/Nobs_Unique, 'ensureGreaterThanNobsShortfall_' + str(name))
@@ -341,7 +369,7 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, accessmapfile, twil
         print("Constraint: enforce no observations when target not accessible.")
         for name in all_targets_frame['Starname']:
             access = np.array(accessmaps_precompute[name]).flatten()
-            fullmap = twilightMap_1D_flat&access
+            fullmap = twilightMap_all_flat&access
             for s in range(nSlotsInSemester):
                 m.addConstr(Yns[name,s] <= fullmap[s], 'enforceMaps_' + str(name) + "_" + str(s) + "s")
 
@@ -422,11 +450,11 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, accessmapfile, twil
         else:
             print("No specific quarters have to be chosen.")
 
-        print("Constraint: setting max number of consecutive unique nights allocated.")
-        # Don't allocate more than X consecutive nights
-        consecMax = 6
-        for d in range(nNightsInSemester - consecMax):
-            m.addConstr(gp.quicksum(Un[d + t] for t in range(consecMax)) <= consecMax - 1, "consecutiveNightsMax_" + str(d) + "d")
+        # print("Constraint: setting max number of consecutive unique nights allocated.")
+        # # Don't allocate more than X consecutive nights
+        # consecMax = 6
+        # for d in range(nNightsInSemester - consecMax):
+        #     m.addConstr(gp.quicksum(Un[d + t] for t in range(consecMax)) <= consecMax - 1, "consecutiveNightsMax_" + str(d) + "d")
 
         # print("Constraint: setting min number of consecutive unique nights not allocated.")
         # Enforce at least one day allocated every X days (no large gaps)
@@ -448,8 +476,10 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, accessmapfile, twil
         print("Constraint: only observe if accessible")
         print("Constraint: enforce no observations when not allocated.")
         for name in all_targets_frame['Starname']:
-            access = np.array(accessmaps_precompute[name]).flatten()
-            fullmap = alloAndTwiMap&access
+            all_access = np.array(accessmaps_precompute[name]).flatten()
+            startslot = (all_dates_dict[current_day])*nSlotsInNight # plus 1 to account for python indexing?
+            access = all_access[startslot:]
+            fullmap = alloAndTwiMap&access[:len(alloAndTwiMap)]
             for s in range(nSlotsInSemester):
                 m.addConstr(Yns[name,s] <= fullmap[s], 'enforceMaps_' + str(name) + "_" + str(s) + "s")
 
@@ -457,7 +487,10 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, accessmapfile, twil
         for t,row in all_targets_frame.iterrows():
             name = row['Starname']
             internightcadence = int(row['Inter_Night_Cadence'])
-            dateLastObserved = pastObs_Info[name][0]
+            if pastObs_Info == {}:
+                dateLastObserved = '0000-00-00'
+            else:
+                dateLastObserved = pastObs_Info[name][0]
             if dateLastObserved != '0000-00-00':
                 dateLastObserved_number = all_dates_dict[dateLastObserved]
                 today_number = all_dates_dict[current_day]
@@ -537,15 +570,15 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, accessmapfile, twil
         allocation_schedule_full = allocation_schedule
         holder = np.zeros(np.shape(allocation_schedule))
         #allocation_map, allocation_map_NS, weathered_map = hf.buildNonAllocatedMap(allocation_schedule, holder, AvailableSlotsInGivenNight, nSlotsInNight, nNightsInSemester, nQuartersInNight, nSlotsInQuarter, nSlotsInNight)
-        allocation_map, allocation_map_NS, weathered_map = mf.buildAllocationMap(allocation_schedule, holder, AvailableSlotsInGivenNight, twilightMap)
+        allocation_map, allocation_map_NS, weathered_map = mf.buildAllocationMap(allocation_schedule, holder, AvailableSlotsInGivenNight, twilightMap_all)
         print("Building human readable schedule.")
-        combined_semester_schedule = hf.buildHumanReadableSchedule(Yns, twilightMap, all_targets_frame, nNightsInSemester, nSlotsInNight, AvailableSlotsInGivenNight, nSlotsInQuarter, all_dates_dict, current_day, allocation_map_NS, weathered_map, slotsNeededDict, nonqueueMap_str)
+        combined_semester_schedule = hf.buildHumanReadableSchedule(Yns, twilightMap_all, all_targets_frame, nNightsInSemester, nSlotsInNight, AvailableSlotsInGivenNight, nSlotsInQuarter, all_dates_dict, current_day, allocation_map_NS, weathered_map, slotsNeededDict, nonqueueMap_str)
     else:
         print("Building human readable schedule.")
-        combined_semester_schedule = hf.buildHumanReadableSchedule(Yns, twilightMap, all_targets_frame, nNightsInSemester, nSlotsInNight, AvailableSlotsInGivenNight, nSlotsInQuarter, all_dates_dict, current_day, allocation_map_NS, weathered_map, slotsNeededDict, nonqueueMap_str)
+        combined_semester_schedule = hf.buildHumanReadableSchedule(Yns, twilightMap_all, all_targets_frame, nNightsInSemester, nSlotsInNight, AvailableSlotsInGivenNight, nSlotsInQuarter, all_dates_dict, current_day, allocation_map_NS, weathered_map, slotsNeededDict, nonqueueMap_str)
 
     round = 'Round 1'
-    rf.buildFullnessReport(allocation_schedule, twilightMap, combined_semester_schedule, nSlotsInQuarter, nSlotsInSemester, all_targets_frame, outputdir, STEP, round)
+    rf.buildFullnessReport(allocation_map, twilightMap_all, combined_semester_schedule, nSlotsInQuarter, nSlotsInSemester, all_targets_frame, outputdir, STEP, round)
     np.savetxt(outputdir + 'raw_combined_semester_schedule.txt', combined_semester_schedule, delimiter=',', fmt="%s")
 
     print("Writing Report.")
@@ -561,22 +594,35 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, accessmapfile, twil
 
     if plot_results:
         print("Plotting results.")
+        if runOptimalAllocation:
+            allocation_schedule_full_semester = allocation_schedule_full
         all_starmaps = {}
         # Only generate the COF for results of Round 1.
         for i in range(len(all_targets_frame)):
-            if runOptimalAllocation == False:
+            if pastObs_Info != {}:
                 starmap = rf.buildObservedMap_past(pastObs_Info[all_targets_frame['Starname'][i]][1], pastObs_Info[all_targets_frame['Starname'][i]][2], pastObs_Info[all_targets_frame['Starname'][i]][3], starmap_template_filename)
             else:
                 starmap = pd.read_csv(starmap_template_filename)
+                starmap_columns = starmap.columns
+                if 'Observed' not in starmap_columns:
+                    starmap['Observed'] = [False]*len(starmap)
+                if 'N_obs' not in starmap_columns:
+                    starmap['N_obs'] = [0]*len(starmap)
                 unique_hstdates_observed = []
-            starmap_updated = rf.buildObservedMap_future(all_targets_frame['Starname'][i], slotsNeededDict[all_targets_frame['Starname'][i]], combined_semester_schedule, starmap, all_dates_dict[current_day], slotsNeededDict)
+            starmap_updated = rf.buildObservedMap_future(all_targets_frame['Starname'][i], slotsNeededDict[all_targets_frame['Starname'][i]], combined_semester_schedule, starmap, all_dates_dict[current_day], slotsNeededDict, np.array(allocation_schedule_full_semester))
             #if optimalAllocation:
             #    pd.to_csv(outputdir + "/FirstForecasts/Forecast_" + str(all_targets_frame['Starname'][i]) + "_semester.csv", index=False)
             all_starmaps[all_targets_frame['Starname'][i]] = starmap_updated
             rf.writeCadencePlotFile(all_targets_frame['Starname'][i], i, starmap, turnFile, all_targets_frame, outputdir, unique_hstdates_observed, current_day)
         compareFlag = not runOptimalAllocation
-        rf.buildCOF(outputdir, current_day, all_targets_frame, all_dates_dict, all_starmaps, )
+
         rf.buildAllocationPicture(allocation_schedule_full, nNightsInSemester, nQuartersInNight, startingNight, all_dates_dict, outputdir)
+        sum_schedule = np.sum(allocation_schedule_full_semester, axis=1)
+        allocated_days = np.nonzero(sum_schedule)
+        firstDayAllocated = dates_in_semester[allocated_days[0][0]]
+        lastDayAllocated = dates_in_semester[allocated_days[0][-1]]
+        notable_dates = [semester_start_date, firstDayAllocated, lastDayAllocated, semester_end_date]
+        rf.buildCOF(outputdir, current_day, all_targets_frame, all_dates_dict, all_starmaps, notable_dates, False)#compareFlag)
 
     endtime4 = time.time()
     print("Total Time to complete Round 1: " + str(np.round(endtime4-start_all,3)))
@@ -625,10 +671,10 @@ def runKPFCCv2(current_day, request_sheet, allocated_nights, accessmapfile, twil
         endtime5 = time.time()
         print("Total Time to finish round 2 solver: ", np.round(endtime5-start_all,3))
 
-        combined_semester_schedule = hf.buildHumanReadableSchedule(Yns, twilightMap, all_targets_frame, nNightsInSemester, nSlotsInNight, AvailableSlotsInGivenNight, nSlotsInQuarter, all_dates_dict, current_day, allocation_map_NS, weathered_map, slotsNeededDict)
+        combined_semester_schedule = hf.buildHumanReadableSchedule(Yns, twilightMap_all, all_targets_frame, nNightsInSemester, nSlotsInNight, AvailableSlotsInGivenNight, nSlotsInQuarter, all_dates_dict, current_day, allocation_map_NS, weathered_map, slotsNeededDict)
 
         round = 'Round 2'
-        rf.buildFullnessReport(allocation_schedule, twilightMap, combined_semester_schedule, nSlotsInQuarter, nSlotsInSemester, all_targets_frame, outputdir, STEP, round)
+        rf.buildFullnessReport(allocation_schedule, twilightMap_all, combined_semester_schedule, nSlotsInQuarter, nSlotsInSemester, all_targets_frame, outputdir, STEP, round)
         np.savetxt(outputdir + 'Bonus_raw_combined_semester_schedule.txt', combined_semester_schedule, delimiter=',', fmt="%s")
 
         filename = open(outputdir + "runReport.txt", "a")
