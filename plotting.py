@@ -4,6 +4,7 @@ import astropy as ap
 import astroplan as apl
 import astropy.units as u
 from astropy.coordinates import SkyCoord
+from astropy.time import Time
 from astropy.time import TimeDelta
 import plotly.graph_objects as go
 import plotly.express as px
@@ -53,10 +54,24 @@ def plot_path_2D(model,outputdir=''):
     az_path = model.az_path
     alt_path = model.alt_path
 
+    # convert obs_time from JD to UTC
     obs_time = [t.jd for t in times]
+
+    start = Time(obs_time[0], format='jd')
+    end = Time(obs_time[-1], format='jd')
+    step = TimeDelta(30*60.,format='sec')
+    ttemp = np.arange(start.jd, end.jd, step.jd)
+    new_times = Time(ttemp,format='jd')
+    new_obs_time = []
+    for t in range(len(ttemp)):
+        # print(new_times[t].isot)
+        new_tt = str(new_times[t].isot)[11:16]
+        new_obs_time.append(new_tt)
+
     fig, axs = plt.subplots(2,sharex=True,sharey=False,figsize = (20,8))
     fig.patch.set_alpha(1)
     axs[0].plot(obs_time,az_path,color = 'indigo')
+    axs[0].set_xticks(ttemp, new_obs_time)
     axs[0].vlines(obs_time,0,360,linestyle = 'dashed', alpha = .5, color = 'gray')
     axs[0].set_yticks([0,120,240,360],[0,120,240,360])
     ax2 = axs[0].twiny()

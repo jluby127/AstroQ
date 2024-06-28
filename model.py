@@ -150,7 +150,7 @@ class TTPModel(object):
         self.tau_slew = tau_slew
 
 
-    def to_gurobi_model(self,time_limit=300,opt_gap=0.05,output_flag=True):
+    def to_gurobi_model(self,time_limit=300,opt_gap=0.01,output_flag=True):
         # Translate TTP Model object into a Gurobi Model object
         Mod = gp.Model('TTP')
         Mod.Params.OutputFlag = output_flag
@@ -222,6 +222,7 @@ class TTPModel(object):
         Mod = self.gurobi_model
         Mod.optimize()
 
+        extras = []
         if Mod.SolCount > 0:
             num_scheduled = 0
             scheduled_targets = []
@@ -234,6 +235,11 @@ class TTPModel(object):
                     v = Mod.getVarByName('ti[{}]'.format(i))
                     # Each element will have tuples as (index,time)
                     scheduled_targets.append((i,v.X))
+                else:# np.round(Yvar.X,0) == 0:
+                    s = self.stars[self.node_to_star[i]].name
+                    extras.append(s)
+            self.extras = {'Starname':extras}
+
 
             print('{} of {} total exposures scheduled into script.'.format(num_scheduled,self.N-2))
 
