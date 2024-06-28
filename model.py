@@ -199,7 +199,6 @@ class TTPModel(object):
                                     >= (gp.quicksum(tijm[indeces[i-1],j,m] for j in range(N)[1:] for m in range(M))
                                     + Yi[indeces[i]]*tau_sep[indeces[i]]))
                                     for i in range(len(indeces))[1:]),'intra_sep_constr')
-            #intra_sep = Mod.addConstrs((ti[indeces[i]] >= ti[indeces[i]-1]+ Yi[indeces[i]]*tau_sep[indeces[i]] for i in range(len(indeces))[1:]),'intra_sep_constr')
 
         # Normalize the weighting in the objective to ensure observations are maximized
         priority_param = 50
