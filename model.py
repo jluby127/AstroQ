@@ -60,7 +60,7 @@ class TTPModel(object):
             else:
                 s = self.stars[node_to_star[i]]
                 tau_exp.append(s.expwithreadout)
-                tau_sep.append(s.intra_night_cadence)
+                tau_sep.append(s.intra_night_cadence * 60) # Hours -> minutes
                 AZ = self.observatory.observer.altaz(t, s.target)
                 alt=AZ.alt.deg
                 az=AZ.az.deg
@@ -151,11 +151,7 @@ class TTPModel(object):
         self.tau_slew = tau_slew
 
 
-<<<<<<< HEAD
     def to_gurobi_model(self,output_flag=True):
-=======
-    def to_gurobi_model(self,time_limit=300,opt_gap=0.01,output_flag=True):
->>>>>>> e9897a2816c9053ea52e0dfed91c9a04ebea79e2
         # Translate TTP Model object into a Gurobi Model object
         Mod = gp.Model('TTP')
         Mod.Params.OutputFlag = output_flag
@@ -201,8 +197,9 @@ class TTPModel(object):
             indeces = self.multi_visit_ind[targ]
             intra_sep = Mod.addConstrs(((gp.quicksum(tijm[indeces[i],j,m] for j in range(N)[1:] for m in range(M))
                                     >= (gp.quicksum(tijm[indeces[i-1],j,m] for j in range(N)[1:] for m in range(M))
-                                    + Yi[indeces[i]]*tau_sep[targ]))
+                                    + Yi[indeces[i]]*tau_sep[indeces[i]]))
                                     for i in range(len(indeces))[1:]),'intra_sep_constr')
+            #intra_sep = Mod.addConstrs((ti[indeces[i]] >= ti[indeces[i]-1]+ Yi[indeces[i]]*tau_sep[indeces[i]] for i in range(len(indeces))[1:]),'intra_sep_constr')
 
         # Normalize the weighting in the objective to ensure observations are maximized
         priority_param = 50
