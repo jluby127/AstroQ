@@ -9,11 +9,10 @@ import plotly.graph_objects as go
 import plotly.express as px
 import matplotlib.pyplot as plt
 import os
-
 import star
 
 def writeStarList(orderData, starttime, current_day, outputdir=''):
-    f = open(outputdir + "ObserveOrder_" + current_day + ".txt", "w")
+    f = open(os.path.join(outputdir,"ObserveOrder_" + current_day + ".txt"), "w")
     f.write("Target,StartExposure\n")
     for i in range(len(orderData['Starname'])):
         adjusted_timestamp = TimeDelta(orderData['Start Exposure'][i]*60,format='sec') + starttime
@@ -22,7 +21,7 @@ def writeStarList(orderData, starttime, current_day, outputdir=''):
     f.close()
 
 
-def nightPlan(orderData, current_day, outputdir=''):
+def nightPlan(orderData, current_day, outputdir='plots'):
 
     fig = px.scatter(orderData, x='Minutes the from Start of the Night', y="Starname", hover_data=['First Available', 'Last Available', 'Exposure Time (min)', "N_shots", "Total Exp Time (min)"] ,title='Night Plan') #color='Program'
 
@@ -47,7 +46,7 @@ def nightPlan(orderData, current_day, outputdir=''):
 
 
 # Old imported code from kpfautoscheduler repo
-def plot_path_2D(model,outputdir=''):
+def plot_path_2D(model,outputdir='plots'):
     names = [s for s in model.schedule['Starname']]
     times = model.times
     az_path = model.az_path
