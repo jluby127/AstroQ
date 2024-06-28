@@ -11,7 +11,7 @@ from gurobipy import *
 
 class TTPModel(object):
 
-    def __init__(self,start,stop,stars,observatory,runtime=300):
+    def __init__(self,start,stop,stars,observatory,runtime=300,optgap=0.01):
 
         # Will have observatory object
         self.observatory = observatory
@@ -19,6 +19,7 @@ class TTPModel(object):
         self.nightstarts = start
         self.nightends = stop
         self.runtime = runtime
+        self.optgap = optgap
         self.create_nodes()
         self.compute_tau_slew()
         self.solve()
@@ -150,7 +151,7 @@ class TTPModel(object):
         self.tau_slew = tau_slew
 
 
-    def to_gurobi_model(self,time_limit=300,opt_gap=0.05,output_flag=True):
+    def to_gurobi_model(self,output_flag=True):
         # Translate TTP Model object into a Gurobi Model object
         Mod = gp.Model('TTP')
         Mod.Params.OutputFlag = output_flag
@@ -209,8 +210,8 @@ class TTPModel(object):
                                         for j in range(N)[1:-1] for m in range(M))
                             ,GRB.MAXIMIZE)
         print('Building TTP')
-        Mod.params.TimeLimit = time_limit
-        Mod.params.MIPGap = opt_gap
+        Mod.params.TimeLimit = self.runtime
+        Mod.params.MIPGap = self.optgap
         Mod.update()
 
         self.gurobi_model = Mod
@@ -218,7 +219,7 @@ class TTPModel(object):
 
     def solve(self):
         print('Solving TTP for {} exposures with Gurobi'.format(self.N-2))
-        self.to_gurobi_model(time_limit=self.runtime)
+        self.to_gurobi_model()
         Mod = self.gurobi_model
         Mod.optimize()
 
