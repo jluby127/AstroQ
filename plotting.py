@@ -114,3 +114,37 @@ def plot_path_2D(model,outputdir='plots'):
     else:
         plt.show()
     plt.close()
+
+def plot_slew_histogram(model,bins=30,outputdir='plots'):
+    est_slews = model.estimated_slews
+    real_slews = model.real_slews
+    plt.style.use('ggplot')
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 6),sharey=True)
+
+    ax1.hist(est_slews, bins=bins, color='skyblue', edgecolor='black', alpha=0.7)
+    median1 = np.median(est_slews)
+    ax1.axvline(median1, color='red', linestyle='dashed', linewidth=2)
+    ax1.text(median1, ax1.get_ylim()[1] * 0.9, f'Median: {median1:.2f}', color='red', fontsize=12, ha='center', va='center', backgroundcolor='white')
+    ax1.set_title(r'Worst Case Slew from $\tau$', fontsize=16, fontweight='bold')
+    ax1.set_xlabel('Slew Duration (Minutes)', fontsize=14)
+    ax1.set_ylabel('Number', fontsize=14)
+    ax1.tick_params(axis='both', which='major', labelsize=12)
+    ax1.grid(True, linestyle='--', alpha=0.6)
+    ax1.spines['top'].set_visible(False)
+    ax1.spines['right'].set_visible(False)
+
+    ax2.hist(real_slews, bins=bins, color='skyblue', edgecolor='black', alpha=0.7)
+    median2 = np.median(real_slews)
+    ax2.axvline(median2, color='red', linestyle='dashed', linewidth=2)
+    ax2.text(median2, ax2.get_ylim()[1] * 0.9, f'Median: {median2:.2f}', color='red', fontsize=12, ha='center', va='center', backgroundcolor='white')
+    ax2.set_title(r'Real Slew at Time $t_{ijm}$', fontsize=16, fontweight='bold')
+    ax2.set_xlabel('Slew Duration (Minutes)', fontsize=14)
+    ax2.tick_params(axis='both', which='major', labelsize=12)
+    ax2.grid(True, linestyle='--', alpha=0.6)
+    ax2.spines['top'].set_visible(False)
+    ax2.spines['right'].set_visible(False)
+
+    plt.tight_layout()
+    filename = os.path.join(outputdir,'SlewStats.png')
+    plt.savefig(filename,dpi=200)

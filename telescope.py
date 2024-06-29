@@ -10,7 +10,7 @@ class Keck1(object):
     Also define useful functions (Keck I pointing limits, etc.)
     """
 
-    def __init__(self, nSlots=4):
+    def __init__(self, nSlots=3):
         self.observer = Observer.at_site('Keck Observatory', name='Keck', timezone='US/Hawaii')
         self.slewrate = 10/6. # degrees per second
         self.wrapLimitAngle = 270 # degrees azimuth

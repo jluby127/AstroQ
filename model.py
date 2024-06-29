@@ -25,7 +25,7 @@ class TTPModel(object):
         self.solve()
 
     def create_nodes(self):
-        dur = np.round((self.nightends-self.nightstarts).jd*24*60,0)*60
+        self.dur = np.round((self.nightends-self.nightstarts).jd*24*60,0)
         t = np.arange(self.nightstarts.jd,self.nightends.jd,TimeDelta(60,format='sec').jd)
         t = Time(t,format='jd')
 
@@ -87,8 +87,9 @@ class TTPModel(object):
         self.node_to_star = node_to_star
         self.multi_visit_ind = multi_visit_ind
 
-    def compute_tau_slew(self,M=3,cad=30):
+    def compute_tau_slew(self,cad=30):
         # Will want to accomodate slot input value
+        M = self.observatory.nSlots
         self.M = M
         night_dur = (self.nightends.jd - self.nightstarts.jd)*24*60 # minutes
 
@@ -223,101 +224,156 @@ class TTPModel(object):
         Mod = self.gurobi_model
         Mod.optimize()
 
-        extras = []
+        
         if Mod.SolCount > 0:
-            num_scheduled = 0
-            scheduled_targets = []
-            for i in range(self.N)[1:-1]:
-                # Parsing Gurobi variables is difficult. We retrieve each variable
-                # by its internal gurobi name using the node index
-                Yvar = Mod.getVarByName('Yi[{}]'.format(i))
-                if np.round(Yvar.X,0) == 1:
-                    num_scheduled += 1
-                    v = Mod.getVarByName('ti[{}]'.format(i))
-                    # Each element will have tuples as (index,time)
-                    scheduled_targets.append((i,v.X))
-                else:# np.round(Yvar.X,0) == 0:
-                    s = self.stars[self.node_to_star[i]].name
-                    extras.append(s)
-            self.extras = {'Starname':extras}
-
-
-            print('{} of {} total exposures scheduled into script.'.format(num_scheduled,self.N-2))
-
-            unordered_times = []
-
-            for i in range(len(scheduled_targets)):
-                unordered_times.append(int(scheduled_targets[i][1]))
-            order = np.argsort(unordered_times)
-            scheduled_targets = [scheduled_targets[i] for i in order]
-
-            # Get properly ordered metadata
-            starnames = []
-            orders = []
-            t_starts = []
-            t_ends = []
-            n_shots = []
-            exptimes = []
-            ordered_target_nodes = []
-            all_times = []
-            az_path = []
-            alt_path = []
-            order = 0
-            for pair in scheduled_targets:
-                node_ind = pair[0]
-                ordered_target_nodes.append(node_ind)
-                s = self.stars[self.node_to_star[node_ind]]
-                starnames.append(s.name)
-                n_shots.append(s.shots)
-                exptimes.append(s.exptime)
-
-                # Observation start + end times, as both time objects and as
-                # minute markers from the start of the night
-                t1 = Time(self.nightstarts.jd + pair[1]/(24*60),format='jd') - TimeDelta(60*s.expwithreadout,format='sec')
-                t2 = Time(self.nightstarts.jd + pair[1]/(24*60),format='jd')
-                t_starts.append(pair[1] - s.expwithreadout)
-                t_ends.append(pair[1])
-
-                # Add times, az_path, and alt_path as attributes for easy plotting
-                all_times.append(t1)
-                all_times.append(t2)
-                coords_start_obs = self.observatory.observer.altaz(t1,s.target)
-                coords_end_obs = self.observatory.observer.altaz(t2,s.target)
-                az_path.append(coords_start_obs.az.deg)
-                alt_path.append(coords_start_obs.alt.deg)
-                az_path.append(coords_end_obs.az.deg)
-                alt_path.append(coords_end_obs.alt.deg)
-                orders.append(order)
-                order += 1
-
-            t_starts = np.array(t_starts)
-            t_ends = np.array(t_ends)
-            exptimes = np.array(exptimes)
-            n_shots = np.array(n_shots)
-            rise_times = (self.te - self.tau_exp)[ordered_target_nodes]
-            set_times = self.tl[ordered_target_nodes]
-
-
-            # Dictionary with simple output for user to view as dataframe
-            self.schedule = {'Order': orders, 'Starname':starnames, 'Time':[self.nightstarts.jd + t/(24*60) for t in t_starts]}
-
-            # Verbose dictionary with more metadata for plotting
-            # Only include real nodes for this step
-            self.plotly = {'Starname':starnames,
-                           'First Available':rise_times,
-                           'Last Available':set_times,
-                           'Start Exposure':t_starts,
-                           'Minutes the from Start of the Night':(t_starts + t_ends)/2,
-                           'Stop Exposure':t_ends,
-                           'N_shots':n_shots,
-                           'Exposure Time (min)':exptimes,
-                           'Total Exp Time (min)':n_shots*exptimes + (45/60)*(n_shots-1)
-                           }
-
-
-            self.times = all_times
-            self.az_path = az_path
-            self.alt_path = alt_path
+            self.digest_gurobi()
+    
+            print('{} of {} total exposures scheduled into script.'.format(self.num_scheduled,self.N-2))
 
         else:
             print('No incumbent solution in time allotted, aborting solve. Try increasing time_limit parameter.')
+
+    def digest_gurobi(self):
+        
+        N = self.N
+        M = self.M
+        tau_slew = self.tau_slew
+        Mod = self.gurobi_model
+
+        num_scheduled = 0
+        scheduled_targets = []
+        extras = []
+        for i in range(self.N)[1:-1]:
+            # Parsing Gurobi variables is difficult. We retrieve each variable
+            # by its internal gurobi name using the node index
+            Yvar = Mod.getVarByName(f'Yi[{i}]')
+            if np.round(Yvar.X,0) == 1:
+                num_scheduled += 1
+                v = Mod.getVarByName(f'ti[{i}]')
+                # Each element will have tuples as (index,time)
+                scheduled_targets.append((i,v.X))
+            else:# np.round(Yvar.X,0) == 0:
+                s = self.stars[self.node_to_star[i]].name
+                extras.append(s)
+        self.extras = {'Starname':extras}
+        self.num_scheduled = num_scheduled
+
+        # Retrieve slew times for statistics
+        def to_wrap_frame(angle):
+            if self.observatory.wrapLimitAngle:
+                angle += (360-self.observatory.wrapLimitAngle)
+                if angle > 360:
+                    angle -= 360
+            return angle
+
+        # Get slew estimate from the tau tensor
+        est_slews = []
+        for i in range(N)[1:-1]:
+            for j in range(N)[1:-1]:
+                for m in range(M):
+                    var = Mod.getVarByName(f'Xijm[{i},{j},{m}]').X
+                    if np.round(var,0) ==1:
+                        est_slews.append(tau_slew[i,j,m])
+
+        # Compute the real slew at the time the scheduler chose
+        real_slews = []
+        for i in range(N)[1:-1]:
+            for j in range(N)[1:-1]:
+                for m in range(M):
+                    t = Mod.getVarByName(f'tijm[{i},{j},{m}]').X
+                    if np.round(t,1) != 0:
+                        minutes = np.round(t,1)
+                        time_of_slew = self.nightstarts + TimeDelta(minutes*60,format='sec')
+                        altaz1 = self.observatory.observer.altaz(time_of_slew,self.stars[self.node_to_star[i]].target)
+                        altaz2 = self.observatory.observer.altaz(time_of_slew,self.stars[self.node_to_star[j]].target)
+
+                        alt1 = altaz1.alt.deg
+                        alt2 = altaz2.alt.deg
+                        az1 = to_wrap_frame(altaz1.az.deg)
+                        az2 = to_wrap_frame(altaz2.az.deg)
+
+                        separation = max(np.abs(alt1-alt2),np.abs(az1-az2))
+                        slew = separation/(60*self.observatory.slewrate)
+
+                        real_slews.append(np.round(slew,3))
+
+        self.estimated_slews = est_slews
+        self.real_slews = real_slews
+        self.solve_time = Mod.Runtime
+
+        # Reorganize the schedule by time
+        unordered_times = []
+
+        for i in range(len(scheduled_targets)):
+            unordered_times.append(int(scheduled_targets[i][1]))
+        order = np.argsort(unordered_times)
+        scheduled_targets = [scheduled_targets[i] for i in order]
+
+        # Get properly ordered metadata
+        starnames = []
+        orders = []
+        t_starts = []
+        t_ends = []
+        n_shots = []
+        exptimes = []
+        ordered_target_nodes = []
+        all_times = []
+        az_path = []
+        alt_path = []
+        order = 0
+        for pair in scheduled_targets:
+            node_ind = pair[0]
+            ordered_target_nodes.append(node_ind)
+            s = self.stars[self.node_to_star[node_ind]]
+            starnames.append(s.name)
+            n_shots.append(s.shots)
+            exptimes.append(s.exptime)
+
+            # Observation start + end times, as both time objects and as
+            # minute markers from the start of the night
+            t1 = Time(self.nightstarts.jd + pair[1]/(24*60),format='jd') - TimeDelta(60*s.expwithreadout,format='sec')
+            t2 = Time(self.nightstarts.jd + pair[1]/(24*60),format='jd')
+            t_starts.append(pair[1] - s.expwithreadout)
+            t_ends.append(pair[1])
+
+            # Add times, az_path, and alt_path as attributes for easy plotting
+            all_times.append(t1)
+            all_times.append(t2)
+            coords_start_obs = self.observatory.observer.altaz(t1,s.target)
+            coords_end_obs = self.observatory.observer.altaz(t2,s.target)
+            az_path.append(coords_start_obs.az.deg)
+            alt_path.append(coords_start_obs.alt.deg)
+            az_path.append(coords_end_obs.az.deg)
+            alt_path.append(coords_end_obs.alt.deg)
+            orders.append(order)
+            order += 1
+
+        t_starts = np.array(t_starts)
+        t_ends = np.array(t_ends)
+        exptimes = np.array(exptimes)
+        n_shots = np.array(n_shots)
+        rise_times = (self.te - self.tau_exp)[ordered_target_nodes]
+        set_times = self.tl[ordered_target_nodes]
+
+
+        # Dictionary with simple output for user to view as dataframe
+        self.schedule = {'Order': orders, 'Starname':starnames, 'Time':[self.nightstarts.jd + t/(24*60) for t in t_starts]}
+
+        # Verbose dictionary with more metadata for plotting
+        # Only include real nodes for this step
+        self.plotly = {'Starname':starnames,
+                        'First Available':rise_times,
+                        'Last Available':set_times,
+                        'Start Exposure':t_starts,
+                        'Minutes the from Start of the Night':(t_starts + t_ends)/2,
+                        'Stop Exposure':t_ends,
+                        'N_shots':n_shots,
+                        'Exposure Time (min)':exptimes,
+                        'Total Exp Time (min)':n_shots*exptimes + (45/60)*(n_shots-1)
+                        }
+
+
+        self.times = all_times
+        self.az_path = az_path
+        self.alt_path = alt_path
+
