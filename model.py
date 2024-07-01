@@ -227,8 +227,7 @@ class TTPModel(object):
         
         if Mod.SolCount > 0:
             self.digest_gurobi()
-    
-            print('{} of {} total exposures scheduled into script.'.format(self.num_scheduled,self.N-2))
+            self.optimization_status()
 
         else:
             print('No incumbent solution in time allotted, aborting solve. Try increasing time_limit parameter.')
@@ -299,7 +298,6 @@ class TTPModel(object):
 
         self.estimated_slews = est_slews
         self.real_slews = real_slews
-        self.solve_time = Mod.Runtime
 
         # Reorganize the schedule by time
         unordered_times = []
@@ -377,3 +375,47 @@ class TTPModel(object):
         self.az_path = az_path
         self.alt_path = alt_path
 
+    def optimization_status(self):
+
+        # The optimization weights set the scale
+        slew_param = 1/100
+        priority_param = 50
+
+        # Unpack the objective value and bounds
+        Mod = self.gurobi_model
+        lower = 1 + (Mod.ObjVal // 1)
+        slewtime = (lower - Mod.ObjVal)*1/slew_param
+        
+        upper = 1 + (Mod.ObjBound // 1)
+        max_obs = int(upper/priority_param)
+        bound_slew = (upper - Mod.ObjBound)*1/slew_param
+
+        time_exposing = 0
+        for i in range(self.N)[1:-1]:
+            Y = Mod.getVarByName(f'Yi[{i}]').x
+            time_exposing += Y*self.tau_exp[i]
+        time_idle = self.dur - time_exposing - slewtime
+
+        # Save aspects of the best solution and the tightest bound to get theoretical
+        # limits from the solve.
+        self.obs_bound = max_obs
+        self.slew_bound = bound_slew
+        self.time_idle = time_idle
+        self.time_slewing = slewtime
+        self.time_exposing = time_exposing
+        self.solve_time = Mod.Runtime
+
+        print('\n')
+        print('------------------------------------')
+        print(f'    Model ran for {self.solve_time:.2f} seconds')
+        print('------------------------------------')
+        print(f'     Observations Requested: {self.N-2}')
+        print(f'     Observations Scheduled: {self.num_scheduled}')
+        print(f' Maximum Observations Bound: {self.obs_bound}')
+        print('------------------------------------')
+        print(f'   Observing Duration (min): {self.dur:.2f}')
+        print(f'  Time Spent Exposing (min): {self.time_exposing:.2f}')
+        print(f'      Time Spent Idle (min): {self.time_idle:.2f}')
+        print(f'   Time Spent Slewing (min): {self.time_slewing:.2f}')
+        print(f'   Minimum Slew Bound (min): {self.slew_bound:.2f}')
+        print('------------------------------------')   
