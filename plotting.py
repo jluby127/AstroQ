@@ -72,6 +72,11 @@ def plot_path_2D(model,outputdir='plots'):
     axs[0].plot(obs_time,az_path,color = 'indigo')
     axs[0].set_xticks(ttemp, new_obs_time)
     axs[0].vlines(obs_time,0,360,linestyle = 'dashed', alpha = .5, color = 'gray')
+
+    wrap = model.observatory.wrapLimitAngle
+    if wrap:
+        axs[0].hlines(wrap,obs_time[0],obs_time[-1],linestyle='dashed', alpha=0.5, color='red')
+        axs[0].text(obs_time[-1],wrap,f'Wrap={wrap}',color='red', fontsize=8, va='center')
     axs[0].set_yticks([0,120,240,360],[0,120,240,360])
     ax2 = axs[0].twiny()
     ax2.set_xlim(axs[0].get_xlim())
