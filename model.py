@@ -138,7 +138,14 @@ class TTPModel(object):
             az2 = to_wrap_frame(coords2.az.deg)
 
             # Take the maximum of all the samples, in both dimensions
-            return max(max(np.abs(alt1-alt2)),max(np.abs(az1-az2)))
+            alt_sep = np.abs(alt1-alt2)
+            az_sep = np.abs(az1-az2)
+            
+            # For telescopes without wraps, no slew greater than 180 deg can exist
+            if not self.observatory.wrapLimitAngle:
+                az_sep = [360 - x if x > 180 else x for x in az_sep]
+
+            return max(max(alt_sep),max(az_sep))
 
         tau_slew = defaultdict(float) # Holds minutes
         for m in range(M):
@@ -291,7 +298,15 @@ class TTPModel(object):
                         az1 = to_wrap_frame(altaz1.az.deg)
                         az2 = to_wrap_frame(altaz2.az.deg)
 
-                        separation = max(np.abs(alt1-alt2),np.abs(az1-az2))
+                        alt_sep = np.abs(alt1-alt2)
+                        az_sep = np.abs(az1-az2)
+                        
+                        # For telescopes without wraps, no slew greater than 180 deg can exist
+                        if not self.observatory.wrapLimitAngle:
+                            if az_sep >= 180:
+                                az_sep = 360 - az_sep
+
+                        separation = max(alt_sep,az_sep)
                         slew = separation/(60*self.observatory.slewrate)
 
                         real_slews.append(np.round(slew,3))
