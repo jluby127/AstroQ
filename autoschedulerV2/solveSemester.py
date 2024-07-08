@@ -76,9 +76,7 @@ def runKPFCCv2(current_day,
     # for now this parameter only sets the number of days left in the semester,
     # and therefore the number of slots in the semester
     # and therefore the size of the Yns, Wns, etc variables.
-    # For testing CPU usage, always set this to '2024-02-01' as this
-    # was the first day of the 2024A semester.
-    current_day = current_day[0]
+    current_day = current_day[0] # Multiple days inputted is for the TTP. Here we only are concerned with the first day of the sequence.
 
     start_all = time.time()
 
@@ -158,13 +156,15 @@ def runKPFCCv2(current_day,
     # Read in serialized pre-computed accessibility maps and deserialize it
     rewriteFlag = False
     accessmaps_precompute = mf.readAccessibilityMapsDict(accessibilitiesFile)
-    for name in all_targets_frame['Starname']:
+    #for name in all_targets_frame['Starname']:
+    for n,row in all_targets_frame.iterrows():
+        name = row['Starname']
         # check that this target has a precomputed accessibility map, if not, make one and add it to the pickle file
         try:
             tmpRead = accessmaps_precompute[name]
         except:
             print(name + " not found in precomputed accessibilty maps. Running now.")
-            newmap = mf.singleTargetAccessible(starname, ra, dec, startdate, nNightsInSemester)
+            newmap = mf.singleTargetAccessible(name, row['RA'], row['Dec'], semester_start_date, semesterLength, STEP)
             accessmaps_precompute[name] = newmap
             rewriteFlag = True
     if rewriteFlag:
@@ -398,7 +398,12 @@ def runKPFCCv2(current_day,
         all_access = np.array(accessmaps_precompute[name]).flatten()
         startslot = (all_dates_dict[current_day])*nSlotsInNight # plus 1 to account for python indexing?
         access = all_access[startslot:]
-        fullmap = alloAndTwiMap&access[:len(alloAndTwiMap)]
+        print(np.shape(all_access))
+        print(np.shape(access))
+        print(np.shape(alloAndTwiMap))
+        print("----------")
+        # fullmap = alloAndTwiMap&access[:len(alloAndTwiMap)]
+        fullmap = alloAndTwiMap&access
         for s in range(nSlotsInSemester):
             m.addConstr(Yns[name,s] <= fullmap[s], 'enforceMaps_' + str(name) + "_" + str(s) + "s")
 
@@ -491,7 +496,7 @@ def runKPFCCv2(current_day,
 
     round = 'Round 1'
     rf.buildFullnessReport(allocation_map, twilightMap_all, combined_semester_schedule, nSlotsInQuarter, nSlotsInSemester, all_targets_frame, outputDirectory, STEP, round)
-    np.savetxt(outputDirectory + 'raw_combined_semester_schedule.txt', combined_semester_schedule, delimiter=',', fmt="%s")
+    np.savetxt(outputDirectory + 'raw_combined_semester_schedule_Round1.txt', combined_semester_schedule, delimiter=',', fmt="%s")
 
     print("Writing Report.")
     filename = open(outputDirectory + "runReport.txt", "a")
@@ -585,7 +590,13 @@ def runKPFCCv2(current_day,
 
         round = 'Round 2'
         rf.buildFullnessReport(allocation_map, twilightMap_all, combined_semester_schedule, nSlotsInQuarter, nSlotsInSemester, all_targets_frame, outputDirectory, STEP, round)
-        np.savetxt(outputDirectory + 'raw_combined_semester_schedule.txt', combined_semester_schedule, delimiter=',', fmt="%s")
+        np.savetxt(outputDirectory + 'raw_combined_semester_schedule_Round2.txt', combined_semester_schedule, delimiter=',', fmt="%s")
+
+
+        scheduleR1 = np.loadtxt(outputDirectory + 'raw_combined_semester_schedule_Round1.txt', delimiter=',', dtype=str)
+        scheduleR2 = np.loadtxt(outputDirectory + 'raw_combined_semester_schedule_Round2.txt', delimiter=',', dtype=str)
+        gapStars = hf.getGapFillerTargets(scheduleR1, scheduleR2, all_dates_dict[current_day])
+        np.savetxt(outputDirectory + 'gapFillerTargets.txt', gapStars, delimiter=',', fmt="%s")
 
         filename = open(outputDirectory + "runReport.txt", "a")
         theta_n_var = []

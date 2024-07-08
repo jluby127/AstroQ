@@ -15,6 +15,17 @@ from bs4 import BeautifulSoup
 
 
 def login_JUMP():
+    """
+    Access the Jump database. You will need correct permissions to access this secured database hosted by Caltech Cadence servers.
+    Eventually this will no longer be needed, instead we will pull from the Keck Observatory Archive (KOA) directly.
+
+    Args:
+        None
+
+    Returns:
+        s (object): a session request
+    """
+
     login_url = 'https://jump.caltech.edu/user/login/'
     s = requests.session()
     s.get(login_url)
@@ -27,6 +38,18 @@ def login_JUMP():
 
 
 def get_database_explorer(name, path_for_csv, url='https://jump.caltech.edu/explorer/', links=[]):
+    """
+    Pull the relevant query from the Jump database.
+    Eventually this will no longer be needed, instead we will pull from the Keck Observatory Archive (KOA) directly.
+
+    Args:
+        name (str): the name of the pre-built query in the Jump database
+        path_for_csv (str): the link to the Jump database
+
+    Returns:
+        None
+    """
+
     # log into JUMP and go to DataBase page
     session = login_JUMP()
     response = session.get(url)
@@ -57,12 +80,36 @@ def get_database_explorer(name, path_for_csv, url='https://jump.caltech.edu/expl
 
 
 def getKPFAllObservations(path_to_csv):
+    """
+    A user-friendly front facing function to pull past observations from the Jump database.
+    Note that each semester, you will have to log into Jump, find this pre-built query, and manually update the start and end date fields.
+    Eventually this will no longer be needed, instead we will pull from the Keck Observatory Archive (KOA) directly.
+
+    Args:
+        path_to_csv (str): the directory to save the resulting CSV of data pulled from the Jump database
+
+    Returns:
+        None
+    """
+
     name = 'Get all KPF Observations in Semester'
     get_database_explorer(name, path_to_csv)
     print("All Past KPF observations for this semester pulled from Jump. Saved to csv: " + path_to_csv)
 
 
 def getUniqueNights(star_past_obs, twilight):
+    """
+    Parse the Jump database for the previous nights where a given star was observed
+
+    Args:
+        star_past_obs (dataframe): a subset of the Jump database dataframe, filtered to only include observations for a specific target name
+        twilight (dataframe): the dataframe of morning and evening twilight times for each night of the semester
+
+    Returns:
+        star_past_obs (dataframe): an updated version of the original variable which now includes columns for UTC date and hst date
+        unique_hstdates_observed (array): a 1D array length # of unique dates observed where each element is the HST date when the star was observed at least once
+        quarterObserved (array): (array) a 1D array length # of unique dates observed where each element the quarter of the night when the first of the observations for that night was taken.
+    """
 
     unique_hstdates_observed = []
     unique_utcdates_observed = []
@@ -75,7 +122,7 @@ def getUniqueNights(star_past_obs, twilight):
         utcdate = star_past_obs['utctime'][i][:10]
         unique_utcdates_observed.append(utcdate)
 
-        convertHSTcivil = TimeDelta(60*24*60,format='sec').jd #Note this is arbitrary 24hr subtraction
+        convertHSTcivil = TimeDelta(60*24*60,format='sec').jd #Note this is arbitrary 24hr subtraction to get from UT date to Hawaii date
         hsttimestamp = timestamp - convertHSTcivil
         hsttimestamp.format = 'iso'
         hstdate = str(hsttimestamp)[:10]
@@ -84,7 +131,6 @@ def getUniqueNights(star_past_obs, twilight):
         if hstdate not in unique_hstdates_observed:
             unique_hstdates_observed.append(hstdate)
             quarterObserved.append(getQuartersObserved(timestamp, utcdate, twilight))
-            #Nobs_on_date.append(1)
 
     star_past_obs['utcDate'] = unique_utcdates_observed
     star_past_obs['hstDate'] = all_hstdates
@@ -93,6 +139,19 @@ def getUniqueNights(star_past_obs, twilight):
 
 
 def getQuartersObserved(timestamp, utcdate, twilight):
+    """
+    Determine which quarter of the night an observation was taken in
+
+    Args:
+        timestamp (float): a BJD value indicating the time of the observation
+        utcdate (str): the calendar date of the observation in UTC, format 'YYYY-MM-DD'
+        twilight (dataframe): the dataframe of morning and evening twilight times for each night of the semester
+
+    Returns:
+        star_past_obs (dataframe): an updated version of the original variable which now includes columns for UTC date and hst date
+        unique_hstdates_observed (array): a 1D array length # of unique dates observed where each element is the HST date when the star was observed at least once
+        quarterObserved (array): (array) a 1D array length # of unique dates observed where each element the quarter of the night when the first of the observations was taken.
+    """
 
     dateInd = twilight.index.get_loc(twilight[twilight['time_utc'] == utcdate].index[0])
     start_jd = twilight['12_evening'][dateInd]
@@ -109,15 +168,28 @@ def getQuartersObserved(timestamp, utcdate, twilight):
         quarter = 2.5
     elif rel_timestamp < 4*lengthOfQuarter and rel_timestamp > 3*lengthOfQuarter:
         quarter = 3.5
-    elif rel_timestamp < 4.5*lengthOfQuarter and rel_timestamp > 4*lengthOfQuarter:
-        # allow a little bit of leeway
+    elif rel_timestamp < 5*lengthOfQuarter and rel_timestamp > 4*lengthOfQuarter:
+        # allow a little bit of leeway, even if this doesn't really make sense
         quarter = 3.5
     else:
+        quarter = 0.5
         print("Houston, we've had a problem: target observed in an invalid quarter.")
+        # Note to self: I'm not sure why but a lot of targets fall into this bin. Suspcicious.
     return quarter
 
 
 def getNobs_on_Night(star_past_obs, unique_hstdates_observed):
+    """
+    Determine how many exposures were taken of a target on a given night
+
+    Args:
+        star_past_obs (dataframe): the updated version of the original variable which now includes columns for UTC date and hst date
+        unique_hstdates_observed (array): a 1D array of unique HST dates where the star was observed
+
+    Returns:
+        Nobs_on_date (array): a 1D array of length equal to lenght unique_hstdates_observed where each element is an integer representing the number of exposures taken that night
+    """
+
     Nobs_on_date = []
     for i in range(len(unique_hstdates_observed)):
         datemask = star_past_obs['hstDate'] == unique_hstdates_observed[i]
@@ -125,22 +197,25 @@ def getNobs_on_Night(star_past_obs, unique_hstdates_observed):
     return Nobs_on_date
 
 
-def prepareTTP(request_sheet, night_plan):
-    # night_plan is the n'th row of combined_semester_schedule array representing night n. Will include * and maybe W, must be processed
-    # Sometimes a W and a starname are in the same slot. Must filter out.
-    ignore = ['*', 'W', '']
+def prepareTTP(request_sheet, night_plan, filltargets):
+    """
+    Prepare tonight's scheduled stars for their run through the TTP (separate software package)
+
+    Args:
+        request_sheet (dataframe): the csv of PI requests
+        night_plan (array): the n'th row of combined_semester_schedule array representing night n where target names are put into slots
+        filltargets (array): a 1D list of target names of the stars that were added in the bonus round
+
+    Returns:
+        toTTP (dataframe): the data on these stars formatted in the way that the TTP software requires as an input
+    """
+
+    ignore = ['*', 'W', '', '*X', 'X']
     selected_stars = []
     for i in range(len(night_plan)):
         if night_plan[i] not in ignore:
             selected_stars.append(night_plan[i])
             ignore.append(night_plan[i])
-            # try:
-            #     if night_plan[i][0] != 'W' and night_plan[i][:4] != 'RM__':
-            #         selected_stars.append(night_plan[i])
-            #         ignore.append(night_plan[i])
-            # except:
-            #     selected_stars.append(night_plan[i])
-            #     ignore.append(night_plan[i])
 
     # build the dataframe with correct info and correct headers
     all_targets_frame = pd.read_csv(request_sheet)
@@ -150,10 +225,8 @@ def prepareTTP(request_sheet, night_plan):
     ExpsPerVisits = []
     nVisits = []
     cadences = []
+    priorities = []
     for j in range(len(selected_stars)):
-        #print(selected_stars[j])
-        #print(all_targets_frame.index[all_targets_frame['Starname']==str(selected_stars[j])])
-        #print(all_targets_frame.index[all_targets_frame['Starname']==str(selected_stars[j])][0])
         idx = all_targets_frame.index[all_targets_frame['Starname']==str(selected_stars[j])][0]
         RAs.append(all_targets_frame['RA'][idx])
         Decs.append(all_targets_frame['Dec'][idx])
@@ -161,13 +234,38 @@ def prepareTTP(request_sheet, night_plan):
         ExpsPerVisits.append(all_targets_frame['N_Observations_per_Visit'][idx])
         nVisits.append(all_targets_frame['N_Visits_per_Night'][idx])
         cadences.append(all_targets_frame['Intra_Night_Cadence'][idx])
+        # higher numbers are higher priorities
+        if str(selected_stars[j]) in filltargets:
+            prior = 1 # the filler targets get low priority
+        else:
+            prior = 10
+        priorities.append(prior)
     toTTP = pd.DataFrame({"Starname":selected_stars,"RA":RAs,"Dec":Decs,
                           "Exposure Time":ExpTimes,"Exposures Per Visit":ExpsPerVisits,
-                          "Visits In Night":nVisits,"Intra_Night_Cadence":cadences})
+                          "Visits In Night":nVisits,"Intra_Night_Cadence":cadences,"Priority":priorities})
     return toTTP
 
 
-def write_starlist(frame,orderedList,condition,current_day,outputdir):
+def write_starlist(frame, orderedList, extras, gapFillers, condition, current_day, outputdir):
+    """
+    Generate the nightly script in the correct format.
+    Note: this function is here only for completeness but the script generation is now fully done by the TTP standalone package
+
+    Args:
+        frame (dataframe): the csv of PI requests for just the targets that were selected to be observed tonight
+        orderedList (array): a 1D array of the names of the targets selected to be observed tonight, in the order they were selected to be observed by the TTP
+        extras (array): starnames of extra stars
+        gapFillers (array): star names of the stars added in the bonus round
+        condition (str): the weather conditions for this script. Currently only "nominal" is supported.
+        current_day (str): today's date in format YYYY-MM-DD
+        outputdir (str): the directory to save the script file
+
+    Returns:
+        None
+    """
+
+    total_exptime = 0
+
     if not os.path.isdir(outputdir):
         os.mkdir(outputdir)
     script_file = os.path.join(outputdir,'script_{}_{}.txt'.format(current_day,condition))
@@ -175,25 +273,53 @@ def write_starlist(frame,orderedList,condition,current_day,outputdir):
 
     lines = []
     for i in range(len(orderedList)):
-        #row = frame.iloc[i]
-        # print(i, orderedList['Target'][i])
+        if orderedList['Target'][i] in gapFillers:
+            fillerFlag = True
+        else:
+            fillerFlag = False
         row = frame.loc[frame['Starname'] == orderedList['Target'][i]]
         row.reset_index(inplace=True)
-        # print(row)
-        # print(row['Starname'])
-        # print(row['Starname'][0])
-        lines.append(format_kpf_row(row, orderedList['StartExposure'][i]))
+        total_exptime += float(row['Nominal_ExpTime'][0])
+        lines.append(format_kpf_row(row, orderedList['StartExposure'][i], current_day, fillerFlag = fillerFlag))
 
     lines.append('')
     lines.append('X' * 45 + 'EXTRAS' + 'X' * 45)
     lines.append('')
 
+    for j in range(len(extras['Starname'])):
+        if extras['Starname'][j] in gapFillers:
+            fillerFlag = True
+        else:
+            fillerFlag = False
+        row = frame.loc[frame['Starname'] == extras['Starname'][j]]
+        row.reset_index(inplace=True)
+        lines.append(format_kpf_row(row, '56:78', current_day, fillerFlag, False, True))
+
+    # add buffer lines to end of file
+    lines.append("")
+    lines.append("")
     #Formatted starlists appear as text files in the directory
     with open(script_file, 'w') as f:
         f.write('\n'.join(lines))
+    print("Total Open Shutter Time Scheduled: " + str(np.round((total_exptime/3600),2)) + " hours.")
 
 
-def format_kpf_row(row, obs_time, Jtwothousand = False, extra=False):
+def format_kpf_row(row, obs_time, current_day, fillerFlag = False, Jtwothousand = False, extra=False):
+    """
+    Format request data in the specific way needed for the script (relates to the Keck "Magiq" software's data ingestion requirements)
+    Note: this function is here only for completeness but the script generation is now fully done by the TTP standalone package
+
+    Args:
+        row (dataframe): a single row from the requests sheet dataframe
+        obs_time (str): the timestamp of the night to begin the exposure according to the TTP. In format HH:MM in HST timezone
+        fillerFlag (boolean): true of the target was added in the bonus round
+        Jtwothousand (boolean): False if the coordinates epoch is not J2000
+        extra (boolean): is this an extra target
+
+    Returns:
+        line (str): the properly formatted string to be included in the script file
+    """
+
     #Just a bunch of string formatting. This prints standard starlists as ordered by the salesman optimization
     if Jtwothousand:
         # convert the decimal RA/Dec into H:M:S format
@@ -221,7 +347,8 @@ def format_kpf_row(row, obs_time, Jtwothousand = False, extra=False):
             ep = '2016'
         else:
             ep = '2000'
-        rastring, decstring = pm_correcter(row['Starname'][0], row['RA'][0], row['Dec'][0], row['pmRA'][0], row['pmDec'][0], ep, verbose=False)
+        # rastring, decstring = pm_correcter(row['Starname'][0], row['RA'][0], row['Dec'][0], row['pmRA'][0], row['pmDec'][0], ep, verbose=False)
+        rastring, decstring = pm_correcter(row['RA'][0], row['Dec'][0], row['pmRA'][0], row['pmDec'][0], ep, current_day, verbose=False)
         if decstring[0] != "-":
             decstring = "+" + decstring
 
@@ -255,10 +382,13 @@ def format_kpf_row(row, obs_time, Jtwothousand = False, extra=False):
 
     programstring = row['Program_Code'][0]
 
-    priostring = "p1" # For now, no priorities.
+    if fillerFlag:
+        priostring = "p3" # All targets added in round 2 bonus round are inherently lower priority
+    else:
+        priostring = "p1"
 
     if extra == False:
-        timestring2 = str(obs_time)#[11:-7]
+        timestring2 = str(obs_time)
     else:
         timestring2 = "56:78" # choose a nonsense time
 
@@ -273,7 +403,24 @@ def format_kpf_row(row, obs_time, Jtwothousand = False, extra=False):
     return line
 
 
-def pm_correcter(star_in, ra, dec, pmra, pmdec, epochstr, verbose=False):
+def pm_correcter(ra, dec, pmra, pmdec, epochstr, current_day, verbose=False):
+    """
+    Update a star's coordinates due to proper motion
+    Note: this function is here only for completeness but the script generation is now fully done by the TTP standalone package
+
+    Args:
+        ra (str): the target star's old coordinate RA in units of degrees
+        dec (str): the target star's old coordinate Dec in units of degrees
+        pmra (str): the target star's proper motion in the RA dimension, in units of millearcseconds per year
+        pmdec (str): the target star's proper motion in the Dec dimension, in units of millearcseconds per year
+        epochstr (str): a string of the year those coordinates are updated to
+        verbose (boolean): true to print out to command line
+
+    Returns:
+        formatted_ra (str): the updated RA position in units of degrees
+        formatted_dec (str):  the updated Dec position in units of degrees
+    """
+
     # requires giving RA and Dec in degrees
     # example: RA = 321.5 and Dec = 15.6
     # note that degrees are not hour angles!
