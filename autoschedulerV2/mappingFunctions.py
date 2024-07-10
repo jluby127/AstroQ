@@ -142,7 +142,7 @@ def readAccessibilityMapsDict(filename):
     return loaded_dict
 
 
-def singleTargetAccessible(starname, ra, dec, startdate, nNightsInSemester, STEP):
+def singleTargetAccessible(starname, ra, dec, startdate, nNightsInSemester, STEP, turnonoff=False):
     """
     Compute a target's accessibility map
 
@@ -162,11 +162,23 @@ def singleTargetAccessible(starname, ra, dec, startdate, nNightsInSemester, STEP
     date_formal = Time(startdate,format='iso',scale='utc')
     date = str(date_formal)[:10]
     slotwindows_accessible = []
+    quartermap = []
     for d in range(nNightsInSemester):
-        slotwindows_accessible.append(isObservable(date, target, STEP))
+        oneNightAccess = isObservable(date, target, STEP)
+        slotwindows_accessible.append(oneNightAccess)
         date_formal += TimeDelta(1,format='jd')
         date = str(date_formal)[:10]
-    return slotwindows_accessible
+        if turnonoff:
+            quartermap.append(quarterObservable(oneNightAccess))
+
+    if turnonoff:
+        turns = []
+        for q in range(4):
+            onoffvals = quarterObservabilityCalculator(quartermap, q)
+            turns.append(onoffvals)
+        return slotwindows_accessible, turns
+    else:
+        return slotwindows_accessible
 
 
 def isObservable(date, target, STEP):
@@ -250,7 +262,7 @@ def moon_safe(moon,target_tuple):
 
 def getStats(accessMap):
     """
-    A helper function to return the stats about a single target's accessiblity. These are useful for checking feasibilty and for generating the cadence plot of an individual target 
+    A helper function to return the stats about a single target's accessiblity. These are useful for checking feasibilty and for generating the cadence plot of an individual target
 
     Args:
         accessMap (array): a 2D array of shape nNightsInSemester by nSlotsInNight where 1's indicate the target is accessible
@@ -285,3 +297,230 @@ def getStats(accessMap):
         setday = len(sumAlongDays)
 
     return days_observable, riseday, setday
+
+
+
+def reformatKeckAllocationData(allocation_file):
+    """
+    Before a new semester, download the allocation schedule for KPF from https://www2.keck.hawaii.edu/observing/keckSchedule/queryForm.php
+
+    Args:
+        allocation_file (str): the path and filename to the downloaded csv from website above
+    Returns:
+        allocation (dataframe): a dataframe containing each night's award and start/stop times
+    """
+
+# Read in allocation file, as downloaded from this site filtering by KPF and the relevant semester:
+# https://www2.keck.hawaii.edu/observing/keckSchedule/queryForm.php
+
+    # Thanks to H. Isaacson for portion of code which I adapted further.
+    # Here we are parsing the Time column for which quarters of the night are allocated to us.
+    # Note: this assumes time is awarded in 0.25 night increments.
+    # If non-0.25 increment of time exists, assume the whole night is allocated and then
+    #      the best way to deal with this is to later define a new map,
+    #      set the relevant slots equal to 0, then apply map to all targets.
+    # -----------------------------------------------------------------------------------------
+
+    allocation = pd.read_csv(allocation_file)
+
+    # Manually go through this file and add a column called 'Queue' where a 'y'
+    # indicates this award is part of the KPF-CC queue and a 'n' indicates it is not.
+    # Or automatically add 'y' to all awards.
+    allocation['Queue'] = ['y']*len(allocation)
+
+    allocation['Time'] = allocation['Time'].str.replace(r'\s+(\d+%)', r'\1', regex=True)
+    # Define a regular expression pattern to extract start time, stop time, and percentage
+    pattern = r'(\d{2}:\d{2}) - (\d{2}:\d{2}) \((\d{2,3})%\)'
+    # Extract the start time, stop time, and percentage using the pattern
+    allocation[['Start', 'Stop', 'Percentage']] = allocation['Time'].str.extract(pattern)
+
+    for i, item in enumerate(allocation['Percentage']):
+        time_string = allocation['Start'].iloc[i]
+
+        if item == '100':
+            allocation['Start'].iloc[i] = 0
+            allocation['Stop'].iloc[i]  = 1
+
+        elif (item == '75'):
+            if (time_string.startswith("07")) | (time_string.startswith("08")):
+                allocation['Start'].iloc[i] = 0.25
+                allocation['Stop'].iloc[i]  = 1
+            elif (time_string.startswith("04")) | (time_string.startswith("05")):
+                allocation['Start'].iloc[i] = 0
+                allocation['Stop'].iloc[i]  = 0.75
+            else:
+                print("We have a problem, error code 1.")
+                print(allocation['Date'].iloc[i], allocation['Start'].iloc[i], allocation['Stop'].iloc[i])
+
+        elif (item == '50'):
+            if (time_string.startswith("04")) | (time_string.startswith("05")):
+                allocation['Start'].iloc[i] = 0
+                allocation['Stop'].iloc[i]  = 0.5
+            elif (time_string.startswith("07")) | (time_string.startswith("08")):
+                allocation['Start'].iloc[i] = 0.25
+                allocation['Stop'].iloc[i]  = 0.75
+            elif (time_string.startswith("10")) | (time_string.startswith("11")):
+                allocation['Start'].iloc[i] = 0.5
+                allocation['Stop'].iloc[i]  = 1
+            else:
+                print("We have a problem, error code 2.")
+                print(allocation['Date'].iloc[i], allocation['Start'].iloc[i], allocation['Stop'].iloc[i])
+
+        elif (item == '25'):
+            if (time_string.startswith("04")) | (time_string.startswith("05")):
+                allocation['Start'].iloc[i] = 0
+                allocation['Stop'].iloc[i]  = 0.25
+            elif (time_string.startswith("06")) | (time_string.startswith("07")) | (time_string.startswith("08")):
+                allocation['Start'].iloc[i] = 0.25
+                allocation['Stop'].iloc[i]  = 0.5
+            elif (time_string.startswith("09")) | (time_string.startswith("10")):
+                allocation['Start'].iloc[i] = 0.5
+                allocation['Stop'].iloc[i]  = 0.75
+            elif (time_string.startswith("11")) | (time_string.startswith("12")) | (time_string.startswith("13")):
+                allocation['Start'].iloc[i] = 0.75
+                allocation['Stop'].iloc[i]  = 1
+            else:
+                print("We have a problem, error code 3.")
+                print(allocation['Date'].iloc[i], allocation['Start'].iloc[i], allocation['Stop'].iloc[i])
+        else:
+            print("Special case: non-25% of night increment. Implementing whole night as precaution.")
+            print("Date: ", allocation['Date'].iloc[i])
+            print("True allocation amount: ", item)
+            allocation['Start'].iloc[i] = 0
+            allocation['Stop'].iloc[i]  = 1
+
+    return allocation
+
+def translator(start, stop):
+    """
+    Map the start/stop fractions to binary map. I can't think of a better/automated way to do this other than brute force, sorry.
+
+    Args:
+        start (float): the fraction of night where the night begins
+        stop (float): the fraction of night where the night ends
+    Returns:
+        nightMap (str): a string representation of the quarters of the night that are allocated to the queue
+    """
+
+    # Map start/stop to allocation
+    if start == 0. and stop == 0.25:
+        nightMap = "1 0 0 0"
+    elif start == 0.25 and stop == 0.5:
+        nightMap = "0 1 0 0"
+    elif start == 0.5 and stop == 0.75:
+        nightMap = "0 0 1 0"
+    elif start == 0.75 and stop == 1.:
+        nightMap = "0 0 0 1"
+
+    elif start == 0. and stop == 0.5:
+        nightMap = "1 1 0 0"
+    elif start == 0.25 and stop == 0.75:
+        nightMap = "0 1 1 0"
+    elif start == 0.5 and stop == 1.:
+        nightMap = "0 0 1 1"
+
+    elif start == 0. and stop == 0.75:
+        nightMap = "1 1 1 0"
+    elif start == 0.25 and stop == 1.:
+        nightMap = "0 1 1 1"
+
+    elif start == 0. and stop == 1.:
+        nightMap = "1 1 1 1"
+
+    else:
+        nightMap = "0 0 0 0"
+        print("We have a problem, error code 4.")
+
+    return nightMap
+
+def quarterObservable(observability_matrix):
+    """
+    For a single night, determine which of the quarters the given target is observable
+
+    Args:
+        observability_matrix (array): a 1D array of length equal to nSlotsInNight representing a single night where 1 indicates target is accessible in that slot, 0 otherwise.
+    Returns:
+        observable_quarters (array): a 1D array of length 4 where each element represents if the target is at all observerable in that quarter (1st to 4th running left to right).
+    """
+    # Note: this is only a rough calculation. Especially because the division of the 4 quarters is the same for all nights of the year, regardless of true twilight times
+
+    observable_quarters = []
+    quarter = int(len(observability_matrix) / 4)
+
+    q1 = observability_matrix[0:quarter]
+    q1_up = np.sum(q1)
+    if q1_up > 4:
+        observable_quarters.append(1)
+    else:
+        observable_quarters.append(0)
+
+    q2 = observability_matrix[quarter:2*quarter]
+    q2_up = np.sum(q2)
+    if q2_up > 4:
+        observable_quarters.append(1)
+    else:
+        observable_quarters.append(0)
+
+    q3 = observability_matrix[2*quarter:3*quarter]
+    q3_up = np.sum(q3)
+    if q3_up > 4:
+        observable_quarters.append(1)
+    else:
+        observable_quarters.append(0)
+
+    q4 = observability_matrix[3*quarter:]
+    q4_up = np.sum(q4)
+    if q4_up > 4:
+        observable_quarters.append(1)
+    else:
+        observable_quarters.append(0)
+
+    return observable_quarters
+
+
+def quarterObservabilityCalculator(quartermap, quarter):
+    quartermap = np.array(quartermap)
+    quartermapT = quartermap.T
+    quartermapT0 = list(quartermapT[quarter])
+    try:
+        on0 = quartermapT0.index(1)
+        quartermapT0.reverse()
+        off0 = len(quartermapT0) - quartermapT0.index(1)
+    except:
+        on0 = 0
+        off0 = 0
+    return [on0, off0]
+
+def roundToSlot(time, slotsize):
+    hour = int(time[:2])
+    minute = int(time[3:])
+
+    if minute%slotsize == 0:
+        return time
+    else:
+        rounded = round(minute,-1)
+        if rounded == 0:
+            rounded = "00"
+        if rounded == 60:
+            rounded = "00"
+            hour += 1
+        if hour < 10:
+            hour = "0" + str(hour)
+        if hour == 24:
+            hour = "00"
+        newtime = str(hour) + ":" + str(rounded)
+        return newtime
+
+def convertUTC2HST(timestring):
+    # assume timestring is a string of format "HH:MM"
+    offset = 10 # Timezone difference between UTC and HST.
+    # Offset is always the same over the course of the year because UTC doesn't do daylight savings and neither does HST.
+    hour = int(timestring[:2]) - offset
+    if hour < 0:
+        hour = 24 + hour
+
+    if hour < 10:
+        hour = '0' + str(hour)
+    else:
+        hour = str(hour)
+    return hour + timestring[2:]

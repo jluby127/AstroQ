@@ -22,6 +22,8 @@ twilight_times =  dirpath + "kpfcc_v2_files/twilight_times_2024A.csv"
 turnFile = dirpath + "kpfcc_v2_files/turnOnOffDates_2024A.csv"
 access_map = dirpath + "kpfcc_v2_files/2024A_AccessibilityMaps__" + str(args.slot_size) + "minSlot_14Hr.pkl"
 nonqueueMap = 'nofilename.csv' #deskpath + 'NonQueueMap_str.txt' #
+enforcedNO = 'nofilename.csv'
+enforcedYES = 'nofilename.csv'
 
 import sys
 sys.path.append(dirpath + "autoschedulerV2/")
@@ -34,8 +36,8 @@ oa.runOptimalAllocation(args.schedule_dates,
                args.slot_size,
                starmap_template_filename,
                turnFile,
-               'nofilename.csv',
-               'nofilename.csv',
+               enforcedNO,
+               enforcedYES,
                nonqueueMap,
                args.gurobi_output,
                args.plot_results,

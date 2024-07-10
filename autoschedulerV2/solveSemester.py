@@ -142,7 +142,7 @@ def runKPFCCv2(current_day,
         AvailableSlotsInGivenNight.append(edge)
 
     # Build the twilight times maps
-    twilightMap_all = np.array(mf.buildTwilightMap(AvailableSlotsInGivenNight, nSlotsInNight, invert=False, reorder=False))
+    twilightMap_all = np.array(mf.buildTwilightMap(AvailableSlotsInGivenNight, nSlotsInNight, invert=False))
 
     twilightMap_toDate = twilightMap_all.copy()
     twilightMap_toDate = twilightMap_toDate[all_dates_dict[current_day]:]
@@ -398,10 +398,6 @@ def runKPFCCv2(current_day,
         all_access = np.array(accessmaps_precompute[name]).flatten()
         startslot = (all_dates_dict[current_day])*nSlotsInNight # plus 1 to account for python indexing?
         access = all_access[startslot:]
-        print(np.shape(all_access))
-        print(np.shape(access))
-        print(np.shape(alloAndTwiMap))
-        print("----------")
         # fullmap = alloAndTwiMap&access[:len(alloAndTwiMap)]
         fullmap = alloAndTwiMap&access
         for s in range(nSlotsInSemester):
@@ -581,7 +577,7 @@ def runKPFCCv2(current_day,
         else:
             print("")
             print("")
-            print("Round 1 Model Solved.")
+            print("Round 2 Model Solved.")
 
         endtime5 = time.time()
         print("Total Time to finish round 2 solver: ", np.round(endtime5-start_all,3))
