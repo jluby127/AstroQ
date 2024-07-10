@@ -80,7 +80,7 @@ for n in range(len(args.schedule_dates)):
     total_time = np.round((endObs.jd-startObs.jd)*24,3)
     print("Time in Night for Observations: " + str(total_time) + " hours.")
 
-    solution = model.TTPModel(startObs, endObs, targlist, tel)
+    solution = model.TTPModel(startObs, endObs, targlist, tel, savepath)
     solutionDict = solution.schedule
 
     orderedList = []
