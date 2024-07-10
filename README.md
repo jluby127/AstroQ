@@ -10,16 +10,16 @@ A number of packages are required to run this software. They can all be installe
 pip install -r requirements.txt
 while within the main directory. It is recommended that you set up a new conda environment for running this software.
 
-## Note on Gurobi
+#### Note on Gurobi
 A Gurobi license is required for running this package. Licenses can be acquired at their website. Academic professionals may acquire a free license. It recommended that you NOT pip install Gurobi before this package (it is not in the requirements.txt). Instead, first you must obtain a license from Gurobi. Then you can install gorubi into your environment manually. Otherwise, through pip install, you will have a limited test license which does not allow for solving a big model like this problem requires.
 
 # Run instructions:
 As there are two main problems this package solves, each has its own run file. Together they share a few flags, and then each also has its own individual flag options.
 
-## Required Input Files
+#### Required Input Files
 This package expects certain files in certain formats to be operational. Below is a list. The files should be saved in a directory together and then the path and filenames can be hard-coded into the generateScript.py and runOptimalAllocation.py files. These files contain information about the target stars, the requests, the telescope allocation schedule, etc. These files will need to change every semester and therefore the hard-coded paths should be updated each semester.
 
-### Both solvers
+#### Both solvers
 Request Sheet - a csv containing the information on each target's coordinates, stellar parameters, and observational strategy. Specific column names are required.
 
 Instrument Schedule - A txt file representing a python dictionary where each row is formatted as "key:value". The keys are calendar dates in format YYYY-MM-DD and the values are a string of format "X X X X" where X is either a 1 or a 0 to indicate if that quarter (1st to 4th running left to right) is allocated or not (respectively) to the queue.
@@ -34,15 +34,15 @@ Turn On/Off Dates - a csv where each targets first and last calendar day that it
 
 Starmap Template - a csv template of the file which will be used to produce a cadence plot of a specific target. For plotting purposes later. Specific column names required.
 
-### Optimal Semester Schedule
+#### Optimal Semester Schedule
 Past Database - a csv copy of the database which stores all previous true observations. Specific column names are required.
 
-### Optimal Instrument Schedule
+#### Optimal Instrument Schedule
 Enforced Yes - a csv containing the calendar dates and quarters that the solver must select to be allocated to the queue. Specific column names are required.
 
 Enforced No - a csv containing the calendar dates and quarters that the solver is forbidden from selecting to be allocated to the queue. Specific column names are required.
 
-## Shared flags
+#### Shared flags
 -d -- specifies the date to start the solver from. Note that any previous days in the semester will not be scheduled but all days up until the end of the semester will be solved for. Note that for Optimal Instrument Schedule, the date specified should be the first day of the semester in question. There is no default and not specifying a date will throw an error that quits the program.
 
 -f -- name of the folder you wish to save all the output files and figures (include path here too). It is helpful to hard-code the default, then this flag is not needed each time.
@@ -55,12 +55,12 @@ Enforced No - a csv containing the calendar dates and quarters that the solver i
 
 -p -- Turn off printing out of plots and reports. Default is on.
 
-## Optimal Semester Schedule
+#### Optimal Semester Schedule only flags
 To solve the Optimal Semester Schedule from the supplied date (in given format) onwards to the end of the semester and produce a script for tonight's observations, run: python generateScript.py -d YYYY-MM-DD
 
 -r -- Turn on solving Round 2 of the semester solver. Default is off.
 
-## Optimal Instrument Schedule
+#### Optimal Instrument Schedule only flags
 To solve the Optimal Instrument Schedule, run: python runOptimalAllocation.py -d YYYY-MM-DD
 
 # Computational Costs
