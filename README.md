@@ -6,10 +6,12 @@ This package contains the code for solving two related problems:
 2. Optimal Instrument Scheduler -- Determine the best distribution of nights for the KPF-CC queue in a semester
 
 # Installation instructions
-A number of packages are required to run this software. They can all be installed by running:
-pip install -r requirements.txt
-while within the main directory. It is recommended that you set up a new conda environment for running this software.
 
+Use `conda` or `mamba` to install a dedicated envirnoment for KPF-CC
+
+```
+mamba env create -n kpf-cc -f environment.yml 
+```
 
 
 ### Note on Gurobi
