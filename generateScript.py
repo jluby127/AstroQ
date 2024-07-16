@@ -7,7 +7,7 @@ import argparse
 parser = argparse.ArgumentParser(description='Generate schedules with KPF-CC v2')
 
 parser.add_argument('-d','--schedule_dates',action='append',help='Date(s) to be scheduled as strings in format YYYY-MM-DD. Must be in allocated_nights')
-parser.add_argument('-f','--folder', help='Folder to save generated scripts and plots', default='/Users/jack/Desktop/')
+parser.add_argument('-f','--folder', help='Folder to save generated scripts and plots', default='/Users/petigura/Desktop/')
 parser.add_argument('-r','--run_extra_rounds',action='store_true', help='Turn on the additional rounds of scheduling', default=False)
 parser.add_argument('-t','--time_limit', help='Max time spent optimizing (s)',type=int, default=300)
 parser.add_argument('-s','--slot_size', help='The slot size (min)',type=int, default=10)
@@ -17,8 +17,8 @@ parser.add_argument('-p','--plot_results',action='store_true', help='Turn on plo
 args = parser.parse_args()
 
 # -------- 2024A Info ---------
-deskpath = "/Users/jack/Desktop/"
-dirpath = "/Users/jack/Documents/Github/optimalAllocation/"
+deskpath = "/Users/petigura/Desktop/"
+dirpath = "/Users/petigura/code/optimalAllocation/"
 pastDatabase = args.folder + 'KPFCC_' + str(args.schedule_dates[0]) + '_Outputs/' + "queryJumpDatabase.csv" #deskpath + "Jump_allObs2024A.csv" # 'nofilename.csv'
 starmap_template_filename = dirpath + "semesterFiles/2024A/KPF_2024A_Template_all.csv"
 request_sheet = dirpath + "semesterFiles/2024A/2024A_KPFCC_Requests.csv"
