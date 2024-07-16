@@ -111,7 +111,7 @@ def determineTwilightEdges(date, twilight_frame, STEP, verbose=False):
     # Returns an integer representing how many slots within that night are available to the scheduler for placing targets on given night
     # Note that the slot size is given in units of minutes by the STEP variable
 
-    # find date in frame
+    # find date in frame 
     ind = twilight_frame.index[twilight_frame['time_utc'] == date].tolist()
 
     # get 12deg twilight evening time
