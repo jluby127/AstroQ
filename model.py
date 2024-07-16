@@ -11,13 +11,14 @@ from gurobipy import *
 
 class TTPModel(object):
 
-    def __init__(self,start,stop,stars,observatory,runtime=300,optgap=0.01):
+    def __init__(self,start,stop,stars,observatory,outputdir,runtime=300,optgap=0.01):
 
         # Will have observatory object
         self.observatory = observatory
         self.stars = stars
         self.nightstarts = start
         self.nightends = stop
+        self.outputdir = outputdir
         self.runtime = runtime
         self.optgap = optgap
         self.create_nodes()
@@ -50,6 +51,7 @@ class TTPModel(object):
         tl = []
         tau_exp = []
         tau_sep = []
+        prios = []
 
         for i in range(N):
             if i == 0 or i == N-1:
@@ -57,8 +59,10 @@ class TTPModel(object):
                 tl.append((self.nightends-t[0]).jd*24*60)
                 tau_exp.append(0)
                 tau_sep.append(0)
+                prios.append(0)
             else:
                 s = self.stars[node_to_star[i]]
+                prios.append(int(s.priority))
                 tau_exp.append(s.expwithreadout)
                 tau_sep.append(s.intra_night_cadence * 60) # Hours -> minutes
                 AZ = self.observatory.observer.altaz(t, s.target)
@@ -82,6 +86,7 @@ class TTPModel(object):
 
         self.te = np.array(te)
         self.tl = np.array(tl)
+        self.prios = np.array(prios)
         self.tau_exp = np.array(tau_exp)
         self.tau_sep = np.array(tau_sep)
         self.node_to_star = node_to_star
@@ -140,7 +145,7 @@ class TTPModel(object):
             # Take the maximum of all the samples, in both dimensions
             alt_sep = np.abs(alt1-alt2)
             az_sep = np.abs(az1-az2)
-            
+
             # For telescopes without wraps, no slew greater than 180 deg can exist
             if not self.observatory.wrapLimitAngle:
                 az_sep = [360 - x if x > 180 else x for x in az_sep]
@@ -209,11 +214,12 @@ class TTPModel(object):
                                     for i in range(len(indeces))[1:]),'intra_sep_constr')
 
         # Normalize the weighting in the objective to ensure observations are maximized
-        priority_param = 50
+        #priority_param = 50
+        priority_param = self.prios
         slew_param = 1/100
 
         # Maximize number of observations, with a penalty term for long slews
-        Mod.setObjective(priority_param*gp.quicksum(Yi[j] for j in range(N)[1:-1])
+        Mod.setObjective(gp.quicksum(priority_param[j]*Yi[j] for j in range(N)[1:-1])
                             -slew_param *gp.quicksum(tau_slew[(i,j,m)]*Xijm[i,j,m] for i in range(N)[1:-1]
                                         for j in range(N)[1:-1] for m in range(M))
                             ,GRB.MAXIMIZE)
@@ -231,7 +237,7 @@ class TTPModel(object):
         Mod = self.gurobi_model
         Mod.optimize()
 
-        
+
         if Mod.SolCount > 0:
             self.digest_gurobi()
             self.optimization_status()
@@ -240,7 +246,7 @@ class TTPModel(object):
             print('No incumbent solution in time allotted, aborting solve. Try increasing time_limit parameter.')
 
     def digest_gurobi(self):
-        
+
         N = self.N
         M = self.M
         tau_slew = self.tau_slew
@@ -300,7 +306,7 @@ class TTPModel(object):
 
                         alt_sep = np.abs(alt1-alt2)
                         az_sep = np.abs(az1-az2)
-                        
+
                         # For telescopes without wraps, no slew greater than 180 deg can exist
                         if not self.observatory.wrapLimitAngle:
                             if az_sep >= 180:
@@ -328,6 +334,7 @@ class TTPModel(object):
         t_starts = []
         t_ends = []
         n_shots = []
+        priorities = []
         exptimes = []
         ordered_target_nodes = []
         all_times = []
@@ -339,6 +346,7 @@ class TTPModel(object):
             ordered_target_nodes.append(node_ind)
             s = self.stars[self.node_to_star[node_ind]]
             starnames.append(s.name)
+            priorities.append(s.priority)
             n_shots.append(s.shots)
             exptimes.append(s.exptime)
 
@@ -382,7 +390,8 @@ class TTPModel(object):
                         'Stop Exposure':t_ends,
                         'N_shots':n_shots,
                         'Exposure Time (min)':exptimes,
-                        'Total Exp Time (min)':n_shots*exptimes + (45/60)*(n_shots-1)
+                        'Total Exp Time (min)':n_shots*exptimes + (45/60)*(n_shots-1),
+                        'Priority':priorities
                         }
 
 
@@ -400,7 +409,7 @@ class TTPModel(object):
         Mod = self.gurobi_model
         lower = 1 + (Mod.ObjVal // 1)
         slewtime = (lower - Mod.ObjVal)*1/slew_param
-        
+
         upper = 1 + (Mod.ObjBound // 1)
         max_obs = int(upper/priority_param)
         bound_slew = (upper - Mod.ObjBound)*1/slew_param
@@ -420,6 +429,22 @@ class TTPModel(object):
         self.time_exposing = time_exposing
         self.solve_time = Mod.Runtime
 
+        file = open(self.outputdir + "TTPstatistics.txt", "w")
+        file.write("Stats for TTP Solution" + "\n")
+        file.write("------------------------------------" + "\n")
+        file.write(f'    Model ran for {self.solve_time:.2f} seconds' + '\n')
+        file.write(f'     Observations Requested: {self.N-2}' + '\n')
+        file.write(f'     Observations Scheduled: {self.num_scheduled}' + '\n')
+        file.write(f' Maximum Observations Bound: {self.obs_bound}' + '\n')
+        file.write('------------------------------------' + '\n')
+        file.write(f'   Observing Duration (min): {self.dur:.2f}' + '\n')
+        file.write(f'  Time Spent Exposing (min): {self.time_exposing:.2f}' + '\n')
+        file.write(f'      Time Spent Idle (min): {self.time_idle:.2f}' + '\n')
+        file.write(f'   Time Spent Slewing (min): {self.time_slewing:.2f}' + '\n')
+        file.write(f'   Minimum Slew Bound (min): {self.slew_bound:.2f}' + '\n')
+        file.write('------------------------------------' + '\n')
+        file.close()
+
         print('\n')
         print('------------------------------------')
         print(f'    Model ran for {self.solve_time:.2f} seconds')
@@ -433,4 +458,5 @@ class TTPModel(object):
         print(f'      Time Spent Idle (min): {self.time_idle:.2f}')
         print(f'   Time Spent Slewing (min): {self.time_slewing:.2f}')
         print(f'   Minimum Slew Bound (min): {self.slew_bound:.2f}')
-        print('------------------------------------')   
+        print('------------------------------------')
+        print("Done!")

@@ -6,9 +6,10 @@ def theTTP(filename):
 
     targets = pd.read_csv(filename)
 
-    if list(targets.columns) != ['Starname', 'RA', 'Dec', 'Exposure Time', 'Exposures Per Visit', 'Visits In Night', 'Intra_Night_Cadence']:
+    if list(targets.columns) != ['Starname', 'RA', 'Dec', 'Exposure Time', 'Exposures Per Visit', 'Visits In Night', 'Intra_Night_Cadence', 'Priority']:
+        print(list(targets.columns))
         print("Error: column names not correct.")
-        print("Column names must be this format and this order: ['Starname', 'RA', 'Dec', 'Exposure Time', 'Exposures Per Visit', 'Visits In Night', 'Intra_Night_Cadence'].")
+        print("Column names must be this format and this order: ['Starname', 'RA', 'Dec', 'Exposure Time', 'Exposures Per Visit', 'Visits In Night', 'Intra_Night_Cadence', 'Priority'].")
         return
     else:
         print("Building Star objects:")
