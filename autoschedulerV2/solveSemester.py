@@ -42,6 +42,8 @@ def runKPFCCv2(current_day,
                semesterTemplateFile,
                turnOffOnFile,
                nonqueueMap,
+               specialMaps,
+               zeroOutFile,
                gurobi_output = True,
                plot_results = True,
                SolveTime = 300):
@@ -86,9 +88,10 @@ def runKPFCCv2(current_day,
     # -------------------------------------------------------------------
     # -------------------------------------------------------------------
     semester_start_date, semester_end_date, semesterLength, semesterYear, semesterLetter = hf.getSemesterInfo(current_day)
+    semesterLength = 89 # note: special for now! delete later
     all_dates_dict = hf.buildDayDateDictionary(semester_start_date, semesterLength)
     dates_in_semester = list(all_dates_dict.keys())
-    nNightsInSemester = hf.currentDayTracker(current_day, all_dates_dict)
+    nNightsInSemester = hf.currentDayTracker(current_day, all_dates_dict)# + 1 #note: delete the plus 1!!
 
     nQuartersInNight = 4
     nHoursInNight = 14
@@ -101,6 +104,9 @@ def runKPFCCv2(current_day,
     nightSlots_grid = np.arange(0,nSlotsInNight,1)
     startingSlot = all_dates_dict[current_day]*nSlotsInNight
     startingNight =  all_dates_dict[current_day]
+
+
+    nSlotsInSemester -= nSlotsInNight # note: delete this line later!
 
     # -------------------------------------------------------------------
     # -------------------------------------------------------------------
@@ -130,7 +136,7 @@ def runKPFCCv2(current_day,
     ntargets = len(cadenced_targets)
 
     # Read in twilight times
-    twilight_frame = pd.read_csv(twilightFile, parse_dates=True, index_col=0)
+    twilight_frame = pd.read_csv(twilightFile, parse_dates=True)
 
     # AvailableSlotsInGivenNight is a 1D matrix of length nights n
     # This is not a gorubi variable, but a regular python variable
@@ -164,11 +170,24 @@ def runKPFCCv2(current_day,
             tmpRead = accessmaps_precompute[name]
         except:
             print(name + " not found in precomputed accessibilty maps. Running now.")
-            newmap = mf.singleTargetAccessible(name, row['RA'], row['Dec'], semester_start_date, semesterLength, STEP)
+            newmap = mf.singleTargetAccessible(name, row['RA'], row['Dec'], semester_start_date, semesterLength-1, STEP) #note the -1 is just for the 2024B shortened semester, delete later
             accessmaps_precompute[name] = newmap
             rewriteFlag = True
     if rewriteFlag:
         mf.writeAccessibilityMapsDict(accessmaps_precompute, '/Users/jack/Desktop/tmpaccessmap.pkl') #accessibilitiesFile)
+
+    # read in the customized maps for unique targets
+    uniqueTargetMaps = mf.readAccessibilityMapsDict(specialMaps)
+
+    # list of stars to be purposefully excluded from tonight's script
+    # for generating more P1 stars as gapFillers
+    if zeroOutFile != 'nofilename.txt':
+        # zeroOut_names = np.loadtxt(zeroOutFile, delimiter=' ', dtype=str)
+        zeroOut = pd.read_csv(zeroOutFile)
+        zeroOut_names = list(zeroOut['Target'])
+    else:
+        zeroOut_names = []
+
 
     print("Solving the semester schedule problem.")
 
@@ -186,6 +205,20 @@ def runKPFCCv2(current_day,
     for b in range(len(allocation_schedule_load)):
         convert = list(map(int, allocation_schedule_load[b][2:]))
         allocation_schedule_full_semester.append(convert)
+
+    # determine the first and last allocated day of the semester, for COF plotting purposes only
+    firstday = 0
+    lastday = len(allocation_schedule_full_semester)
+    for c in range(len(allocation_schedule_full_semester)):
+        if np.sum(allocation_schedule_full_semester[c]) > 0:
+            firstday = c
+            break
+    for e in range(len(allocation_schedule_full_semester)-1, 1, -1):
+        if np.sum(allocation_schedule_full_semester[e]) > 0:
+            lastday = e
+            break
+    startends = [semester_start_date, dates_in_semester[firstday], dates_in_semester[lastday], semester_end_date]
+    print(startends)
 
     # Randomly sample out 30% of future allocated quarters to simulate weather loss
     print("Sampling out weather losses")
@@ -233,6 +266,7 @@ def runKPFCCv2(current_day,
     # output the maps for testing
     # np.savetxt('/Users/jack/Desktop/availSlots.txt', AvailableSlotsInGivenNight, delimiter=',', fmt='%1i')
     # np.savetxt('/Users/jack/Desktop/alloMaps.txt', allocation_map_NS, delimiter=',', fmt='%1i')
+    # np.savetxt('/Users/jack/Desktop/alloMaps_all.txt', allocation_map_NS_fullsemester, delimiter=',', fmt='%1i')
     # np.savetxt('/Users/jack/Desktop/twiMaps.txt', twilightMap_all, delimiter=',', fmt='%1i')
     # np.savetxt('/Users/jack/Desktop/intersection.txt', np.reshape(alloAndTwiMap, (nNightsInSemester, nSlotsInNight)), delimiter=',', fmt='%1i')
     # print("OUTPUTTED MAPS")
@@ -394,12 +428,31 @@ def runKPFCCv2(current_day,
     print("Constraint: enforce twilight times")
     print("Constraint: only observe if accessible")
     print("Constraint: enforce no observations when not allocated.")
+    print("Constraint: enforce custom maps.")
+    uniqueTargetMap_names = list(uniqueTargetMaps.keys())
     for name in all_targets_frame['Starname']:
         all_access = np.array(accessmaps_precompute[name]).flatten()
         startslot = (all_dates_dict[current_day])*nSlotsInNight # plus 1 to account for python indexing?
         access = all_access[startslot:]
+        alloAndTwiMap_short = alloAndTwiMap[:-nSlotsInNight] # note: temporary, delete later?
+        # alloAndTwiMap_short = alloAndTwiMap[startslot:]
         # fullmap = alloAndTwiMap&access[:len(alloAndTwiMap)]
-        fullmap = alloAndTwiMap&access
+        # fullmap = alloAndTwiMap&access
+        if name in uniqueTargetMap_names:
+            # customMap = uniqueTargetMaps[name][startslot:-nSlotsInNight]
+            customMap = uniqueTargetMaps[name][startslot:]
+        else:
+            customMap = np.array([1]*nSlotsInSemester)
+
+        # enforce that certain targets not be allowed to be scheduled tonight
+        # the idea is this creates a second script from which we can pull more P1 targets
+        # to fill gaps in the schedule.
+        # This is because the TTP is too good at saving us time!
+        zeroMap = np.array([1]*nSlotsInSemester)
+        if name in zeroOut_names:
+            zeroMap[:nSlotsInNight] = np.array([0]*nSlotsInNight)
+
+        fullmap = alloAndTwiMap_short&access&customMap&zeroMap
         for s in range(nSlotsInSemester):
             m.addConstr(Yns[name,s] <= fullmap[s], 'enforceMaps_' + str(name) + "_" + str(s) + "s")
 
@@ -533,7 +586,7 @@ def runKPFCCv2(current_day,
         firstDayAllocated = dates_in_semester[allocated_days[0][0]]
         lastDayAllocated = dates_in_semester[allocated_days[0][-1]]
         notable_dates = [semester_start_date, firstDayAllocated, lastDayAllocated, semester_end_date]
-        rf.buildCOF(outputDirectory, current_day, all_targets_frame, all_dates_dict, all_starmaps, notable_dates, False)
+        rf.buildCOF(outputDirectory, current_day, startends, all_targets_frame, all_dates_dict, all_starmaps, notable_dates, False)
 
     endtime4 = time.time()
     print("Total Time to complete Round 1: " + str(np.round(endtime4-start_all,3)))
@@ -609,5 +662,10 @@ def runKPFCCv2(current_day,
         filename.write("\n")
         filename.close()
         print("Round 2 complete.")
+    else:
+        print("Not running Round 2. Duplicating Raw Schedule as dummy file.")
+        np.savetxt(outputDirectory + 'raw_combined_semester_schedule_Round2.txt', combined_semester_schedule, delimiter=',', fmt="%s")
+        gapStars = []
+        np.savetxt(outputDirectory + 'gapFillerTargets.txt', gapStars, delimiter=',', fmt="%s")
 
     print("done")

@@ -156,7 +156,7 @@ def getSemesterInfo(current_day):
             semesterLength = 181
     elif semesterLetter == 'B':
         semester_start_date = semesterYear + '-08-01'
-        semester_end_date = semesterYear + '-01-31'
+        semester_end_date = str(int(semesterYear) + 1) + '-01-31'
         semesterLength = 184
     return semester_start_date, semester_end_date, semesterLength, semesterYear, semesterLetter
 
