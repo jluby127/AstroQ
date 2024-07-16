@@ -68,7 +68,7 @@ def buildFullnessReport(allocation_schedule, twilightMap, combined_semester_sche
     #     ff.write("--------------------------------------------------------------------------------------" + "\n")
     # ff.close()
 
-def buildCOF(outputdir, current_day, all_targets_frame, all_dates_dict, starmap_maps, notable_dates, compare_original):
+def buildCOF(outputdir, current_day, startends, all_targets_frame, all_dates_dict, starmap_maps, notable_dates, compare_original):
     dates_in_semester = list(all_dates_dict.keys())
     x = []
     y = []
@@ -113,8 +113,10 @@ def buildCOF(outputdir, current_day, all_targets_frame, all_dates_dict, starmap_
     BurnProg = ['Even Burn Rate']*4
     PercentComplete = [0, 0, 100, 100]
     TotalObsRequested = [100, 100, 100, 100]
-    #notable_dates = ['2024-08-01', '2024-08-01', '2025-01-31', '2025-01-31']
-    notable_dates = ['2024-02-01', '2024-02-24', '2024-07-28', '2024-07-31']
+    notable_dates = startends
+    # notable_dates = ['2024-08-01', '2024-08-02', '2024-10-27', '2024-11-01']
+    # notable_dates = ['2024-08-01', '2024-08-02', '2025-01-31', '2025-01-31']
+    #notable_dates = ['2024-02-01', '2024-02-24', '2024-07-28', '2024-07-31']
     for b in range(len(notable_dates)):
         prog.append(BurnProg[b])
         x.append(notable_dates[b])
