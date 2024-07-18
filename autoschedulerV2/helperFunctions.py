@@ -198,3 +198,20 @@ def currentDayTracker(current_day, all_dates):
     remove_days = all_dates[current_day] - 1
     daysRemaining = len(all_dates) - 1 - remove_days
     return daysRemaining
+
+
+def roundSlots(exptime, STEP):
+    """
+    Computes the slots needed for a given exposure but without always rounding up, rather rounding to nearest number of slots needed
+    For example: under 5 minute slot sizes, we want a 6 minute exposure to only require one slot (round down) as opposed to 2 slots (round up)
+    Note: do not apply this function to any exposure times that are less than 1 slot size.
+
+    Args:
+        exptime (int): the exposure time in seconds
+        STEP (int): the slot size in seconds
+
+    Returns:
+        val (int): the number of slots required for this exposure
+    """
+    val = int(round(exptime/STEP))
+    return val
