@@ -88,7 +88,7 @@ def runKPFCCv2(current_day,
     # -------------------------------------------------------------------
     # -------------------------------------------------------------------
     semester_start_date, semester_end_date, semesterLength, semesterYear, semesterLetter = hf.getSemesterInfo(current_day)
-    semesterLength = 89 # note: special for now! delete later
+    #semesterLength = 89 # note: special for now! delete later
     all_dates_dict = hf.buildDayDateDictionary(semester_start_date, semesterLength)
     dates_in_semester = list(all_dates_dict.keys())
     nNightsInSemester = hf.currentDayTracker(current_day, all_dates_dict)# + 1 #note: delete the plus 1!!
@@ -106,7 +106,7 @@ def runKPFCCv2(current_day,
     startingNight =  all_dates_dict[current_day]
 
 
-    nSlotsInSemester -= nSlotsInNight # note: delete this line later!
+    #nSlotsInSemester -= nSlotsInNight # note: delete this line later!
 
     # -------------------------------------------------------------------
     # -------------------------------------------------------------------
@@ -120,17 +120,24 @@ def runKPFCCv2(current_day,
 
     # Build dictionary where keys are target names and
     # values are how many slots are needed to complete one exposure for that target
+    alwaysRoundUp = False
     slotsNeededDict = {}
     for n,row in all_targets_frame.iterrows():
         name = row['Starname']
         # schedule multi-shots and multi-visits as if a single, long exposure. When n_shots and n_visits are both 1, this reduces down to just the stated true exposure time.
         singlevisit = row['Nominal_ExpTime']*row['N_Observations_per_Visit'] + 45*(row['N_Observations_per_Visit'] - 1)
         exptime = singlevisit*row['N_Visits_per_Night']
-        slotsneededperExposure = math.ceil(exptime/(STEP*60.))
+        if alwaysRoundUp:
+            slotsneededperExposure = math.ceil(exptime/(STEP*60.))
+        else:
+            if exptime > STEP*60.:
+                slotsneededperExposure = hf.roundSlots(exptime, STEP*60.)
+            else:
+                slotsneededperExposure = 1
         slotsNeededDict[name] = slotsneededperExposure
 
     # Sub-divide target list into only those that are more than 1 unique night of observations.
-    # Single shot observations may scheduled in a future Round 3, TBD.
+    # Single shot observations may scheduled in a future Round 1.5, TBD.
     cadenced_targets = all_targets_frame[(all_targets_frame['N_Unique_Nights_Per_Semester'] > 1)]
     cadenced_targets.reset_index(inplace=True)
     ntargets = len(cadenced_targets)
@@ -177,7 +184,10 @@ def runKPFCCv2(current_day,
         mf.writeAccessibilityMapsDict(accessmaps_precompute, '/Users/jack/Desktop/tmpaccessmap.pkl') #accessibilitiesFile)
 
     # read in the customized maps for unique targets
-    uniqueTargetMaps = mf.readAccessibilityMapsDict(specialMaps)
+    if specialMaps != 'nofilename.txt':
+        uniqueTargetMaps = mf.readAccessibilityMapsDict(specialMaps)
+    else:
+        uniqueTargetMaps = {}
 
     # list of stars to be purposefully excluded from tonight's script
     # for generating more P1 stars as gapFillers
@@ -434,8 +444,10 @@ def runKPFCCv2(current_day,
         all_access = np.array(accessmaps_precompute[name]).flatten()
         startslot = (all_dates_dict[current_day])*nSlotsInNight # plus 1 to account for python indexing?
         access = all_access[startslot:]
-        alloAndTwiMap_short = alloAndTwiMap[:-nSlotsInNight] # note: temporary, delete later?
-        # alloAndTwiMap_short = alloAndTwiMap[startslot:]
+
+        #alloAndTwiMap_short = alloAndTwiMap[:-nSlotsInNight] # note: temporary, delete this later.
+        #alloAndTwiMap_short = alloAndTwiMap[startslot:]
+
         # fullmap = alloAndTwiMap&access[:len(alloAndTwiMap)]
         # fullmap = alloAndTwiMap&access
         if name in uniqueTargetMap_names:
@@ -452,7 +464,9 @@ def runKPFCCv2(current_day,
         if name in zeroOut_names:
             zeroMap[:nSlotsInNight] = np.array([0]*nSlotsInNight)
 
-        fullmap = alloAndTwiMap_short&access&customMap&zeroMap
+        #print(name, np.shape(alloAndTwiMap), np.shape(alloAndTwiMap_short), np.shape(access), np.shape(customMap), np.shape(zeroMap))
+        # fullmap = alloAndTwiMap_short&access&customMap&zeroMap
+        fullmap = alloAndTwiMap&access&customMap&zeroMap
         for s in range(nSlotsInSemester):
             m.addConstr(Yns[name,s] <= fullmap[s], 'enforceMaps_' + str(name) + "_" + str(s) + "s")
 
