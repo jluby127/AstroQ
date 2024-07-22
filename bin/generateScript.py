@@ -3,11 +3,11 @@ import pandas as pd
 from astropy.time import Time
 from astropy.time import TimeDelta
 import argparse
+import os
 
 parser = argparse.ArgumentParser(description='Generate schedules with KPF-CC v2')
-
 parser.add_argument('-d','--schedule_dates',action='append',help='Date(s) to be scheduled as strings in format YYYY-MM-DD. Must be in allocated_nights')
-parser.add_argument('-f','--folder', help='Folder to save generated scripts and plots', default='/Users/jack/Desktop/2024A_Test/')
+parser.add_argument('-f','--folder', help='Folder to save generated scripts and plots', default=os.environ["KPFCC_SAVE_PATH"])
 parser.add_argument('-r','--run_extra_rounds',action='store_true', help='Turn on the additional rounds of scheduling', default=False)
 parser.add_argument('-t','--time_limit', help='Max time spent optimizing (s)',type=int, default=300)
 parser.add_argument('-s','--slot_size', help='The slot size (min)',type=int, default=10)
@@ -25,10 +25,8 @@ turnFile = args.folder + "inputs/TurnOnOff.csv"
 starmap_template_filename = args.folder + "inputs/Template.csv"
 nonqueueMap =  'nofilename.csv'
 
-# -------- 2024A Info ---------
-dirpath = "/Users/jack/Documents/Github/optimalAllocation/"
 import sys
-sys.path.append("../autoschedulerV2/")
+sys.path.append("../kpfcc/")
 import solveSemester as ssm
 ssm.runKPFCCv2(args.schedule_dates,
                           request_sheet,
@@ -49,12 +47,12 @@ ssm.runKPFCCv2(args.schedule_dates,
 
 import processingFunctions as pf
 import helperFunctions as hf
-sys.path.append('/Users/jack/Documents/Github/ttp/')
+sys.path.append(os.environ["TTP_PATH"])
 import formatting
 import telescope
 import plotting
 import model
-savepath = args.folder + 'KPFCC_' + str(args.schedule_dates[0]) + '_Outputs/'
+savepath = args.folder + 'outputs/' + str(args.schedule_dates[0]) + '/'
 print("Prepare schedule for the TTP.")
 tel = telescope.Keck1()
 startstoptimes =  pd.read_csv(args.folder + "inputs/Nightly_StartStop_Times.csv")
@@ -95,3 +93,5 @@ for n in range(len(args.schedule_dates)):
     all_targets_frame = pd.read_csv(request_sheet)
     gapFillers = np.loadtxt(savepath + 'gapFillerTargets.txt', delimiter=',', dtype=str)
     pf.write_starlist(all_targets_frame, obs_and_times, solution.extras, gapFillers, 'nominal', str(args.schedule_dates[0]), savepath)
+
+print("Semester is scheduled and script is generated. Complete.")
