@@ -3,11 +3,11 @@ import pandas as pd
 from astropy.time import Time
 from astropy.time import TimeDelta
 import argparse
+import os
 
 parser = argparse.ArgumentParser(description='Generate schedules with KPF-CC v2')
-
 parser.add_argument('-d','--schedule_dates',action='append',help='Date(s) to be scheduled as strings in format YYYY-MM-DD. Must be in allocated_nights')
-parser.add_argument('-f','--folder', help='Folder to save generated scripts and plots', default='/Users/jack/Desktop/')
+parser.add_argument('-f','--folder', help='Folder to save generated scripts and plots', default=os.environ["KPFCC_SAVE_PATH"])
 parser.add_argument('-r','--run_extra_rounds',action='store_true', help='Turn on the additional rounds of scheduling', default=False)
 parser.add_argument('-t','--time_limit', help='Max time spent optimizing (s)',type=int, default=300)
 parser.add_argument('-s','--slot_size', help='The slot size (min)',type=int, default=10)
@@ -16,48 +16,24 @@ parser.add_argument('-p','--plot_results',action='store_true', help='Turn on plo
 
 args = parser.parse_args()
 
-# # -------- 2024A Info ---------
-# deskpath = "/Users/jack/Desktop/"
-# dirpath = "/Users/jack/Documents/Github/optimalAllocation/"
-# dirpath2 = "/Users/jack/Documents/Github/optimalAllocation/"
-# pastDatabase = args.folder + 'KPFCC_' + str(args.schedule_dates[0]) + '_Outputs/' + "queryJumpDatabase.csv" #deskpath + "Jump_allObs2024A.csv" # 'nofilename.csv'
-# starmap_template_filename = dirpath + "semesterFiles/2024A/KPF_2024A_Template_all.csv"
-# request_sheet = dirpath + "semesterFiles/2024A/2024A_KPFCC_Requests.csv"
-# allocated_nights =  dirpath + "semesterFiles/2024A/2024A_Binary_Schedule.txt"
-# twilight_times =  dirpath + "semesterFiles/2024A/twilight_times_2024A.csv"
-# turnFile = dirpath + "semesterFiles/2024A/turnOnOffDates_2024A.csv"
-# access_map = dirpath + "semesterFiles/2024A/2024A_AccessibilityMaps__" + str(args.slot_size) + "minSlot_14Hr.pkl"
-# nonqueueMap =  'nofilename.csv'
-# zeroOutFile = 'nofilename.txt'
-# specialMaps = 'nofilename.txt'
-# startstoptimes = pd.read_csv(dirpath + 'semesterFiles/2024A/Nightly_StartStop_Times.csv')
-
-# -------- 2024B Info ---------
-deskpath = "/Users/jack/Desktop/"
-dirpath = "/Users/jack/Documents/Github/optimalAllocation/"
-dirpath2 = "/Users/jack/Desktop/" + "2024B_Testing_noPickle/inputs/"
-pastDatabase = 'nofilename.csv' #args.folder + 'KPFCC_' + str(args.schedule_dates[0]) + '_Outputs/' + "queryJumpDatabase.csv" #deskpath + "Jump_allObs2024A.csv" # 'nofilename.csv'
-starmap_template_filename = dirpath2 + "2024B_cadenceTemplateFile.csv"
-request_sheet = dirpath2 + "Requests3.csv"
-allocated_nights =  dirpath2 + "2024B_Binary_Schedule.txt"
-twilight_times =  dirpath2 + "2024B_twilight_times.csv"
-turnFile = dirpath2 + "2024B_turnOnOffDates.csv"
-access_map = dirpath2 + "2024B_AccessMaps_" + str(args.slot_size) + "minSlots.txt"
-nonqueueMap =  dirpath2 + '2024B_NonQueueMap' + str(args.slot_size) + '.txt'
-specialMaps = dirpath2 + "2024B_specialMaps_" + str(args.slot_size) + "minSlots.txt"
-zeroOutFile = deskpath + 'zeroOut.txt'
-# zeroOutFile = 'nofilename.txt'
-startstoptimes = pd.read_csv(dirpath2 + '2024B_NightlyStartStopTimes.csv')
+request_sheet = args.folder + "inputs/Requests.csv"
+allocated_nights = args.folder + "inputs/Binary_Schedule.txt"
+pastDatabase = args.folder + "inputs/queryJumpDatabase.csv"
+twilight_times = args.folder + "inputs/Twilight.csv"
+access_map = args.folder + "inputs/AccessibilityMaps_" + str(args.slot_size) + "minSlot_14Hr.pkl"
+turnFile = args.folder + "inputs/TurnOnOff.csv"
+starmap_template_filename = args.folder + "inputs/Template.csv"
+nonqueueMap =  'nofilename.csv'
 
 import sys
-sys.path.append(dirpath + "autoschedulerV2/")
+sys.path.append("../kpfcc/")
 import solveSemester as ssm
 ssm.runKPFCCv2(args.schedule_dates,
                           request_sheet,
                           allocated_nights,
                           access_map,
                           twilight_times,
-                          args.folder + 'KPFCC_' + str(args.schedule_dates[0]) + '_Outputs/',
+                          args.folder + 'outputs/' + str(args.schedule_dates[0]) + '/',
                           args.slot_size,
                           args.run_extra_rounds,
                           pastDatabase,
@@ -73,12 +49,12 @@ ssm.runKPFCCv2(args.schedule_dates,
 
 import processingFunctions as pf
 import helperFunctions as hf
-sys.path.append('/Users/jack/Documents/Github/ttp/')
+sys.path.append(os.environ["TTP_PATH"])
 import formatting
 import telescope
 import plotting
 import model
-savepath = args.folder + 'KPFCC_' + str(args.schedule_dates[0]) + '_Outputs/'
+savepath = args.folder + 'outputs/' + str(args.schedule_dates[0]) + '/'
 print("Prepare schedule for the TTP.")
 tel = telescope.Keck1()
 semester_start_date, semester_end_date, semesterLength, semesterYear, semesterLetter = hf.getSemesterInfo(args.schedule_dates[0])
@@ -117,3 +93,5 @@ for n in range(len(args.schedule_dates)):
     all_targets_frame = pd.read_csv(request_sheet)
     gapFillers = np.loadtxt(savepath + 'gapFillerTargets.txt', delimiter=',', dtype=str)
     pf.write_starlist(all_targets_frame, obs_and_times, solution.extras, gapFillers, 'nominal', str(args.schedule_dates[0]), savepath)
+
+print("Semester is scheduled and script is generated. Complete.")
