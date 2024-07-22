@@ -16,14 +16,17 @@ parser.add_argument('-p','--plot_results',action='store_true', help='Turn on plo
 
 args = parser.parse_args()
 
-request_sheet = args.folder + "inputs/Requests.csv"
-allocated_nights = args.folder + "inputs/Binary_Schedule.txt"
-pastDatabase = args.folder + "inputs/queryJumpDatabase.csv"
-twilight_times = args.folder + "inputs/Twilight.csv"
-access_map = args.folder + "inputs/AccessibilityMaps_" + str(args.slot_size) + "minSlot_14Hr.pkl"
-turnFile = args.folder + "inputs/TurnOnOff.csv"
-starmap_template_filename = args.folder + "inputs/Template.csv"
-nonqueueMap =  'nofilename.csv'
+request_sheet = args.folder + "inputs/Requests5.csv"
+allocated_nights = args.folder + "inputs/2024B_Binary_Schedule.txt"
+pastDatabase = 'nofilename.csv' #args.folder + "inputs/queryJumpDatabase.csv"
+twilight_times = args.folder + "inputs/2024B_twilight_times.csv"
+access_map = args.folder + "inputs/2024B_AccessMaps_" + str(args.slot_size) + "minSlots.txt"
+turnFile = args.folder + "inputs/2024B_turnOnOffDates.csv"
+starmap_template_filename = args.folder + "inputs/2024B_cadenceTemplateFile.csv"
+nonqueueMap =  args.folder + 'inputs/2024B_NonQueueMap'  + str(args.slot_size) + '.txt'
+specialMaps = args.folder + 'inputs/2024B_specialMaps_' + str(args.slot_size) + 'minSlots.txt'
+zeroOutFile = 'nofilename.txt'
+startstoptimes = pd.read_csv(args.folder + "inputs/2024B_NightlyStartStopTimes.csv")
 
 import sys
 sys.path.append("../kpfcc/")
@@ -86,7 +89,7 @@ for n in range(len(args.schedule_dates)):
         orderedList.append(solutionDict['Starname'][i])
 
     plotting.writeStarList(solution.plotly, startObs, args.schedule_dates[n], outputdir=savepath)
-    plotting.plot_path_2D(solution,outputdir=args.folder + 'KPFCC_' + str(args.schedule_dates[0]) + '_Outputs')
+    plotting.plot_path_2D(solution,outputdir=savepath)
     plotting.nightPlan(solution.plotly, args.schedule_dates[n], outputdir=savepath)
 
     obs_and_times = pd.read_csv(savepath + 'ObserveOrder_' + str(args.schedule_dates[0]) + ".txt")
