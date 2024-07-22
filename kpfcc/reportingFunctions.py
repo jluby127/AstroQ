@@ -49,7 +49,7 @@ def buildFullnessReport(allocation_schedule, twilightMap, combined_semester_sche
 
     totalslotsrequested = 0
     for i in range(len(all_targets_frame)):
-        totalslotsrequested += all_targets_frame['N_Unique_Nights_Per_Semester'][i]*math.ceil(all_targets_frame['Nominal_ExpTime'][i]/(STEP*60.))
+        totalslotsrequested += all_targets_frame['# of Nights Per Semester'][i]*math.ceil(all_targets_frame['Nominal Exposure Time [s]'][i]/(STEP*60.))
     file.write("N slots requested (total): " + str(totalslotsrequested) + "\n")
     percentage = np.round((used*100)/available,3) # round((slot_used_counter*100)/total_available_slots,3)
     percentage2 = np.round((used*100)/available2,3) # round((slot_used_counter*100)/total_available_slots,3)
@@ -87,7 +87,7 @@ def buildCOF(outputdir, current_day, startends, all_targets_frame, all_dates_dic
             tot_obs = 0
             for t in range(len(programDict)):
                 #tot_obs += programDict['N_Unique_Nights_Per_Semester'][t]*programDict['N_Visits_per_Night'][t]*programDict['N_Observations_per_Visit'][t]
-                tot_obs += programDict['N_Unique_Nights_Per_Semester'][t]
+                tot_obs += programDict['# of Nights Per Semester'][t]
 
         runningObsList = [0.]*len(starmap_maps[all_targets_frame['Starname'][0]])
         for day in range(len(runningObsList)):
@@ -336,10 +336,10 @@ def writeCadencePlotFile(targetname, target_counter, starmap, turnFile, all_targ
     #print("Plotting cadence for star [" + str(request_name) + "] in program [" + str(program_code) + "]...target #" + str(target_counter) + " of " + str(len(all_targets_frame)) + ".")
 
     # n_obs_desired = all_targets_frame.loc[request_id,'Total_Observations_Requested']
-    n_obs_desired = all_targets_frame.loc[request_id,'N_Unique_Nights_Per_Semester']
+    n_obs_desired = all_targets_frame.loc[request_id,'# of Nights Per Semester']
     n_obs_taken = len(unique_hstdates_observed)
     n_obs_scheduled = np.sum(starmap['N_obs'] - n_obs_taken)
-    cadence = all_targets_frame.loc[request_id,'Inter_Night_Cadence']
+    cadence = all_targets_frame.loc[request_id,'Minimum Inter-Night Cadence']
     turnIDnumber = turnOnOffs.index[turnOnOffs['Starname']==str(targetname)][0]
     turns = [[turnOnOffs['Q1_on_date'][turnIDnumber], turnOnOffs['Q1_off_date'][turnIDnumber]], [turnOnOffs['Q2_on_date'][turnIDnumber], turnOnOffs['Q2_off_date'][turnIDnumber]], [turnOnOffs['Q3_on_date'][turnIDnumber], turnOnOffs['Q3_off_date'][turnIDnumber]], [turnOnOffs['Q4_on_date'][turnIDnumber], turnOnOffs['Q4_off_date'][turnIDnumber]]]
     savepath = outputdir + "/Cadences/" + str(program_code) + "/"

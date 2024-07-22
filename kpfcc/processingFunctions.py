@@ -230,10 +230,10 @@ def prepareTTP(request_sheet, night_plan, filltargets):
         idx = all_targets_frame.index[all_targets_frame['Starname']==str(selected_stars[j])][0]
         RAs.append(all_targets_frame['RA'][idx])
         Decs.append(all_targets_frame['Dec'][idx])
-        ExpTimes.append(all_targets_frame['Nominal_ExpTime'][idx])
-        ExpsPerVisits.append(all_targets_frame['N_Observations_per_Visit'][idx])
-        nVisits.append(all_targets_frame['N_Visits_per_Night'][idx])
-        cadences.append(all_targets_frame['Intra_Night_Cadence'][idx])
+        ExpTimes.append(all_targets_frame['Nominal Exposure Time [s]'][idx])
+        ExpsPerVisits.append(all_targets_frame['# of Exposures per Visit'][idx])
+        nVisits.append(all_targets_frame['# Visits per Night'][idx])
+        cadences.append(all_targets_frame['Minimum Intra-Night Cadence'][idx])
         # higher numbers are higher priorities
         if str(selected_stars[j]) in filltargets:
             prior = 1 # the filler targets get low priority
@@ -279,7 +279,7 @@ def write_starlist(frame, orderedList, extras, gapFillers, condition, current_da
             fillerFlag = False
         row = frame.loc[frame['Starname'] == orderedList['Target'][i]]
         row.reset_index(inplace=True)
-        total_exptime += float(row['Nominal_ExpTime'][0])
+        total_exptime += float(row['Nominal Exposure Time [s]'][0])
         lines.append(format_kpf_row(row, orderedList['StartExposure'][i], current_day, fillerFlag = fillerFlag))
 
     lines.append('')
@@ -348,7 +348,7 @@ def format_kpf_row(row, obs_time, current_day, fillerFlag = False, Jtwothousand 
         else:
             ep = '2000'
         # rastring, decstring = pm_correcter(row['Starname'][0], row['RA'][0], row['Dec'][0], row['pmRA'][0], row['pmDec'][0], ep, verbose=False)
-        rastring, decstring = pm_correcter(row['RA'][0], row['Dec'][0], row['pmRA'][0], row['pmDec'][0], ep, current_day, verbose=False)
+        rastring, decstring = pm_correcter(row['RA'][0], row['Dec'][0], row['Proper Motion in RA [miliarcseconds/year]'][0], row['Proper Motion in Dec [miliarcseconds/year]'][0], ep, current_day, verbose=False)
         if decstring[0] != "-":
             decstring = "+" + decstring
 
@@ -356,29 +356,29 @@ def format_kpf_row(row, obs_time, current_day, fillerFlag = False, Jtwothousand 
 
     epochstring = '2000'
 
-    jmagstring = ('jmag=' + str(np.round(float(row['Jmag'][0]),1)) + ' '*(4-len(str(np.round(row['Jmag'][0],1)))))
+    jmagstring = ('jmag=' + str(np.round(float(row['J Magnitude'][0]),1)) + ' '*(4-len(str(np.round(row['J Magnitude'][0],1)))))
 
-    exposurestring = (' '*(4-len(str(int(row['Nominal_ExpTime'][0])))) + str(int(row['Nominal_ExpTime'][0])) + '/'
-                        + str(int(row['Max_ExpTime'][0])) + ' '*(4-len(str(int(row['Max_ExpTime'][0])))))
+    exposurestring = (' '*(4-len(str(int(row['Nominal Exposure Time [s]'][0])))) + str(int(row['Nominal Exposure Time [s]'][0])) + '/'
+                        + str(int(row['Maximum Exposure Time [s]'][0])) + ' '*(4-len(str(int(row['Maximum Exposure Time [s]'][0])))))
 
-    ofstring = ('1of' + str(int(row['N_Visits_per_Night'][0])))
+    ofstring = ('1of' + str(int(row['# Visits per Night'][0])))
 
-    if row['Simulcal'][0]:
+    if row['Simucal'][0]:
         scval = 'T'
     else:
         scval = 'F'
     scstring = 'sc=' + scval
 
-    numstring = (str(int(row['N_Observations_per_Visit'][0])) + "x")
+    numstring = (str(int(row['# of Exposures per Visit'][0])) + "x")
 
-    gmagstring = ('gmag=' + str(np.round(float(row['Gmag'][0]),1)) + ' '*(4-len(str(np.round(row['Gmag'][0],1)))))
+    gmagstring = ('gmag=' + str(np.round(float(row['G Magnitude'][0]),1)) + ' '*(4-len(str(np.round(row['G Magnitude'][0],1)))))
 
-    teffstr = 'Teff=' + str(int(row['Teff'][0])) + ' '*(4-len(str(int(row['Teff'][0]))))
+    teffstr = 'Teff=' + str(int(row['Effective Temperature [Kelvin]'][0])) + ' '*(4-len(str(int(row['Effective Temperature [Kelvin]'][0]))))
 
-    if str(row['UpdatedGaia'][0]) != "NoGaiaName":
-        gaiastring = str(row['UpdatedGaia'][0][5:]) + ' '*(25-len(str(row['UpdatedGaia'][0][5:])))
+    if str(row['GAIA Identifier'][0]) != "NoGaiaName":
+        gaiastring = str(row['GAIA Identifier'][0][5:]) + ' '*(25-len(str(row['GAIA Identifier'][0][5:])))
     else:
-        gaiastring = str(row['UpdatedGaia'][0]) + ' '*(25-len(str(row['UpdatedGaia'][0])))
+        gaiastring = str(row['GAIA Identifier'][0]) + ' '*(25-len(str(row['GAIA Identifier'][0])))
 
     programstring = row['Program_Code'][0]
 
@@ -397,8 +397,8 @@ def format_kpf_row(row, obs_time, current_day, fillerFlag = False, Jtwothousand 
                 + numstring + ' '+ gmagstring + ' ' + teffstr + ' ' + gaiastring + ' CC '
                         + priostring + ' ' + programstring + ' ' + timestring2)
 
-    if not pd.isnull(row['Comment'][0]):
-        line += (' ' + str(row['Comment'][0]))
+    if not pd.isnull(row['Observing Notes'][0]):
+        line += (' ' + str(row['Observing Notes'][0]))
 
     return line
 
