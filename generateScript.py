@@ -16,36 +16,38 @@ parser.add_argument('-p','--plot_results',action='store_true', help='Turn on plo
 
 args = parser.parse_args()
 
-# -------- 2024A Info ---------
-deskpath = "/Users/jack/Desktop/"
-dirpath = "/Users/jack/Documents/Github/optimalAllocation/"
-dirpath2 = "/Users/jack/Documents/Github/optimalAllocation/"
-pastDatabase = args.folder + 'KPFCC_' + str(args.schedule_dates[0]) + '_Outputs/' + "queryJumpDatabase.csv" #deskpath + "Jump_allObs2024A.csv" # 'nofilename.csv'
-starmap_template_filename = dirpath + "semesterFiles/2024A/KPF_2024A_Template_all.csv"
-request_sheet = dirpath + "semesterFiles/2024A/2024A_KPFCC_Requests.csv"
-allocated_nights =  dirpath + "semesterFiles/2024A/2024A_Binary_Schedule.txt"
-twilight_times =  dirpath + "semesterFiles/2024A/twilight_times_2024A.csv"
-turnFile = dirpath + "semesterFiles/2024A/turnOnOffDates_2024A.csv"
-access_map = dirpath + "semesterFiles/2024A/2024A_AccessibilityMaps__" + str(args.slot_size) + "minSlot_14Hr.pkl"
-nonqueueMap =  'nofilename.csv'
-zeroOutFile = 'nofilename.txt'
-specialMaps = 'nofilename.txt'
-
-# # -------- 2024B Info ---------
+# # -------- 2024A Info ---------
 # deskpath = "/Users/jack/Desktop/"
 # dirpath = "/Users/jack/Documents/Github/optimalAllocation/"
-# dirpath2 = "/Users/jack/Desktop/" + "2024B_Testing/inputs/"
-# pastDatabase = 'nofilename.csv' #args.folder + 'KPFCC_' + str(args.schedule_dates[0]) + '_Outputs/' + "queryJumpDatabase.csv" #deskpath + "Jump_allObs2024A.csv" # 'nofilename.csv'
-# starmap_template_filename = dirpath2 + "2024B_cadenceTemplateFile.csv"
-# request_sheet = dirpath2 + "Requests2.csv"
-# allocated_nights =  dirpath2 + "2024B_Binary_Schedule.txt"
-# twilight_times =  dirpath2 + "2024B_twilight_times.csv"
-# turnFile = dirpath2 + "2024B_turnOnOffDates.csv"
-# access_map = dirpath2 + "2024B_AccessMaps_" + str(args.slot_size) + "minSlots.pkl"
-# nonqueueMap =  dirpath2 + '2024B_NonQueueMap' + str(args.slot_size) + '.txt'
-# specialMaps = dirpath2 + "2024B_specialMaps_" + str(args.slot_size) + ".pkl"
-# zeroOutFile = deskpath + 'zeroOut.txt'
-# # zeroOutFile = 'nofilename.txt'
+# dirpath2 = "/Users/jack/Documents/Github/optimalAllocation/"
+# pastDatabase = args.folder + 'KPFCC_' + str(args.schedule_dates[0]) + '_Outputs/' + "queryJumpDatabase.csv" #deskpath + "Jump_allObs2024A.csv" # 'nofilename.csv'
+# starmap_template_filename = dirpath + "semesterFiles/2024A/KPF_2024A_Template_all.csv"
+# request_sheet = dirpath + "semesterFiles/2024A/2024A_KPFCC_Requests.csv"
+# allocated_nights =  dirpath + "semesterFiles/2024A/2024A_Binary_Schedule.txt"
+# twilight_times =  dirpath + "semesterFiles/2024A/twilight_times_2024A.csv"
+# turnFile = dirpath + "semesterFiles/2024A/turnOnOffDates_2024A.csv"
+# access_map = dirpath + "semesterFiles/2024A/2024A_AccessibilityMaps__" + str(args.slot_size) + "minSlot_14Hr.pkl"
+# nonqueueMap =  'nofilename.csv'
+# zeroOutFile = 'nofilename.txt'
+# specialMaps = 'nofilename.txt'
+# startstoptimes = pd.read_csv(dirpath + 'semesterFiles/2024A/Nightly_StartStop_Times.csv')
+
+# -------- 2024B Info ---------
+deskpath = "/Users/jack/Desktop/"
+dirpath = "/Users/jack/Documents/Github/optimalAllocation/"
+dirpath2 = "/Users/jack/Desktop/" + "2024B_Testing_noPickle/inputs/"
+pastDatabase = 'nofilename.csv' #args.folder + 'KPFCC_' + str(args.schedule_dates[0]) + '_Outputs/' + "queryJumpDatabase.csv" #deskpath + "Jump_allObs2024A.csv" # 'nofilename.csv'
+starmap_template_filename = dirpath2 + "2024B_cadenceTemplateFile.csv"
+request_sheet = dirpath2 + "Requests3.csv"
+allocated_nights =  dirpath2 + "2024B_Binary_Schedule.txt"
+twilight_times =  dirpath2 + "2024B_twilight_times.csv"
+turnFile = dirpath2 + "2024B_turnOnOffDates.csv"
+access_map = dirpath2 + "2024B_AccessMaps_" + str(args.slot_size) + "minSlots.txt"
+nonqueueMap =  dirpath2 + '2024B_NonQueueMap' + str(args.slot_size) + '.txt'
+specialMaps = dirpath2 + "2024B_specialMaps_" + str(args.slot_size) + "minSlots.txt"
+zeroOutFile = deskpath + 'zeroOut.txt'
+# zeroOutFile = 'nofilename.txt'
+startstoptimes = pd.read_csv(dirpath2 + '2024B_NightlyStartStopTimes.csv')
 
 import sys
 sys.path.append(dirpath + "autoschedulerV2/")
@@ -79,8 +81,6 @@ import model
 savepath = args.folder + 'KPFCC_' + str(args.schedule_dates[0]) + '_Outputs/'
 print("Prepare schedule for the TTP.")
 tel = telescope.Keck1()
-# startstoptimes = pd.read_csv(dirpath2 + '2024B_NightlyStartStopTimes.csv')
-startstoptimes = pd.read_csv(dirpath + 'semesterFiles/2024A/Nightly_StartStop_Times.csv')
 semester_start_date, semester_end_date, semesterLength, semesterYear, semesterLetter = hf.getSemesterInfo(args.schedule_dates[0])
 all_dates_dict = hf.buildDayDateDictionary(semester_start_date, semesterLength)
 the_schedule = np.loadtxt(savepath + 'raw_combined_semester_schedule_Round2.txt', delimiter=',', dtype=str)

@@ -3,7 +3,8 @@ import pandas as pd
 import sys
 import math
 import time
-import pickle
+# import pickle
+import json
 import os
 import sys
 from collections import defaultdict
@@ -110,6 +111,37 @@ def buildTwilightMap(AvailableSlotsInGivenNight, nSlotsInNight, invert=False):
     return nightly_twilight_map
 
 
+# def writeAccessibilityMapsDict(accessDict, filename):
+#     """
+#     Add entries to the accessbility map dictionary
+#
+#     Args:
+#         accessDict (dict): the original accessibility map dictionary. Keys are target names, values are 1D arrays of lenght nSlotsInSemester which indicate if a target is accessible (1) or inaccessible (0) due to telescope pointing limits, seasonal rise/set, and moon-safe distance
+#         filename (str): the name of the file to re-save the updated dicationary. Best to match the original name and overwrite.
+#     Returns:
+#         None
+#     """
+#
+#     # Serialize the dictionary and write it to a file
+#     with open(filename, 'wb') as file:
+#         pickle.dump(accessDict, file)
+#     print("All star accessibility maps writing to pickle.")
+
+# def readAccessibilityMapsDict(filename):
+#     """
+#     Get the Accessibilty maps for each target from pre-written file
+#
+#     Args:
+#         filename (str): filename where the saved dictionary is stored.
+#     Returns:
+#         loaded_dict (dict): the python dictionary version of the saved pickle file. A dictionary where keys are target names, values are 1D arrays of lenght nSlotsInSemester which indicate if a target is accessible (1) or inaccessible (0) due to telescope pointing limits, seasonal rise/set, and moon-safe distance
+#     """
+#
+#     # Read the serialized data from the file and deserialize it
+#     with open(filename, 'rb') as file:
+#         loaded_dict = pickle.load(file)
+#     return loaded_dict
+
 def writeAccessibilityMapsDict(accessDict, filename):
     """
     Add entries to the accessbility map dictionary
@@ -120,26 +152,42 @@ def writeAccessibilityMapsDict(accessDict, filename):
     Returns:
         None
     """
+    starnames = list(accessDict.keys())
+    stringAccessDict = {}
+    for s in range(len(starnames)):
+        flat_access_map = np.array(accessDict[starnames[s]]).flatten()
+        # because you can't json serialize an array/list or integers
+        # must create a string "list". Later decode it back to a real array
+        stringmap = '['
+        for e in range(len(flat_access_map)):
+            stringmap += str(flat_access_map[e]) + ','
+        stringmap += ']'
+        stringAccessDict[starnames[s]] = stringmap
 
-    # Serialize the dictionary and write it to a file
-    with open(filename, 'wb') as file:
-        pickle.dump(accessDict, file)
-    print("All star accessibility maps writing to pickle.")
+    with open(filename, 'w') as convert_file:
+         convert_file.write(json.dumps(stringAccessDict))
+    print("All star accessibility maps written to txt file.")
 
 def readAccessibilityMapsDict(filename):
     """
-    Get the Accessibilty maps for each target from pre-written file
+    Get the Accessibilty maps for each target from pre-written file. Need to reformat the data to array because the array is technically saved as a string.
 
     Args:
         filename (str): filename where the saved dictionary is stored.
     Returns:
-        loaded_dict (dict): the python dictionary version of the saved pickle file. A dictionary where keys are target names, values are 1D arrays of lenght nSlotsInSemester which indicate if a target is accessible (1) or inaccessible (0) due to telescope pointing limits, seasonal rise/set, and moon-safe distance
+        newDict (dict): the python dictionary version of the saved txt file. A dictionary where keys are target names, values are 1D arrays of lenght nSlotsInSemester which indicate if a target is accessible (1) or inaccessible (0) due to telescope pointing limits, seasonal rise/set, and moon-safe distance
     """
+    with open(filename) as f:
+        data = f.read()
+    # reconstructing the data as a dictionary
+    js = json.loads(data)
 
-    # Read the serialized data from the file and deserialize it
-    with open(filename, 'rb') as file:
-        loaded_dict = pickle.load(file)
-    return loaded_dict
+    newDict = {}
+    starnames = list(js.keys())
+    for i in range(len(starnames)):
+        reformat = [int(x) for x in js[starnames[i]][1:-2].split(',')]
+        newDict[starnames[i]] = reformat
+    return newDict
 
 
 def singleTargetAccessible(starname, ra, dec, startdate, nNightsInSemester, STEP, turnonoff=False):

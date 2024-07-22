@@ -88,7 +88,7 @@ def runKPFCCv2(current_day,
     # -------------------------------------------------------------------
     # -------------------------------------------------------------------
     semester_start_date, semester_end_date, semesterLength, semesterYear, semesterLetter = hf.getSemesterInfo(current_day)
-    #semesterLength = 89 # note: special for now! delete later
+    semesterLength = 89 # note: special for now! delete later
     all_dates_dict = hf.buildDayDateDictionary(semester_start_date, semesterLength)
     dates_in_semester = list(all_dates_dict.keys())
     nNightsInSemester = hf.currentDayTracker(current_day, all_dates_dict)# + 1 #note: delete the plus 1!!
@@ -106,7 +106,7 @@ def runKPFCCv2(current_day,
     startingNight =  all_dates_dict[current_day]
 
 
-    #nSlotsInSemester -= nSlotsInNight # note: delete this line later!
+    nSlotsInSemester -= nSlotsInNight # note: delete this line later!
 
     # -------------------------------------------------------------------
     # -------------------------------------------------------------------
@@ -178,10 +178,10 @@ def runKPFCCv2(current_day,
         except:
             print(name + " not found in precomputed accessibilty maps. Running now.")
             newmap = mf.singleTargetAccessible(name, row['RA'], row['Dec'], semester_start_date, semesterLength-1, STEP) #note the -1 is just for the 2024B shortened semester, delete later
-            accessmaps_precompute[name] = newmap
+            accessmaps_precompute[name] = np.array(newmap).flatten()
             rewriteFlag = True
     if rewriteFlag:
-        mf.writeAccessibilityMapsDict(accessmaps_precompute, '/Users/jack/Desktop/tmpaccessmap.pkl') #accessibilitiesFile)
+        mf.writeAccessibilityMapsDict(accessmaps_precompute, '/Users/jack/Desktop/tmpaccessmap.txt') #accessibilitiesFile)
 
     # read in the customized maps for unique targets
     if specialMaps != 'nofilename.txt':
@@ -228,7 +228,6 @@ def runKPFCCv2(current_day,
             lastday = e
             break
     startends = [semester_start_date, dates_in_semester[firstday], dates_in_semester[lastday], semester_end_date]
-    print(startends)
 
     # Randomly sample out 30% of future allocated quarters to simulate weather loss
     print("Sampling out weather losses")
@@ -441,11 +440,12 @@ def runKPFCCv2(current_day,
     print("Constraint: enforce custom maps.")
     uniqueTargetMap_names = list(uniqueTargetMaps.keys())
     for name in all_targets_frame['Starname']:
-        all_access = np.array(accessmaps_precompute[name]).flatten()
+        # all_access = np.array(accessmaps_precompute[name]).flatten()
+        all_access = accessmaps_precompute[name]
         startslot = (all_dates_dict[current_day])*nSlotsInNight # plus 1 to account for python indexing?
         access = all_access[startslot:]
 
-        #alloAndTwiMap_short = alloAndTwiMap[:-nSlotsInNight] # note: temporary, delete this later.
+        alloAndTwiMap_short = alloAndTwiMap[:-nSlotsInNight] # note: temporary, delete this later.
         #alloAndTwiMap_short = alloAndTwiMap[startslot:]
 
         # fullmap = alloAndTwiMap&access[:len(alloAndTwiMap)]
@@ -465,8 +465,8 @@ def runKPFCCv2(current_day,
             zeroMap[:nSlotsInNight] = np.array([0]*nSlotsInNight)
 
         #print(name, np.shape(alloAndTwiMap), np.shape(alloAndTwiMap_short), np.shape(access), np.shape(customMap), np.shape(zeroMap))
-        # fullmap = alloAndTwiMap_short&access&customMap&zeroMap
-        fullmap = alloAndTwiMap&access&customMap&zeroMap
+        fullmap = alloAndTwiMap_short&access&customMap&zeroMap
+        # fullmap = alloAndTwiMap&access&customMap&zeroMap
         for s in range(nSlotsInSemester):
             m.addConstr(Yns[name,s] <= fullmap[s], 'enforceMaps_' + str(name) + "_" + str(s) + "s")
 

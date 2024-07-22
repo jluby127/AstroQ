@@ -23,12 +23,13 @@ current_day = args.schedule_dates #['2024-06-26']
 
 deskpath = "/Users/jack/Desktop/"
 dirpath = "/Users/jack/Documents/Github/optimalAllocation/"
-savepath = deskpath + 'KPFCC_' + str(current_day[0]) + '_Outputs/'
-request_sheet = dirpath + "semesterFiles/2024A/2024A_KPFCC_Requests.csv"
+savepath = deskpath #+ 'KPFCC_' + str(current_day[0]) + '_Outputs/'
+request_sheet = deskpath + "/2024B_Testing_noPickle/inputs/Requests3.csv" #dirpath + "semesterFiles/2024A/2024A_KPFCC_Requests.csv"
 
 print("Prepare schedule for the TTP.")
 tel = telescope.Keck1()
-startstoptimes = pd.read_csv(dirpath + 'semesterFiles/2024A/Nightly_StartStop_Times.csv')
+# startstoptimes = pd.read_csv(dirpath + 'semesterFiles/2024A/Nightly_StartStop_Times.csv')
+startstoptimes = pd.read_csv(deskpath + "/2024B_Testing_noPickle/inputs/2024B_NightlyStartStopTimes.csv" )
 semester_start_date, semester_end_date, semesterLength, semesterYear, semesterLetter = hf.getSemesterInfo(current_day[0])
 all_dates_dict = hf.buildDayDateDictionary(semester_start_date, semesterLength)
 the_schedule = np.loadtxt(savepath + 'raw_combined_semester_schedule_Round2.txt', delimiter=',', dtype=str)
