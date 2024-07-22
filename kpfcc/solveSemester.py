@@ -125,8 +125,8 @@ def runKPFCCv2(current_day,
     for n,row in all_targets_frame.iterrows():
         name = row['Starname']
         # schedule multi-shots and multi-visits as if a single, long exposure. When n_shots and n_visits are both 1, this reduces down to just the stated true exposure time.
-        singlevisit = row['Nominal_ExpTime']*row['N_Observations_per_Visit'] + 45*(row['N_Observations_per_Visit'] - 1)
-        exptime = singlevisit*row['N_Visits_per_Night']
+        singlevisit = row['Nominal Exposure Time [s]']*row['# of Exposures per Visit'] + 45*(row['# Visits per Night'] - 1)
+        exptime = singlevisit*row['# Visits per Night']
         if alwaysRoundUp:
             slotsneededperExposure = math.ceil(exptime/(STEP*60.))
         else:
@@ -138,7 +138,7 @@ def runKPFCCv2(current_day,
 
     # Sub-divide target list into only those that are more than 1 unique night of observations.
     # Single shot observations may scheduled in a future Round 1.5, TBD.
-    cadenced_targets = all_targets_frame[(all_targets_frame['N_Unique_Nights_Per_Semester'] > 1)]
+    cadenced_targets = all_targets_frame[(all_targets_frame['# of Nights Per Semester'] > 1)]
     cadenced_targets.reset_index(inplace=True)
     ntargets = len(cadenced_targets)
 
@@ -293,7 +293,7 @@ def runKPFCCv2(current_day,
             star_past_obs.sort_values(by='utctime', inplace=True)
             star_past_obs.reset_index(inplace=True)
 
-            total_past_observations = int(len(star_past_obs)/(all_targets_frame['N_Visits_per_Night'][i]*all_targets_frame['N_Observations_per_Visit'][i]))
+            total_past_observations = int(len(star_past_obs)/(all_targets_frame['# Visits per Night'][i]*all_targets_frame['# of Exposures per Visit'][i]))
             # print(all_targets_frame['Starname'][i], len(star_past_obs), total_past_observations, all_targets_frame['N_Visits_per_Night'][i], all_targets_frame['N_Observations_per_Visit'][i])
 
             #total_open_shutter_time = np.sum(star_past_obs['Nominal_ExpTime'])
@@ -385,7 +385,7 @@ def runKPFCCv2(current_day,
     for d in range(nNightsInSemester):
         for t,row in all_targets_frame.iterrows():
             name = row['Starname']
-            internightcadence = int(row['Inter_Night_Cadence'])
+            internightcadence = int(row['Minimum Inter-Night Cadence'])
             for dlta in range(1, internightcadence):
                 try:
                     m.addConstr(Wnd[name,d] <= 1 - Wnd[name,d+dlta], 'enforce_internightCadence_' + str(name) + "_" + str(d) + "d_" + str(dlta) + "dlta")
@@ -400,9 +400,9 @@ def runKPFCCv2(current_day,
     alloAndTwiMap_d = np.reshape(alloAndTwiMap_d, (nNightsInSemester, nSlotsInNight))
     for t,row in all_targets_frame.iterrows():
         name = row['Starname']
-        visits = int(row['N_Visits_per_Night'])
+        visits = int(row['# Visits per Night'])
         if visits > 1:
-            cadence = int(row['Intra_Night_Cadence'])
+            cadence = int(row['Minimum Intra-Night Cadence'])
             # this equation is a political decision and can be modified. It states that for each visit, after the intra-night cadence time has elapsed,
             # we require a 90 minute window within which to allow for scheduling the next visit. We then assume that this next visit is scheduled
             # at the very end of this 90 minute window, which then restarts the clock for any future visits to require the same 90 min grace period after
@@ -411,7 +411,7 @@ def runKPFCCv2(current_day,
             minimumSlotsRequired = math.ceil(minTimeRequired/(STEP*60.))
             all_access_target = np.array(accessmaps_precompute[name])
             # newexptime = (visits-1)*200 + row['N_Observations_per_Visit']*45 + row['N_Observations_per_Visit']*row['Nominal_ExpTime']
-            newexptime = visits * (row['N_Observations_per_Visit']*45 + row['N_Observations_per_Visit']*row['Nominal_ExpTime'])
+            newexptime = visits * (row['# of Exposures per Visit']*45 + row['# Visits per Night']*row['Nominal Exposure Time [s]'])
             new_nslots = math.ceil(newexptime/(STEP*60.))
             for d in range(nNightsInSemester):
                 possibleOpenSlots = np.sum(alloAndTwiMap_d[d]&all_access_target[d])
@@ -424,7 +424,7 @@ def runKPFCCv2(current_day,
     extra = 5
     for t,row in all_targets_frame.iterrows():
         name = row['Starname']
-        Nobs_Unique = row['N_Unique_Nights_Per_Semester']
+        Nobs_Unique = row['# of Nights Per Semester']
         if pastObs_Info == {}:
             past_Unique = 0
         else:
@@ -473,7 +473,7 @@ def runKPFCCv2(current_day,
     print("Constraint: first observation of new schedule can't violate past inter-night cadence.")
     for t,row in all_targets_frame.iterrows():
         name = row['Starname']
-        internightcadence = int(row['Inter_Night_Cadence'])
+        internightcadence = int(row['Minimum Inter-Night Cadence'])
         if pastObs_Info == {}:
             dateLastObserved = '0000-00-00'
         else:

@@ -41,6 +41,7 @@ def buildHumanReadableSchedule(Yns, twilightMap, all_targets_frame, nNightsInSem
 
     if nonqueueMap_str != 'nofilename.csv':
         nonqueuemap_slots_strs = np.loadtxt(nonqueueMap_str, delimiter=',', dtype=str)
+        #print("SHAPE NONQUEUE MAP: ", np.shape(nonqueuemap_slots_strs))
 
     # Retrieve the solution schedule from the semester solver
     # Track the fullness of the schedule
@@ -72,7 +73,7 @@ def buildHumanReadableSchedule(Yns, twilightMap, all_targets_frame, nNightsInSem
             for t in range(len(all_targets_frame)):
                 slotallocated += semester_schedule[t][n][s]
             if nonqueueMap_str != 'nofilename.csv':
-                slotallocated += str(nonqueuemap_slots_strs[n + all_dates_dict[current_day]][s])
+                slotallocated += str(nonqueuemap_slots_strs[n + all_dates_dict[current_day]-1][s])
             if twilightMap[n][s] == 0: # remember that twilight map is "inverted" aka the 1's are time where it is night and the 0's are time where it is day/twilight.
                 slotallocated += '*'
             if weathered_map[n][s] == 1 and slotallocated == '':
