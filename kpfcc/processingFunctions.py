@@ -1,9 +1,7 @@
 from collections import defaultdict
-from gurobipy import *
 import numpy as np
 import astropy.units as u
 import pandas as pd
-import gurobipy as gp
 import math
 import astropy as apy
 import astroplan as apl
@@ -12,6 +10,7 @@ from astropy.time import Time
 from astropy.time import TimeDelta
 import requests
 from bs4 import BeautifulSoup
+import os
 
 
 def login_JUMP():

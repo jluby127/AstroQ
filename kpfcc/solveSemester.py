@@ -181,7 +181,7 @@ def runKPFCCv2(current_day,
             accessmaps_precompute[name] = np.array(newmap).flatten()
             rewriteFlag = True
     if rewriteFlag:
-        mf.writeAccessibilityMapsDict(accessmaps_precompute, '/Users/jack/Desktop/tmpaccessmap.txt') #accessibilitiesFile)
+        mf.writeAccessibilityMapsDict(accessmaps_precompute, accessibilitiesFile[:-4] + "new.txt") #accessibilitiesFile)
 
     # read in the customized maps for unique targets
     if specialMaps != 'nofilename.txt':
@@ -271,14 +271,6 @@ def runKPFCCv2(current_day,
 
     # create the intersection of the two
     alloAndTwiMap = allocation_map&twilightMap_toDate_flat
-
-    # output the maps for testing
-    # np.savetxt('/Users/jack/Desktop/availSlots.txt', AvailableSlotsInGivenNight, delimiter=',', fmt='%1i')
-    # np.savetxt('/Users/jack/Desktop/alloMaps.txt', allocation_map_NS, delimiter=',', fmt='%1i')
-    # np.savetxt('/Users/jack/Desktop/alloMaps_all.txt', allocation_map_NS_fullsemester, delimiter=',', fmt='%1i')
-    # np.savetxt('/Users/jack/Desktop/twiMaps.txt', twilightMap_all, delimiter=',', fmt='%1i')
-    # np.savetxt('/Users/jack/Desktop/intersection.txt', np.reshape(alloAndTwiMap, (nNightsInSemester, nSlotsInNight)), delimiter=',', fmt='%1i')
-    # print("OUTPUTTED MAPS")
 
     # Pull the database of past observations and process.
     # For each target, determine the most recent date of observations and the number of unique days observed.
