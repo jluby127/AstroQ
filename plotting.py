@@ -13,6 +13,17 @@ import os
 import star
 
 def writeStarList(orderData, starttime, current_day, outputdir=''):
+    """Write a text file with the optimized schedule.
+
+    Args:
+        orderData (dict): Formatted and ordered schedule from the
+            model object
+        starttime (astropy time object): Beginning of observing interval
+        current_day (string): Date of observations, to be included in the
+            filename
+        outputdir (str): Folder in which to write the text output
+    """
+
     f = open(os.path.join(outputdir,"ObserveOrder_" + current_day + ".txt"), "w")
     f.write("Target,StartExposure\n")
     for i in range(len(orderData['Starname'])):
@@ -23,6 +34,15 @@ def writeStarList(orderData, starttime, current_day, outputdir=''):
 
 
 def nightPlan(orderData, current_day, outputdir='plots'):
+    """Create an interactive plot which illustrates the solution.
+
+    Args:
+        orderData (dict): Formatted and ordered schedule from the
+            model object
+        current_day (string): Date of observations, to be included in the
+            filename
+        outputdir (str): Folder in which to save the html link to the plot
+    """
 
     fig = px.scatter(orderData, x='Minutes the from Start of the Night', y="Starname", hover_data=['First Available', 'Last Available', 'Exposure Time (min)', "N_shots", "Total Exp Time (min)"] ,title='Night Plan') #color='Program'
 
@@ -48,6 +68,13 @@ def nightPlan(orderData, current_day, outputdir='plots'):
 
 # Old imported code from kpfautoscheduler repo
 def plot_path_2D(model,outputdir='plots'):
+    """Plot the telescope path (alt/az) over time
+
+    Args:
+        model (object): A solved TTP model object
+        outputdir (str): Folder in which to save the plot
+    """
+
     names = [s for s in model.schedule['Starname']]
     times = model.times
     az_path = model.az_path
@@ -63,7 +90,6 @@ def plot_path_2D(model,outputdir='plots'):
     new_times = Time(ttemp,format='jd')
     new_obs_time = []
     for t in range(len(ttemp)):
-        # print(new_times[t].isot)
         new_tt = str(new_times[t].isot)[11:16]
         new_obs_time.append(new_tt)
 
@@ -73,6 +99,7 @@ def plot_path_2D(model,outputdir='plots'):
     axs[0].set_xticks(ttemp, new_obs_time)
     axs[0].vlines(obs_time,0,360,linestyle = 'dashed', alpha = .5, color = 'gray')
 
+    # Mark the given wrap angle
     wrap = model.observatory.wrapLimitAngle
     if wrap:
         axs[0].hlines(wrap,obs_time[0],obs_time[-1],linestyle='dashed', alpha=0.5, color='red')
@@ -88,6 +115,7 @@ def plot_path_2D(model,outputdir='plots'):
         topticks.append(val)
         index+=2
 
+    # Overlay the target names on the top axis
     ax2.set_xticks(topticks)
     ax2.set_xticklabels(names,rotation=45)
     axs[1].plot(obs_time,alt_path,color = 'seagreen')
@@ -121,12 +149,21 @@ def plot_path_2D(model,outputdir='plots'):
     plt.close()
 
 def plot_slew_histogram(model,bins=30,outputdir='plots'):
+    """Make histograms of the estimated/real slews in the schedule
+    
+    Args:
+        model (object): A solved TTP model object
+        bins (int): The number of bins to display in the histogram
+        outputdir (str): Folder in which to save the plot
+    """
+
     est_slews = model.estimated_slews
     real_slews = model.real_slews
     plt.style.use('ggplot')
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 6),sharey=True)
 
+    # Left plot will have the worst case estimate of the slews which were used in the optimization
     ax1.hist(est_slews, bins=bins, color='skyblue', edgecolor='black', alpha=0.7)
     median1 = np.median(est_slews)
     ax1.axvline(median1, color='red', linestyle='dashed', linewidth=2)
@@ -139,6 +176,7 @@ def plot_slew_histogram(model,bins=30,outputdir='plots'):
     ax1.spines['top'].set_visible(False)
     ax1.spines['right'].set_visible(False)
 
+    # Right plot will have the real slews (hopefully lower than before) when evaluated at the exact time of the slew
     ax2.hist(real_slews, bins=bins, color='skyblue', edgecolor='black', alpha=0.7)
     median2 = np.median(real_slews)
     ax2.axvline(median2, color='red', linestyle='dashed', linewidth=2)
