@@ -3,12 +3,22 @@ import pandas as pd
 import star
 
 def theTTP(filename):
+    """Read in a .csv file of targets and convert them to star objects
+
+    Args:
+        filename (string): Path to .csv file
+
+    Returns:
+        all_star_objects (list): List of star objects, one for each row
+            in the .csv file
+    """
 
     targets = pd.read_csv(filename)
 
-    if list(targets.columns) != ['Starname', 'RA', 'Dec', 'Exposure Time', 'Exposures Per Visit', 'Visits In Night', 'Intra_Night_Cadence']:
+    if list(targets.columns) != ['Starname', 'RA', 'Dec', 'Exposure Time', 'Exposures Per Visit', 'Visits In Night', 'Intra_Night_Cadence', 'Priority']:
+        print(list(targets.columns))
         print("Error: column names not correct.")
-        print("Column names must be this format and this order: ['Starname', 'RA', 'Dec', 'Exposure Time', 'Exposures Per Visit', 'Visits In Night', 'Intra_Night_Cadence'].")
+        print("Column names must be this format and this order: ['Starname', 'RA', 'Dec', 'Exposure Time', 'Exposures Per Visit', 'Visits In Night', 'Intra_Night_Cadence', 'Priority'].")
         return
     else:
         print("Building Star objects:")
