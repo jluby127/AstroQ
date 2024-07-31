@@ -6,6 +6,7 @@ import astropy.units as u
 from astropy.coordinates import SkyCoord
 from astropy.time import Time
 from astropy.time import TimeDelta
+import plotly
 import plotly.graph_objects as go
 import plotly.express as px
 import matplotlib.pyplot as plt
@@ -34,6 +35,7 @@ def writeStarList(orderData, starttime, current_day, outputdir=''):
 
 
 def nightPlan(orderData, current_day, outputdir='plots'):
+
     """Create an interactive plot which illustrates the solution.
 
     Args:
@@ -43,26 +45,33 @@ def nightPlan(orderData, current_day, outputdir='plots'):
             filename
         outputdir (str): Folder in which to save the html link to the plot
     """
+  
+    # reverse the order so that the plot flows from top to bottom with time
+    orderData = pd.DataFrame.from_dict(orderData)
+    orderData = orderData.iloc[::-1]
+    orderData.reset_index(inplace=True)
+
+    # Each priority gets a different color. Make sure that each priority is actually included here or the plot will break
+    colordict = {'10':'red', '1':'blue'}
 
     fig = px.scatter(orderData, x='Minutes the from Start of the Night', y="Starname", hover_data=['First Available', 'Last Available', 'Exposure Time (min)', "N_shots", "Total Exp Time (min)"] ,title='Night Plan') #color='Program'
+    fig.add_shape(type="rect", x0=-100, x1=-80, y0=-0.5, y1=0.5, fillcolor='red', showlegend=True, name='Expose P1')
+    fig.add_shape(type="rect", x0=-100, x1=-80, y0=-0.5, y1=0.5, fillcolor='blue', showlegend=True, name='Expose P3')
+    fig.add_shape(type="rect", x0=-100, x1=-80, y0=-0.5, y1=0.5, fillcolor='lime', opacity=0.3, showlegend=True, name='Accessible')
 
     new_already_processed = []
-    for i in range(len(orderData['Starname'])):
+    nstars = len(orderData['Starname'])
+    for i in range(nstars):
         if orderData['Starname'][i] not in new_already_processed:
             counter1 = list(orderData['Starname']).count(orderData['Starname'][i])
             for j in range(counter1):
-                if i == 0 and j == 0:
-                    fig.add_shape(type="rect", x0=orderData['Start Exposure'][i+j], x1=orderData['Start Exposure'][i+j] + orderData["Total Exp Time (min)"][i+j], y0=i-0.5, y1=i+0.5, fillcolor='red', showlegend=True, name='Expose')
-                else:
-                    fig.add_shape(type="rect", x0=orderData['Start Exposure'][i+j], x1=orderData['Start Exposure'][i+j] + orderData["Total Exp Time (min)"][i+j], y0=i-0.5, y1=i+0.5, fillcolor='red')
-            if i == 0:
-                fig.add_shape(type="rect", x0=orderData['First Available'][i], x1=orderData['Last Available'][i], y0=i-0.5, y1=i+0.5, fillcolor='lime', opacity=0.3, showlegend=True, name='Accessible')
-            else:
+                fig.add_shape(type="rect", x0=orderData['Start Exposure'][i+j], x1=orderData['Start Exposure'][i+j] + orderData["Total Exp Time (min)"][i+j], y0=i-0.5, y1=i+0.5, fillcolor=colordict[str(orderData['Priority'][i+j])])
                 fig.add_shape(type="rect", x0=orderData['First Available'][i], x1=orderData['Last Available'][i], y0=i-0.5, y1=i+0.5, fillcolor='lime', opacity=0.3, showlegend=False)
-
             new_already_processed.append(orderData['Starname'][i])
 
+    fig.update_layout(xaxis_range=[0,orderData['Start Exposure'][0] + orderData["Total Exp Time (min)"][0]])
     fig.write_html(outputdir + "/NightPlan_" + str(current_day) + ".html")
+    fig.write_image(outputdir + 'NightPlan_' + str(current_day) + ".png")
     # fig.show()
 
 
@@ -191,3 +200,55 @@ def plot_slew_histogram(model,bins=30,outputdir='plots'):
     plt.tight_layout()
     filename = os.path.join(outputdir,'SlewStats.png')
     plt.savefig(filename,dpi=200)
+
+
+# *****Note from Jack: this function needs it's inputs re-calibrated within the new object oriented TTP framework. Mostly just trying to save the code by putting it here ****
+def animate_telescope(time_strings,total_azimuth_list,total_zenith_list,tel_az,tel_zen,observed_at_time,plotpath):
+
+    theta = np.arange(5.3/180, 146.2/180, 1./180)*np.pi
+    total_azimuth_list = np.array(total_azimuth_list)
+    total_zenith_list = np.array(total_zenith_list)
+    tel_ims_dir = os.path.join(plotpath,'tel_ims')
+    if not os.path.isdir(tel_ims_dir):
+        os.mkdir(tel_ims_dir)
+
+    filenames = []
+    for i in range(len(time_strings)):
+        if i % 60 == 0:
+            fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
+            ax.set_ylim(0,70)
+            ax.set_title(time_strings[i])
+            ax.set_yticklabels([])
+            ax.fill_between(theta,56.7,70,color = 'red',alpha=.7)
+            #ax.fill_between(np.arange(0,2,1/180)*np.pi,50,70,color= 'red',alpha=.4)
+            ax.set_theta_zero_location('N')
+            observed_list = observed_at_time[:i]
+            for j in set(observed_list):
+                ax.scatter(total_azimuth_list[i][j],total_zenith_list[i][j],color='orange',marker='*')
+            for j in set(observed_at_time):
+                if j not in set(observed_list):
+                    ax.scatter(total_azimuth_list[i][j],total_zenith_list[i][j],color='white',marker='*')
+            ax.plot(tel_az[:i],tel_zen[:i],color='orange')
+            ax.set_facecolor('black')
+
+            # create file name and append it to a list
+            filename = f'{i}.png'
+            filenames.append(filename)
+
+            # save frame
+            plt.savefig(os.path.join(tel_ims_dir,filename),dpi=100)
+            plt.close()
+
+    # build gif
+    with imageio.get_writer(os.path.join(plotpath,'Observing_Animation.gif'), mode='I') as writer:
+        for filename in filenames:
+            image = imageio.imread(os.path.join(tel_ims_dir,filename))
+            writer.append_data(image)
+
+    # Remove files
+    for filename in set(filenames):
+        os.remove(os.path.join(tel_ims_dir,filename))
+    try:
+        os.remove(tel_ims_dir)
+    except:
+        print('Cannot remove redundant tel_ims directory due to file permissions')
