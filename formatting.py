@@ -3,6 +3,15 @@ import pandas as pd
 import star
 
 def theTTP(filename):
+    """Read in a .csv file of targets and convert them to star objects
+
+    Args:
+        filename (string): Path to .csv file
+
+    Returns:
+        all_star_objects (list): List of star objects, one for each row
+            in the .csv file
+    """
 
     targets = pd.read_csv(filename)
 

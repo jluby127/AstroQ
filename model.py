@@ -11,6 +11,19 @@ from gurobipy import *
 
 class TTPModel(object):
 
+    """Object which contains and solves a TTP.
+
+    Args:
+        start (astropy time object): Time value of the beginning of the observing interval
+        stop (astropy time object): Time value of the end of the observing interval
+        stars (list): List of star objects to be scheduled in the model
+        observatory (object): Observatory from which observations will take place
+        runtime (float): Maximum time (in seconds) to be spent solving the model in the Gurobi kernel
+        optgap (float): Percentage gap between current objective and bound objective values at which 
+            to terminate optimization
+        outputdir (str): the path to save the outputs of the model
+
+    """
     def __init__(self,start,stop,stars,observatory,outputdir,runtime=300,optgap=0.01):
 
         # Will have observatory object
@@ -26,6 +39,25 @@ class TTPModel(object):
         self.solve()
 
     def create_nodes(self):
+        """Transform a target list into a node-based formalism.
+
+        NOTE: All units below are in minutes
+
+        Attributes:
+            N (int): Total number of nodes in the model
+            dur (float): Duration of observing interval
+            te (array): Earliest possible completion times (relative to the start
+                of the observing period) of all nodes
+            tl (array): Latest possible completion times (relative to the start
+                of the observing period) of nodes
+            tau_exp (array): Exposure times of nodes
+            tau_sep (array): Intranight minimum cadence of nodes
+            node_to_star (dict): Map to convert any node index into the index of
+                the star object which it represents
+            multi_visit_ind (dict): Map which converts a star index into the list 
+                of node indeces which comprise all the requested observations
+        
+        """
         self.dur = np.round((self.nightends-self.nightstarts).jd*24*60,0)
         t = np.arange(self.nightstarts.jd,self.nightends.jd,TimeDelta(60,format='sec').jd)
         t = Time(t,format='jd')
@@ -93,6 +125,23 @@ class TTPModel(object):
         self.multi_visit_ind = multi_visit_ind
 
     def compute_tau_slew(self,cad=30):
+        """Compute the slew tensor which holds the worst case estimate of the 
+        slews between any two targets during any time slot.
+        
+        Args:
+            cad (int): Maximum spacing in minutes at which to sample the slew 
+                during every slot
+
+        Attributes:
+            M (int): Number of discrete time slots for which slews will be 
+                assumed constant
+            w (list): Bounds (as minutes from start) of each time slot, including
+                the start and end of the night
+            tau_slew (array): 3D tensor which holds travel time (minutes) between
+                any two nodes during a given slot
+        
+        """
+
         # Will want to accomodate slot input value
         M = self.observatory.nSlots
         self.M = M
@@ -165,7 +214,20 @@ class TTPModel(object):
 
 
     def to_gurobi_model(self,output_flag=True):
-        # Translate TTP Model object into a Gurobi Model object
+
+        """Translate TTP Model object into a Gurobi Model object
+        
+        Args:
+            output_flag (bool): Activates Gurobi console output during solving process if True.
+                Console will remain silent during solve if false.
+            
+        Attributes:
+            gurobi_model: An object in the Gurobi package which understands the TTP as a 
+                mixed-integer linear program (a matrix problem). See the Gurobi docs 
+                at https://www.gurobi.com/documentation/current/refman/py_model.html for
+                details. Can be queried for information about the problem setup and the 
+                best found solution.
+        """
         Mod = gp.Model('TTP')
         Mod.Params.OutputFlag = output_flag
 
@@ -232,6 +294,11 @@ class TTPModel(object):
 
 
     def solve(self):
+        """Convenience function to wrap the Gurobi processes in a separate place. Optimizes
+            the gurobi interpretation of the TTP and calls the output routines. Catches
+            situations where a solution is not found in the time limit.
+        
+        """
         print('Solving TTP for {} exposures with Gurobi'.format(self.N-2))
         self.to_gurobi_model()
         Mod = self.gurobi_model
@@ -246,6 +313,31 @@ class TTPModel(object):
             print('No incumbent solution in time allotted, aborting solve. Try increasing time_limit parameter.')
 
     def digest_gurobi(self):
+
+        """Interprets the solution to the model by parsing the values assigned to
+            each variable by Gurobi. Prepares attributes necessary for schedule output
+            and plots.
+        
+        Attributes:
+            extras (dict): Holds the name of any stars which were not able to be scheduled
+            num_scheduled (int): Total number of observations (>= number of targets)
+                scheduled by Gurobi
+            estimated_slews (list): The worst case estimates of every slew that was scheduled,
+                as queried from the slew tensor
+            real_slews (list): The true value of every slew scheduled, by evaluating the 
+                angular separation at the exact time of the slew
+            schedule (dict): Holds the order of the successfully scheduled targets, their 
+                name, and what time they should be observed
+            plotly (dict): A more verbose description of the solution which holds additional
+                information for the interactive solution plot
+            times (list): The times at which the state of the telescope changes (i.e., an
+                observation begins or ends) as astropy time objects
+            az_path (list): The azimuth direction (degrees) of the telescope at every state 
+                change
+            alt_path (list): The altitude direction (degrees) of the telescope at every state 
+                change
+        """
+        
 
         N = self.N
         M = self.M
@@ -400,6 +492,24 @@ class TTPModel(object):
         self.alt_path = alt_path
 
     def optimization_status(self):
+        """Parse the Objective function and output some stats to the console.
+
+        NOTE: Modifying the priorities of different targets will make it
+            impossible to interpret the bounds of the objective.
+
+        Attributes:
+            obs_bound (int): The maximum number of observations that was deemed
+                theoretically possible in the time limit
+            slew_bound (float): The lowest slew time to observe all the targets
+                deemed theoretically possible in the time limit
+            time_idle (float): The total time (minutes) within the observing 
+                interval which was not spent slewing or exposing
+            time_slewing (float): The total time (minutes) spent slewing
+            time_exposing (float): The total time (minutes) spent exposing
+            solve_time (float): The runtime (seconds) spent within the Gurobi solving
+                kernel. This will be the specified time limit unless the chosen 
+                optimality gap was achieved in less than that time limit.
+        """
 
         # The optimization weights set the scale
         slew_param = 1/100
@@ -451,12 +561,11 @@ class TTPModel(object):
         print('------------------------------------')
         print(f'     Observations Requested: {self.N-2}')
         print(f'     Observations Scheduled: {self.num_scheduled}')
-        print(f' Maximum Observations Bound: {self.obs_bound}')
+        #print(f' Maximum Observations Bound: {self.obs_bound}')
         print('------------------------------------')
         print(f'   Observing Duration (min): {self.dur:.2f}')
         print(f'  Time Spent Exposing (min): {self.time_exposing:.2f}')
         print(f'      Time Spent Idle (min): {self.time_idle:.2f}')
         print(f'   Time Spent Slewing (min): {self.time_slewing:.2f}')
-        print(f'   Minimum Slew Bound (min): {self.slew_bound:.2f}')
-        print('------------------------------------')
-        print("Done!")
+        #print(f'   Minimum Slew Bound (min): {self.slew_bound:.2f}')
+        print('------------------------------------')   
