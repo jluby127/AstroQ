@@ -2,6 +2,18 @@ import astropy.units as u
 from astroplan import Observer, FixedTarget
 import numpy as np
 
+'''
+Note to future users:
+We have designed the TTP to take in a telescope object which can be custom made for your specific observatory.
+Follow the template below for Keck1 to create your own named observatory.
+Important features are the telescope pointing limits, the slew rate, and a wrap limit (only one limit is supported).
+
+Increasing the number of "nSlots" increases the number of times within the night where the TTP computes the slew path lengths
+between every target. Larger numbers greatly increase the computation time. We recommend nSlots no greater than 4 unless
+you have a particularly powerful computer and/or a strong need.
+'''
+
+
 # Thank you to Ryan Rubenzahl for most of this class
 class Keck1(object):
     """

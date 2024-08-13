@@ -45,15 +45,26 @@ def nightPlan(orderData, current_day, outputdir='plots'):
             filename
         outputdir (str): Folder in which to save the html link to the plot
     """
-  
+
     # reverse the order so that the plot flows from top to bottom with time
     orderData = pd.DataFrame.from_dict(orderData)
     orderData = orderData.iloc[::-1]
     orderData.reset_index(inplace=True)
 
-    # Each priority gets a different color. Make sure that each priority is actually included here or the plot will break
-    colordict = {'10':'red', '1':'blue'}
+    # Each priority gets a different color. Make sure that each priority is actually included here or the plot will break. Recall bigger numbers are higher priorities.
+    colordict = {'10':'red',
+                 '9':'tomato',
+                 '8':'darkorange',
+                 '9':'sandybrown',
+                 '7':'gold',
+                 '6':'olive',
+                 '5':'green',
+                 '4':'cyan',
+                 '3':'darkviolet',
+                 '2':'magenta',
+                '1':'blue'}
 
+    # build the outline of the plot, add dummy points that are not displyed within the x/y limits so as to fill in the legend
     fig = px.scatter(orderData, x='Minutes the from Start of the Night', y="Starname", hover_data=['First Available', 'Last Available', 'Exposure Time (min)', "N_shots", "Total Exp Time (min)"] ,title='Night Plan') #color='Program'
     fig.add_shape(type="rect", x0=-100, x1=-80, y0=-0.5, y1=0.5, fillcolor='red', showlegend=True, name='Expose P1')
     fig.add_shape(type="rect", x0=-100, x1=-80, y0=-0.5, y1=0.5, fillcolor='blue', showlegend=True, name='Expose P3')
@@ -159,7 +170,7 @@ def plot_path_2D(model,outputdir='plots'):
 
 def plot_slew_histogram(model,bins=30,outputdir='plots'):
     """Make histograms of the estimated/real slews in the schedule
-    
+
     Args:
         model (object): A solved TTP model object
         bins (int): The number of bins to display in the histogram
