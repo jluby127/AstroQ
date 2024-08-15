@@ -1,8 +1,10 @@
 # ttpsolver
 Astronomical observation planning tool that solves the Traveling Telescope Problem (TTP), a time dependent version of the Traveling Salesman Problem.
 
-## Purpose
+## Algorithm
 `ttpsolver` helps you make an observing plan for your targets within a specified time frame. It simplifies the process by allowing you to input your observatory details, observing time constraints, and a target table. The tool plans observations to maximize the number of completed exposures and optimizes the slew path between targets.
+
+`ttpsolver` employs a Mixed-Integer Linear Programming formulation to optimize scheduling in a time-dependent manner, similar to the Traveling Salesman Problem. It determines both the order of targets and the timing of observations to respect celestial object rise and set times. The algorithm is detailed in the Astronomical Journal [here](https://iopscience.iop.org/article/10.3847/1538-3881/ad0dfb). Please cite this work when using `ttpsolver` for planning scientific observations.
 
 ## Installation
 To install `ttpsolver`, run:
@@ -29,10 +31,6 @@ Or:
 ```
 conda install -c gurobi gurobi
 ```
-
-## Algorithm
-
-`ttpsolver` employs a Mixed-Integer Linear Programming formulation to optimize scheduling in a time-dependent manner, similar to the Traveling Salesman Problem. It determines both the order of targets and the timing of observations to respect celestial object rise and set times. The algorithm is detailed in the Astronomical Journal [here](https://iopscience.iop.org/article/10.3847/1538-3881/ad0dfb). Please cite this work when using `ttpsolver` for planning scientific observations.
 
 ## Tutorials
 You can find a tutorial for using the package in the `/tutorial` directory. In the tutorial, we attempt to schedule 85 targets (the survey list for the TESS-Keck Survey, see [here](https://ui.adsabs.harvard.edu/abs/2022AJ....163..297C/abstract), as this is a large list of stars spread out over RA hours). Not all stars will be observable on the specified night but the `ttpsolver` handles this easily.
