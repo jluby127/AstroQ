@@ -12,6 +12,8 @@ import plotly.express as px
 import matplotlib.pyplot as plt
 import os
 import star
+import imageio
+
 
 def writeStarList(orderData, starttime, current_day, outputdir=''):
     """Write a text file with the optimized schedule.
@@ -71,20 +73,26 @@ def nightPlan(orderData, current_day, outputdir='plots'):
     fig.add_shape(type="rect", x0=-100, x1=-80, y0=-0.5, y1=0.5, fillcolor='lime', opacity=0.3, showlegend=True, name='Accessible')
 
     new_already_processed = []
-    nstars = len(orderData['Starname'])
-    for i in range(nstars):
+    ifixer = 0 # for multi-visit targets, it throws off the one row per target plotting...this fixes it
+    for i in range(len(orderData['Starname'])):
         if orderData['Starname'][i] not in new_already_processed:
             counter1 = list(orderData['Starname']).count(orderData['Starname'][i])
-            for j in range(counter1):
-                fig.add_shape(type="rect", x0=orderData['Start Exposure'][i+j], x1=orderData['Start Exposure'][i+j] + orderData["Total Exp Time (min)"][i+j], y0=i-0.5, y1=i+0.5, fillcolor=colordict[str(orderData['Priority'][i+j])])
-                fig.add_shape(type="rect", x0=orderData['First Available'][i], x1=orderData['Last Available'][i], y0=i-0.5, y1=i+0.5, fillcolor='lime', opacity=0.3, showlegend=False)
+            # find all the times in the night when the star is being visited
+            indices = [k for k in range(len(orderData['Starname'])) if orderData['Starname'][k] == orderData['Starname'][i]]
+            for j in range(len(indices)):
+                fig.add_shape(type="rect", x0=orderData['Start Exposure'][indices[j]], x1=orderData['Start Exposure'][indices[j]] + orderData["Total Exp Time (min)"][indices[j]], y0=i+ifixer-0.5, y1=i+ifixer+0.5, fillcolor=colordict[str(orderData['Priority'][indices[j]])])
+                if j == 0:
+                    # only do this once, otherwise the green bar gets discolored compared to other rows
+                    fig.add_shape(type="rect", x0=orderData['First Available'][indices[j]], x1=orderData['Last Available'][indices[j]], y0=i+ifixer-0.5, y1=i+ifixer+0.5, fillcolor='lime', opacity=0.3, showlegend=False)
             new_already_processed.append(orderData['Starname'][i])
+        else:
+            # if we already did this star, it is a multi-visit star and we need to adjust the row counter for plotting purposes
+            ifixer -= 1
 
     fig.update_layout(xaxis_range=[0,orderData['Start Exposure'][0] + orderData["Total Exp Time (min)"][0]])
-    fig.write_html(outputdir + "/NightPlan_" + str(current_day) + ".html")
+    # Save as both a .html intereactive plot and a low-res png plot
+    fig.write_html(outputdir + "NightPlan_" + str(current_day) + ".html")
     fig.write_image(outputdir + 'NightPlan_' + str(current_day) + ".png")
-    # fig.show()
-
 
 # Old imported code from kpfautoscheduler repo
 def plot_path_2D(model,outputdir='plots'):
@@ -213,45 +221,101 @@ def plot_slew_histogram(model,bins=30,outputdir='plots'):
     plt.savefig(filename,dpi=200)
 
 
-# *****Note from Jack: this function needs it's inputs re-calibrated within the new object oriented TTP framework. Mostly just trying to save the code by putting it here ****
-def animate_telescope(time_strings,total_azimuth_list,total_zenith_list,tel_az,tel_zen,observed_at_time,plotpath):
+def animate_telescope(model, startObs, endObs, outputdir, animationStep=120):
+    '''
+    Produce the animation slew path GIF
 
-    theta = np.arange(5.3/180, 146.2/180, 1./180)*np.pi
-    total_azimuth_list = np.array(total_azimuth_list)
-    total_zenith_list = np.array(total_zenith_list)
-    tel_ims_dir = os.path.join(plotpath,'tel_ims')
+    model (object) - the model object returned out from the TTP's model.py
+    startObs (Time) - the timestamp of the beginning of the night, in isot format
+    endObs (Time) - the timestamp of the end of the night, in isot format
+    outputdir (str) - the path to save the animation
+    animationStep (int) - the time, in seconds, between animation still frames. Default to 120s.
+    '''
+
+    tel_ims_dir = os.path.join(outputdir,'tel_ims')
     if not os.path.isdir(tel_ims_dir):
         os.mkdir(tel_ims_dir)
 
+    # Gather info on the slew path from the TTP solution
+    names = [s for s in model.schedule['Starname']]
+    times = model.times
+
+    # set the timestamps at which to generate a frame for the animation
+    t = np.arange(startObs.jd, endObs.jd, TimeDelta(animationStep,format='sec').jd)
+    t = Time(t,format='jd')
+
+    # we need the astropy target objects within the TTP's Star object and we need them in the order to be observed
+    list_targets = []
+    for n in range(len(model.schedule['Starname'])):
+        for s in model.stars:
+            if s.name == model.schedule['Starname'][n]:
+                list_targets.append(s.target)
+
+    # compute the alt/az of each star at each animation still
+    AZ = model.observatory.observer.altaz(t, list_targets, grid_times_targets=True)
+    alt = []
+    az = []
+    for m in range(len(AZ)):
+        tmpalt = []
+        tmpaz = []
+        for n in range(len(AZ[m])):
+            tmpalt.append(np.round(AZ[m,n].az.rad,2))
+            tmpaz.append(90-np.round(AZ[m,n].alt.deg,2))
+        alt.append(tmpalt)
+        az.append(tmpaz)
+
+    # Call the custom code to orient targets in the correct path
+    # Compute the telescope's pointing at each frame
+    stamps = [0]*len(t)
+    slewPath = createTelSlewPath(stamps, model.schedule['Time'], list_targets)
+
+    AZ1 = model.observatory.observer.altaz(t, slewPath, grid_times_targets=False)
+    tel_az = np.round(AZ1.az.rad,2)
+    tel_zen = 90 - np.round(AZ1.alt.deg,2)
+
+    # Build the animation frame by frame
+    theta = np.arange(model.observatory.deckAzLim1/180, model.observatory.deckAzLim2/180, 1./180)*np.pi
+    allaround = np.arange(0., 360/180, 1./180)*np.pi
+    plotlowlim = 80
+    # theta = np.arange(5.3/180, 146.2/180, 1./180)*np.pi
     filenames = []
-    for i in range(len(time_strings)):
-        if i % 60 == 0:
-            fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
-            ax.set_ylim(0,70)
-            ax.set_title(time_strings[i])
-            ax.set_yticklabels([])
-            ax.fill_between(theta,56.7,70,color = 'red',alpha=.7)
-            #ax.fill_between(np.arange(0,2,1/180)*np.pi,50,70,color= 'red',alpha=.4)
-            ax.set_theta_zero_location('N')
-            observed_list = observed_at_time[:i]
-            for j in set(observed_list):
-                ax.scatter(total_azimuth_list[i][j],total_zenith_list[i][j],color='orange',marker='*')
-            for j in set(observed_at_time):
-                if j not in set(observed_list):
-                    ax.scatter(total_azimuth_list[i][j],total_zenith_list[i][j],color='white',marker='*')
-            ax.plot(tel_az[:i],tel_zen[:i],color='orange')
-            ax.set_facecolor('black')
+    for i in range(len(t)):
+        fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
+        ax.set_ylim(0,plotlowlim)
+        ax.set_title(t.isot[i])
+        ax.set_yticklabels([])
+        # ax.fill_between(theta,56.7,80,color = 'red',alpha=.7)
+        ax.fill_between(theta,90-model.observatory.deckAltLim,plotlowlim,color = 'red',alpha=.7)
+        ax.fill_between(allaround,90-model.observatory.vigLim,plotlowlim,color = 'red',alpha=.7)
+        ax.fill_between(allaround,90-model.observatory.zenLim,0,color = 'red',alpha=.7)
+        ax.set_theta_zero_location('N')
 
-            # create file name and append it to a list
-            filename = f'{i}.png'
-            filenames.append(filename)
+        # if arrival time less than current frame time, star "was observed"
+        wasObserved =  np.array(model.schedule['Time']) <= float(t[i].jd)
+        observed_list = np.array(model.schedule['Starname'])[wasObserved]
 
-            # save frame
-            plt.savefig(os.path.join(tel_ims_dir,filename),dpi=100)
-            plt.close()
+        # place stars on the plot
+        for j in range(len(model.schedule['Starname'])):
+            if names[j] in observed_list:
+                ax.scatter(alt[j][i],az[j][i],color='orange',marker='*')
+            else:
+                ax.scatter(alt[j][i],az[j][i],color='white',marker='*')
+
+        # place lines connecting stars on plot
+        ax.plot(tel_az[:i],tel_zen[:i],color='orange')
+
+        ax.set_facecolor('black')
+
+        # create file name and append it to a list
+        filename = f'{i}.png'
+        filenames.append(filename)
+
+        # save frame
+        plt.savefig(os.path.join(tel_ims_dir,filename),dpi=100)
+        plt.close()
 
     # build gif
-    with imageio.get_writer(os.path.join(plotpath,'Observing_Animation.gif'), mode='I') as writer:
+    with imageio.get_writer(os.path.join(outputdir,'Observing_Animation.gif'), mode='I') as writer:
         for filename in filenames:
             image = imageio.imread(os.path.join(tel_ims_dir,filename))
             writer.append_data(image)
@@ -263,3 +327,46 @@ def animate_telescope(time_strings,total_azimuth_list,total_zenith_list,tel_az,t
         os.remove(tel_ims_dir)
     except:
         print('Cannot remove redundant tel_ims directory due to file permissions')
+    print("Animation plot complete. Still frame files deleted.")
+
+
+
+def createTelSlewPath(stamps, changes, pointings, animationStep=120):
+    '''
+    Correctly assign each frame of the animation to the telescope pointing at that time
+
+    stamps (list of zeros) - the list where each element represents a frame of the animation. We manipulate and return this at the end.
+    changes (list) - the times at which the telescope pointing changes (in order of the slew path)
+    poitings (list) - the astropy target objects of for the stars to be observed, in order of the slew path
+    animationStep (int) - the time, in seconds, between frames
+
+    return
+        stamps - now a list where element holds the pointing of the telescope (aka the star object) at that frame
+
+    '''
+    # determine how many minutes each frame of the animation represents
+    minPerStep = int(animationStep/60)
+    mins = int(60/minPerStep)
+
+    # offset the timestamps of the observations to a zero point
+    changes = (changes - changes[0])*24*mins
+    for c in range(len(changes)):
+        changes[c] = int(changes[c])
+
+    # determine telescope pointing at each frame
+    for i in range(len(changes)-1):
+        for j in range(len(stamps)):
+            if j >= changes[i] and j < changes[i+1]:
+                stamps[j] = pointings[i]
+
+    # Add edge cases of the first and last telescope pointing
+    k = 0
+    while stamps[k] == 0:
+        stamps[k] = pointings[0]
+        k += 1
+    l = len(stamps)-1
+    while stamps[l] == 0:
+        stamps[l] = pointings[-1]
+        l -= 1
+
+    return stamps
