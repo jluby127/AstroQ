@@ -7,11 +7,21 @@ Astronomical observation planning tool that solves the Traveling Telescope Probl
 `ttpsolver` employs a Mixed-Integer Linear Programming formulation to optimize scheduling in a time-dependent manner, similar to the Traveling Salesman Problem. It determines both the order of targets and the timing of observations to respect celestial object rise and set times. The algorithm is detailed in the Astronomical Journal [here](https://iopscience.iop.org/article/10.3847/1538-3881/ad0dfb). Please cite this work when using `ttpsolver` for planning scientific observations.
 
 ## Installation
-To install `ttpsolver`, run:
+For Conda users, start by setting up a new environment in python 3.9:
+```
+conda create -n kpfauto python=3.9
+```
 
-*Update this line with package installation*
+To install `ttpsolver`, clone this repository:
+```
+$ git clone https://github.com/lukehandley/ttp.git
+```
+Next you can install all relevant packages at once with pip using:
+```
+pip install -r requirements.txt
+```
+This will set up the environment with the _**exception**_ of Gurobipy. Very important _**do not**_ pip install Gurobipy at this step.
 
-This will set up the environment with the _**exception**_ of Gurobipy.
 
 ### Installing Gurobi
 `ttpsolver` relies on Gurobi for solving large matrix equations efficiently. Follow these steps to install and set up Gurobi:
