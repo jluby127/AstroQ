@@ -1,9 +1,10 @@
-numpy==1.26.4
-matplotlib==3.9.0
-pandas==2.2.1
-astropy==6.1.0
-astroplan==0.10
+numpy==1.22.1
+matplotlib==3.5.1
+pandas==1.4.1
+astropy==5.0.1
+astroplan==0.8
 plotly==5.17.0
-jupyter_client==8.6.2
-ipykernel==6.29.4
+jupyter_client==7.1.2
+ipykernel==6.9.1
 imageio==2.24.0
+kaleido==0.2.1
