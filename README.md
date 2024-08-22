@@ -29,12 +29,12 @@ This will set up the environment with the _**exception**_ of Gurobipy. Very impo
 
 1. **Create an an Account** on Gurobi's [registration site](https://portal.gurobi.com/iam/register/). Select that you are an "Academic", type in your home institution, and submit the form via "Access Now". You will receive an email to complete the registration.
 2. **Download Gurobi** for your OS from [this download page](https://www.gurobi.com/downloads/gurobi-software/). Run the installer file following their instructions.
-3. **Request an Academic License** from your [user portal](https://portal.gurobi.com/iam/licenses/request/) *while connected to a university network*. You want the 'Named-User Academic License' which has a one year lifetime.
+3. **Request an Academic License** from your [user portal](https://portal.gurobi.com/iam/licenses/request/) *while connected to a university network*. You want the 'Named-User Academic License' which has a one year lifetime. At the end of the year, you can obtain a new license easily within your account (and for free) so long as you have maintained your academic status. 
 4. **Retrieve the License** by running the command from the popup window in a shell. It should look like:
 ```
 grbgetkey 253e22f3...
 ```
-5. **Install Gurobipy** using either pip or conda *after* completing the previous steps.
+5. **Install Gurobipy** using either pip or conda *after* completing the previous steps. The reason we must wait to run this line until after obtaining a license is that, without a specific license, Gurobipy will give you a trial license. This trial license limits the size of the models you can solve and expires quickly. We need a full, true license in order to solve this model, so you must obtain a 'Name-User Academic License' (see above) before installing Gurobipy.
 ```
 pip install gurobipy
 ```
