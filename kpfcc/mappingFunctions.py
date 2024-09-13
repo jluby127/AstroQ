@@ -245,7 +245,7 @@ def isObservable(date, target, STEP):
     min_az = 5.3 #naysmith deck direction limits
     max_az = 146.2
     min_alt = 33.3 # Naysmith deck height
-    else_min_alt = 25. #non-Naysmith deck height
+    else_min_alt = 30. #non-Naysmith deck height
     max_alt = 85.
     # This is ~20 min before earliest sunset of the year in Hawaii
     # And ~20 min after the latest sunrise of the year in Hawaii

@@ -17,38 +17,38 @@ import model
 import argparse
 parser = argparse.ArgumentParser(description='Generate schedules with KPF-CC v2')
 parser.add_argument('-d','--schedule_dates',action='append',help='Date(s) to be scheduled as strings in format YYYY-MM-DD. Must be in allocated_nights')
+parser.add_argument('-f','--folder', help='Folder to save generated scripts and plots', default=os.environ["KPFCC_SAVE_PATH"])
 args = parser.parse_args()
 
-current_day = args.schedule_dates #['2024-06-26']
-
-deskpath = "/Users/jack/Desktop/"
 dirpath = "/Users/jack/Documents/Github/optimalAllocation/"
-savepath = deskpath #+ 'KPFCC_' + str(current_day[0]) + '_Outputs/'
-request_sheet = deskpath + "/2024B_Testing_noPickle/inputs/Requests3.csv" #dirpath + "semesterFiles/2024A/2024A_KPFCC_Requests.csv"
+savepath = args.folder + 'outputs/' + str(current_day[0]) + '_ttpOnly/'
+request_sheet = args.folder + "inputs/Requests.csv"
+startstop_sheet = args.folder + "inputs/2024B_NightlyStartStopTimes.csv"
+
+# note to self: fix all the paths and environment variables
+# add environment variable to the autoscheduler modules 
 
 print("Prepare schedule for the TTP.")
 tel = telescope.Keck1()
-# startstoptimes = pd.read_csv(dirpath + 'semesterFiles/2024A/Nightly_StartStop_Times.csv')
-startstoptimes = pd.read_csv(deskpath + "/2024B_Testing_noPickle/inputs/2024B_NightlyStartStopTimes.csv" )
-semester_start_date, semester_end_date, semesterLength, semesterYear, semesterLetter = hf.getSemesterInfo(current_day[0])
+startstoptimes = pd.read_csv(startstop_sheet)
+semester_start_date, semester_end_date, semesterLength, semesterYear, semesterLetter = hf.getSemesterInfo(args.schedule_dates[0])
 all_dates_dict = hf.buildDayDateDictionary(semester_start_date, semesterLength)
 the_schedule = np.loadtxt(savepath + 'raw_combined_semester_schedule_Round2.txt', delimiter=',', dtype=str)
-for n in range(len(current_day)):
+for n in range(len(args.schedule_dates)):
 
-    dayInSemester = all_dates_dict[current_day[n]]
-    idx = startstoptimes.index[startstoptimes['Date']==str(current_day[n])][0]
+    dayInSemester = all_dates_dict[args.schedule_dates[n]]
+    idx = startstoptimes.index[startstoptimes['Date']==str(args.schedule_dates[n])][0]
 
-    #print(the_schedule[dayInSemester])
     filltargets = np.loadtxt(savepath + 'gapFillerTargets.txt', dtype=str)
     toTTP = pf.prepareTTP(request_sheet, the_schedule[dayInSemester], filltargets)
-    filename = savepath + '/Selected_' + str(current_day[n]) + ".txt"
+    filename = savepath + '/Selected_' + str(args.schedule_dates[n]) + ".txt"
     toTTP.to_csv(filename, index=False)
     targlist = formatting.theTTP(filename)
 
     starttime = startstoptimes['Start'][idx]
     stoptime = startstoptimes['Stop'][idx]
-    startObs = Time(str(current_day[n]) + "T" + str(starttime), format='isot')
-    endObs = Time(str(current_day[n]) + "T" + str(stoptime), format='isot')
+    startObs = Time(str(args.schedule_dates[n]) + "T" + str(starttime), format='isot')
+    endObs = Time(str(args.schedule_dates[n]) + "T" + str(stoptime), format='isot')
     total_time = np.round((endObs.jd-startObs.jd)*24,3)
     print("Time in Night for Observations: " + str(total_time) + " hours.")
 
@@ -59,11 +59,11 @@ for n in range(len(current_day)):
     for i in range(len(solutionDict['Starname'])):
         orderedList.append(solutionDict['Starname'][i])
 
-    plotting.writeStarList(solution.plotly, startObs, current_day[n], outputdir=savepath)
+    plotting.writeStarList(solution.plotly, startObs, args.schedule_dates[n], outputdir=savepath)
     plotting.plot_path_2D(solution, outputdir=savepath)
-    plotting.nightPlan(solution.plotly, current_day[n], outputdir=savepath)
+    plotting.nightPlan(solution.plotly, args.schedule_dates[n], outputdir=savepath)
 
-    obs_and_times = pd.read_csv(savepath + 'ObserveOrder_' + str(current_day[0]) + ".txt")
+    obs_and_times = pd.read_csv(savepath + 'ObserveOrder_' + str(args.schedule_dates[0]) + ".txt")
     all_targets_frame = pd.read_csv(request_sheet)
     gapFillers = np.loadtxt(savepath + 'gapFillerTargets.txt', delimiter=',', dtype=str)
-    pf.write_starlist(all_targets_frame, obs_and_times, solution.extras, gapFillers, 'nominal', str(current_day[0]), savepath)
+    pf.write_starlist(all_targets_frame, obs_and_times, solution.extras, gapFillers, 'nominal', str(args.schedule_dates[0]), savepath)
