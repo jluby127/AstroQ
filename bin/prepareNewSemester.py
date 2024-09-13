@@ -5,12 +5,20 @@ import astropy as apy
 import astroplan as apl
 from astropy.time import Time
 from astropy.time import TimeDelta
-import pickle
+import os
+# import pickle
+import json
 import warnings
 warnings.filterwarnings('ignore')
 import sys
-sys.path.append("/Users/jack/Documents/Github/optimalAllocation/autoschedulerV2/")
+# sys.path.append("/Users/jack/Documents/Github/optimalAllocation/autoschedulerV2/")
+sys.path.append("../kpfcc/")
 import mappingFunctions as mf
+
+import argparse
+parser = argparse.ArgumentParser(description='Generate schedules with KPF-CC v2')
+parser.add_argument('-f','--folder', help='Folder to save generated scripts and plots', default=os.environ["KPFCC_SAVE_PATH"])
+args = parser.parse_args()
 
 # This file produces all the meta-data files needed to run the autoscheduler.
 # This file should be run as soon as the allocation schedule is announced by the observatory.
@@ -23,10 +31,16 @@ import mappingFunctions as mf
 # --- The allocation schedule that Keck Observatory produces each semester, see here and filter by KPF: https://www2.keck.hawaii.edu/observing/keckSchedule/queryForm.php
 # --- The set of PI requests for cadenced queue observations, downloaded from the Request Submission Webform
 # --- The set of PI requests for time-sensitive non-queue observations, downloaded from the Request Submission Webform which include start/stop times for the event windows
-path = '/Users/jack/Desktop/testNewSemester/'
-allocation = mf.reformatKeckAllocationData(path + 'inputs/KPF_2024A_Allocation_original.csv')
-requests = pd.read_csv(path + 'inputs/2024A_KPFCC_Requests.csv')
-nonqueues = pd.read_csv(path + 'inputs/2024A_NonQueues.csv', comment='#')
+
+# path = '/Users/jack/Desktop/testNewSemester/'
+# allocation = mf.reformatKeckAllocationData(path + 'inputs/KPF_2024A_Allocation_original.csv')
+# requests = pd.read_csv(path + 'inputs/2024A_KPFCC_Requests.csv')
+# nonqueues = pd.read_csv(path + 'inputs/2024A_NonQueues.csv', comment='#')
+allocation = mf.reformatKeckAllocationData(args.folder + 'inputs/AllocationSchedule_firsthalf.csv')
+# allocation = mf.reformatKeckAllocationData('/Users/jack/Desktop/AllocationSchedule.csv')
+# allocation.to_csv("/Users/jack/Desktop/24B_allo.csv", index=False)
+requests = pd.read_csv(args.folder + 'inputs/Requests.csv')
+nonqueues = pd.read_csv(args.folder + 'inputs/NonQueue_firsthalf.csv', comment='#')
 
 
 # Generate dictionary between calendar day and day of semester
@@ -34,9 +48,9 @@ nonqueues = pd.read_csv(path + 'inputs/2024A_NonQueues.csv', comment='#')
 print("Preparing meta data. ")
 # These are the only values that should ever be manually changed.
 # And even then, really only change the semester and start date.
-semester = '2024A'
-start_date = '2024-02-01'
-nNightsInSemester = 182
+semester = '2024B'
+start_date = '2024-08-01'
+nNightsInSemester = 88 #note manually cutting off here before we receive the new computer
 slotStartTimestamp = '17:30:00' #HST = 03:30 UTC
 slotEndTimestamp = '07:30:00' #HST = 17:30 UTC
 nQuartersInNight = 4
@@ -90,7 +104,7 @@ print("Total number of quarters allocated: ", np.sum(allocationMap_ints))
 print("Total unique nights allocated: ", uniqueDays)
 
 # Write the binary allocation map to file
-filename = path + "outputs/" + semester + '_Binary_Schedule.txt'
+filename = args.folder + "inputs/" + semester + '_Binary_Schedule.txt'
 file = open(filename, 'w')
 for a in range(len(allocationMap)):
     line = all_dates[a] + " : " + str(allocationMap[a])
@@ -120,7 +134,7 @@ for t in range(len(allocation)):
     starts.append(start)
     stops.append(stop)
 allocation_frame = pd.DataFrame({'Date':processed_dates, 'Start':starts, 'Stop':stops})
-allocation_frame.to_csv(path + "outputs/" + semester + '_NightlyStartStopTimes.csv', index=False)
+allocation_frame.to_csv(args.folder + "inputs/" + semester + '_NightlyStartStopTimes.csv', index=False)
 
 
 # Create the template file for the cadence plots including true weather map
@@ -134,21 +148,21 @@ for d in range(len(all_dates)):
         quarterlist.append(0.5+q)
 falselist = [False]*len(dateslist)
 template_frame = pd.DataFrame({'Date':dateslist, 'Quarter':quarterlist,'Allocated':falselist,'Weathered':falselist})
-template_frame.to_csv(path + "outputs/" + semester + "_cadenceTemplateFile.csv", index=False)
+template_frame.to_csv(args.folder + "inputs/" + semester + "_cadenceTemplateFile.csv", index=False)
 
 
 # Create the csv file of twilight times for the semester
 # -----------------------------------------------------------------------------------------
 print("Generate twilight times for each day of semester.")
 keck = apl.Observer.at_site('W. M. Keck Observatory')
-twilight_frame = pd.DataFrame({'Date':all_dates})
+twilight_frame = pd.DataFrame({'time_utc':all_dates})
 eighteen_deg_evening = []
 twelve_deg_evening = []
 six_deg_evening = []
 eighteen_deg_morning = []
 twelve_deg_morning = []
 six_deg_morning = []
-for day in twilight_frame['Date']:
+for day in twilight_frame['time_utc']:
     as_day = Time(day,format='iso',scale='utc')
     eighteen_deg_evening.append(keck.twilight_evening_astronomical(as_day,which='next'))
     twelve_deg_evening.append(keck.twilight_evening_nautical(as_day,which='next'))
@@ -162,7 +176,7 @@ twilight_frame['6_evening'] = six_deg_evening
 twilight_frame['18_morning'] = eighteen_deg_morning
 twilight_frame['12_morning'] = twelve_deg_morning
 twilight_frame['6_morning'] = six_deg_morning
-twilight_frame.to_csv(path + "outputs/" + semester + '_twilight_times.csv', index=False)
+twilight_frame.to_csv(args.folder + "inputs/" + semester + '_twilight_times.csv', index=False)
 
 
 # Generate the accessibility maps for each target.
@@ -177,7 +191,7 @@ twilight_frame.to_csv(path + "outputs/" + semester + '_twilight_times.csv', inde
 #      For plotting purposes later. It is easist to precompute these values.
 # -----------------------------------------------------------------------------------------
 print("Generate accessibilty map and target turn on/off date for each target.")
-starnames = []
+Starname = []
 ondate_q1 = []
 offdate_q1 = []
 ondate_q2 = []
@@ -190,10 +204,21 @@ for s in range(len(stepsizes)):
     all_maps = {}
     print("Computing for " + str(stepsizes[s]) + " minute slots.")
     for n,row in requests.iterrows():
+        print(row['Starname'])
         if s == 0:
             access_map, turnonoff = mf.singleTargetAccessible(row['Starname'], row['RA'], row['Dec'], start_date, nNightsInSemester, stepsizes[s], turnonoff=True)
-            all_maps[row['Starname']] = access_map
-            starnames.append(row['Starname'])
+
+            flat_access_map = np.array(access_map).flatten()
+            #all_maps[row['Starname']] = access_map
+            # because you can't json serialize an array/list or integers
+            # must create a string "list". Later decode it back to a real array
+            stringmap = '['
+            for e in range(len(flat_access_map)):
+                stringmap += str(flat_access_map[e]) + ','
+            stringmap += ']'
+            all_maps[row['Starname']] = stringmap
+
+            Starname.append(row['Starname'])
             ondate_q1.append(all_dates[turnonoff[0][0]])
             offdate_q1.append(all_dates[turnonoff[0][1]])
             ondate_q2.append(all_dates[turnonoff[1][0]])
@@ -204,19 +229,27 @@ for s in range(len(stepsizes)):
             offdate_q4.append(all_dates[turnonoff[3][1]])
         else:
             access_map = mf.singleTargetAccessible(row['Starname'], row['RA'], row['Dec'], start_date, nNightsInSemester, stepsizes[s])
-            all_maps[row['Starname']] = access_map
+            #all_maps[row['Starname']] = access_map
+            flat_access_map = np.array(access_map).flatten()
+            # because you can't json serialize an array/list or integers
+            # must create a string "list". Later decode it back to a real array
+            stringmap = '['
+            for e in range(len(flat_access_map)):
+                stringmap += str(flat_access_map[e]) + ','
+            stringmap += ']'
+            all_maps[row['Starname']] = stringmap
 
     # Serialize the dictionary and write it to a file
-    with open(path + "outputs/" + semester + "_AccessMaps_" + str(stepsizes[s]) + "minSlots.pkl" , 'wb') as file:
-        pickle.dump(all_maps, file)
+    with open(args.folder + "inputs/" + semester + "_AccessMaps_" + str(stepsizes[s]) + "minSlots.txt", 'w') as convert_file:
+         convert_file.write(json.dumps(all_maps))
 
     # Create and write out the Turn On/Off dataframe
-    turnOnOff = pd.DataFrame({'Starname':starnames,
+    turnOnOff = pd.DataFrame({'Starname':Starname,
                               'Q1_on_date':ondate_q1, 'Q1_off_date':offdate_q1,
                               'Q2_on_date':ondate_q2, 'Q2_off_date':offdate_q2,
                               'Q3_on_date':ondate_q3, 'Q3_off_date':offdate_q3,
                               'Q4_on_date':ondate_q4, 'Q4_off_date':offdate_q4,})
-    turnOnOff.to_csv(path + "outputs/" + semester + "_turnOnOffDates.csv", index=False)
+    turnOnOff.to_csv(args.folder + "inputs/" + semester + "_turnOnOffDates.csv", index=False)
 
 
 # Generate the array of slots which must be occupied by non-queue observations
@@ -289,7 +322,7 @@ for s in range(len(stepsizes)):
                 fullsemester_NonQueueMap_str[x] = holder
 
     # Write out the file
-    np.savetxt(path + "outputs/" + semester + '_NonQueueMap' + str(stepsizes[s]) + '.txt', fullsemester_NonQueueMap_str, delimiter=',', fmt="%s")
+    np.savetxt(args.folder + "inputs/" + semester + '_NonQueueMap' + str(stepsizes[s]) + '.txt', fullsemester_NonQueueMap_str, delimiter=',', fmt="%s")
 
-print("All files written to directory: " + path + 'outputs/ complete.')
+print("All files written to directory: " + args.folder + 'inputs/ complete.')
 print("done.")

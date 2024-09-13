@@ -290,6 +290,7 @@ def runKPFCCv2(current_day,
 
             #total_open_shutter_time = np.sum(star_past_obs['Nominal_ExpTime'])
             star_past_obs, unique_hstdates_observed, quarterObserved = pf.getUniqueNights(star_past_obs, twilight_frame)
+            #print(all_targets_frame['Starname'][i] + ": " + str(unique_hstdates_observed))
             if len(unique_hstdates_observed) > 0:
                 mostRecentObservationDate = unique_hstdates_observed[-1]
             else:

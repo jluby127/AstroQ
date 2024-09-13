@@ -9,6 +9,7 @@ from astropy.coordinates import Angle
 from astropy.time import Time
 from astropy.time import TimeDelta
 import requests
+import re
 from bs4 import BeautifulSoup
 import os
 
@@ -212,10 +213,11 @@ def prepareTTP(request_sheet, night_plan, filltargets):
     ignore = ['*', 'W', '', '*X', 'X']
     selected_stars = []
     for i in range(len(night_plan)):
-        if night_plan[i] not in ignore:
+        if night_plan[i] not in ignore and night_plan[i][:4] != "RM__":
             selected_stars.append(night_plan[i])
             ignore.append(night_plan[i])
 
+    print(selected_stars)
     # build the dataframe with correct info and correct headers
     all_targets_frame = pd.read_csv(request_sheet)
     RAs = []
@@ -226,6 +228,7 @@ def prepareTTP(request_sheet, night_plan, filltargets):
     cadences = []
     priorities = []
     for j in range(len(selected_stars)):
+        print(str(selected_stars[j]))
         idx = all_targets_frame.index[all_targets_frame['Starname']==str(selected_stars[j])][0]
         RAs.append(all_targets_frame['RA'][idx])
         Decs.append(all_targets_frame['Dec'][idx])
@@ -375,7 +378,8 @@ def format_kpf_row(row, obs_time, current_day, fillerFlag = False, Jtwothousand 
     teffstr = 'Teff=' + str(int(row['Effective Temperature [Kelvin]'][0])) + ' '*(4-len(str(int(row['Effective Temperature [Kelvin]'][0]))))
 
     if str(row['GAIA Identifier'][0]) != "NoGaiaName":
-        gaiastring = str(row['GAIA Identifier'][0][5:]) + ' '*(25-len(str(row['GAIA Identifier'][0][5:])))
+        # gaiastring = str(row['GAIA Identifier'][0][5:]) + ' '*(25-len(str(row['GAIA Identifier'][0][5:])))
+        gaiastring = str(row['GAIA Identifier'][0]) + ' '*(25-len(str(row['GAIA Identifier'][0])))
     else:
         gaiastring = str(row['GAIA Identifier'][0]) + ' '*(25-len(str(row['GAIA Identifier'][0])))
 
@@ -425,7 +429,7 @@ def pm_correcter(ra, dec, pmra, pmdec, epochstr, current_day, verbose=False):
     # note that degrees are not hour angles!
     # this code converts RA from degrees to hourangle at the end
 
-    current_time = Time('2024-01-01')  # You can adjust the date as needed
+    current_time = Time(current_day)  # You can adjust the date as needed
 
     ra_deg = Angle(ra, unit=u.deg)  # RA in degrees
     dec_deg = Angle(dec, unit=u.deg)  # Dec in degrees

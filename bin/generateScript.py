@@ -16,21 +16,24 @@ parser.add_argument('-p','--plot_results',action='store_true', help='Turn on plo
 
 args = parser.parse_args()
 
-request_sheet = args.folder + "inputs/Requests5.csv"
+request_sheet = args.folder + "inputs/Requests.csv"
 allocated_nights = args.folder + "inputs/2024B_Binary_Schedule.txt"
-pastDatabase = 'nofilename.csv' #args.folder + "inputs/queryJumpDatabase.csv"
+pastDatabase = args.folder + "inputs/queryJumpDatabase.csv" #'nofilename.csv' #
 twilight_times = args.folder + "inputs/2024B_twilight_times.csv"
 access_map = args.folder + "inputs/2024B_AccessMaps_" + str(args.slot_size) + "minSlots.txt"
 turnFile = args.folder + "inputs/2024B_turnOnOffDates.csv"
 starmap_template_filename = args.folder + "inputs/2024B_cadenceTemplateFile.csv"
 nonqueueMap =  args.folder + 'inputs/2024B_NonQueueMap'  + str(args.slot_size) + '.txt'
 specialMaps = args.folder + 'inputs/2024B_specialMaps_' + str(args.slot_size) + 'minSlots.txt'
-zeroOutFile = 'nofilename.txt'
+zeroOutFile = 'nofilename.txt' #'/Users/jack/Desktop/zeroOutFile.txt' #
 startstoptimes = pd.read_csv(args.folder + "inputs/2024B_NightlyStartStopTimes.csv")
 
 import sys
 sys.path.append("../kpfcc/")
 import solveSemester as ssm
+import processingFunctions as pf
+# print("Pulling past observations from Jump.")
+# pf.getKPFAllObservations(args.folder + "inputs/queryJumpDatabase.csv")
 ssm.runKPFCCv2(args.schedule_dates,
                           request_sheet,
                           allocated_nights,
@@ -50,7 +53,6 @@ ssm.runKPFCCv2(args.schedule_dates,
                           args.time_limit)
 
 
-import processingFunctions as pf
 import helperFunctions as hf
 sys.path.append(os.environ["TTP_PATH"])
 import formatting
@@ -69,6 +71,7 @@ for n in range(len(args.schedule_dates)):
     idx = startstoptimes.index[startstoptimes['Date']==str(args.schedule_dates[n])][0]
 
     filltargets = np.loadtxt(savepath + 'gapFillerTargets.txt', dtype=str)
+    print(the_schedule[dayInSemester])
     toTTP = pf.prepareTTP(request_sheet, the_schedule[dayInSemester], filltargets)
     filename = savepath + '/Selected_' + str(args.schedule_dates[n]) + ".txt"
     toTTP.to_csv(filename, index=False)
