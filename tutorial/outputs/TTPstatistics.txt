@@ -1,0 +1,13 @@
+Stats for TTP Solution
+------------------------------------
+    Model ran for 300.03 seconds
+     Observations Requested: 87
+     Observations Scheduled: 52
+ Maximum Observations Bound: 10
+------------------------------------
+   Observing Duration (min): 420.00
+  Time Spent Exposing (min): 389.12
+      Time Spent Idle (min): 7.04
+   Time Spent Slewing (min): 23.85
+   Minimum Slew Bound (min): 11.38
+------------------------------------
