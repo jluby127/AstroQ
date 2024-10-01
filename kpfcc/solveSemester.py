@@ -580,7 +580,7 @@ def runKPFCCv2(current_day,
                     starmap['Observed'] = [False]*len(starmap)
                 if 'N_obs' not in starmap_columns:
                     starmap['N_obs'] = [0]*len(starmap)
-                unique_hstdates_observed = []
+                #unique_hstdates_observed = [] # commented out on 9/19 as it was messing up the cadence plot header
             starmap_updated = rf.buildObservedMap_future(all_targets_frame['Starname'][i], slotsNeededDict[all_targets_frame['Starname'][i]], combined_semester_schedule, starmap, all_dates_dict[current_day], slotsNeededDict, np.array(allocation_schedule_full_semester), weatherDiff_1D, nSlotsInNight)
             #if optimalAllocation:
             #    pd.to_csv(outputDirectory + "/FirstForecasts/Forecast_" + str(all_targets_frame['Starname'][i]) + "_semester.csv", index=False)
