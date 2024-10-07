@@ -7,15 +7,47 @@ This package contains the code for solving two related problems:
 
 # Installation instructions
 
-Use `conda` or `mamba` to install a dedicated envirnoment for KPF-CC
+<!-- Use `conda` or `mamba` to install a dedicated envirnoment for KPF-CC
 
 ```
-mamba env create -n kpf-cc -f environment.yml 
+mamba env create -n kpf-cc -f environment.yml
+``` -->
+
+We highly recommend (though optional) setting everything up in a new Conda environment first. To do so, run this command and then be sure to activate the environment:
+```
+conda create -n kpfauto python=3.9
+conda activate kpfauto
 ```
 
+To install `optimalAllocation`, clone this repository:
+```
+$ git clone https://github.com/jluby127/optimalAllocation.git
+```
+Next cd in to optimalAllocation directory and you can install all relevant packages at once using pip:
+```
+pip install -r requirements.txt
+```
+This will set up the environment with the _**exception**_ of Gurobipy. Very important _**do not**_ pip install Gurobipy at this step. Before installing Gurobipy, we must first install Gurobi from their website and acquire a license. See below.
 
-### Note on Gurobi
-A Gurobi license is required for running this package. Licenses can be acquired at their website. Academic professionals may acquire a free license. It recommended that you NOT pip install Gurobi before this package (it is not in the requirements.txt). Instead, first you must obtain a license from Gurobi. Then you can install gorubi into your environment manually. Otherwise, through pip install, you will have a limited test license which does not allow for solving a big model like this problem requires.
+
+### Installing Gurobi
+`ttpsolver` relies on Gurobi for solving large matrix equations efficiently. Follow these steps to install and set up Gurobi:
+
+1. **Create an an Account** on Gurobi's [registration site](https://portal.gurobi.com/iam/register/). Select that you are an "Academic", type in your home institution, and submit the form via "Access Now". You will receive an email to complete the registration.
+2. **Download Gurobi** for your OS from [this download page](https://www.gurobi.com/downloads/gurobi-software/). Run the installer file following their instructions.
+3. **Request an Academic License** from your [user portal](https://portal.gurobi.com/iam/licenses/request/) *while connected to a university network*. You want the 'Named-User Academic License' which has a one year lifetime. At the end of the year, you can obtain a new license easily within your account (and for free) so long as you have maintained your academic status.
+4. **Retrieve the License** by running the command from the popup window in a shell. It should look like:
+```
+grbgetkey 253e22f3...
+```
+5. **Install Gurobipy** using either pip or conda *after* completing the previous steps. The reason we must wait to run this line until after obtaining a license is that, without a specific license, Gurobipy will give you a trial license. This trial license limits the size of the models you can solve and expires quickly. We need a full, true license in order to solve this model, so you must obtain a 'Name-User Academic License' (see above) before installing Gurobipy.
+```
+pip install gurobipy
+```
+Or:
+```
+conda install -c gurobi gurobi
+```
 
 
 
@@ -44,19 +76,13 @@ Turn On/Off Dates - a csv where each targets first and last calendar day that it
 
 Starmap Template - a csv template of the file which will be used to produce a cadence plot of a specific target. For plotting purposes later. Specific column names required.
 
-
-
 ### Optimal Semester Schedule
 Past Database - a csv copy of the database which stores all previous true observations. Specific column names are required.
-
-
 
 ### Optimal Instrument Schedule
 Enforced Yes - a csv containing the calendar dates and quarters that the solver must select to be allocated to the queue. Specific column names are required.
 
 Enforced No - a csv containing the calendar dates and quarters that the solver is forbidden from selecting to be allocated to the queue. Specific column names are required.
-
-
 
 ### Shared flags
 -d -- specifies the date to start the solver from. Note that any previous days in the semester will not be scheduled but all days up until the end of the semester will be solved for. Note that for Optimal Instrument Schedule, the date specified should be the first day of the semester in question. There is no default and not specifying a date will throw an error that quits the program.
@@ -71,14 +97,10 @@ Enforced No - a csv containing the calendar dates and quarters that the solver i
 
 -p -- Turn off printing out of plots and reports. Default is on.
 
-
-
 ### Optimal Semester Schedule only flags
 To solve the Optimal Semester Schedule from the supplied date (in given format) onwards to the end of the semester and produce a script for tonight's observations, run: python generateScript.py -d YYYY-MM-DD
 
 -r -- Turn on solving Round 2 of the semester solver. Default is off.
-
-
 
 ### Optimal Instrument Schedule only flags
 To solve the Optimal Instrument Schedule, run: python runOptimalAllocation.py -d YYYY-MM-DD
@@ -91,11 +113,9 @@ Given a standard Keck Observatory semester of 182 nights, with 5 minute slots, a
 We have designed the algorithm to only solve the semester from the given input date onward to the end of the semester. This means that as the semester progresses, the size of the model is continually shrinking as there are fewer days in the semester to solve for.
 
 # Solving the Traveling Telescope Problem (TTP)
-Once the Optimal Semester Schedule is solved, we then wish to take the list of stars that have been chosen to be observed on a given night and further determine the optimal order within the night to observe these stars, effectively minimizing the slew time between them. To do this, we employ the Traveling Telescope Problem (TTP) software. Ensure that the TTP is installed in your environment (it is in the requirements.txt). When running the generateScript.py file, the TTP will automatically be called and run on the day(s) that are including after the -d flag.
+Once the Optimal Semester Schedule is solved, we then wish to take the list of stars that have been chosen to be observed on a given night and further determine the optimal order within the night to observe these stars, effectively minimizing the slew time between them. To do this, we employ the Traveling Telescope Problem (TTP) software.
 
-However, you can also later run the TTP on any date after you have a pre-solved semester model. To do so, run: python runTTP.py -d YYYY-MM-DD
-
-For more documentation on the TTP, see its Github Repo at: https://github.com/lukehandley/ttp
+For more installation info and documentation on the TTP, see its Github Repo at: https://github.com/lukehandley/ttp. Be sure to update your environment variables to include the path to the TTP. The TTP must be installed in order for optimalAllocation to run fully and properly.
 
 # More Info
 More information on the KPF-CC program and the algorithm can be found in these places:

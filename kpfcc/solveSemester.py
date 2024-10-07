@@ -58,7 +58,7 @@ def runKPFCCv2(current_day,
         - outputDirectory (str) = the path to the directory where all outputs of this function should be saved. It is recommended that the path be outside the git repo.
         - STEP (int) = the time, in minutes, for a single slot.
         - runRound2 (boolean) = when True, run the bonus round. When False, do not run the bonus round.
-        - pastObservationsFile (str) = the path and file name of the CSV containing information on all previous observations in the semester. If equal to nofilename.csv, then we are ignoring prior observations.
+        - pastObservationsFile (str) = the path and file name of the CSV containing information on all previous observations in the semester. If file does not exist, then we are ignoring prior observations.
         - semesterTemplateFile (str) = the path and file name of the CSV containing the visual template of the semester. For plotly plotting purposes only.
         - turnOffOnFile (str) = the path and file name of the CSV containing the pre-computed first and last day of accessiblity for each target. For plotly plotting purposes only.
         - nonqueueMap (str) = the path and file name of the CSV containining a grid of nNightsInSemester by nSlotsInNight cells where the slots set aside for non-queue RM observations are filled in with the target name.
@@ -184,14 +184,14 @@ def runKPFCCv2(current_day,
         mf.writeAccessibilityMapsDict(accessmaps_precompute, accessibilitiesFile[:-4] + "new.txt") #accessibilitiesFile)
 
     # read in the customized maps for unique targets
-    if specialMaps != 'nofilename.txt':
+    if os.path.exists(specialMaps):
         uniqueTargetMaps = mf.readAccessibilityMapsDict(specialMaps)
     else:
         uniqueTargetMaps = {}
 
     # list of stars to be purposefully excluded from tonight's script
     # for generating more P1 stars as gapFillers
-    if zeroOutFile != 'nofilename.txt':
+    if os.path.exists(zeroOutFile):
         # zeroOut_names = np.loadtxt(zeroOutFile, delimiter=' ', dtype=str)
         zeroOut = pd.read_csv(zeroOutFile)
         zeroOut_names = list(zeroOut['Target'])
@@ -233,7 +233,8 @@ def runKPFCCv2(current_day,
     print("Sampling out weather losses")
 
     protectNonQueueNights = False
-    if protectNonQueueNights and nonqueueMap != 'nofilename.csv':
+
+    if protectNonQueueNights and os.path.exists(nonqueueMap):
         nonqueuemap_slots_strs = np.loadtxt(nonqueueMap, delimiter=',', dtype=str)
         nonqueuemap_slots_ints = []
         for i in range(len(nonqueuemap_slots_strs)):
@@ -276,8 +277,9 @@ def runKPFCCv2(current_day,
     # For each target, determine the most recent date of observations and the number of unique days observed.
     # Also process the past to build the starmap for each target.
     pastObs_Info = {}
-    if pastObservationsFile != 'nofilename.csv':
+    if os.path.exists(pastObservationsFile):
         pf.getKPFAllObservations(pastObservationsFile)
+        #note to self: i'm only pulling observations if the file already exists...which means I have to manually create a dummy file to begin the semester
         database = pd.read_csv(pastObservationsFile)
         for i in range(len(all_targets_frame['Starname'])):
             starmask = database['star_id'] == all_targets_frame['Starname'][i]
@@ -480,7 +482,7 @@ def runKPFCCv2(current_day,
                 for e in range(doublediff):
                     m.addConstr(Wnd[name,e] == 0, 'enforce_internightCadence_fromStart_' + str(name) + "_" + str(e) + "e")
 
-    if nonqueueMap != 'nofilename.csv':
+    if os.path.exists(nonqueueMap):
         print("Constraint: certain slots on allocated nights must be zero to accommodate Non-Queue observations.")
         nonqueuemap_slots_strs = np.loadtxt(nonqueueMap, delimiter=',', dtype=str)
         nonqueuemap_slots_ints = []
@@ -580,7 +582,7 @@ def runKPFCCv2(current_day,
                     starmap['Observed'] = [False]*len(starmap)
                 if 'N_obs' not in starmap_columns:
                     starmap['N_obs'] = [0]*len(starmap)
-                #unique_hstdates_observed = [] # commented out on 9/19 as it was messing up the cadence plot header
+                unique_hstdates_observed = [] # commented out on 9/19 as it was messing up the cadence plot header
             starmap_updated = rf.buildObservedMap_future(all_targets_frame['Starname'][i], slotsNeededDict[all_targets_frame['Starname'][i]], combined_semester_schedule, starmap, all_dates_dict[current_day], slotsNeededDict, np.array(allocation_schedule_full_semester), weatherDiff_1D, nSlotsInNight)
             #if optimalAllocation:
             #    pd.to_csv(outputDirectory + "/FirstForecasts/Forecast_" + str(all_targets_frame['Starname'][i]) + "_semester.csv", index=False)

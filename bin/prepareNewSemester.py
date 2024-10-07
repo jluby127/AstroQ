@@ -17,7 +17,7 @@ import mappingFunctions as mf
 
 import argparse
 parser = argparse.ArgumentParser(description='Generate schedules with KPF-CC v2')
-parser.add_argument('-f','--folder', help='Folder to save generated scripts and plots', default=os.environ["KPFCC_SAVE_PATH"])
+parser.add_argument('-f','--folder', help='Folder to save generated scripts and plots', default="/Users/jack/Desktop/tutorial/")#os.environ["KPFCC_SAVE_PATH"])
 args = parser.parse_args()
 
 # This file produces all the meta-data files needed to run the autoscheduler.
@@ -36,11 +36,12 @@ args = parser.parse_args()
 # allocation = mf.reformatKeckAllocationData(path + 'inputs/KPF_2024A_Allocation_original.csv')
 # requests = pd.read_csv(path + 'inputs/2024A_KPFCC_Requests.csv')
 # nonqueues = pd.read_csv(path + 'inputs/2024A_NonQueues.csv', comment='#')
-allocation = mf.reformatKeckAllocationData(args.folder + 'inputs/AllocationSchedule_firsthalf.csv')
+# allocation = mf.reformatKeckAllocationData(args.folder + 'inputs/AllocationSchedule_firsthalf.csv')
 # allocation = mf.reformatKeckAllocationData('/Users/jack/Desktop/AllocationSchedule.csv')
 # allocation.to_csv("/Users/jack/Desktop/24B_allo.csv", index=False)
 requests = pd.read_csv(args.folder + 'inputs/Requests.csv')
-nonqueues = pd.read_csv(args.folder + 'inputs/NonQueue_firsthalf.csv', comment='#')
+nonqueues = pd.read_csv(args.folder + 'inputs/NonQueue.csv', comment='#')
+allocation = mf.reformatKeckAllocationData(args.folder + 'inputs/AllocationSchedule.csv')
 
 
 # Generate dictionary between calendar day and day of semester
@@ -55,7 +56,8 @@ slotStartTimestamp = '17:30:00' #HST = 03:30 UTC
 slotEndTimestamp = '07:30:00' #HST = 17:30 UTC
 nQuartersInNight = 4
 nHoursInNight = 14
-stepsizes = [5, 10] # list of slot sizes, in minutes, to compute accessibility maps and non-queue maps.
+# stepsizes = [5, 10] # list of slot sizes, in minutes, to compute accessibility maps and non-queue maps.
+stepsizes = [10] # list of slot sizes, in minutes, to compute accessibility maps and non-queue maps.
 
 # Build a dictionary relating calendar day to day of semester.
 all_dates = []
