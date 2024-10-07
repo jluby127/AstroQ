@@ -7,7 +7,7 @@ import os
 
 parser = argparse.ArgumentParser(description='Generate schedules with KPF-CC v2')
 parser.add_argument('-d','--schedule_dates',action='append',help='Date(s) to be scheduled as strings in format YYYY-MM-DD. Must be in allocated_nights')
-parser.add_argument('-f','--folder', help='Folder to save generated scripts and plots', default=os.environ["KPFCC_SAVE_PATH"])
+parser.add_argument('-f','--folder', help='Folder to save generated scripts and plots', default="/Users/jack/Desktop/tutorial/")#os.environ["KPFCC_SAVE_PATH"])
 parser.add_argument('-r','--run_extra_rounds',action='store_true', help='Turn on the additional rounds of scheduling', default=False)
 parser.add_argument('-t','--time_limit', help='Max time spent optimizing (s)',type=int, default=300)
 parser.add_argument('-s','--slot_size', help='The slot size (min)',type=int, default=10)
@@ -29,7 +29,8 @@ zeroOutFile = 'nofilename.txt' #'/Users/jack/Desktop/zeroOutFile.txt' #
 startstoptimes = pd.read_csv(args.folder + "inputs/2024B_NightlyStartStopTimes.csv")
 
 import sys
-sys.path.append("../kpfcc/")
+path2modules = os.path.dirname(os.path.abspath(__file__))[:-3] #the -3 cuts of the "bin/" of the path to this current file
+sys.path.append(path2modules + "/kpfcc/")
 import solveSemester as ssm
 import processingFunctions as pf
 # print("Pulling past observations from Jump.")
@@ -54,7 +55,7 @@ ssm.runKPFCCv2(args.schedule_dates,
 
 
 import helperFunctions as hf
-sys.path.append(os.environ["TTP_PATH"])
+sys.path.append(os.environ["TTP_PATH"] + "ttp/")
 import formatting
 import telescope
 import plotting

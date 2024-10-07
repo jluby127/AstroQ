@@ -1,0 +1,4 @@
+Target,StartExposure
+Kepler-10,05:49
+191939,08:50
+TOI-1670,08:55
