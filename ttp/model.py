@@ -24,9 +24,8 @@ class TTPModel(object):
         outputdir (str): the path to save the outputs of the model
 
     """
-    def __init__(self,start,stop,stars,observatory,outputdir,runtime=300,optgap=0.01):
+    def __init__(self,start,stop,stars,observatory,outputdir,runtime=300,optgap=0.01,useHighEl=True):
 
-        # Will have observatory object
         self.observatory = observatory
         self.stars = stars
         self.nightstarts = start
@@ -34,6 +33,7 @@ class TTPModel(object):
         self.outputdir = outputdir
         self.runtime = runtime
         self.optgap = optgap
+        self.useHighElevation = useHighEl
         self.create_nodes()
         self.compute_tau_slew()
         self.solve()
@@ -59,7 +59,8 @@ class TTPModel(object):
 
         """
         self.dur = np.round((self.nightends-self.nightstarts).jd*24*60,0)
-        t = np.arange(self.nightstarts.jd,self.nightends.jd,TimeDelta(60,format='sec').jd)
+        slotTimeResolution = 1 # time in minutes
+        t = np.arange(self.nightstarts.jd,self.nightends.jd,TimeDelta(slotTimeResolution*60,format='sec').jd)
         t = Time(t,format='jd')
 
         # Make a lookup table for node index -> star index
@@ -100,11 +101,16 @@ class TTPModel(object):
                 AZ = self.observatory.observer.altaz(t, s.target)
                 alt=AZ.alt.deg
                 az=AZ.az.deg
-                # if s.name == '104067':
-                #     print("COORDS: ", s.target)
-                #     for a in range(len(alt)):
-                #         print(alt[a], az[a])
-                good = np.where(self.observatory.is_up(alt,az) == 1)[0] #, unvignetted=unvig[i]
+
+                if self.useHighElevation:
+                    elevationChecker = np.where(self.observatory.is_up_highElevation(alt,az) == 1)[0]
+                    if len(elevationChecker > (60/slotTimeResolution)): # if target is above disired lowest elevation for at least 1 hour
+                        good = elevationChecker
+                    else: # if target is not above desired lower limit for at least an hour, then lower elevations are acceptable
+                        good = np.where(self.observatory.is_up(alt,az) == 1)[0]
+                else:
+                    good = np.where(self.observatory.is_up(alt,az) == 1)[0]
+                # once the "good" array is set, it determines the first and last available exposure starts of the night
                 if len(good > 0):
                     te.append(max(np.round(((t[good[0]]+TimeDelta(s.expwithreadout*60,format='sec'))-t[0]).jd*24*60,1),s.expwithreadout))
                     if t[good[-1]].jd < self.nightends.jd:
