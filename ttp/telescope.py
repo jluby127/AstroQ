@@ -75,6 +75,17 @@ class Keck1(object):
                 yesno.append(0)
         return np.array(yesno)
 
+    def is_up_highElevation(self, alt, az, elvLimit=40.0):
+        # yesno is a list of binaries where if the target is above a desireable elevation. The value is 1 it true, and 0 otherwise.
+        yesno = []
+        for i in range(len(alt)):
+            val = int(alt[i] > elvLimit)
+            if val:
+                yesno.append(1)
+            else:
+                yesno.append(0)
+        return np.array(yesno)
+
 class WIYN(object):
     """
     Define astropy objects specific to the WIYN telescope at Kitt Peak National Observatory
@@ -119,6 +130,17 @@ class WIYN(object):
         yesno = []
         for i in range(len(alt)):
             val = int((alt[i] > self.pointing_limits(az[i], unvignetted)[0]) and (alt[i] < self.pointing_limits(az[i], unvignetted)[1]))
+            if val:
+                yesno.append(1)
+            else:
+                yesno.append(0)
+        return np.array(yesno)
+
+    def is_up_highElevation(self, alt, az, elvLimit=40.0):
+        # yesno is a list of binaries where if the target is above a desireable elevation. The value is 1 it true, and 0 otherwise.
+        yesno = []
+        for i in range(len(alt)):
+            val = int(alt[i] > elvLimit)
             if val:
                 yesno.append(1)
             else:
