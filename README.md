@@ -9,8 +9,8 @@ Astronomical observation planning tool that solves the Traveling Telescope Probl
 ## Installation
 We highly recommend (though optional) setting everything up in a new Conda environment first. To do so, run this command and then be sure to activate the environment:
 ```
-conda create -n kpfauto python=3.9
-conda activate kpfauto
+conda create -n ttpsolver python=3.9
+conda activate ttpsolver
 ```
 
 To install `ttpsolver`, clone this repository:
@@ -61,5 +61,3 @@ Feel free to play with this tutorial in changing the exposure times, the observa
 `ttpsolver` returns a few reports and plots. First, it outputs a .txt file where the optimal slew path is laid out as each each target is listed next to the starting time of the exposure. Next, it outputs a .txt file with statistics about the solution. Then it generates 3 plots: a Night Plan (both as an interactive .html and as a static png), a 2D slew path representation, and an animation portraying the slew path over the course of the night.
 
 We built `ttpsolver` with two telescopes pre-made: Keck1 and WIYN. However, we designed the telescope class to be easily replicated for any other custom observatory. See instructions within the telescope.py file.  
-
-If you make use of this software in your research, please cite [the original publication](https://ui.adsabs.harvard.edu/abs/2024AJ....167...33H).
