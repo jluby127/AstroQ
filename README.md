@@ -62,4 +62,4 @@ Feel free to play with this tutorial in changing the exposure times, the observa
 
 We built `ttpsolver` with two telescopes pre-made: Keck1 and WIYN. However, we designed the telescope class to be easily replicated for any other custom observatory. See instructions within the telescope.py file.  
 
-If you make use of this software in your research, please cite [the original publication] (https://ui.adsabs.harvard.edu/abs/2024AJ....167...33H).
+If you make use of this software in your research, please cite [the original publication](https://ui.adsabs.harvard.edu/abs/2024AJ....167...33H).
