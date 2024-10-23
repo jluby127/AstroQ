@@ -7,7 +7,7 @@ import os
 
 parser = argparse.ArgumentParser(description='Generate schedules with KPF-CC v2')
 parser.add_argument('-d','--schedule_dates',action='append',help='Date(s) to be scheduled as strings in format YYYY-MM-DD. Must be in allocated_nights')
-parser.add_argument('-f','--folder', help='Folder to save generated scripts and plots', default="/Users/jack/Desktop/tutorial/")#os.environ["KPFCC_SAVE_PATH"])
+parser.add_argument('-f','--folder', help='Folder to save generated scripts and plots', default=os.environ["KPFCC_SAVE_PATH"])
 parser.add_argument('-r','--run_extra_rounds',action='store_true', help='Turn on the additional rounds of scheduling', default=False)
 parser.add_argument('-t','--time_limit', help='Max time spent optimizing (s)',type=int, default=300)
 parser.add_argument('-s','--slot_size', help='The slot size (min)',type=int, default=10)
@@ -18,14 +18,14 @@ args = parser.parse_args()
 
 request_sheet = args.folder + "inputs/Requests.csv"
 allocated_nights = args.folder + "inputs/2024B_Binary_Schedule.txt"
-pastDatabase = args.folder + "inputs/queryJumpDatabase.csv" #'nofilename.csv' #
+pastDatabase = args.folder + "inputs/queryJumpDatabase.csv"
 twilight_times = args.folder + "inputs/2024B_twilight_times.csv"
 access_map = args.folder + "inputs/2024B_AccessMaps_" + str(args.slot_size) + "minSlots.txt"
 turnFile = args.folder + "inputs/2024B_turnOnOffDates.csv"
 starmap_template_filename = args.folder + "inputs/2024B_cadenceTemplateFile.csv"
 nonqueueMap =  args.folder + 'inputs/2024B_NonQueueMap'  + str(args.slot_size) + '.txt'
 specialMaps = args.folder + 'inputs/2024B_specialMaps_' + str(args.slot_size) + 'minSlots.txt'
-zeroOutFile = 'nofilename.txt' #'/Users/jack/Desktop/zeroOutFile.txt' #
+zeroOutFile = 'nofilename.txt'
 startstoptimes = pd.read_csv(args.folder + "inputs/2024B_NightlyStartStopTimes.csv")
 
 import sys
@@ -33,8 +33,7 @@ path2modules = os.path.dirname(os.path.abspath(__file__))[:-3] #the -3 cuts of t
 sys.path.append(path2modules + "/kpfcc/")
 import solveSemester as ssm
 import processingFunctions as pf
-# print("Pulling past observations from Jump.")
-# pf.getKPFAllObservations(args.folder + "inputs/queryJumpDatabase.csv")
+
 ssm.runKPFCCv2(args.schedule_dates,
                           request_sheet,
                           allocated_nights,
