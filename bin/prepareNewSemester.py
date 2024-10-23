@@ -49,15 +49,15 @@ allocation = mf.reformatKeckAllocationData(args.folder + 'inputs/AllocationSched
 print("Preparing meta data. ")
 # These are the only values that should ever be manually changed.
 # And even then, really only change the semester and start date.
-semester = '2024B'
-start_date = '2024-08-01'
-nNightsInSemester = 88 #note manually cutting off here before we receive the new computer
+semester = '2024A'
+start_date = '2024-02-01'
+nNightsInSemester = 180 #note manually cutting off here before we receive the new computer
 slotStartTimestamp = '17:30:00' #HST = 03:30 UTC
 slotEndTimestamp = '07:30:00' #HST = 17:30 UTC
 nQuartersInNight = 4
 nHoursInNight = 14
-# stepsizes = [5, 10] # list of slot sizes, in minutes, to compute accessibility maps and non-queue maps.
-stepsizes = [10] # list of slot sizes, in minutes, to compute accessibility maps and non-queue maps.
+stepsizes = [5, 10] # list of slot sizes, in minutes, to compute accessibility maps and non-queue maps.
+# stepsizes = [10] # list of slot sizes, in minutes, to compute accessibility maps and non-queue maps.
 
 # Build a dictionary relating calendar day to day of semester.
 all_dates = []
