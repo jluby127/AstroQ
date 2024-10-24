@@ -1,14 +1,17 @@
 name: kpfcc
 channels:
   - conda-forge
+  - defaults
 dependencies:
   - astroplan==0.8
   - astropy==5.0.1
   - beautifulsoup4==4.12.2
   - matplotlib==3.5.1
-  - numpy==1.22.1
+  - numpy==1.24.1
   - pandas==2.2.2
+  - pip
   - plotly==5.17.0
-  - kaleido==0.2.1
+  - python==3.9
   - requests==2.31.0
-  - scipy==1.14.0
+  - pip:
+     - kaleido==0.2.1

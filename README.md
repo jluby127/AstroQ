@@ -14,8 +14,8 @@ git clone https://github.com/jluby127/optimalAllocation.git
 
 Then run this command to create the environment and then be sure to activate the environment:
 ```
-conda create python=3.9 -f <LOCAL_DIR>/environment.yml
-conda activate kpfauto
+conda env create -f <LOCAL_DIR>/environment.yml
+conda activate kpfcc
 ```
 
 This will set up the environment with the _**exception**_ of Gurobipy. Very important _**do not**_ pip install Gurobipy at this step. Before installing Gurobipy, we must first install Gurobi from their website and acquire a license. See below.
@@ -34,16 +34,12 @@ grbgetkey 253e22f3...
 ```
 pip install gurobipy
 ```
-Or:
-```
-conda install -c gurobi gurobi
-```
 
 # Run instructions
 
 To test installation and practice the workflow of running the autoscheduler, use the supplied example. From your terminal, navigate to the /bin directory and run the following command:
 ```
-python generateScript.py -d 2024-08-02 -f ../example/
+python <LOCAL_DIR>/bin/generateScript.py -d 2024-08-02 -f <LOCAL_DIR>/examples/
 ```
 
 ## Flags
