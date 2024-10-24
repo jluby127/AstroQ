@@ -7,22 +7,18 @@ This package contains the code for solving two related problems:
 
 # Installation instructions
 
-We highly recommend (though optional) setting everything up in a new Conda environment first. To do so, run this command and then be sure to activate the environment:
+We highly recommend (though optional) setting everything up in a new Conda environment first. To do so, first clone the respository:
 ```
-conda create -n kpfauto python=3.9
+git clone https://github.com/jluby127/optimalAllocation.git
+```
+
+Then run this command to create the environment and then be sure to activate the environment:
+```
+conda create python=3.9 -f <LOCAL_DIR>/environment.yml
 conda activate kpfauto
 ```
 
-To install `optimalAllocation`, clone this repository:
-```
-$ git clone https://github.com/jluby127/optimalAllocation.git
-```
-Next cd in to optimalAllocation directory and you can install all relevant packages at once using pip:
-```
-pip install -r requirements.txt
-```
 This will set up the environment with the _**exception**_ of Gurobipy. Very important _**do not**_ pip install Gurobipy at this step. Before installing Gurobipy, we must first install Gurobi from their website and acquire a license. See below.
-
 
 ### Installing Gurobi
 `ttpsolver` relies on Gurobi for solving large matrix equations efficiently. Follow these steps to install and set up Gurobi:
