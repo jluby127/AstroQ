@@ -46,13 +46,19 @@ To test installation and practice the workflow of running the autoscheduler, use
 python generateScript.py -d 2024-08-02 -f ../example/
 ```
 
-# # Flags
+## Flags
 -d specifies the date for which to produce a script, format YYYY-MM-DD (No Default)
+
 -f specifies the folder containing the inputs and outputs directory (can be defaulted to an environment variable: key name "KPFCC_SAVE_PATH")
+
 -s specifies the slot size, in minutes (Default: 10)
+
 -r specifies to run the "bonus" round (Default: False)
+
 -t specifies the maximum time to solve the model (Default: 600s)
+
 -g specifies to print the gorubi output to terminal (Default: True)
+
 -p specifies to plot the results (Default: True)
 
 # Solving the Traveling Telescope Problem (TTP)
