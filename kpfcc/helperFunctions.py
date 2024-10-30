@@ -11,8 +11,7 @@ from astropy.time import TimeDelta
 import astropy as apy
 import astroplan as apl
 import astropy.units as u
-dirpath = '/Users/jack/Documents/Github/optimalAllocation/'
-sys.path.append(dirpath)
+
 import twilightFunctions as tw
 
 
@@ -49,7 +48,7 @@ def buildHumanReadableSchedule(Yns, twilightMap, all_targets_frame, nNightsInSem
     fullslots = 0
     for v in Yns.values():
         if np.round(v.X,0) == 1:
-            name = v.VarName[19:][:-1].split(',')[0] # From trial and error, the variable has a name that is always in front of the actual target name, use care to only get the actual target name.
+            name = v.VarName[15:][:-1].split(',')[0] # From trial and error, the variable has a name that is always in front of the actual target name, use care to only get the actual target name.
             semester_schedule.append(name)
             fullslots += 1
         else:
@@ -129,13 +128,14 @@ def getSemesterInfo(current_day):
         semesterYear (int): the four digit year
         semesterLetter (string): the "A" or "B" semester designation
     """
-
+    flag = False
     # "A" semester runs from Feb 01 through July 31
     if current_day[5:7] in ['02', '03', '04', '05', '06', '07']:
         semesterLetter = 'A'
     # "B" semester runs from Aug 1 through Jan 01
     elif current_day[5:7] in ['08', '09', '10', '11', '12', '01']:
         semesterLetter = 'B'
+        flag = True
     else:
         print("invalid date")
         return None
@@ -156,8 +156,12 @@ def getSemesterInfo(current_day):
         else:
             semesterLength = 181
     elif semesterLetter == 'B':
-        semester_start_date = semesterYear + '-08-01'
-        semester_end_date = str(int(semesterYear) + 1) + '-01-31'
+        if flag:
+            semester_start_date = str(int(semesterYear) - 1) + '-08-01'
+            semester_end_date = semesterYear + '-01-31'
+        else:
+            semester_start_date = semesterYear + '-08-01'
+            semester_end_date = str(int(semesterYear) + 1) + '-01-31'
         semesterLength = 184
     return semester_start_date, semester_end_date, semesterLength, semesterYear, semesterLetter
 
@@ -201,7 +205,7 @@ def currentDayTracker(current_day, all_dates):
     return daysRemaining
 
 
-def roundSlots(exptime, STEP):
+def slotsRequired(exptime, slotsize, alwaysRoundUp=False):
     """
     Computes the slots needed for a given exposure but without always rounding up, rather rounding to nearest number of slots needed
     For example: under 5 minute slot sizes, we want a 6 minute exposure to only require one slot (round down) as opposed to 2 slots (round up)
@@ -209,10 +213,17 @@ def roundSlots(exptime, STEP):
 
     Args:
         exptime (int): the exposure time in seconds
-        STEP (int): the slot size in seconds
+        slotsize (int): the slot size in minutes
+        alwaysRoundUp (boolean): if true, minimum slots needed is always larger than exposure time
 
     Returns:
-        val (int): the number of slots required for this exposure
+        slotsNeededForExposure_val (int): the number of slots required for this exposure
     """
-    val = int(round(exptime/STEP))
-    return val
+    if alwaysRoundUp:
+        slotsNeededForExposure_val = math.ceil(exptime/(slotsize*60.))
+    else:
+        if exptime > slotsize*60.:
+            slotsNeededForExposure_val = int(round(exptime/slotsize*60.))
+        else:
+            slotsNeededForExposure_val = 1
+    return slotsNeededForExposure_val

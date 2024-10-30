@@ -15,8 +15,7 @@ import astroplan as apl
 import astropy.units as u
 import plotly.graph_objects as go
 import plotly.express as px
-sys.path.append("/Users/jack/Desktop/")
-sys.path.append("/Users/jack/Documents/Github/optimalAllocation/")
+
 import helperFunctions as hf
 import twilightFunctions as tw
 
@@ -68,7 +67,7 @@ def buildFullnessReport(allocation_schedule, twilightMap, combined_semester_sche
     #     ff.write("--------------------------------------------------------------------------------------" + "\n")
     # ff.close()
 
-def buildCOF(outputdir, current_day, startends, all_targets_frame, all_dates_dict, starmap_maps, notable_dates, compare_original):
+def buildCOF(outputdir, current_day, notable_dates, all_targets_frame, all_dates_dict, starmap_maps, compare_original):
     dates_in_semester = list(all_dates_dict.keys())
     x = []
     y = []
@@ -113,10 +112,6 @@ def buildCOF(outputdir, current_day, startends, all_targets_frame, all_dates_dic
     BurnProg = ['Even Burn Rate']*4
     PercentComplete = [0, 0, 100, 100]
     TotalObsRequested = [100, 100, 100, 100]
-    notable_dates = startends
-    # notable_dates = ['2024-08-01', '2024-08-02', '2024-10-27', '2024-11-01']
-    # notable_dates = ['2024-08-01', '2024-08-02', '2025-01-31', '2025-01-31']
-    #notable_dates = ['2024-02-01', '2024-02-24', '2024-07-28', '2024-07-31']
     for b in range(len(notable_dates)):
         prog.append(BurnProg[b])
         x.append(notable_dates[b])
@@ -163,10 +158,7 @@ def buildCOF(outputdir, current_day, startends, all_targets_frame, all_dates_dic
             line_color='black',
             annotation_position="bottom left"
         )
-    # fig.write_html(outputdir + "/COF_Nobs_" + str(current_day) + ".html")
-    fig.write_html(outputdir + "/COF_Plot_V-.html")
-
-
+    fig.write_html(outputdir + "/COF_Nobs_" + str(current_day) + ".html")
 
 def buildAllocationPicture(allocation_schedule, nNightsInSemester, nQuartersInNight, startingNight, all_dates_dict, outputdir):
     dateslist = list(all_dates_dict.keys())
@@ -214,7 +206,6 @@ def buildAllocationPicture(allocation_schedule, nNightsInSemester, nQuartersInNi
             date_info = dateslist[startingNight + j] + " - q3"
             ff.write(date_info + "\n")
             holder[3] = 1
-
 
         line = str(dateslist[startingNight + j]) + "," + str(holder[0]) + "," + str(holder[1]) + "," + str(holder[2]) + "," + str(holder[3]) + "\n"
         fff.write(line)
@@ -265,7 +256,6 @@ def buildAllocationPicture(allocation_schedule, nNightsInSemester, nQuartersInNi
     ff.close()
     fff.close()
 
-
 def buildBinaryAllocationMap(outputdir, allocation_schedule):
     # Build the allocation map for the auto-scheduler
     # Example: run this to create a map of the results of optimal allocaiton
@@ -289,7 +279,7 @@ def buildObservedMap_past(unique_hstdates_observed, quarterObserved, Nobs_on_dat
     starmap['N_obs'] = N_observed
     return starmap
 
-def quarterDeterminer(value, nSlotsInNight):
+def determineQuarter(value, nSlotsInNight):
     if value <= int(nSlotsInNight*(1/4.)):
         quart = 0
     elif value <= int(nSlotsInNight*(2/4.)) and value > int(nSlotsInNight*(1/4.)):
@@ -312,7 +302,7 @@ def buildObservedMap_future(targetname, slotsPerExposure, combined_semester_sche
         if targetname in combined_semester_schedule[i]:
             exptimeslots = slotsNeededDict[targetname]
             ind = list(combined_semester_schedule[i]).index(targetname)
-            quart = quarterDeterminer(ind, nSlotsInNight)
+            quart = determineQuarter(ind, nSlotsInNight)
             starmap['Observed'][i*4 + quart] = True
             starmap['N_obs'][i*4 + quart] = list(combined_semester_schedule[i]).count(targetname)/exptimeslots #int(combined_semester_schedule[i].count(targetname)/slotsPerExposure)
     allocationMap_flat = allocationMap.flatten()
@@ -328,14 +318,12 @@ def buildObservedMap_future(targetname, slotsPerExposure, combined_semester_sche
     return starmap
 
 def writeCadencePlotFile(targetname, target_counter, starmap, turnFile, all_targets_frame, outputdir, unique_hstdates_observed, current_day):
-
     turnOnOffs = pd.read_csv(turnFile)
     request_id = all_targets_frame.index[all_targets_frame['Starname']==str(targetname)][0]
     request_name = all_targets_frame.loc[request_id,'Starname']
     program_code = all_targets_frame.loc[request_id,'Program_Code']
     #print("Plotting cadence for star [" + str(request_name) + "] in program [" + str(program_code) + "]...target #" + str(target_counter) + " of " + str(len(all_targets_frame)) + ".")
 
-    # n_obs_desired = all_targets_frame.loc[request_id,'Total_Observations_Requested']
     n_obs_desired = all_targets_frame.loc[request_id,'# of Nights Per Semester']
     n_obs_taken = len(unique_hstdates_observed)
     n_obs_scheduled = np.sum(starmap['N_obs'] - n_obs_taken)
@@ -363,7 +351,6 @@ def writeCadencePlotFile(targetname, target_counter, starmap, turnFile, all_targ
     starmap = starmap[starmap.Allocated == True]
     starmap.to_csv(commentsfile, index=False)
     commentsfile.close()
-
 
 def makeTemplateFile(all_dates_dict, filename):
     # filename = "/Users/jack/Desktop/template_star_observed.csv"

@@ -13,9 +13,6 @@ from astropy.time import TimeDelta
 import astropy as apy
 import astroplan as apl
 import astropy.units as u
-sys.path.append("/Users/jack/Desktop/")
-sys.path.append("/Users/jack/Documents/Github/optimalAllocation/")
-
 
 def buildAllocationMap(allocation_schedule, weatherDiff, AvailableSlotsInGivenNight, nSlotsInNight):
     """

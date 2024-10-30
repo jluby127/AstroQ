@@ -7,7 +7,7 @@ This package contains the code for solving two related problems:
 
 # Installation instructions
 
-We highly recommend (though optional) setting everything up in a new Conda environment first. To do so, first clone the respository:
+We highly recommend (though optional) setting everything up in a new Conda environment first. To do so, first clone the repository:
 ```
 git clone https://github.com/jluby127/optimalAllocation.git
 ```
@@ -37,7 +37,7 @@ pip install gurobipy
 
 # Run instructions
 
-To test installation and practice the workflow of running the autoscheduler, use the supplied example. From your terminal, navigate to the /bin directory and run the following command:
+To test installation and practice the workflow of running the autoscheduler, use the supplied example. From your terminal, run the following command:
 ```
 python <LOCAL_DIR>/bin/generateScript.py -d 2024-08-02 -f <LOCAL_DIR>/examples/
 ```
