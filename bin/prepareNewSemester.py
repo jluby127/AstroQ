@@ -11,13 +11,12 @@ import json
 import warnings
 warnings.filterwarnings('ignore')
 import sys
-# sys.path.append("/Users/jack/Documents/Github/optimalAllocation/autoschedulerV2/")
-sys.path.append("../kpfcc/")
+sys.path.append(os.path.dirname(os.path.abspath(__file__))[:-3] + "kpfcc/")
 import mappingFunctions as mf
 
 import argparse
 parser = argparse.ArgumentParser(description='Generate schedules with KPF-CC v2')
-parser.add_argument('-f','--folder', help='Folder to save generated scripts and plots', default="/Users/jack/Desktop/tutorial/")#os.environ["KPFCC_SAVE_PATH"])
+parser.add_argument('-f','--folder', help='Folder to save generated scripts and plots', default=os.environ["KPFCC_SAVE_PATH"])
 args = parser.parse_args()
 
 # This file produces all the meta-data files needed to run the autoscheduler.
@@ -32,16 +31,9 @@ args = parser.parse_args()
 # --- The set of PI requests for cadenced queue observations, downloaded from the Request Submission Webform
 # --- The set of PI requests for time-sensitive non-queue observations, downloaded from the Request Submission Webform which include start/stop times for the event windows
 
-# path = '/Users/jack/Desktop/testNewSemester/'
-# allocation = mf.reformatKeckAllocationData(path + 'inputs/KPF_2024A_Allocation_original.csv')
-# requests = pd.read_csv(path + 'inputs/2024A_KPFCC_Requests.csv')
-# nonqueues = pd.read_csv(path + 'inputs/2024A_NonQueues.csv', comment='#')
-# allocation = mf.reformatKeckAllocationData(args.folder + 'inputs/AllocationSchedule_firsthalf.csv')
-# allocation = mf.reformatKeckAllocationData('/Users/jack/Desktop/AllocationSchedule.csv')
-# allocation.to_csv("/Users/jack/Desktop/24B_allo.csv", index=False)
 requests = pd.read_csv(args.folder + 'inputs/Requests.csv')
-nonqueues = pd.read_csv(args.folder + 'inputs/NonQueue.csv', comment='#')
-allocation = mf.reformatKeckAllocationData(args.folder + 'inputs/AllocationSchedule.csv')
+nonqueues = pd.read_csv(args.folder + 'inputs/NonQueue_2ndHalf.csv', comment='#')
+allocation = mf.reformatKeckAllocationData(args.folder + 'inputs/Allocation_2ndHalf.csv')
 
 
 # Generate dictionary between calendar day and day of semester
@@ -49,15 +41,14 @@ allocation = mf.reformatKeckAllocationData(args.folder + 'inputs/AllocationSched
 print("Preparing meta data. ")
 # These are the only values that should ever be manually changed.
 # And even then, really only change the semester and start date.
-semester = '2024A'
-start_date = '2024-02-01'
-nNightsInSemester = 180 #note manually cutting off here before we receive the new computer
+semester = '2024B'
+start_date = '2024-08-01'
+nNightsInSemester = 184
 slotStartTimestamp = '17:30:00' #HST = 03:30 UTC
 slotEndTimestamp = '07:30:00' #HST = 17:30 UTC
 nQuartersInNight = 4
 nHoursInNight = 14
-stepsizes = [5, 10] # list of slot sizes, in minutes, to compute accessibility maps and non-queue maps.
-# stepsizes = [10] # list of slot sizes, in minutes, to compute accessibility maps and non-queue maps.
+stepsizes = [10] # list of slot sizes, in minutes, to compute accessibility maps and non-queue maps.
 
 # Build a dictionary relating calendar day to day of semester.
 all_dates = []
