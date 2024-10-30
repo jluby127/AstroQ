@@ -21,8 +21,8 @@ import gurobipy as gp
 from gurobipy import GRB
 
 # KPF-CC specific files
-dirpath = '/Users/jack/Documents/Github/optimalAllocation/autoschedulerV2/'
-sys.path.append(dirpath)
+# dirpath = '/Users/jack/Documents/Github/optimalAllocation/autoschedulerV2/'
+# sys.path.append(dirpath)
 import helperFunctions as hf
 import twilightFunctions as tw
 import reportingFunctions as rf

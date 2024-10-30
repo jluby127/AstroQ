@@ -70,9 +70,8 @@ for n in range(len(args.schedule_dates)):
     dayInSemester = all_dates_dict[args.schedule_dates[n]]
     idx = startstoptimes.index[startstoptimes['Date']==str(args.schedule_dates[n])][0]
 
-    filltargets = np.loadtxt(savepath + 'gapFillerTargets.txt', dtype=str)
-    print(the_schedule[dayInSemester])
-    toTTP = pf.prepareTTP(request_sheet, the_schedule[dayInSemester], filltargets)
+    Round2_Requests = np.loadtxt(savepath + 'Round2_Requests.txt', dtype=str)
+    toTTP = pf.prepareTTP(request_sheet, the_schedule[dayInSemester], Round2_Requests)
     filename = savepath + '/Selected_' + str(args.schedule_dates[n]) + ".txt"
     toTTP.to_csv(filename, index=False)
     targlist = formatting.theTTP(filename)
@@ -97,7 +96,6 @@ for n in range(len(args.schedule_dates)):
 
     obs_and_times = pd.read_csv(savepath + 'ObserveOrder_' + str(args.schedule_dates[0]) + ".txt")
     all_targets_frame = pd.read_csv(request_sheet)
-    gapFillers = np.loadtxt(savepath + 'gapFillerTargets.txt', delimiter=',', dtype=str)
-    pf.write_starlist(all_targets_frame, obs_and_times, solution.extras, gapFillers, 'nominal', str(args.schedule_dates[0]), savepath)
+    pf.write_starlist(all_targets_frame, obs_and_times, solution.extras, Round2_Requests, 'nominal', str(args.schedule_dates[0]), savepath)
 
 print("Semester is scheduled and script is generated. Complete.")
