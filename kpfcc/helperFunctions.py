@@ -135,7 +135,8 @@ def getSemesterInfo(current_day):
     # "B" semester runs from Aug 1 through Jan 01
     elif current_day[5:7] in ['08', '09', '10', '11', '12', '01']:
         semesterLetter = 'B'
-        flag = True
+        if current_day[5:7] == '01':
+            flag = True
     else:
         print("invalid date")
         return None
@@ -219,11 +220,12 @@ def slotsRequired(exptime, slotsize, alwaysRoundUp=False):
     Returns:
         slotsNeededForExposure_val (int): the number of slots required for this exposure
     """
+    slotsize = slotsize * 60 # converting to seconds
     if alwaysRoundUp:
-        slotsNeededForExposure_val = math.ceil(exptime/(slotsize*60.))
+        slotsNeededForExposure_val = math.ceil(exptime/slotsize)
     else:
         if exptime > slotsize*60.:
-            slotsNeededForExposure_val = int(round(exptime/slotsize*60.))
+            slotsNeededForExposure_val = int(round(exptime/slotsize))
         else:
             slotsNeededForExposure_val = 1
     return slotsNeededForExposure_val
