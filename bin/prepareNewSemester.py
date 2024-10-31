@@ -32,8 +32,8 @@ args = parser.parse_args()
 # --- The set of PI requests for time-sensitive non-queue observations, downloaded from the Request Submission Webform which include start/stop times for the event windows
 
 requests = pd.read_csv(args.folder + 'inputs/Requests.csv')
-nonqueues = pd.read_csv(args.folder + 'inputs/NonQueue_2ndHalf.csv', comment='#')
-allocation = mf.reformatKeckAllocationData(args.folder + 'inputs/Allocation_2ndHalf.csv')
+nonqueues = pd.read_csv(args.folder + 'inputs/NonQueue.csv', comment='#')
+allocation = mf.reformatKeckAllocationData(args.folder + 'inputs/AllocationSchedule.csv')
 
 
 # Generate dictionary between calendar day and day of semester
@@ -43,7 +43,7 @@ print("Preparing meta data. ")
 # And even then, really only change the semester and start date.
 semester = '2024B'
 start_date = '2024-08-01'
-nNightsInSemester = 184
+end_date = '2025-01-31'
 slotStartTimestamp = '17:30:00' #HST = 03:30 UTC
 slotEndTimestamp = '07:30:00' #HST = 17:30 UTC
 nQuartersInNight = 4
@@ -55,12 +55,16 @@ all_dates = []
 date_formal = Time(start_date,format='iso',scale='utc')
 date = str(date_formal)[:10]
 all_dates.append(date)
-for i in range(nNightsInSemester):
+nNightsInSemester = 1
+while True:
     date_formal += TimeDelta(1,format='jd')
     date = str(date_formal)[:10]
     all_dates.append(date)
-
-
+    nNightsInSemester += 1
+    if date==end_date:
+        break
+    assert nNightsInSemester < 1000
+    
 # Generate the binary map for allocations this semester
 # -----------------------------------------------------------------------------------------
 print("Generating binary map of allocated nights/quarters.")
@@ -211,6 +215,7 @@ for s in range(len(stepsizes)):
             stringmap += ']'
             all_maps[row['Starname']] = stringmap
 
+            
             Starname.append(row['Starname'])
             ondate_q1.append(all_dates[turnonoff[0][0]])
             offdate_q1.append(all_dates[turnonoff[0][1]])

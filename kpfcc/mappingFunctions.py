@@ -530,7 +530,7 @@ def quarterObservabilityCalculator(quartermap, quarter):
     try:
         on0 = quartermapT0.index(1)
         quartermapT0.reverse()
-        off0 = len(quartermapT0) - quartermapT0.index(1)
+        off0 = len(quartermapT0) - quartermapT0.index(1) - 1
     except:
         on0 = 0
         off0 = 0
