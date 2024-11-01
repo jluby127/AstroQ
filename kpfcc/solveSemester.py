@@ -190,42 +190,13 @@ def runKPFCCv2(current_day,
 
     # Randomly sample out 30% of future allocated quarters to simulate weather loss
     print("Sampling out weather losses")
-    protectNonQueueNights = False
-    if protectNonQueueNights and os.path.exists(nonqueueMap):
-        nonqueuemap_slots_strs = np.loadtxt(nonqueueMap, delimiter=',', dtype=str)
-        nonqueuemap_slots_ints = []
-        for i in range(len(nonqueuemap_slots_strs)):
-            holder = []
-            for j in range(len(nonqueuemap_slots_strs[i])):
-                if nonqueuemap_slots_strs[i][j] == '':
-                    holder.append(1)
-                else:
-                    holder.append(0)
-            nonqueuemap_slots_ints.append(holder)
-        summs = np.sum(nonqueuemap_slots_ints, axis=1)
-        nonqueueNightMask = summs < len(tmp[0])
-        protected = np.where(nonqueueNightMask)[0]
-        protectedQuarters = []
-        for k in range(len(protected)):
-            protectedQuarters.append(protected[k]*4)
-            protectedQuarters.append(protected[k]*4 + 1)
-            protectedQuarters.append(protected[k]*4 + 2)
-            protectedQuarters.append(protected[k]*4 + 3)
-    else:
-        protectedQuarters = []
-    allocation_toDate_1D = np.array(allocation_toDate).flatten()
-    allindices = [i for i in range(len(allocation_toDate_1D)) if allocation_toDate_1D[i] == 1 and i not in protectedQuarters]
-    weatherlosses = np.random.choice(allindices[4:], int(0.3*len(allindices)), replace=False)
-    for w in weatherlosses:
-       allocation_toDate_1D[w] = 0
-
-    allocation_postLoss = np.reshape(allocation_toDate_1D, (nNightsInSemester, 4))
-    weatherDiff = allocation_toDate - allocation_postLoss
-    weatherDiff_1D = weatherDiff.flatten()
-
-    # Build the allocation map
-    allocation_map_1D, allocation_map_2D, weathered_map = mf.buildAllocationMap(allocation_postLoss, weatherDiff, AvailableSlotsInGivenNight[startingNight:], nSlotsInNight)
-    # allocation_map_fullsemester, allocation_map_NS_fullsemester, weathered_map_ignorethis = mf.buildAllocationMap(allocation_all, np.zeros(np.shape(allocation_all)), AvailableSlotsInGivenNight, nSlotsInNight)
+    historicalWeatherData = pd.read_csv(os.path.dirname(os.path.abspath(__file__)) + "/Maunakea_WeatherLossData.csv")
+    lossStats_toDate = []
+    for i in range(len(all_dates_array)):
+        ind = historicalWeatherData.index[historicalWeatherData['Date'] == all_dates_array[i][5:]].tolist()[0]
+        lossStats_toDate.append(historicalWeatherData['% Total Loss'][ind])
+    allocation_toDate_postLoss, weatherDiff_toDate, weatherDiff_toDate_1D = hf.simWeatherLoss(allocation_toDate, lossStats_toDate, covar=0.14, plot=True, outputdir='/Users/jack/Desktop/')
+    allocation_map_1D, allocation_map_2D, weathered_map = mf.buildAllocationMap(allocation_toDate_postLoss, weatherDiff_toDate, AvailableSlotsInGivenNight[startingNight:], nSlotsInNight)
 
     # create the intersection of the two: this is the queue's "observability_1D"
     observability_1D = allocation_map_1D&twilightMap_toDate_flat
@@ -504,7 +475,7 @@ def runKPFCCv2(current_day,
         all_starmaps = {}
         for i in range(len(requests_frame)):
             if pastObs_Info != {}:
-                starmap = rf.buildObservedMap_past(pastObs_Info[requests_frame['Starname'][i]][1], pastObs_Info[requests_frame['Starname'][i]][2], pastObs_Info[requests_frame['Starname'][i]][3], semesterTemplateFile, weatherDiff_1D)
+                starmap = rf.buildObservedMap_past(pastObs_Info[requests_frame['Starname'][i]][1], pastObs_Info[requests_frame['Starname'][i]][2], pastObs_Info[requests_frame['Starname'][i]][3], semesterTemplateFile, weatherDiff_toDate_1D)
             else:
                 starmap = pd.read_csv(semesterTemplateFile)
                 starmap_columns = starmap.columns
@@ -513,7 +484,7 @@ def runKPFCCv2(current_day,
                 if 'N_obs' not in starmap_columns:
                     starmap['N_obs'] = [0]*len(starmap)
                 unique_hstdates_observed = []
-            starmap_updated = rf.buildObservedMap_future(requests_frame['Starname'][i], slotsNeededForExposure_dict[requests_frame['Starname'][i]], combined_semester_schedule, starmap, all_dates_dict[current_day], slotsNeededForExposure_dict, np.array(allocation_all), weatherDiff_1D, nSlotsInNight)
+            starmap_updated = rf.buildObservedMap_future(requests_frame['Starname'][i], slotsNeededForExposure_dict[requests_frame['Starname'][i]], combined_semester_schedule, starmap, all_dates_dict[current_day], slotsNeededForExposure_dict, np.array(allocation_all), weatherDiff_toDate_1D, nSlotsInNight)
             all_starmaps[requests_frame['Starname'][i]] = starmap_updated
             rf.writeCadencePlotFile(requests_frame['Starname'][i], i, starmap, turnOffOnFile, requests_frame, outputDirectory, unique_hstdates_observed, current_day)
 
