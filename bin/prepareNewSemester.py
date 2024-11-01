@@ -64,7 +64,7 @@ while True:
     if date==end_date:
         break
     assert nNightsInSemester < 1000
-    
+
 # Generate the binary map for allocations this semester
 # -----------------------------------------------------------------------------------------
 print("Generating binary map of allocated nights/quarters.")
@@ -201,21 +201,19 @@ for s in range(len(stepsizes)):
     all_maps = {}
     print("Computing for " + str(stepsizes[s]) + " minute slots.")
     for n,row in requests.iterrows():
-        print(row['Starname'])
+        print("Calculating access map for: ", row['Starname'])
+        access_map, turnonoff = mf.singleTargetAccessible(row['Starname'], row['RA'], row['Dec'], start_date, nNightsInSemester, stepsizes[s], turnonoff=True)
+
+        flat_access_map = np.array(access_map).flatten()
+        #all_maps[row['Starname']] = access_map
+        # because you can't json serialize an array/list or integers
+        # must create a string "list". Later decode it back to a real array
+        stringmap = '['
+        for e in range(len(flat_access_map)):
+            stringmap += str(flat_access_map[e]) + ','
+        stringmap += ']'
+        all_maps[row['Starname']] = stringmap
         if s == 0:
-            access_map, turnonoff = mf.singleTargetAccessible(row['Starname'], row['RA'], row['Dec'], start_date, nNightsInSemester, stepsizes[s], turnonoff=True)
-
-            flat_access_map = np.array(access_map).flatten()
-            #all_maps[row['Starname']] = access_map
-            # because you can't json serialize an array/list or integers
-            # must create a string "list". Later decode it back to a real array
-            stringmap = '['
-            for e in range(len(flat_access_map)):
-                stringmap += str(flat_access_map[e]) + ','
-            stringmap += ']'
-            all_maps[row['Starname']] = stringmap
-
-            
             Starname.append(row['Starname'])
             ondate_q1.append(all_dates[turnonoff[0][0]])
             offdate_q1.append(all_dates[turnonoff[0][1]])
@@ -225,17 +223,6 @@ for s in range(len(stepsizes)):
             offdate_q3.append(all_dates[turnonoff[2][1]])
             ondate_q4.append(all_dates[turnonoff[3][0]])
             offdate_q4.append(all_dates[turnonoff[3][1]])
-        else:
-            access_map = mf.singleTargetAccessible(row['Starname'], row['RA'], row['Dec'], start_date, nNightsInSemester, stepsizes[s])
-            #all_maps[row['Starname']] = access_map
-            flat_access_map = np.array(access_map).flatten()
-            # because you can't json serialize an array/list or integers
-            # must create a string "list". Later decode it back to a real array
-            stringmap = '['
-            for e in range(len(flat_access_map)):
-                stringmap += str(flat_access_map[e]) + ','
-            stringmap += ']'
-            all_maps[row['Starname']] = stringmap
 
     # Serialize the dictionary and write it to a file
     with open(args.folder + "inputs/" + semester + "_AccessMaps_" + str(stepsizes[s]) + "minSlots.txt", 'w') as convert_file:
@@ -278,6 +265,7 @@ for s in range(len(stepsizes)):
     # For reasons I don't understand, the maximum length of string you can put into a slot is equal to the length of the
     # string that initializes the slot, so I'm putting the longest word i can think of here.
 
+    onedaymap_str_all = []
     for i in range(len(nonqueues)):
         starttime = mf.convertUTC2HST(nonqueues['Start'][i][11:16])
         endtime = mf.convertUTC2HST(nonqueues['Stop'][i][11:16])
@@ -298,7 +286,9 @@ for s in range(len(stepsizes)):
         # build map
         date = nonqueues['Start'][i][:10]
         dayNumberOfSemester = all_dates.index(date)
-        daynumbers.append(dayNumberOfSemester)
+        if dayNumberOfSemester == 0:
+            print("Error. UTC to HST conversion error. Window begins in previous semester!")
+        daynumbers.append(dayNumberOfSemester-1) # -1 to account for UTC to HST time change
         onedaymap = np.ones(nSlotsInNight, dtype=int)
         for j in range(startSlot, endSlot):
             onedaymap[j] = 0
@@ -306,18 +296,22 @@ for s in range(len(stepsizes)):
         onedaymap_str = []
         for t in range(len(onedaymap)):
             if onedaymap[t] == 0:
-                onedaymap_str.append('RM__' + nonqueues['Starname'][i])
+                onedaymap_str.append('RM___' + nonqueues['Starname'][i])
             else:
                 onedaymap_str.append('')
-        fullsemester_NonQueueMap_str[dayNumberOfSemester] = onedaymap_str
+        onedaymap_str_all.append(onedaymap_str)
 
-        # post process to remove the supercalis
-        for x in range(len(fullsemester_NonQueueMap_str)):
-            if x in list(daynumbers):
-                continue
-            else:
-                holder = ['']*nSlotsInNight
-                fullsemester_NonQueueMap_str[x] = holder
+    # post process to remove the supercalis
+    counter = 0
+    for x in range(len(fullsemester_NonQueueMap_str)):
+        if x in list(daynumbers):
+            # continue
+            fullsemester_NonQueueMap_str[x] = onedaymap_str_all[counter]
+            counter += 1
+
+        else:
+            holder = ['']*nSlotsInNight
+            fullsemester_NonQueueMap_str[x] = holder
 
     # Write out the file
     np.savetxt(args.folder + "inputs/" + semester + '_NonQueueMap' + str(stepsizes[s]) + '.txt', fullsemester_NonQueueMap_str, delimiter=',', fmt="%s")
