@@ -229,3 +229,40 @@ def slotsRequired(exptime, slotsize, alwaysRoundUp=False):
         else:
             slotsNeededForExposure_val = 1
     return slotsNeededForExposure_val
+
+def simWeatherLoss(allocation_toDate, lossStats, covar=0.14, plot=False, outputdir=''):
+
+    previousDayLost = False
+    allocation_toDate_postLoss = allocation_toDate.copy()
+    counter = 0
+    # start at 1 because we never want tonight to be simulated as total loss
+    for i in range(1, len(allocation_toDate_postLoss)):
+        value2beat = lossStats[i]
+        if previousDayLost:
+            value2beat += covar
+        rolldice = np.random.uniform(0.0,1.0)
+
+        if rolldice < value2beat:
+            # the night is simulated a total loss
+            allocation_toDate_postLoss[i] = [0,0,0,0,]
+            previousDayLost = True
+            counter += 1
+            if plot:
+                pt.axvline(i, color='r')
+        else:
+            previousDayLost = False
+            if plot:
+                pt.axvline(i, color='k')
+
+    weatherDiff_toDate = np.array(allocation_toDate) - np.array(allocation_toDate_postLoss)
+    weatherDiff_toDate_1D = weatherDiff_toDate.flatten()
+
+    print("Total nights simulated as weathered out: " + str(counter) + " of " + str(len(allocation_toDate_postLoss)) + " nights remaining.")
+
+    if plot:
+        size=15
+        pt.xlabel("Days in Semester from Current Day", fontsize=size)
+        pt.tick_params(axis="both", labelsize=size)
+        pt.savefig(outputdir + "WeatherLossMap.png", dpi=200, bbox_inches='tight', facecolor='w')
+
+    return allocation_toDate_postLoss, weatherDiff_toDate, weatherDiff_toDate_1D
