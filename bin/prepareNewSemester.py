@@ -6,17 +6,27 @@ import astroplan as apl
 from astropy.time import Time
 from astropy.time import TimeDelta
 import os
-# import pickle
 import json
 import warnings
 warnings.filterwarnings('ignore')
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__))[:-3] + "kpfcc/")
 import mappingFunctions as mf
+import helperFunctions as hf
 
 import argparse
 parser = argparse.ArgumentParser(description='Generate schedules with KPF-CC v2')
-parser.add_argument('-f','--folder', help='Folder to save generated scripts and plots', default=os.environ["KPFCC_SAVE_PATH"])
+parser.add_argument('-f','--folder', help='Folder to save generated scripts and plots', default=os.environ["KPFCC_SAVE_PATH"] + "inputs/")
+parser.add_argument('-a','--AllocationFile', help='The path and filename to the allocation file', default='Allocation.csv')
+parser.add_argument('-r','--RequestFile', help='The filename to the reqeuest file', default='Requests.csv')
+parser.add_argument('-n','--NonQueueFile', help='The filename to the non queue file', default='NonQueue.csv')
+parser.add_argument('-s','--slotsizes', help='The size of slot, in minutes, to compute maps. Input as a list, ex. [5]', default=[10])
+parser.add_argument('-d1','--semesterStartDate', help='The first day of the semester, ex. 2024-08-01')#, default='2020-01-01') # in practice must be supplied by user
+parser.add_argument('-d2','--semesterEndDate', help='The last day of the semester, ex. 2025-01-31')#, default='2020-01-01')    # in practice must be supplied by user
+parser.add_argument('-t1','--nightlyStartTime', help='The first timeslot of each night, HST, ex. 17:30:00', default='17:30:00')
+parser.add_argument('-t2','--nightlyEndTime', help='The last timeslot of each night, HST, ex. 07:30:00', default='07:30:00')
+parser.add_argument('-q','--nQuartersInNight', help='The number of quarters that divide a night.', default=4)
+
 args = parser.parse_args()
 
 # This file produces all the meta-data files needed to run the autoscheduler.
@@ -31,24 +41,27 @@ args = parser.parse_args()
 # --- The set of PI requests for cadenced queue observations, downloaded from the Request Submission Webform
 # --- The set of PI requests for time-sensitive non-queue observations, downloaded from the Request Submission Webform which include start/stop times for the event windows
 
-requests = pd.read_csv(args.folder + 'inputs/Requests.csv')
-nonqueues = pd.read_csv(args.folder + 'inputs/NonQueue.csv', comment='#')
-allocation = mf.reformatKeckAllocationData(args.folder + 'inputs/AllocationSchedule.csv')
+allocation = mf.reformatKeckAllocationData(args.folder + args.AllocationFile)
+nonqueues = pd.read_csv(args.folder + args.NonQueueFile)
+requests = pd.read_csv(args.folder + args.RequestFile)
 
+slotsizes = args.slotsizes
+start_date = args.semesterStartDate
+end_date = args.semesterEndDate
+if start_date == '2020-01-01' or end_date == '2020-01-01':
+    print("User must supply valid start and end dates! Exiting now.")
+    sys.exit()
+slotStartTimestamp = args.nightlyStartTime
+slotEndTimestamp = args.nightlyEndTime
+t1 = Time(start_date + "T" + slotStartTimestamp, format='isot', scale='utc')
+t2 = Time(start_date + "T" + slotEndTimestamp, format='isot', scale='utc')
+t2 += 1
+time_diff = t2 - t1
+nHoursInNight = round(abs(time_diff.to('hour').value),0)
+junk1, junk2, junk3, semesterYear, semesterLetter = hf.getSemesterInfo(start_date)
+semester = str(semesterYear) + semesterLetter
 
-# Generate dictionary between calendar day and day of semester
-# -----------------------------------------------------------------------------------------
 print("Preparing meta data. ")
-# These are the only values that should ever be manually changed.
-# And even then, really only change the semester and start date.
-semester = '2024B'
-start_date = '2024-08-01'
-end_date = '2025-01-31'
-slotStartTimestamp = '17:30:00' #HST = 03:30 UTC
-slotEndTimestamp = '07:30:00' #HST = 17:30 UTC
-nQuartersInNight = 4
-nHoursInNight = 14
-stepsizes = [10] # list of slot sizes, in minutes, to compute accessibility maps and non-queue maps.
 
 # Build a dictionary relating calendar day to day of semester.
 all_dates = []
@@ -101,7 +114,7 @@ print("Total number of quarters allocated: ", np.sum(allocationMap_ints))
 print("Total unique nights allocated: ", uniqueDays)
 
 # Write the binary allocation map to file
-filename = args.folder + "inputs/" + semester + '_Binary_Schedule.txt'
+filename = args.folder + semester + '_Binary_Schedule.txt'
 file = open(filename, 'w')
 for a in range(len(allocationMap)):
     line = all_dates[a] + " : " + str(allocationMap[a])
@@ -131,7 +144,7 @@ for t in range(len(allocation)):
     starts.append(start)
     stops.append(stop)
 allocation_frame = pd.DataFrame({'Date':processed_dates, 'Start':starts, 'Stop':stops})
-allocation_frame.to_csv(args.folder + "inputs/" + semester + '_NightlyStartStopTimes.csv', index=False)
+allocation_frame.to_csv(args.folder + semester + '_NightlyStartStopTimes.csv', index=False)
 
 
 # Create the template file for the cadence plots including true weather map
@@ -145,7 +158,7 @@ for d in range(len(all_dates)):
         quarterlist.append(0.5+q)
 falselist = [False]*len(dateslist)
 template_frame = pd.DataFrame({'Date':dateslist, 'Quarter':quarterlist,'Allocated':falselist,'Weathered':falselist})
-template_frame.to_csv(args.folder + "inputs/" + semester + "_cadenceTemplateFile.csv", index=False)
+template_frame.to_csv(args.folder + semester + "_cadenceTemplateFile.csv", index=False)
 
 
 # Create the csv file of twilight times for the semester
@@ -173,7 +186,7 @@ twilight_frame['6_evening'] = six_deg_evening
 twilight_frame['18_morning'] = eighteen_deg_morning
 twilight_frame['12_morning'] = twelve_deg_morning
 twilight_frame['6_morning'] = six_deg_morning
-twilight_frame.to_csv(args.folder + "inputs/" + semester + '_twilight_times.csv', index=False)
+twilight_frame.to_csv(args.folder + semester + '_twilight_times.csv', index=False)
 
 
 # Generate the accessibility maps for each target.
@@ -197,12 +210,12 @@ ondate_q3 = []
 offdate_q3 = []
 ondate_q4 = []
 offdate_q4 = []
-for s in range(len(stepsizes)):
+for s in range(len(slotsizes)):
     all_maps = {}
-    print("Computing for " + str(stepsizes[s]) + " minute slots.")
+    print("Computing for " + str(slotsizes[s]) + " minute slots.")
     for n,row in requests.iterrows():
         print("Calculating access map for: ", row['Starname'])
-        access_map, turnonoff = mf.singleTargetAccessible(row['Starname'], row['RA'], row['Dec'], start_date, nNightsInSemester, stepsizes[s], turnonoff=True)
+        access_map, turnonoff = mf.singleTargetAccessible(row['Starname'], row['RA'], row['Dec'], start_date, nNightsInSemester, slotsizes[s], turnonoff=True)
 
         flat_access_map = np.array(access_map).flatten()
         #all_maps[row['Starname']] = access_map
@@ -225,7 +238,7 @@ for s in range(len(stepsizes)):
             offdate_q4.append(all_dates[turnonoff[3][1]])
 
     # Serialize the dictionary and write it to a file
-    with open(args.folder + "inputs/" + semester + "_AccessMaps_" + str(stepsizes[s]) + "minSlots.txt", 'w') as convert_file:
+    with open(args.folder + semester + "_AccessMaps_" + str(slotsizes[s]) + "minSlots.txt", 'w') as convert_file:
          convert_file.write(json.dumps(all_maps))
 
     # Create and write out the Turn On/Off dataframe
@@ -234,7 +247,7 @@ for s in range(len(stepsizes)):
                               'Q2_on_date':ondate_q2, 'Q2_off_date':offdate_q2,
                               'Q3_on_date':ondate_q3, 'Q3_off_date':offdate_q3,
                               'Q4_on_date':ondate_q4, 'Q4_off_date':offdate_q4,})
-    turnOnOff.to_csv(args.folder + "inputs/" + semester + "_turnOnOffDates.csv", index=False)
+    turnOnOff.to_csv(args.folder + semester + "_turnOnOffDates.csv", index=False)
 
 
 # Generate the array of slots which must be occupied by non-queue observations
@@ -247,17 +260,17 @@ endSlots = []
 durations_m = []
 durations_h = []
 daynumbers = []
-for s in range(len(stepsizes)):
-    print("Computing for " + str(stepsizes[s]) + " minute slots.")
-    nSlotsInQuarter = int(((nHoursInNight*60)/nQuartersInNight)/stepsizes[s])
-    nSlotsInNight = nSlotsInQuarter*nQuartersInNight
+for s in range(len(slotsizes)):
+    print("Computing for " + str(slotsizes[s]) + " minute slots.")
+    nSlotsInQuarter = int(((nHoursInNight*60)/args.nQuartersInNight)/slotsizes[s])
+    nSlotsInNight = nSlotsInQuarter*args.nQuartersInNight
 
     slot2time = []
     time_formal = Time(start_date + 'T' + slotStartTimestamp, format='isot',scale='utc')
     timestr = str(time_formal)[11:16]
     slot2time.append(timestr)
-    for i in range(nSlotsInNight):
-        time_formal += TimeDelta(6.9444444*10**(-4)*stepsizes[s],format='jd') # 6.9444444*10**(-4) days = 1 minute
+    for i in range(1,nSlotsInNight):
+        time_formal += TimeDelta(6.9444444*10**(-4)*slotsizes[s],format='jd') # 6.9444444*10**(-4) days = 1 minute
         timestr = str(time_formal)[11:16]
         slot2time.append(timestr)
 
@@ -270,16 +283,16 @@ for s in range(len(stepsizes)):
         starttime = mf.convertUTC2HST(nonqueues['Start'][i][11:16])
         endtime = mf.convertUTC2HST(nonqueues['Stop'][i][11:16])
 
-        startRound = mf.roundToSlot(starttime, stepsizes[s])
+        startRound = mf.roundToSlot(starttime, slotsizes[s])
         startRounds.append(startRound)
-        endRound = mf.roundToSlot(endtime, stepsizes[s])
+        endRound = mf.roundToSlot(endtime, slotsizes[s])
         endRounds.append(endRound)
 
         startSlot = slot2time.index(startRound)
         startSlots.append(startSlot)
         endSlot = slot2time.index(endRound)
         endSlots.append(endSlot)
-        dur = (endSlot - startSlot)*stepsizes[s]
+        dur = (endSlot - startSlot)*slotsizes[s]
         durations_m.append(dur)
         durations_h.append(round(dur/60,2))
 
@@ -314,7 +327,7 @@ for s in range(len(stepsizes)):
             fullsemester_NonQueueMap_str[x] = holder
 
     # Write out the file
-    np.savetxt(args.folder + "inputs/" + semester + '_NonQueueMap' + str(stepsizes[s]) + '.txt', fullsemester_NonQueueMap_str, delimiter=',', fmt="%s")
+    np.savetxt(args.folder + semester + '_NonQueueMap' + str(slotsizes[s]) + '.txt', fullsemester_NonQueueMap_str, delimiter=',', fmt="%s")
 
-print("All files written to directory: " + args.folder + 'inputs/ complete.')
+print("All files written to directory: " + args.folder + ' complete.')
 print("done.")
