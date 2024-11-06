@@ -34,7 +34,8 @@ class Keck1(object):
 
     def __init__(self, nSlots=3):
         self.observer = Observer.at_site('Keck Observatory', name='Keck', timezone='US/Hawaii')
-        self.slewrate = 10/6. # degrees per second
+        self.readOutTime = 45.
+        self.slewrate = 6./10. # degrees per second
         self.wrapLimitAngle = 270 # degrees azimuth
         self.deckAzLim1 = 5.3
         self.deckAzLim2 = 146.2
@@ -95,6 +96,7 @@ class WIYN(object):
 
     def __init__(self, nSlots=3):
         self.observer = Observer.at_site('KPNO', name='WIYN', timezone='US/Arizona')
+        self.readOutTime = 45.
         self.slewrate = 10/6. # degrees per second
         self.wrapLimitAngle = 270 # degrees azimuth
         self.deckAzLim1 = 0

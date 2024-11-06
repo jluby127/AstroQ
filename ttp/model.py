@@ -488,7 +488,7 @@ class TTPModel(object):
                         'Stop Exposure':t_ends,
                         'N_shots':n_shots,
                         'Exposure Time (min)':exptimes,
-                        'Total Exp Time (min)':n_shots*exptimes + (45/60)*(n_shots-1),
+                        'Total Exp Time (min)':n_shots*exptimes + (self.observatory.readOutTime/60)*(n_shots-1),
                         'Priority':priorities
                         }
 
