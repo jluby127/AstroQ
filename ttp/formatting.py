@@ -25,7 +25,7 @@ def theTTP(filename):
         all_star_objects = []
         for t, row in targets.iterrows():
             starobj = star.star(row, t)
-            #starobj.printStar()
+            # starobj.printStar()
             all_star_objects.append(starobj)
         return all_star_objects
 
@@ -48,7 +48,7 @@ def readInputs(filename):
             line = line.strip()
             if ':' in line:
                 key, value = line.split(' : ', 1)  # Split only at the first colon
-                # important that there be one space after the key name and one space after the colon 
+                # important that there be one space after the key name and one space after the colon
                 result_dict[key] = value
 
     return result_dict
