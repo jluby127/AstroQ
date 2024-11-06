@@ -47,7 +47,7 @@ class star(object):
 
     def __init__(self, row, index):
 
-        # must hard code in data types because, for whatever reason, if ALL characters in ALL starnames are numbers, then these values all get read in as floats 
+        # must hard code in data types because, for whatever reason, if ALL characters in ALL starnames are numbers, then these values all get read in as floats
         self.name = str(row['Starname'])
         # ignore these notes for now!!!!
         # NOTE: RA must be in following format: XXhYYmZZ.Zs
@@ -57,10 +57,10 @@ class star(object):
         coords = SkyCoord(self.ra*u.deg, self.dec*u.deg, frame='icrs')
         self.priority = int(row['Priority'])
         self.target = apl.FixedTarget(name=self.name, coord=coords)
-        self.exptime = int(row['Exposure Time']/60) # Seconds to minutes
+        self.exptime = np.round(float(row['Exposure Time']/60),2) # Seconds to minutes
         self.shots = int(row['Exposures Per Visit'])
         self.visits = int(row['Visits In Night'])
-        self.expwithreadout = int(self.exptime*self.shots + (45/60)*(self.shots-1))
+        self.expwithreadout = np.round(float(self.exptime*self.shots + (45/60)*(self.shots-1)),2)
         self.intra_night_cadence = int(row['Intra_Night_Cadence']) # Hours
         self.index = index
         print(str(self.index) + ". " + str(self.name))

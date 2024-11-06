@@ -96,7 +96,7 @@ class TTPModel(object):
             else:
                 s = self.stars[node_to_star[i]]
                 prios.append(int(s.priority))
-                tau_exp.append(s.expwithreadout)
+                tau_exp.append(s.exptime + ((self.observatory.readOutTime/60)*(s.shots-1)))
                 tau_sep.append(s.intra_night_cadence * 60) # Hours -> minutes
                 AZ = self.observatory.observer.altaz(t, s.target)
                 alt=AZ.alt.deg
