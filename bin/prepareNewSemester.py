@@ -26,6 +26,7 @@ parser.add_argument('-d2','--semesterEndDate', help='The last day of the semeste
 parser.add_argument('-t1','--nightlyStartTime', help='The first timeslot of each night, HST, ex. 17:30:00', default='17:30:00')
 parser.add_argument('-t2','--nightlyEndTime', help='The last timeslot of each night, HST, ex. 07:30:00', default='07:30:00')
 parser.add_argument('-q','--nQuartersInNight', help='The number of quarters that divide a night.', default=4)
+parser.add_argument('-opt','--optimalAllocation', help='Is this preparing for optimal allocation? Boolean. If true, dont run certain modules', default=False)
 
 args = parser.parse_args()
 
@@ -41,7 +42,7 @@ args = parser.parse_args()
 # --- The set of PI requests for cadenced queue observations, downloaded from the Request Submission Webform
 # --- The set of PI requests for time-sensitive non-queue observations, downloaded from the Request Submission Webform which include start/stop times for the event windows
 
-allocation = mf.reformatKeckAllocationData(args.folder + args.AllocationFile)
+# allocation = mf.reformatKeckAllocationData(args.folder + args.AllocationFile)
 nonqueues = pd.read_csv(args.folder + args.NonQueueFile)
 requests = pd.read_csv(args.folder + args.RequestFile)
 
@@ -78,73 +79,75 @@ while True:
         break
     assert nNightsInSemester < 1000
 
-# Generate the binary map for allocations this semester
-# -----------------------------------------------------------------------------------------
-print("Generating binary map of allocated nights/quarters.")
-allocationMap = []
-allocationMap_ints = []
-uniqueDays = 0
-for j in range(len(all_dates)):
-    datemask = allocation['Date'] == all_dates[j]
-    oneNight = allocation[datemask]
-    if np.sum(datemask) == 0:
-        # for night that is not allocated
-        map1 = "0 0 0 0"
-        map2 = [0, 0, 0, 0]
-    elif np.sum(datemask) == 1:
-        # for night where only one program is allocated (regardless of length of allocation)
-        oneNight.reset_index(inplace=True)
-        map1 = mf.translator(oneNight['Start'][0], oneNight['Stop'][0])
-        map2 = [int(map1[0]), int(map1[2]), int(map1[4]), int(map1[6])]
-        uniqueDays += 1
-    elif np.sum(datemask) >= 1:
-        # for night where multiple programs are allocated (regardless of their lengths)
-        oneNight.reset_index(inplace=True)
-        last = len(oneNight)
-        map1 = mf.translator(oneNight['Start'][0], oneNight['Stop'][last-1])
-        map2 = [int(map1[0]), int(map1[2]), int(map1[4]), int(map1[6])]
-        uniqueDays += 1
-    else:
-        print("We have a problem, error code 5.")
-        map1 = "0 0 0 0"
-        map2 = [0, 0, 0, 0]
-    allocationMap.append(map1)
-    allocationMap_ints.append(map2)
-print("Total number of quarters allocated: ", np.sum(allocationMap_ints))
-print("Total unique nights allocated: ", uniqueDays)
+if args.optimalAllocation == False:
 
-# Write the binary allocation map to file
-filename = args.folder + semester + '_Binary_Schedule.txt'
-file = open(filename, 'w')
-for a in range(len(allocationMap)):
-    line = all_dates[a] + " : " + str(allocationMap[a])
-    file.write(str(line) + "\n")
-file.close()
+    # Generate the binary map for allocations this semester
+    # -----------------------------------------------------------------------------------------
+    print("Generating binary map of allocated nights/quarters.")
+    allocationMap = []
+    allocationMap_ints = []
+    uniqueDays = 0
+    for j in range(len(all_dates)):
+        datemask = allocation['Date'] == all_dates[j]
+        oneNight = allocation[datemask]
+        if np.sum(datemask) == 0:
+            # for night that is not allocated
+            map1 = "0 0 0 0"
+            map2 = [0, 0, 0, 0]
+        elif np.sum(datemask) == 1:
+            # for night where only one program is allocated (regardless of length of allocation)
+            oneNight.reset_index(inplace=True)
+            map1 = mf.translator(oneNight['Start'][0], oneNight['Stop'][0])
+            map2 = [int(map1[0]), int(map1[2]), int(map1[4]), int(map1[6])]
+            uniqueDays += 1
+        elif np.sum(datemask) >= 1:
+            # for night where multiple programs are allocated (regardless of their lengths)
+            oneNight.reset_index(inplace=True)
+            last = len(oneNight)
+            map1 = mf.translator(oneNight['Start'][0], oneNight['Stop'][last-1])
+            map2 = [int(map1[0]), int(map1[2]), int(map1[4]), int(map1[6])]
+            uniqueDays += 1
+        else:
+            print("We have a problem, error code 5.")
+            map1 = "0 0 0 0"
+            map2 = [0, 0, 0, 0]
+        allocationMap.append(map1)
+        allocationMap_ints.append(map2)
+    print("Total number of quarters allocated: ", np.sum(allocationMap_ints))
+    print("Total unique nights allocated: ", uniqueDays)
+
+    # Write the binary allocation map to file
+    filename = args.folder + semester + '_Binary_Schedule.txt'
+    file = open(filename, 'w')
+    for a in range(len(allocationMap)):
+        line = all_dates[a] + " : " + str(allocationMap[a])
+        file.write(str(line) + "\n")
+    file.close()
 
 
-# Produce and write the start and stop times of each night to file.
-# For the TTP.
-# -----------------------------------------------------------------------------------------
-print("Generate the nightly start/stop times for observing.")
-listdates = list(allocation['Date'])
-processed_dates = []
-starts = []
-stops = []
-for t in range(len(allocation)):
-    date = allocation['Date'][t]
-    if date in processed_dates:
-        continue
-    start = allocation['Time'][t][:5]
-    datecount = listdates.count(date)
-    if datecount > 1:
-        stop = allocation['Time'][t+datecount-1][8:13]
-    else:
-        stop = allocation['Time'][t][8:13]
-    processed_dates.append(date)
-    starts.append(start)
-    stops.append(stop)
-allocation_frame = pd.DataFrame({'Date':processed_dates, 'Start':starts, 'Stop':stops})
-allocation_frame.to_csv(args.folder + semester + '_NightlyStartStopTimes.csv', index=False)
+    # Produce and write the start and stop times of each night to file.
+    # For the TTP.
+    # -----------------------------------------------------------------------------------------
+    print("Generate the nightly start/stop times for observing.")
+    listdates = list(allocation['Date'])
+    processed_dates = []
+    starts = []
+    stops = []
+    for t in range(len(allocation)):
+        date = allocation['Date'][t]
+        if date in processed_dates:
+            continue
+        start = allocation['Time'][t][:5]
+        datecount = listdates.count(date)
+        if datecount > 1:
+            stop = allocation['Time'][t+datecount-1][8:13]
+        else:
+            stop = allocation['Time'][t][8:13]
+        processed_dates.append(date)
+        starts.append(start)
+        stops.append(stop)
+    allocation_frame = pd.DataFrame({'Date':processed_dates, 'Start':starts, 'Stop':stops})
+    allocation_frame.to_csv(args.folder + semester + '_NightlyStartStopTimes.csv', index=False)
 
 
 # Create the template file for the cadence plots including true weather map
@@ -309,7 +312,7 @@ for s in range(len(slotsizes)):
         onedaymap_str = []
         for t in range(len(onedaymap)):
             if onedaymap[t] == 0:
-                onedaymap_str.append('RM___' + nonqueues['Starname'][i])
+                onedaymap_str.append('RM___' + str(nonqueues['Starname'][i]))
             else:
                 onedaymap_str.append('')
         onedaymap_str_all.append(onedaymap_str)

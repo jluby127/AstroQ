@@ -217,9 +217,9 @@ def prepareTTP(request_sheet, night_plan, filltargets):
             selected_stars.append(night_plan[i])
             ignore.append(night_plan[i])
 
-    print(selected_stars)
     # build the dataframe with correct info and correct headers
     all_targets_frame = pd.read_csv(request_sheet)
+    starnames = []
     RAs = []
     Decs = []
     ExpTimes = []
@@ -228,21 +228,21 @@ def prepareTTP(request_sheet, night_plan, filltargets):
     cadences = []
     priorities = []
     for j in range(len(selected_stars)):
-        print(str(selected_stars[j]))
         idx = all_targets_frame.index[all_targets_frame['Starname']==str(selected_stars[j])][0]
+        starnames.append(str(all_targets_frame['Starname'][idx]))
         RAs.append(all_targets_frame['RA'][idx])
         Decs.append(all_targets_frame['Dec'][idx])
-        ExpTimes.append(all_targets_frame['Nominal Exposure Time [s]'][idx])
-        ExpsPerVisits.append(all_targets_frame['# of Exposures per Visit'][idx])
-        nVisits.append(all_targets_frame['# Visits per Night'][idx])
-        cadences.append(all_targets_frame['Minimum Intra-Night Cadence'][idx])
+        ExpTimes.append(int(all_targets_frame['Nominal Exposure Time [s]'][idx]))
+        ExpsPerVisits.append(int(all_targets_frame['# of Exposures per Visit'][idx]))
+        nVisits.append(int(all_targets_frame['# Visits per Night'][idx]))
+        cadences.append(int(all_targets_frame['Minimum Intra-Night Cadence'][idx]))
         # higher numbers are higher priorities
         if str(selected_stars[j]) in filltargets:
             prior = 1 # the filler targets get low priority
         else:
             prior = 10
         priorities.append(prior)
-    toTTP = pd.DataFrame({"Starname":selected_stars,"RA":RAs,"Dec":Decs,
+    toTTP = pd.DataFrame({"Starname":starnames,"RA":RAs,"Dec":Decs,
                           "Exposure Time":ExpTimes,"Exposures Per Visit":ExpsPerVisits,
                           "Visits In Night":nVisits,"Intra_Night_Cadence":cadences,"Priority":priorities})
     return toTTP

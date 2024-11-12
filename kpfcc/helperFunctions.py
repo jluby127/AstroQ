@@ -15,7 +15,7 @@ import astropy.units as u
 import twilightFunctions as tw
 
 
-def buildHumanReadableSchedule(Yns, twilightMap, all_targets_frame, nNightsInSemester, nSlotsInNight, AvailableSlotsInGivenNight, nSlotsInQuarter, all_dates_dict, current_day, allocation_map_NS, weathered_map, slotsNeededDict, nonqueueMap_str):
+def buildHumanReadableSchedule(Yns, twilightMap, all_targets_frame, nNightsInSemester, nSlotsInNight, AvailableSlotsInGivenNight, nSlotsInQuarter, all_dates_dict, current_day, allocation_map_NS, weathered_map, slotsNeededDict, nonqueueMap_str, isOptimalAllocation=False):
     """
     Write the solved schedule to a CSV file.
 
@@ -77,8 +77,9 @@ def buildHumanReadableSchedule(Yns, twilightMap, all_targets_frame, nNightsInSem
                 slotallocated += '*'
             if weathered_map[n][s] == 1 and slotallocated == '':
                 slotallocated += 'W'
-            if allocation_map_NS[n][s] == 0: #and slotallocated == '':
-                slotallocated += 'X'
+            if isOptimalAllocation == False:
+                if allocation_map_NS[n][s] == 0:# and slotallocated == '': #comment out the "and" part later
+                    slotallocated += 'X'
             combined_semester_schedule[n+all_dates_dict[current_day]][s] = str(slotallocated)
 
     # Recall that the semester solver puts a 1 only in the slot that starts the exposure for a target.
@@ -224,7 +225,7 @@ def slotsRequired(exptime, slotsize, alwaysRoundUp=False):
     if alwaysRoundUp:
         slotsNeededForExposure_val = math.ceil(exptime/slotsize)
     else:
-        if exptime > slotsize*60.:
+        if exptime > slotsize:
             slotsNeededForExposure_val = int(round(exptime/slotsize))
         else:
             slotsNeededForExposure_val = 1
@@ -266,3 +267,12 @@ def simWeatherLoss(allocation_toDate, lossStats, covar=0.14, plot=False, outputd
         pt.savefig(outputdir + "WeatherLossMap.png", dpi=200, bbox_inches='tight', facecolor='w')
 
     return allocation_toDate_postLoss, weatherDiff_toDate, weatherDiff_toDate_1D
+
+def buildEnforcedDates(filename, all_dates_dict):
+    enforced_dates = []
+    selections = pd.read_csv(filename)
+    for s in range(len(selections)):
+        night = all_dates_dict[selections['Date'][s]]
+        pair = [night, selections['Quarter'][s]]
+        enforced_dates.append(pair)
+    return enforced_dates
