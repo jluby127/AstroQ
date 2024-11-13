@@ -46,7 +46,7 @@ args = parser.parse_args()
 nonqueues = pd.read_csv(args.folder + args.NonQueueFile)
 requests = pd.read_csv(args.folder + args.RequestFile)
 
-slotsizes = args.slotsizes
+slotsizes = [int(args.slotsizes)]
 start_date = args.semesterStartDate
 end_date = args.semesterEndDate
 if start_date == '2020-01-01' or end_date == '2020-01-01':
