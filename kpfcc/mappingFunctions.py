@@ -242,7 +242,10 @@ def isObservable(date, target, STEP):
     min_az = 5.3 #naysmith deck direction limits
     max_az = 146.2
     min_alt = 33.3 # Naysmith deck height
-    else_min_alt = 30. #non-Naysmith deck height
+    else_min_alt = 18.0 #non-Naysmith deck height
+    else_min_alt_alt = 30.0 # prefer to observe targets at least 30altitude if they are not too far north/south
+    maxNorth = 75.0
+    maxSouth = -35.0
     max_alt = 85.
     # This is ~20 min before earliest sunset of the year in Hawaii
     # And ~20 min after the latest sunrise of the year in Hawaii
@@ -273,7 +276,12 @@ def isObservable(date, target, STEP):
 
             not_deck_1 = np.where((az < min_az))
             not_deck_2 = np.where((az > max_az))
-            not_deck_height = np.where((alt <= max_alt) & (alt >= else_min_alt))
+            # for targets sufficiently north or south in declination, allow access map to compute any time they are above telescope pointing limits as OK.
+            # for more equitorial targets, require that to be accessible, the target must be at least a desirec minimum elevation.
+            if target.dec.deg > maxNorth or target.dec.deg < maxSouth:
+                not_deck_height = np.where((alt <= max_alt) & (alt >= else_min_alt))
+            else:
+                not_deck_height = np.where((alt <= max_alt) & (alt >= else_min_alt_alt))
             second = np.intersect1d(not_deck_1,not_deck_height)
             third = np.intersect1d(not_deck_2,not_deck_height)
 
