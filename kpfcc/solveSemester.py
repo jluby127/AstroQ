@@ -85,6 +85,8 @@ def runKPFCCv2(current_day,
     # -------------------------------------------------------------------
     # -------------------------------------------------------------------
     semester_start_date, semester_end_date, semesterLength, semesterYear, semesterLetter = hf.getSemesterInfo(current_day)
+    # nNightsInSemester = 29
+    # semesterLength = nNightsInSemester
     all_dates_dict = hf.buildDayDateDictionary(semester_start_date, semesterLength)
     all_dates_array = list(all_dates_dict.keys())
     nNightsInSemester = hf.currentDayTracker(current_day, all_dates_dict)
@@ -195,7 +197,7 @@ def runKPFCCv2(current_day,
     for i in range(len(all_dates_array)):
         ind = historicalWeatherData.index[historicalWeatherData['Date'] == all_dates_array[i][5:]].tolist()[0]
         lossStats_toDate.append(historicalWeatherData['% Total Loss'][ind])
-    allocation_toDate_postLoss, weatherDiff_toDate, weatherDiff_toDate_1D = hf.simWeatherLoss(allocation_toDate, lossStats_toDate, covar=0.14, plot=True, outputdir='/Users/jack/Desktop/')
+    allocation_toDate_postLoss, weatherDiff_toDate, weatherDiff_toDate_1D = hf.simWeatherLoss(allocation_toDate, lossStats_toDate, covar=0.14, noLoss=True, plot=True, outputdir='/Users/jack/Desktop/')
     allocation_map_1D, allocation_map_2D, weathered_map = mf.buildAllocationMap(allocation_toDate_postLoss, weatherDiff_toDate, AvailableSlotsInGivenNight[startingNight:], nSlotsInNight)
 
     # create the intersection of the two: this is the queue's "observability_1D"
@@ -207,7 +209,7 @@ def runKPFCCv2(current_day,
     # For each target, determine the most recent date of observations and the number of unique days observed.
     # Also process the past to build the starmap for each target.
     pastObs_Info = {}
-    pf.getKPFAllObservations(pastObservationsFile)
+    #pf.getKPFAllObservations(pastObservationsFile)
     if os.path.exists(pastObservationsFile):
         database = pd.read_csv(pastObservationsFile)
         for i in range(len(requests_frame['Starname'])):
@@ -228,7 +230,6 @@ def runKPFCCv2(current_day,
             # element 2 = the list of the quarters where the observation took place on the corresponding unique night from element 1's list (if multi visits, then this is for the first visit)
             # element 3 = the list of the number of observations that took place on the corresponding unique night from element 1's list
             pastObs_Info[requests_frame['Starname'][i]] = [mostRecentObservationDate, unique_hstdates_observed, quarterObserved, Nobs_on_date]
-
 
     # -------------------------------------------------------------------
     # -------------------------------------------------------------------
@@ -273,7 +274,6 @@ def runKPFCCv2(current_day,
     # Enforce no other exposures start within so many slots if Yrs[name, slot] is 1
     for n,row in requests_frame.iterrows():
         name = row['Starname']
-        print(name)
         slotsNeeded = slotsNeededForExposure_dict[name]
         if (slotsNeeded > 1):
             for s in range(nSlotsInSemester):
@@ -379,7 +379,8 @@ def runKPFCCv2(current_day,
         zeroMap = np.array([1]*nSlotsInSemester)
         if name in zeroOut_names:
             zeroMap[:nSlotsInNight] = np.array([0]*nSlotsInNight)
-        #print(name, np.shape(observability_1D), np.shape(alloAndTwiMap_short), np.shape(access), np.shape(customMap), np.shape(zeroMap))
+        print(name, np.shape(observability_1D), np.shape(access), np.shape(customMap), np.shape(zeroMap))
+        print(type(observability_1D[0]), type(access[0]), type(customMap[0]), type(zeroMap[0]))
         fullmap = observability_1D&access&customMap&zeroMap
         for s in range(nSlotsInSemester):
             m.addConstr(Yrs[name,s] <= fullmap[s], 'enforceIntersectionOfMaps_' + str(name) + "_" + str(s) + "s")
@@ -397,8 +398,8 @@ def runKPFCCv2(current_day,
                     holder.append(0)
             nonqueuemap_slots_ints.append(holder)
         nonqueuemap_slots_ints = np.array(nonqueuemap_slots_ints).flatten()
-        for s in range(nSlotsInSemester):
-            nonqueueslot = int(nonqueuemap_slots_ints[s + startingSlot])
+        for s in range(startingSlot, nSlotsInSemester):
+            nonqueueslot = int(nonqueuemap_slots_ints[s])
             for name in requests_frame['Starname']:
                 m.addConstr(Yrs[name,s] <= nonqueueslot, 'enforceNonQueueSlots_' + str(name) + "_" + str(s) + "s")
     else:
