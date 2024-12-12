@@ -1,5 +1,10 @@
-import numpy as np
-import pandas as pd
+"""
+Module for generating backup bright star list for a night. Designed to be only run as a function
+call from the generateScript.py script.
+
+Example usage:
+    import backup_star_functions as bsf
+"""
 from astropy.time import Time
 from astropy.time import TimeDelta
 import astropy as apy
@@ -7,151 +12,151 @@ from astropy.coordinates import SkyCoord
 from astropy.coordinates import Angle
 import astroplan as apl
 import astropy.units as u
+
+import numpy as np
+import pandas as pd
 import warnings
 warnings.filterwarnings('ignore')
-import time
 
+import mapping_functions as mf
 
-def singleTargetAccessible(starname, ra, dec, date, startTime, stopTime, stepsize):
-
-    coords = apy.coordinates.SkyCoord(ra * 15.0 * u.deg, dec * u.deg, frame='icrs')
-    target = apl.FixedTarget(name=starname, coord=coords)
-
-    min_az = 5.3 #naysmith deck direction limits
-    max_az = 146.2
-    min_alt = 33.3 # Naysmith deck height
-    else_min_alt = 30. #non-Naysmith deck height
-    max_alt = 85.
-
-    start = date + "T" + startTime
-    startime = Time(start)
-    end = date + "T" + stopTime
-    endtime = Time(end)
-    step = TimeDelta(stepsize*60.,format='sec')
-    ttemp = np.arange(startime.jd, endtime.jd, step.jd)
-    t = Time(ttemp,format='jd')
-
-    keck = apl.Observer.at_site('W. M. Keck Observatory')
-    AZ = keck.altaz(t, target, grid_times_targets=True)
-
-    keckapy = apy.coordinates.EarthLocation.of_site('Keck Observatory')
-    moon = apy.coordinates.get_moon(Time(t[int(len(t)/2)],format='jd'), keckapy) # test moon/star distance at middle of night
-
-    observability_matrix = np.zeros(len(t),dtype=int)
-    if moon_safe(moon, (target.ra.rad, target.dec.rad)):
-        for i in range(len(AZ)):
-            alt=AZ[i].alt.deg
-            az=AZ[i].az.deg
-            deck = np.where((az >= min_az) & (az <= max_az))
-            deck_height = np.where((alt <= max_alt) & (alt >= min_alt))
-            first = np.intersect1d(deck,deck_height)
-
-            not_deck_1 = np.where((az < min_az))
-            not_deck_2 = np.where((az > max_az))
-            not_deck_height = np.where((alt <= max_alt) & (alt >= else_min_alt))
-            second = np.intersect1d(not_deck_1,not_deck_height)
-            third = np.intersect1d(not_deck_2,not_deck_height)
-
-            good = np.concatenate((first,second,third))
-            observability_matrix[good] = 1
-    nHoursObservable = np.round((np.sum(observability_matrix)*minReq)/60,1)
-    return nHoursObservable
-
-def moon_safe(moon,target_tuple):
+def compute_hours_observable_tonight(date, target, slot_size):
     """
-    Check that a coordinate is not too close to the moon. Returns true if target is sufficiently far from the moon to allow for observations.
+    Determine how many hours a star is up on a given date
 
     Args:
-        moon (str): a "moon object" from Astropy
-        target_tuple (tuple): the RA and Dec of a target star in hourangle and degrees format
+        date (str): the calendar date to compute accessibilty in format 'YYYY-MM-DD'
+        target (str): an astroplan FixedTarget object
+        slot_size (int): the size of the slots in minutes
     Returns:
-        Unnamed boolean
+        n_hours_observable (int): the number of hours the star is observable
     """
+    observability_matrix = mf.is_observable(date, target, slot_size)
+    n_hours_observable = np.round((np.sum(observability_matrix)*slot_size)/60,1)
+    return n_hours_observable
 
-    ang_dist = apy.coordinates.angular_separation(moon.ra.rad,moon.dec.rad,target_tuple[0],target_tuple[1])
-    if ang_dist*180/(np.pi) >= 30:
-        return True
-    else:
-        return False
+def compute_yearly_accessibility(star_frame, all_dates_array, slot_size):
+    """
+    Pre-compute how many hours a star is up each night of the year
 
-def computeYearlyAccessibility(starframe, calendar, starttimes, endtimes, stepsize=10):
-    starframe.reset_index(inplace=True)
-    backUpObservability = pd.DataFrame({'Starname':starframe['Starname']})
+    Args:
+        star_frame (dateframe): the equivalent of request frame but for the backup stars
+        all_dates_array (array): a list of dates in format YYYY-MM-DD
+        slot_size (int): the size of the slots in minutes
+
+    Returns:
+        backup_observability_frame (dataframe): contains information on each star's number of hours
+                                                accessible on each night
+    """
+    backup_observability_frame = pd.DataFrame({'Starname':star_frame['Starname']})
     for n in range(len(calendar)):
         single_night = []
-        for s in range(len(starframe)):
-            upTime = singleTargetAccessible(starframe['Starname'][s], starframe['RA'][s], starframe['Dec'][s], calendar[n], starttimes[n], endtimes[n], stepsize=stepsize)
-            single_night.append(upTime)
-        backUpObservability[calendar[n][5:]] = single_night
-    return backUpObservability
+        for s in range(len(star_frame)):
+            coords = apy.coordinates.SkyCoord(star_frame['RA'][s] * u.deg,
+                                              star_frame['Dec'][s] * u.deg, frame='icrs')
+            target = apl.FixedTarget(name=star_frame['Starname'][s], coord=coords)
+            time_up = compute_hours_observable_tonight(all_dates_array[n], target, slot_size)
+            single_night.append(time_up)
+        backup_observability_frame[calendar[n][5:]] = single_night
+    return backup_observability_frame
 
-def getDate(backUpObservability, current_date, minUp):
-    upMask = backUpObservability[current_date] > minUp
-    starlist = list(backUpObservability['Starname'][upMask])
+def get_backup_stars_for_tonight(backup_observability_frame, current_date, minimum_up_time):
+    """
+    Pre-compute how many hours a star is up each night of the year
+
+    Args:
+        backup_observability_frame (dataframe): contains information on each star's number of hours
+                                                accessible on each night
+        current_date (str): today's date in format YYYY-MM-DD
+        minimum_up_time (int): minimum number of hours accessible to be considered observable
+
+    Returns:
+        starlist (array): contains the names of the stars that are observable tonight
+    """
+    up_mask = backup_observability_frame[current_date] > minimum_up_time
+    starlist = list(backup_observability_frame['Starname'][up_mask])
     return starlist
 
-def getStar(backUpObservability, starname):
+def get_stars_for_tonight(backup_frame, backup_observability_frame, current_date,
+                          minimum_up_time):
+    """
+    Get a list of stars for backup tonight
 
-    ind = backUpObservability.index[backUpObservability['Starname'] == starname].tolist()[0]
-    upTimes = []
-    colnames = list(backUpObservability.columns)
-    for i in range(1, len(colnames)):
-        upTimes.append(backUpObservability[colnames[i]][ind])
-    return upTimes
+    Args:
+        backup_frame (dataframe): contains the info on all the stars from the backup pool
+        backup_observability_frame (dataframe): contains information on each star's number of hours
+                                                accessible on each night
+        current_date (str): today's date in format YYYY-MM-DD
+        minimum_up_time (int): minimum number of hours accessible to be considered observable
 
-def getStarsForTonight(backup_starlist, backUpObservability, current_date, minimumUpTime):
-    starlist = getDate(backUpObservability, current_date, minimumUpTime)
-
+    Returns:
+        starlist (array): contains the names of the stars that are observable tonight
+    """
+    starlist = get_backup_stars_for_tonight(backup_observability_frame, current_date,
+                                            minimum_up_time)
     name = []
     ra = []
     dec = []
-    exptime = []
-    nshots = []
-    totaltime = 0
-    for i in range(len(starlist)):
-        ind = backup_starlist.index[backup_starlist['Starname'] == starlist[i]].tolist()[0]
-        name.append(backup_starlist['Starname'][ind])
-        ra.append(backup_starlist['RA'][ind]*15.0)
-        dec.append(backup_starlist['Dec'][ind])
-        exptime.append(backup_starlist['ExpTime'][ind])
-        if backup_starlist['ExpTime'][ind] <= 150.0 and backup_starlist['ExpTime'][ind] > 72.0:
-            nshot = 2
-        elif backup_starlist['ExpTime'][ind] <= 72.0 and backup_starlist['ExpTime'][ind] > 45.0:
-            nshot = 3
-        elif backup_starlist['ExpTime'][ind] <= 45.0:
-            nshot = 5
+    exposure_time = []
+    n_shots = []
+    total_time = 0
+    for i in enumerate(starlist):
+        ind = backup_frame.index[backup_frame['Starname'] == starlist[i]].tolist()[0]
+        name.append(backup_frame['Starname'][ind])
+        ra.append(backup_frame['RA'][ind]*15.0)
+        dec.append(backup_frame['Dec'][ind])
+        exposure_time.append(backup_frame['exposure_time'][ind])
+        if backup_frame['exptime'][ind] <= 150.0 and backup_frame['exptime'][ind] > 72.0:
+            n_shot = 2
+        elif backup_frame['exptime'][ind] <= 72.0 and backup_frame['exptime'][ind] > 45.0:
+            n_shot = 3
+        elif backup_frame['exptime'][ind] <= 45.0:
+            n_shot = 5
         else:
-            nshot = 1
-        nshots.append(nshot)
-        totaltime += backup_starlist['ExpTime'][ind]*nshot + 45*(nshot-1)
+            n_shot = 1
+        n_shots.append(n_shot)
+        total_time += backup_frame['exposure_time'][ind]*n_shot + 45*(n_shot-1)
 
-    stars4tonight = pd.DataFrame({'Starname':name, "RA":ra, "Dec":dec, 'Exposure Time':exptime,
-                             'Exposures Per Visit':nshots, 'Visits In Night':[1]*len(starlist),
+    stars_for_tonight = pd.DataFrame({'Starname':name, "RA":ra, "Dec":dec,
+                             'Exposure Time':exposure_time, 'Exposures Per Visit':n_shots,
+                             'Visits In Night':[1]*len(starlist),
                              'Intra_Night_Cadence':[0]*len(starlist), 'Priority':[1]*len(starlist)})
 
-    stars4tonight.sort_values(by='Exposure Time', ascending=False, inplace=True)
-    stars4tonight.reset_index(inplace=True)
+    stars_for_tonight.sort_values(by='Exposure Time', ascending=False, inplace=True)
+    stars_for_tonight.reset_index(inplace=True)
 
-    print("There are " + str(len(stars4tonight)) + " available backup stars for tonight.")
-    print("Amounting to total possible time added (not accounting for slew) of " + str(np.round(totaltime/3600,1)) + " hours.")
-    return stars4tonight
+    print("There are " + str(len(stars_for_tonight)) + " available backup stars for tonight.")
+    print("Amounting to total possible time added (not accounting for slew) of " + \
+        str(np.round(total_time/3600,1)) + " hours.")
+    return stars_for_tonight
 
-def getTimesWorth(starlist, nHours):
+def get_times_worth(backup_list_tonight, n_hours_needed):
+    """
+    Get a list of stars for backup tonight that fills a given amount of hours worth of time
 
+    Args:
+        backup_list_tonight (array): contains the stars from the wider backup pool selected as
+                                     observable for tonight
+        n_hours_needed (int): the number of hours of open shutter time to fill
+
+    Returns:
+        selected_stars_frame (array): contains the subset of stars from the wider backup pool
+                                      selected as  observable for tonight
+    """
     save_stars = list(starlist['Starname'])
     selected_stars = []
-
-    timeUsed = 0.0
-    while timeUsed < nHours and len(save_stars) != 0:
-        newstar = np.random.choice(save_stars)
-        ind1 = save_stars.index(newstar)
+    time_used = 0.0
+    while time_used < n_hours_needed and len(save_stars) != 0:
+        chosen_star = np.random.choice(save_stars)
+        ind1 = save_stars.index(chosen_star)
         save_stars.pop(ind1)
 
-        ind2 = starlist.index[starlist['Starname'] == newstar].tolist()[0]
-        star_row = starlist.loc[starlist['Starname'] == newstar]
+        ind2 = starlist.index[starlist['Starname'] == chosen_star].tolist()[0]
+        star_row = starlist.loc[starlist['Starname'] == chosen_star]
         selected_stars.append(star_row)
-        timeUsed += (starlist['Exposure Time'][ind2]*starlist['Exposures Per Visit'][ind2] + 45*(starlist['Exposures Per Visit'][ind2]-1))/3600
-
+        time_used += (starlist['Exposure Time'][ind2]*starlist['Exposures Per Visit'][ind2] + \
+                        45*(starlist['Exposures Per Visit'][ind2]-1))/3600
     selected_stars_frame = pd.concat(selected_stars)
     selected_stars_frame.reset_index(inplace=True, drop=True)
+
     return selected_stars_frame
