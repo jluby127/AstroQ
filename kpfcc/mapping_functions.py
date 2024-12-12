@@ -1,105 +1,134 @@
+"""
+Module for working with the various maps
+
+This module organizes and builds the maps used by the semester solver to block out large portions
+of time for one of many reasons. Designed to be only run as a function call from
+the generateScript.py script.
+
+Example usage:
+    import mapping_functions as mf
+"""
+import json
+
 import numpy as np
 import pandas as pd
-import sys
-import math
-import time
-# import pickle
-import json
-import os
-import sys
-from collections import defaultdict
+import matplotlib.pyplot as pt
+
 from astropy.time import Time
 from astropy.time import TimeDelta
 import astropy as apy
-import astroplan as apl
 import astropy.units as u
+import astroplan as apl
 
-def buildAllocationMap(allocation_schedule, weatherDiff, AvailableSlotsInGivenNight, nSlotsInNight):
+def build_allocation_map(allocation_schedule, weather_diff, available_slots_in_night,
+                        n_slots_in_night):
     """
-    Create the 1D allocation map where allocated/available slots are designated with a 1 and non-allocated slots designated with a 0
+    Create the 1D allocation map where allocated slots are designated with a 1
+    and non-allocated slots designated with a 0.
 
     Args:
-        allocation_schedule (array): a 2D array of shape nNightsInSemester by nQuartersInNight where each row is a night and the four elements in that row are 1 or 0 if that quarter is allocated to the queue
-        weatherDiff (array): a 2D array of shape nNightsInSemester by nQuartersInNight where each row is a night and the four elements in that row are 1 or 0 if that quarter has been declared to be weathered out (for plotting/tracking purposes)
-        AvailableSlotsInGivenNight (array): a 1D array of length nNightsInSemester where each element has an integer representing the number of slots within that night that are between twilight times
-        nSlotsInNight (int): the number of slots in a single night
+        allocation_schedule (array): a 2D array of shape n_nights_in_semester by n_quarters_in_night
+                                    elements are 1 if that night/quarter is allocated to the queue
+                                    and 0 otherwise
+        weather_diff (array): same as allocation_schedule but 1 if that night/quarter has been
+                              declared to be weathered out (for plotting/tracking purposes)
+        available_slots_in_night (array): a 1D array of length n_nights_in_semester where each
+                              element is an integer representing the number of slots within that
+                              night that during night time
+        n_slots_in_night (int): the number of slots in a single night
 
     Returns:
-        allocation_map (array): a 1D array of length equal to nSlotsInSemester, 1's are allocated and 0's are non-allocated slots
-        allocation_map_NS (array): a 2D array of shape nNightsInSemester by nSlotsInNight with same information as allocation_map
-        allocation_map_weathered_NS (array): a 2D array of shape nNightsInSemester by nSlotsInNight where 1's are nights that were allocated but weathered out (for plotting purposes)
+        allocation_map_1D (array): a 1D array of length equal to n_slots_in_semester,
+                                1's are allocated and 0's are non-allocated slots
+        allocation_map_2D (array): a 2D array of shape n_nights_in_semester by n_slots_in_night
+                                    with same information as allocation_map_1D
+        allocation_map_weather_diff_2D (array): a 2D array of shape n_nights_in_semester by
+                                            n_slots_in_night where 1's are nights that were
+                                            allocated but weathered out (for plotting purposes)
     """
-
-    allocation_map = []
+    allocation_map_1D = []
     allocation_map_weathered = []
-    for n in range(len(AvailableSlotsInGivenNight)):
-        allo_night_map = buildAllocationMapSingleNight(allocation_schedule[n], AvailableSlotsInGivenNight[n], nSlotsInNight)
-        allocation_map.append(allo_night_map)
-        weather_night_map = buildAllocationMapSingleNight(weatherDiff[n], AvailableSlotsInGivenNight[n], nSlotsInNight)
+    for n, item in enumerate(available_slots_in_night):
+        allo_night_map = single_night_allocated_slots(allocation_schedule[n],
+                                                available_slots_in_night[n], n_slots_in_night)
+        allocation_map_1D.append(allo_night_map)
+        weather_night_map = single_night_allocated_slots(weather_diff[n],
+                                                available_slots_in_night[n], n_slots_in_night)
         allocation_map_weathered.append(weather_night_map)
-    #The NS stands for Night Slot, so this version is made to be 2D whereas the allocation_map itself is a 1D list
-    allocation_map_NS = np.reshape(allocation_map, (len(AvailableSlotsInGivenNight), nSlotsInNight))
-    allocation_map_weathered_NS = np.reshape(allocation_map_weathered, (len(AvailableSlotsInGivenNight), nSlotsInNight))
-    allocation_map = np.array(allocation_map).flatten()
-    return allocation_map, allocation_map_NS, allocation_map_weathered_NS
 
+    allocation_map_2D = np.reshape(allocation_map_1D,
+                                                (len(available_slots_in_night), n_slots_in_night))
+    allocation_map_weather_diff_2D = np.reshape(allocation_map_weathered,
+                                                (len(available_slots_in_night), n_slots_in_night))
+    allocation_map_1D = np.array(allocation_map_1D).flatten()
 
-def buildAllocationMapSingleNight(An, AvailableSlotsInTheNight, nSlotsInNight):
+    return allocation_map_1D, allocation_map_2D, allocation_map_weather_diff_2D
+
+def single_night_allocated_slots(allocated_quarters_tonight, available_slots_in_night,
+                                n_slots_in_night):
     """
-    Determine the allocation schedule within a single night
+    Determine the slots of a single night that are allocated.
 
     Args:
-        An (array): a 1D array of length nQuartersInNight, 1's indicate that quarter is allocated, 0's otherwise. In order of first to last quarter in the night
-        AvailableSlotsInTheNight (array): the number of slots within that night that are that are between twilight times
-        nSlotsInNight (int): the number of slots in a single night
+        allocated_quarters_tonight (array): a 1D array of length n_quarters_in_night,
+                                [Q1, Q2, Q3, Q4] where binary elements indicate allocation.
+        available_slots_in_night (array): a 1D array of length n_nights_in_semester where each
+                              element is an integer representing the number of slots within that
+                              night that during night time
+        n_slots_in_night (int): the number of slots in a single night
 
     Returns:
-        allomap (array): a 1D array of length nSlotsInNight where 1's are the allocated slots that on night n and 0's are not allocated
+        allocated_slots_tonight (array): a 1D array of length n_slots_in_night
+                        where 1's are the allocated slots that on night n and 0's are not allocated
     """
 
-    extra = AvailableSlotsInTheNight%4
-    AvailableSlotsInTheQuarter = int(AvailableSlotsInTheNight/4)
-    edge = int((nSlotsInNight - AvailableSlotsInTheNight)/2)
+    available_slots_in_tonights_quarter = int(available_slots_in_night/4)
+    edge = int((n_slots_in_night - available_slots_in_night)/2)
 
-    allomap = [0]*nSlotsInNight
-    for i in range(len(An)):
-        if An[i] == 1:
-            start = edge + i*int(AvailableSlotsInTheQuarter)
-            stop = start + int(AvailableSlotsInTheQuarter)
-            if i == 3: # ensure allocation goes to up to twilight time
-                stop = nSlotsInNight - edge
+    allocated_slots_tonight = [0]*n_slots_in_night
+    for i, item in enumerate(allocated_quarters_tonight):
+        if allocated_quarters_tonight[i] == 1:
+            start = edge + i*int(available_slots_in_tonights_quarter)
+            stop = start + int(available_slots_in_tonights_quarter)
+            if i == 3: # ensure allocation goes to up to twilight time at the end of the night.
+                stop = n_slots_in_night - edge
             for j in range(start, stop):
-                allomap[j] = 1
+                allocated_slots_tonight[j] = 1
         else:
-            start = edge + i*AvailableSlotsInTheQuarter
-            stop = start + AvailableSlotsInTheQuarter
+            start = edge + i*available_slots_in_tonights_quarter
+            stop = start + available_slots_in_tonights_quarter
             if i == 3: # prevent the last slot from being scheduled (one too many)
                 stop -= 1
             for j in range(start, stop):
-                allomap[j] = 0
-    return allomap
+                allocated_slots_tonight[j] = 0
+    return allocated_slots_tonight
 
-def buildTwilightMap(AvailableSlotsInGivenNight, nSlotsInNight, invert=False):
+
+def build_twilight_map(available_slots_in_night, n_slots_in_night, invert=False):
     """
-    Create the 1D twilight times map
+    Create the 1D twilight times map for all slots in the semester
 
     Args:
-        AvailableSlotsInGivenNight (array): a 1D array of length nNightsInSemester where each element has an integer representing the number of slots within that night that are between twilight times
-        nSlotsInNight (int): the number of slots in a single night
-        invert (boolean): if true, flip the 1's and 0's designation. Useful because by default 0's mean we are not in day/twilight and 1's mean we are in night but for adding purposes it is useful to invert this and then np.sum
+        available_slots_in_night (array): a 1D array of length n_nights_in_semester where each
+                                        element has an integer representing the number of slots
+                                        within that night that are between twilight times
+        n_slots_in_night (int): the number of slots in a single night
+        invert (boolean): if true, flip the 1's and 0's designation. Useful because by default 0's
+                          mean we are not in day/twilight and 1's mean we are in night time but for
+                          adding purposes it is useful to invert this schema and then np.sum
     Returns:
-        nightly_twilight_map (array): a 1D array of length nSlotsInSemester where 1's indicate the slots during night time and 0's during the day time/twilight
+        nightly_twilight_map (array): 1D array of length n_slots_in_semester where 1's indicate the
+                                    slots during night time and 0's during the day time/twilight
     """
-
     nightly_twilight_map = []
-    for i in range(len(AvailableSlotsInGivenNight)):
+    for i, item in enumerate(available_slots_in_night):
         if invert:
-            quarterslots = [1]*nSlotsInNight
+            quarterslots = [1]*n_slots_in_night
         else:
-            quarterslots = [0]*nSlotsInNight
-        edge = int((nSlotsInNight - AvailableSlotsInGivenNight[i])/2)
-        for j in range(nSlotsInNight):
-            if j >= edge and j < nSlotsInNight - edge:
+            quarterslots = [0]*n_slots_in_night
+        edge = int((n_slots_in_night - available_slots_in_night[i])/2)
+        for j in range(n_slots_in_night):
+            if j >= edge and j < n_slots_in_night - edge:
                 if invert:
                     quarterslots[j] = 0
                 else:
@@ -107,181 +136,287 @@ def buildTwilightMap(AvailableSlotsInGivenNight, nSlotsInNight, invert=False):
         nightly_twilight_map.append(quarterslots)
     return nightly_twilight_map
 
-
-# def writeAccessibilityMapsDict(accessDict, filename):
-#     """
-#     Add entries to the accessbility map dictionary
-#
-#     Args:
-#         accessDict (dict): the original accessibility map dictionary. Keys are target names, values are 1D arrays of lenght nSlotsInSemester which indicate if a target is accessible (1) or inaccessible (0) due to telescope pointing limits, seasonal rise/set, and moon-safe distance
-#         filename (str): the name of the file to re-save the updated dicationary. Best to match the original name and overwrite.
-#     Returns:
-#         None
-#     """
-#
-#     # Serialize the dictionary and write it to a file
-#     with open(filename, 'wb') as file:
-#         pickle.dump(accessDict, file)
-#     print("All star accessibility maps writing to pickle.")
-
-# def readAccessibilityMapsDict(filename):
-#     """
-#     Get the Accessibilty maps for each target from pre-written file
-#
-#     Args:
-#         filename (str): filename where the saved dictionary is stored.
-#     Returns:
-#         loaded_dict (dict): the python dictionary version of the saved pickle file. A dictionary where keys are target names, values are 1D arrays of lenght nSlotsInSemester which indicate if a target is accessible (1) or inaccessible (0) due to telescope pointing limits, seasonal rise/set, and moon-safe distance
-#     """
-#
-#     # Read the serialized data from the file and deserialize it
-#     with open(filename, 'rb') as file:
-#         loaded_dict = pickle.load(file)
-#     return loaded_dict
-
-def writeAccessibilityMapsDict(accessDict, filename):
+def simulate_weather_losses(allocation_remaining, loss_stats, covariance=0.14, \
+                            dont_lose_nights=False, plot=False, outputdir=None):
     """
-    Add entries to the accessbility map dictionary
+    Simulate nights totally lost to weather usine historical data
 
     Args:
-        accessDict (dict): the original accessibility map dictionary. Keys are target names, values are 1D arrays of lenght nSlotsInSemester which indicate if a target is accessible (1) or inaccessible (0) due to telescope pointing limits, seasonal rise/set, and moon-safe distance
-        filename (str): the name of the file to re-save the updated dicationary. Best to match the original name and overwrite.
+        allocation_remaining (array): a 1D array of length n_nights_in_semester where 1's represent
+                                      allocated night and 0's represent non-allocated night
+        loss_stats (array): 1D array of length n_nights_in_semester where elements are the
+                            percent of the time that night is totally lost to weather
+        covariance (float): the added percent that tomorrow will be lost if today is lost
+        dont_lose_nights (boolean): a flag that turns off weather simulation entirely
+        plot (boolean): a flag to visualize the allocation and weather loss
+        outputdir (str): path to save the plot
+
+    Returns:
+        allocation_remaining_post_losses (array): 1's represent the night still is allocated
+        weather_diff_remaining_2D (array): 1's represent the night still weathered
+        weather_diff_remaining_1D (array): 1's represent the night still weathered
+    """
+    previous_day_was_lost = False
+    allocation_remaining_post_losses = allocation_remaining.copy()
+    counter = 0
+    if dont_lose_nights == False:
+        days_lost = []
+        # start at 1 because we never want tonight to be simulated as total loss
+        for i in range(1, len(allocation_remaining_post_losses)):
+            value_to_beat = loss_stats[i]
+            if previous_day_was_lost:
+                value_to_beat += covariance
+            roll_the_dice = np.random.uniform(0.0,1.0)
+
+            if roll_the_dice < value_to_beat:
+                # the night is simulated a total loss
+                allocation_remaining_post_losses[i] = [0,0,0,0]
+                previous_day_was_lost = True
+                counter += 1
+                days_lost.append(1)
+                if plot:
+                    pt.axvline(i, color='r')
+            else:
+                previous_day_was_lost = False
+                days_lost.append(0)
+                if plot:
+                    pt.axvline(i, color='k')
+    else:
+        print('Pretending weather is always good!')
+        days_lost = [0]*(len(allocation_remaining_post_losses)-1)
+
+    weather_diff_remaining_2D = np.array(allocation_remaining) - \
+                                np.array(allocation_remaining_post_losses)
+    weather_diff_remaining_1D = weather_diff_remaining_2D.flatten()
+    print("Total nights simulated as weathered out: " + str(counter) + " of " + \
+                str(len(allocation_remaining_post_losses)) + " nights remaining.")
+    if plot:
+        size=15
+        pt.xlabel("Days in Semester from Current Day", fontsize=size)
+        pt.tick_params(axis="both", labelsize=size)
+        pt.savefig(outputdir + "weather_loss_visualization.png", dpi=200,
+                                    bbox_inches='tight', facecolor='w')
+
+    return allocation_remaining_post_losses, weather_diff_remaining_2D, weather_diff_remaining_1D, days_lost
+
+def write_out_weather_stats(all_dates_dict, current_day, days_lost, allocation_remaining, output_directory):
+    """
+    Write out data on the results of the weather simulation. For comparing acrossing MCMC simulations
+
+    Args:
+        all_dates_dict (dict): keys are the dates of the semester, values are the day number of semester
+        current_day (star): today's date in format YYYY-MM-DD
+        days_lost (array): a binary 1D array designating if the night was lost. Note that the length
+                            of this array is n_nights_in_semester-1 which is smaller than len(all_dates_dict)
+        allocation_remaining (array): a binary 2D array of dates by quarters where 1 indicates
+                                quarter allocated and 0 not. Note that the length
+                                of this array is n_nights_in_semester-1 which is smaller
+                                than len(all_dates_dict)
+        output_directory (str): path to save the plot
+
     Returns:
         None
     """
-    starnames = list(accessDict.keys())
-    stringAccessDict = {}
-    for s in range(len(starnames)):
-        flat_access_map = np.array(accessDict[starnames[s]]).flatten()
+    all_dates_array = list(all_dates_dict.keys())
+    sim_results = []
+    allocation_statii = []
+    results = []
+    filename_weather = output_directory + 'Weather_Simulation_Results.csv'
+    for a in range(len(all_dates_array)):
+        if a < all_dates_dict[current_day]:
+            sim_result = 'Past'
+            allocation_status = "Past"
+            result = "Past"
+        elif a == all_dates_dict[current_day]:
+            sim_result = '???'
+            allocation_status = "True"
+            result = "???"
+        else:
+            # Extra -1 because the days_lost array does not include today
+            if days_lost[a - all_dates_dict[current_day] - 1] == 1:
+                sim_result = 'Poor'
+            else:
+                sim_result = 'Clear'
+            if np.sum(allocation_remaining[a - all_dates_dict[current_day]]) >= 1:
+                allocation_status = 'True'
+            else:
+                allocation_status = 'False'
+
+            if allocation_status == 'True' and sim_result == 'Poor':
+                result = 'Lost'
+            elif allocation_status == 'True' and sim_result == 'Clear':
+                result = 'Go'
+            elif allocation_status == 'False' and sim_result == 'Clear':
+                result = 'Miss'
+            else:
+                result = 'Eh'
+        sim_results.append(sim_result)
+        allocation_statii.append(allocation_status)
+        results.append(result)
+    weather_frame = pd.DataFrame({'Date':all_dates_array, 'Allocated':allocation_statii,
+                                    'SimWeather':sim_results, 'Designation':results})
+    weather_frame.to_csv(filename_weather, index=False)
+
+def write_accessibilty_map_dict(access_dict, filename):
+    """
+    Write entries to the accessbility map dictionary
+
+    Args:
+        access_dict (dict): the pre-generated accessibility map dictionary. Keys are target names,
+                            values are 1D arrays of length n_slots_in_semester indicating if a
+                            target is accessible (1) or inaccessible (0) due to default telescope
+                            pointing limits, seasonal rise/set, and moon-safe distance.
+        filename (str): the name of the file to re-save the updated dicationary.
+                        Best to match the original name and overwrite.
+    Returns:
+        None
+    """
+    starnames = list(access_dict.keys())
+    string_access_dict = {}
+    for s, item in enumerate(starnames):
+        flat_access_map = np.array(access_dict[starnames[s]]).flatten()
         # because you can't json serialize an array/list or integers
         # must create a string "list". Later decode it back to a real array
         stringmap = '['
-        for e in range(len(flat_access_map)):
+        for e, itme in enumerate(flat_access_map):
             stringmap += str(flat_access_map[e]) + ','
         stringmap += ']'
-        stringAccessDict[starnames[s]] = stringmap
-
+        string_access_dict[starnames[s]] = stringmap
     with open(filename, 'w') as convert_file:
-         convert_file.write(json.dumps(stringAccessDict))
-    print("All star accessibility maps written to txt file.")
+        convert_file.write(json.dumps(string_access_dict))
+    print("All star accessibility maps written to txt file: ", filename)
 
-def readAccessibilityMapsDict(filename):
+def read_accessibilty_map_dict(filename):
     """
-    Get the Accessibilty maps for each target from pre-written file. Need to reformat the data to array because the array is technically saved as a string.
+    Read the accessibilty maps for each target from pre-written file. Must reformat the data to
+    array because the array is technically saved as a string.
 
     Args:
         filename (str): filename where the saved dictionary is stored.
     Returns:
-        newDict (dict): the python dictionary version of the saved txt file. A dictionary where keys are target names, values are 1D arrays of lenght nSlotsInSemester which indicate if a target is accessible (1) or inaccessible (0) due to telescope pointing limits, seasonal rise/set, and moon-safe distance
+        access_dict (dict): A dictionary where keys are target names, values are 1D arrays of
+                            length n_slots_in_semester indicating if a target is accessible (1)
+                            or inaccessible (0) due to default telescope pointing limits, seasonal
+                            rise/set, and moon-safe distance.
     """
     with open(filename) as f:
         data = f.read()
-    # reconstructing the data as a dictionary
+    # reconstruct the data as a dictionary
     js = json.loads(data)
-
-    newDict = {}
+    access_dict = {}
     starnames = list(js.keys())
-    for i in range(len(starnames)):
+    for i, item in enumerate(starnames):
         reformat = [int(x) for x in js[starnames[i]][1:-2].split(',')]
-        newDict[starnames[i]] = reformat
-    return newDict
+        access_dict[starnames[i]] = reformat
+    return access_dict
 
-
-def singleTargetAccessible(starname, ra, dec, startdate, nNightsInSemester, STEP, turnonoff=False):
+def build_single_target_accessibility (starname, ra, dec, start_date, n_nights_in_semester,
+                                      slot_size, compute_turn_on_off=False):
     """
-    Compute a target's accessibility map
+    Compute a target's accessibility map for the entire semester
 
     Args:
         starname (str): the name of the star (simbad resolvable)
         ra (str): the right ascension in hour angle degrees (ie. 14.33)
         dec (str): the declination in degrees (ie. +75.2)
-        startdate (str): the calendar date to begin the calculation from (format is Astropy isot)
-        nNightsInSemester (str): the number of calendar nights remaining in the current semester
-    Returns:
-        slotwindows_accessible (array): a 1D array of length nSlotsInSemester where 1 indicates the target is accessible in that slot and 0 otherwise. Will become the value within a keyed dictionary.
-    """
+        start_date (str): the calendar date to begin the calculation from (format is Astropy isot)
+        n_nights_in_semester (str): the number of calendar nights remaining in the current semester
+        slot_size (int): the size of the slots in minutes
+        compute_turn_on_off (boolean): a flag to determine whether or not to compute
 
+    Returns:
+        target_accessibility (array): a 1D array of length n_slots_in_semester where 1 indicates
+                                     the target is accessible in that slot and 0 otherwise.
+    """
     coords = apy.coordinates.SkyCoord(ra * u.deg, dec * u.deg, frame='icrs')
     target = apl.FixedTarget(name=starname, coord=coords)
 
-    date_formal = Time(startdate,format='iso',scale='utc')
+    date_formal = Time(start_date,format='iso',scale='utc')
     date = str(date_formal)[:10]
-    slotwindows_accessible = []
-    quartermap = []
-    for d in range(nNightsInSemester):
-        oneNightAccess = isObservable(date, target, STEP)
-        slotwindows_accessible.append(oneNightAccess)
+    target_accessibility = []
+    quarter_map = []
+    for d in range(n_nights_in_semester):
+        tonights_access = is_observable(date, target, slot_size)
+        target_accessibility.append(tonights_access)
         date_formal += TimeDelta(1,format='jd')
         date = str(date_formal)[:10]
-        if turnonoff:
-            quartermap.append(quarterObservable(oneNightAccess))
+        if compute_turn_on_off:
+            quarter_map.append(quarters_observable(tonights_access))
 
-    if turnonoff:
+    if compute_turn_on_off:
+        # compute the first and last calendar date that the target is at all accessibile.
+        # do so for each quarter of the night independently.
         turns = []
         for q in range(4):
-            onoffvals = quarterObservabilityCalculator(quartermap, q)
-            turns.append(onoffvals)
-        return slotwindows_accessible, turns
+            on_off = compute_on_off_for_quarter(quarter_map, q)
+            turns.append(on_off)
+        return target_accessibility, turns
     else:
-        return slotwindows_accessible
+        return target_accessibility
 
-
-def isObservable(date, target, STEP):
+def is_observable(date, target, slot_size):
     """
-    Compute a target's accessibility map, checking telescope pointing limits and moon-safe distance at the beginning of every slot in a specified night.
-    Later we may choose to add additional checks, like airmass below a certain limit.
+    Compute a target's accessibility map on a given date, taking into account the
+    telescope pointing limits and moon-safe distance at the beginning of every slot.
 
     Args:
         date (str): the calendar date to compute accessibilty in format 'YYYY-MM-DD'
-        target (str): name of the star
-        STEP (str): the size of the slots in minutes
+        target (str): an astroplan FixedTarget object
+        slot_size (int): the size of the slots in minutes
     Returns:
-        observability_matrix (array): a 1D array of length nSlotsInNight where 1 indicates the target is accessible in that slot and 0 otherwise.
+        observability_matrix (array): a 1D array of length n_slots_in_night where 1 indicates the
+                                      target is accessible in that slot and 0 otherwise.
     """
-
-    min_az = 5.3 #naysmith deck direction limits
-    max_az = 146.2
-    min_alt = 33.3 # Naysmith deck height
-    else_min_alt = 18.0 #non-Naysmith deck height
-    else_min_alt_alt = 30.0 # prefer to observe targets at least 30altitude if they are not too far north/south
-    maxNorth = 75.0
-    maxSouth = -35.0
+    # Can't observe too close to zenith
     max_alt = 85.
+    # Naysmith deck azimuth direction limits
+    min_az = 5.3
+    max_az = 146.2
+    # Naysmith deck
+    min_alt = 33.3
+    #non-Naysmith deck minimum elevation
+    else_min_alt = 18.0
+    # Prefer to observe at least 30 degree altitude if they are not too far north/south
+    else_min_alt_alt = 30.0
+    max_north = 75.0
+    max_south = -35.0
+
     # This is ~20 min before earliest sunset of the year in Hawaii
     # And ~20 min after the latest sunrise of the year in Hawaii
-    # This is UTC time.
-    # For real runs, ensure that this is 03:30 and 17:30.
+    # Both are UTC time zone.
     start = date + "T03:30:00"
-    startime = Time(start)
+    daily_start = Time(start)
     end = date + "T17:30:00"
-    endtime = Time(end)
-    step = TimeDelta(STEP*60.,format='sec')
-    ttemp = np.arange(startime.jd, endtime.jd, step.jd)
-    t = Time(ttemp,format='jd')
+    daily_end = Time(end)
+    slot_size = TimeDelta(slot_size*60.,format='sec')
+    t = Time(np.arange(daily_start.jd, daily_end.jd, slot_size.jd),format='jd')
 
     keck = apl.Observer.at_site('W. M. Keck Observatory')
-    AZ = keck.altaz(t, target, grid_times_targets=True)
+    altaz_coordinates = keck.altaz(t, target, grid_times_targets=True)
 
     keckapy = apy.coordinates.EarthLocation.of_site('Keck Observatory')
-    moon = apy.coordinates.get_moon(Time(t[int(len(t)/2)],format='jd'), keckapy) # test moon/star distance at middle of night
+    moon = apy.coordinates.get_moon(Time(t[int(len(t)/2)],format='jd'), keckapy)
 
     if moon_safe(moon, (target.ra.rad, target.dec.rad)):
         observability_matrix = []
-        for i in range(len(AZ)):
-            alt=AZ[i].alt.deg
-            az=AZ[i].az.deg
+        for i, item in enumerate(altaz_coordinates):
+            alt=altaz_coordinates[i].alt.deg
+            az=altaz_coordinates[i].az.deg
             deck = np.where((az >= min_az) & (az <= max_az))
             deck_height = np.where((alt <= max_alt) & (alt >= min_alt))
             first = np.intersect1d(deck,deck_height)
 
             not_deck_1 = np.where((az < min_az))
             not_deck_2 = np.where((az > max_az))
-            # for targets sufficiently north or south in declination, allow access map to compute any time they are above telescope pointing limits as OK.
-            # for more equitorial targets, require that to be accessible, the target must be at least a desirec minimum elevation.
-            if target.dec.deg > maxNorth or target.dec.deg < maxSouth:
+
+            # for targets sufficiently north or south in declination, allow access map to compute
+            # any time they are above telescope pointing limits as OK. For more equitorial targets,
+            # require that they be above the preferred minimum elevation.
+            if target.dec.deg > max_north or target.dec.deg < max_south:
                 not_deck_height = np.where((alt <= max_alt) & (alt >= else_min_alt))
             else:
                 not_deck_height = np.where((alt <= max_alt) & (alt >= else_min_alt_alt))
+
             second = np.intersect1d(not_deck_1,not_deck_height)
             third = np.intersect1d(not_deck_2,not_deck_height)
 
@@ -294,10 +429,10 @@ def isObservable(date, target, STEP):
 
     return observability_matrix
 
-
-def moon_safe(moon,target_tuple):
+def moon_safe(moon, target_tuple):
     """
-    Check that a coordinate is not too close to the moon. Returns true if target is sufficiently far from the moon to allow for observations.
+    Check that a coordinate is not too close to the moon.
+    Returns true if target is sufficiently far from the moon to allow for observations.
 
     Args:
         moon (str): a "moon object" from Astropy
@@ -305,81 +440,77 @@ def moon_safe(moon,target_tuple):
     Returns:
         Unnamed boolean
     """
-
-    ang_dist = apy.coordinates.angular_separation(moon.ra.rad,moon.dec.rad,target_tuple[0],target_tuple[1])
+    ang_dist = apy.coordinates.angular_separation(moon.ra.rad, moon.dec.rad,
+                                                    target_tuple[0], target_tuple[1])
     if ang_dist*180/(np.pi) >= 30:
         return True
     else:
         return False
 
-
-def getStats(accessMap):
+def get_accessibility_stats(access_map, time_up=30, slot_size=5):
     """
-    A helper function to return the stats about a single target's accessiblity. These are useful for checking feasibilty and for generating the cadence plot of an individual target
+    Compute stats useful for checking feasibilty and for generating the cadence plot of a target
 
     Args:
-        accessMap (array): a 2D array of shape nNightsInSemester by nSlotsInNight where 1's indicate the target is accessible
+        access_map (array): a 2D array of shape n_nights_in_semester by n_slots_in_night where 1's
+                            indicate the target is accessible
+        time_up (int): the minimum number of minutes a target must be accessible in the night to be
+                       considered observable in that night
+        slot_size (int): the size of the slots in minutes
+
     Returns:
-        days_observable (int): the number of calendar days in the semester where the target is observable
-        riseday (int): the number of days from the first day in the semester where the target is first available
-        setday (int): the number of days from the first day in the semester where the target is no longer available
+        days_observable (int): the number of days in the semester where the target achieves a
+                               minimum level of observablility
+        rise_day (int): the number of days from semester start where the target is first available
+        set_day (int): the number of days from semester start where the target is last available
     """
 
-    sumAlongDays = np.sum(accessMap, axis=1)
-    timeUP = 30 # minutes
-    gridpoints = int(timeUP/5)
-    observableMask = sumAlongDays > gridpoints
-    days_observable = np.sum(observableMask)
+    sum_along_days = np.sum(access_map, axis=1)
+    gridpoints = int(time_up/slot_size)
+    observable_mask = sum_along_days > gridpoints
+    days_observable = np.sum(observable_mask)
 
-    riseday = -1
+    rise_day = -1
     i = 0
-    while riseday < 0 and i < len(sumAlongDays):
-        if sumAlongDays[i] > gridpoints:
-            riseday = i
+    while rise_day < 0 and i < len(sum_along_days):
+        if sum_along_days[i] > gridpoints:
+            rise_day = i
         i += 1
-    if i == len(sumAlongDays):
-        riseday = i
+    if i == len(sum_along_days):
+        rise_day = i
 
-    setday = -1
-    j = len(sumAlongDays)-1
-    while setday < 0 and j > 0:
-        if sumAlongDays[j] > gridpoints:
-            setday = j
+    set_day = -1
+    j = len(sum_along_days)-1
+    while set_day < 0 and j > 0:
+        if sum_along_days[j] > gridpoints:
+            set_day = j
         j -= 1
-    if j == len(sumAlongDays):
-        setday = len(sumAlongDays)
+    if j == len(sum_along_days):
+        set_day = len(sum_along_days)
 
-    return days_observable, riseday, setday
+    return days_observable, rise_day, set_day
 
-
-
-def reformatKeckAllocationData(allocation_file):
+def format_keck_allocation_info(allocation_file):
     """
-    Before a new semester, download the allocation schedule for KPF from https://www2.keck.hawaii.edu/observing/keckSchedule/queryForm.php
+
+    Read in allocation file, as downloaded from this site, filter by KPF and the relevant semester:
+    https://www2.keck.hawaii.edu/observing/keckSchedule/queryForm.php
+
+    Thanks to H. Isaacson for portion of code which I adapted further.
+    Here we are parsing the Time column for which quarters of the night are allocated to us.
+    Note: this assumes time is awarded in 0.25 night increments.
+    If non-0.25 increment of time exists, assume the whole night is allocated and then
+         the best way to deal with this is to later define a new map,
+         set the relevant slots equal to 0, then apply map to all targets.
 
     Args:
-        allocation_file (str): the path and filename to the downloaded csv from website above
+        allocation_file (str): the path and filename to the downloaded csv
     Returns:
         allocation (dataframe): a dataframe containing each night's award and start/stop times
     """
-
-# Read in allocation file, as downloaded from this site filtering by KPF and the relevant semester:
-# https://www2.keck.hawaii.edu/observing/keckSchedule/queryForm.php
-
-    # Thanks to H. Isaacson for portion of code which I adapted further.
-    # Here we are parsing the Time column for which quarters of the night are allocated to us.
-    # Note: this assumes time is awarded in 0.25 night increments.
-    # If non-0.25 increment of time exists, assume the whole night is allocated and then
-    #      the best way to deal with this is to later define a new map,
-    #      set the relevant slots equal to 0, then apply map to all targets.
-    # -----------------------------------------------------------------------------------------
-
     allocation = pd.read_csv(allocation_file)
-
-    # Manually go through this file and add a column called 'Queue' where a 'y'
-    # indicates this award is part of the KPF-CC queue and a 'n' indicates it is not.
-    # Or automatically add 'y' to all awards.
-    allocation['Queue'] = ['y']*len(allocation)
+    # Indicates that all awards are part of the KPF-CC queue
+    allocation['Queue'] = ['True']*len(allocation)
 
     allocation['Time'] = allocation['Time'].str.replace(r'\s+(\d+%)', r'\1', regex=True)
     # Define a regular expression pattern to extract start time, stop time, and percentage
@@ -394,7 +525,7 @@ def reformatKeckAllocationData(allocation_file):
             allocation['Start'].iloc[i] = 0
             allocation['Stop'].iloc[i]  = 1
 
-        elif (item == '75'):
+        elif item == '75':
             if (time_string.startswith("07")) | (time_string.startswith("08")):
                 allocation['Start'].iloc[i] = 0.25
                 allocation['Stop'].iloc[i]  = 1
@@ -403,9 +534,10 @@ def reformatKeckAllocationData(allocation_file):
                 allocation['Stop'].iloc[i]  = 0.75
             else:
                 print("We have a problem, error code 1.")
-                print(allocation['Date'].iloc[i], allocation['Start'].iloc[i], allocation['Stop'].iloc[i])
+                print(allocation['Date'].iloc[i],
+                            allocation['Start'].iloc[i], allocation['Stop'].iloc[i])
 
-        elif (item == '50'):
+        elif item == '50':
             if (time_string.startswith("04")) | (time_string.startswith("05")):
                 allocation['Start'].iloc[i] = 0
                 allocation['Stop'].iloc[i]  = 0.5
@@ -417,26 +549,30 @@ def reformatKeckAllocationData(allocation_file):
                 allocation['Stop'].iloc[i]  = 1
             else:
                 print("We have a problem, error code 2.")
-                print(allocation['Date'].iloc[i], allocation['Start'].iloc[i], allocation['Stop'].iloc[i])
+                print(allocation['Date'].iloc[i],
+                            allocation['Start'].iloc[i], allocation['Stop'].iloc[i])
 
-        elif (item == '25'):
+        elif item == '25':
             if (time_string.startswith("04")) | (time_string.startswith("05")):
                 allocation['Start'].iloc[i] = 0
                 allocation['Stop'].iloc[i]  = 0.25
-            elif (time_string.startswith("06")) | (time_string.startswith("07")) | (time_string.startswith("08")):
+            elif (time_string.startswith("06")) | (time_string.startswith("07")) | \
+                            (time_string.startswith("08")):
                 allocation['Start'].iloc[i] = 0.25
                 allocation['Stop'].iloc[i]  = 0.5
             elif (time_string.startswith("09")) | (time_string.startswith("10")):
                 allocation['Start'].iloc[i] = 0.5
                 allocation['Stop'].iloc[i]  = 0.75
-            elif (time_string.startswith("11")) | (time_string.startswith("12")) | (time_string.startswith("13")):
+            elif (time_string.startswith("11")) | (time_string.startswith("12")) | \
+                            (time_string.startswith("13")):
                 allocation['Start'].iloc[i] = 0.75
                 allocation['Stop'].iloc[i]  = 1
             else:
                 print("We have a problem, error code 3.")
-                print(allocation['Date'].iloc[i], allocation['Start'].iloc[i], allocation['Stop'].iloc[i])
+                print(allocation['Date'].iloc[i],
+                                allocation['Start'].iloc[i], allocation['Stop'].iloc[i])
         else:
-            print("Special case: non-25% of night increment. Implementing whole night as precaution.")
+            print("Non-25% of night increment. Implementing whole night as precaution.")
             print("Date: ", allocation['Date'].iloc[i])
             print("True allocation amount: ", item)
             allocation['Start'].iloc[i] = 0
@@ -444,59 +580,63 @@ def reformatKeckAllocationData(allocation_file):
 
     return allocation
 
-def translator(start, stop):
+def quarter_translator(start, stop):
     """
-    Map the start/stop fractions to binary map. I can't think of a better/automated way to do this other than brute force, sorry.
+    Map the start/stop fractions to binary map.
+    I can't think of a better/automated way to do this other than brute force, sorry.
 
     Args:
         start (float): the fraction of night where the night begins
         stop (float): the fraction of night where the night ends
     Returns:
-        nightMap (str): a string representation of the quarters of the night that are allocated to the queue
+        night_map (str): a string representation of the quarters of the night that are allocated
     """
 
     # Map start/stop to allocation
     if start == 0. and stop == 0.25:
-        nightMap = "1 0 0 0"
+        night_map = "1 0 0 0"
     elif start == 0.25 and stop == 0.5:
-        nightMap = "0 1 0 0"
+        night_map = "0 1 0 0"
     elif start == 0.5 and stop == 0.75:
-        nightMap = "0 0 1 0"
+        night_map = "0 0 1 0"
     elif start == 0.75 and stop == 1.:
-        nightMap = "0 0 0 1"
+        night_map = "0 0 0 1"
 
     elif start == 0. and stop == 0.5:
-        nightMap = "1 1 0 0"
+        night_map = "1 1 0 0"
     elif start == 0.25 and stop == 0.75:
-        nightMap = "0 1 1 0"
+        night_map = "0 1 1 0"
     elif start == 0.5 and stop == 1.:
-        nightMap = "0 0 1 1"
+        night_map = "0 0 1 1"
 
     elif start == 0. and stop == 0.75:
-        nightMap = "1 1 1 0"
+        night_map = "1 1 1 0"
     elif start == 0.25 and stop == 1.:
-        nightMap = "0 1 1 1"
+        night_map = "0 1 1 1"
 
     elif start == 0. and stop == 1.:
-        nightMap = "1 1 1 1"
+        night_map = "1 1 1 1"
 
     else:
-        nightMap = "0 0 0 0"
+        night_map = "0 0 0 0"
         print("We have a problem, error code 4.")
 
-    return nightMap
+    return night_map
 
-def quarterObservable(observability_matrix):
+def quarters_observable(observability_matrix):
     """
-    For a single night, determine which of the quarters the given target is observable
+    For a single night, using the full night's slots accessibility map,
+    determine which of the quarters the given target is observable.
 
     Args:
-        observability_matrix (array): a 1D array of length equal to nSlotsInNight representing a single night where 1 indicates target is accessible in that slot, 0 otherwise.
+        observability_matrix (array): a 1D array of length equal to n_slots_in_night representing a
+                                      single night where 1 indicates target is accessible in that
+                                      slot, 0 otherwise.
     Returns:
-        observable_quarters (array): a 1D array of length 4 where each element represents if the target is at all observerable in that quarter (1st to 4th running left to right).
+        observable_quarters (array): a 1D array of length n_quarters_in_night where each element
+                                     represents if the target is at all observerable in that quarter
+                                     (1st to 4th running left to right).
     """
-    # Note: this is only a rough calculation. Especially because the division of the 4 quarters is the same for all nights of the year, regardless of true twilight times
-
     observable_quarters = []
     quarter = int(len(observability_matrix) / 4)
 
@@ -530,26 +670,48 @@ def quarterObservable(observability_matrix):
 
     return observable_quarters
 
+def compute_on_off_for_quarter(quarter_map, quarter):
+    """
+    Determine the first and last day a target is accessible in a given quarter of the night.
+    Primarily for easy lookup plotting purposes later.
 
-def quarterObservabilityCalculator(quartermap, quarter):
-    quartermap = np.array(quartermap)
-    quartermapT = quartermap.T
-    quartermapT0 = list(quartermapT[quarter])
+    Args:
+        observability_matrix (array): a 1D array of length equal to n_slots_in_night representing a
+                                      single night where 1 indicates target is accessible in that
+                                      slot, 0 otherwise.
+    Returns:
+        observable_quarters (array): a 1D array of length n_quarters_in_night where each element
+                                     represents if the target is at all observerable in that quarter
+                                     (1st to 4th running left to right).
+    """
+    quarter_map = np.array(quarter_map)
+    quarter_map_transpose = quarter_map.T
+    quarter_map_transpose_tonight = list(quarter_map_transpose[quarter])
     try:
-        on0 = quartermapT0.index(1)
-        quartermapT0.reverse()
-        off0 = len(quartermapT0) - quartermapT0.index(1) - 1
+        on = quarter_map_transpose_tonight.index(1)
+        quarter_map_transpose_tonight.reverse()
+        off = len(quarter_map_transpose_tonight) - quarter_map_transpose_tonight.index(1) - 1
     except:
-        on0 = 0
-        off0 = 0
-    return [on0, off0]
+        on = 0
+        off = 0
+    return [on, off]
 
-def roundToSlot(time, slotsize):
-    hour = int(time[:2])
-    minute = int(time[3:])
+def round_time_to_slot(input_time, slot_size):
+    """
+    From a given timestamp, determine the timestamp of the nearest slot's start.
 
-    if minute%slotsize == 0:
-        return time
+    Args:
+        input_time (int): timestamp in question, format HH:MM
+        slot_size (int): the size of the slots in minutes
+
+    Returns:
+        output_time (array): the time, in HH:MM format, of the start of the nearest slot
+    """
+    hour = int(input_time[:2])
+    minute = int(input_time[3:])
+
+    if minute%slot_size == 0:
+        return input_time
     else:
         rounded = round(minute,-1)
         if rounded == 0:
@@ -561,17 +723,25 @@ def roundToSlot(time, slotsize):
             hour = "0" + str(hour)
         if hour == 24:
             hour = "00"
-        newtime = str(hour) + ":" + str(rounded)
-        return newtime
+        output_time = str(hour) + ":" + str(rounded)
+        return output_time
 
-def convertUTC2HST(timestring):
-    # assume timestring is a string of format "HH:MM"
+def convert_utc_to_hst(timestring):
+    """
+    Convert between the UTC time and the HST time. Note Hawaii does not change clocks with
+    daylight savings so this is always a straight-forward transformation.
+
+    Args:
+        timestring (str): timestamp in question, format HH:MM
+        slot_size (int): the size of the slots in minutes
+
+    Returns:
+        output_time (array): the time, in HH:MM format, of the start of the nearest slot
+    """
     offset = 10 # Timezone difference between UTC and HST.
-    # Offset is always the same over the course of the year because UTC doesn't do daylight savings and neither does HST.
     hour = int(timestring[:2]) - offset
     if hour < 0:
         hour = 24 + hour
-
     if hour < 10:
         hour = '0' + str(hour)
     else:

@@ -1,121 +1,18 @@
-import numpy as np
-import matplotlib.pyplot as pt
-import pandas as pd
-import sys
+"""
+Module defining functions to perform specific tasks in a helping role. Designed to be only run as
+a function call from the generateScript.py script.
+
+Example usage:
+    import helper_functions as hf
+"""
+import os
 import math
-import time
-import pickle
-from collections import defaultdict
+
+import numpy as np
 from astropy.time import Time
 from astropy.time import TimeDelta
-import astropy as apy
-import astroplan as apl
-import astropy.units as u
 
-import twilightFunctions as tw
-
-
-def buildHumanReadableSchedule(Yns, twilightMap, all_targets_frame, nNightsInSemester, nSlotsInNight, AvailableSlotsInGivenNight, nSlotsInQuarter, all_dates_dict, current_day, allocation_map_NS, weathered_map, slotsNeededDict, nonqueueMap_str, isOptimalAllocation=False):
-    """
-    Write the solved schedule to a CSV file.
-
-    Args:
-        Yns (gorubi variable): the solution of the model of shape t targets by s slots in semester. Filled with 1's and 0's if target t is scheduled to slot s.
-        twilightMap (array): the 1D array of length s slots in semester where 1's represent slots not in night time and 0's represent slots that are during day/twilight
-        all_targets_frame (dataframe): the requests sheet csv with information the targets and their observational strategies
-        nNightsInSemester (int): the number of calendar days remaining in the semester
-        nSlotsInNight (int): the number of slots within a single night
-        AvailableSlotsInGivenNight (array): a 1D array of length n nights in semester where each element is an integer representing how many slots are in night time for that night
-        nSlotsInQuarter (int): the number of slots in a quarter. Equal to nSlotsInNight/4
-        all_dates_dict (dict): a dictionary where keys are calendar dates and values are the day number within the semester (indexed from starting date to end of semester)
-        current_day (string): today's date in format "YYYY-MM-DD"
-        allocation_map_NS (array): a 2D array where rows represent a night and columns represent the quarter within that night. Values are 1 if that night/quarter is allocated and 0 if not.
-        weathered_map (array): a 1D array of length s slots in semester where elements are 1 if that slot has been modeled as lost to weather and 0 if not
-        slotsNeededDict (dict): a dictionary where keys are target names and values are the number of slots needed to complete one exposure
-        nonqueueMap_str (string): the path/name of the file which has an array of dimensions n nights in semester by s slots in night where elements denote if the slot is reserved for a non-queue RM observation
-
-    Returns:
-        combined_semester_schedule (array): a 2D array of dimensions n nights in semester by s slots in night where elements denote how the slot is used: target, twilight, weather, not scheduled.
-    """
-
-    if nonqueueMap_str != 'nofilename.csv':
-        nonqueuemap_slots_strs = np.loadtxt(nonqueueMap_str, delimiter=',', dtype=str)
-        #print("SHAPE NONQUEUE MAP: ", np.shape(nonqueuemap_slots_strs))
-
-    # Retrieve the solution schedule from the semester solver
-    # Track the fullness of the schedule
-    semester_schedule = []
-    fullslots = 0
-    for v in Yns.values():
-        if np.round(v.X,0) == 1:
-            name = v.VarName[15:][:-1].split(',')[0] # From trial and error, the variable has a name that is always in front of the actual target name, use care to only get the actual target name.
-            semester_schedule.append(name)
-            fullslots += 1
-        else:
-            semester_schedule.append("")
-    semester_schedule = np.reshape(semester_schedule, (len(all_targets_frame), nNightsInSemester, nSlotsInNight))
-
-    # Initialize empty array of strings so that we are always adding to what already exists and can easily see if slots are over-committed (they shouldn't be)
-    combined_semester_schedule = np.empty((len(all_dates_dict),nSlotsInNight), dtype=object)
-
-    # The past does not matter to us here, so specify the days/slots that are to be ignored.
-    # In future I might change the size of the array so that it only is from the current day to the end of the semester in size.
-    # Then could remove this loop.
-    for c in range(all_dates_dict[current_day]):
-        for d in range(len(combined_semester_schedule[c])):
-            combined_semester_schedule[c][d] = 'Past'
-
-    # Fill the slots with the appropriate committment.
-    for n in range(nNightsInSemester):
-        for s in range(nSlotsInNight):
-            slotallocated = ''
-            for t in range(len(all_targets_frame)):
-                slotallocated += semester_schedule[t][n][s]
-            if nonqueueMap_str != 'nofilename.csv':
-                slotallocated += str(nonqueuemap_slots_strs[n + all_dates_dict[current_day]-1][s])
-            if twilightMap[n][s] == 0: # remember that twilight map is "inverted" aka the 1's are time where it is night and the 0's are time where it is day/twilight.
-                slotallocated += '*'
-            if weathered_map[n][s] == 1 and slotallocated == '':
-                slotallocated += 'W'
-            if isOptimalAllocation == False:
-                if allocation_map_NS[n][s] == 0:# and slotallocated == '': #comment out the "and" part later
-                    slotallocated += 'X'
-            combined_semester_schedule[n+all_dates_dict[current_day]][s] = str(slotallocated)
-
-    # Recall that the semester solver puts a 1 only in the slot that starts the exposure for a target.
-    # Therefore, many slots are empty because they are part of a multi-slot visit. We need to fill those in apprpriately for ease of human reading and later accounting purposes.
-    listnames = list(all_targets_frame['Starname'])
-    for n in range(nNightsInSemester-1, -1, -1):
-        for s in range(nSlotsInNight-1, -1, -1):
-            if combined_semester_schedule[n+all_dates_dict[current_day]][s] in listnames:
-                target_name = combined_semester_schedule[n+all_dates_dict[current_day]][s]
-                slotsneededperExposure = slotsNeededDict[target_name]
-                if slotsneededperExposure > 1:
-                    for e in range(1, slotsneededperExposure):
-                        combined_semester_schedule[n+all_dates_dict[current_day]][s+e] += target_name
-
-    return combined_semester_schedule
-
-
-def getGapFillerTargets(scheduleR1, scheduleR2, dayNumber):
-    """
-    Using the results of the two rounds of scheduling, determine what is different, ie which targets were added in Round 2
-
-    Args:
-        scheduleR1 (array): the Round 1 solution for the current day
-        scheduleR2 (array): the Round 2 solution for the current day
-        dayNumber (int): the day in the semester to investigate (ie. current day calendar date converted to days from start of semester)
-
-    Returns:
-        gapFillers (array): a 1D list of the target names for those that were gap fillers
-    """
-    new = scheduleR2[dayNumber]
-    old = scheduleR1[dayNumber]
-    gapFillers = [x for x in new if x not in old]
-    return gapFillers
-
-
-def getSemesterInfo(current_day):
+def get_semester_info(current_day):
     """
     Given today's date, return information about the semester we are currently in.
 
@@ -123,160 +20,299 @@ def getSemesterInfo(current_day):
         current_day (string): today's date in format "YYYY-MM-DD"
 
     Returns:
-        semester_start_date (string): date that this semester begins on (civil HST) in format "YYYY-MM-DD"
-        semester_end_date (string): date that this semester ends on (civil HST) in format "YYYY-MM-DD"
-        semesterLength (int): number of days in the semester
-        semesterYear (int): the four digit year
-        semesterLetter (string): the "A" or "B" semester designation
+        semester_start_date (string): first day of the semester (civil HST) in format "YYYY-MM-DD"
+        semester_end_date (string): last day of the semester (civil HST) in format "YYYY-MM-DD"
+        semester_length (int): number of days in the semester
+        semester_year (int): the four digit year
+        semester_letter (string): the "A" or "B" semester designation
     """
-    flag = False
+    year_flag = False
     # "A" semester runs from Feb 01 through July 31
     if current_day[5:7] in ['02', '03', '04', '05', '06', '07']:
-        semesterLetter = 'A'
+        semester_letter = 'A'
     # "B" semester runs from Aug 1 through Jan 01
     elif current_day[5:7] in ['08', '09', '10', '11', '12', '01']:
-        semesterLetter = 'B'
+        semester_letter = 'B'
         if current_day[5:7] == '01':
-            flag = True
+            year_flag = True
     else:
-        print("invalid date")
+        print("Invalid date. Exiting.")
         return None
-    semesterYear = current_day[:4]
+    semester_year = current_day[:4]
 
-    if semesterLetter == 'A':
-        semester_start_date = semesterYear + '-02-01'
-        semester_end_date = semesterYear + '-07-31'
+    if semester_letter == 'A':
+        semester_start_date = semester_year + '-02-01'
+        semester_end_date = semester_year + '-07-31'
         # check if this is a leap year
-        year_limit = 2124
-        # Note from Jack Lubin in the year 2024: The year 2124 is arbitrary. In this year, you'll have to update this line for another 100 years.
-        # I could have extended this thousands of years in the future,
-        # but thought it would be more fun if one day this line breaks every 100 years and someone has to manually update it.
-        if int(semesterYear) > year_limit:
-            print("Time to update the leap year array!")
-        if int(semesterYear) in np.arange(2024, year_limit, 4):
-            semesterLength = 182
+        year_limit = 2074
+        # Note from Jack Lubin in the year 2024: The year 2074 is arbitrary. In this year,
+        # you, the current queue manager, will have to update this line for another 50 years.
+        # I could have extended this thousands of years in the future, but thought it would be more
+        # fun if one day this line breaks, and every 50 years and someone manually updates it.
+        # If/when you need to update it, please send me an email because I'd like to know that Keck
+        # is still using this software! Also when you update the line, please sign the list of
+        # queue managers below:
+        #
+        # --------------------------
+        # KPF-CC Queue Managers:
+        # --------------------------
+        # 2024 - Jack Lubin
+        # 2074 - your_name_here
+        # --------------------------
+        if int(semester_year) > year_limit:
+            print("Time to update the leap year array!!! See line 59 in helper_functions.py!!!")
+            semester_length = 0
+        elif int(semester_year) in np.arange(2024, year_limit, 4):
+            semester_length = 182
         else:
-            semesterLength = 181
-    elif semesterLetter == 'B':
-        if flag:
-            semester_start_date = str(int(semesterYear) - 1) + '-08-01'
-            semester_end_date = semesterYear + '-01-31'
+            semester_length = 181
+    elif semester_letter == 'B':
+        if year_flag:
+            semester_start_date = str(int(semester_year) - 1) + '-08-01'
+            semester_end_date = semester_year + '-01-31'
         else:
-            semester_start_date = semesterYear + '-08-01'
-            semester_end_date = str(int(semesterYear) + 1) + '-01-31'
-        semesterLength = 184
-    return semester_start_date, semester_end_date, semesterLength, semesterYear, semesterLetter
+            semester_start_date = semester_year + '-08-01'
+            semester_end_date = str(int(semester_year) + 1) + '-01-31'
+        semester_length = 184
+    else:
+        print("Unrecognized semester letter designation!")
+        semester_start_date = semester_year + '-01-01'
+        semester_end_date = str(semester_year)+ '-01-01'
+        semester_length = 0
+    return semester_start_date, semester_end_date, semester_length, semester_year, semester_letter
 
-
-def buildDayDateDictionary(semester_start_date, semesterLength):
+def build_date_dictionary(semester_start_date, semester_length):
     """
-    Builds a dictionary where keys are the calendar dates within the semester and values are the corresponding day numbers of the semester.
+    Builds a dictionary where keys are the calendar dates within the semester and values are the
+    corresponding day numbers of the semester.
 
     Args:
-        semester_start_date (string): date that this semester begins on (civil HST) in format "YYYY-MM-DD"
-        semesterLength (int): number of days in the semester
+        semester_start_date (string): first day of the semester (civil HST) in format "YYYY-MM-DD"
+        semester_length (int): number of days in the semester
 
     Returns:
         all_dates (dict): a dictionary connecting calendar date to day in the semester.
     """
-
     all_dates = {}
     date_formal = Time(semester_start_date, format='iso',scale='utc')
     date = str(date_formal)[:10]
     all_dates[date] = 0
-    for i in range(1, semesterLength):
+    for i in range(1, semester_length):
         date_formal += TimeDelta(1,format='jd')
         date = str(date_formal)[:10]
         all_dates[date] = i
     return all_dates
 
-
-def currentDayTracker(current_day, all_dates):
+def current_day_tracker(current_day, all_dates):
     """
-    Computes how many days in the semester have already gone by and updates the nNightsInSemester parameter
+    Computes how many days in the semester have already gone by and updates n_nights_in_semester
 
     Args:
         current_day (string): today's date in format "YYYY-MM-DD"
         all_dates (dict): a dictionary connecting calendar date to day in the semester.
 
     Returns:
-        daysRemaining (int): the number of days remaining in the semester
+        days_remaining (int): the number of days remaining in the semester
     """
     remove_days = all_dates[current_day] - 1
-    daysRemaining = len(all_dates) - 1 - remove_days
-    return daysRemaining
+    days_remaining = len(all_dates) - 1 - remove_days
+    return days_remaining
 
-
-def slotsRequired(exptime, slotsize, alwaysRoundUp=False):
+def slots_required_for_exposure(exposure_time, slot_size, always_round_up_flag=False):
     """
-    Computes the slots needed for a given exposure but without always rounding up, rather rounding to nearest number of slots needed
-    For example: under 5 minute slot sizes, we want a 6 minute exposure to only require one slot (round down) as opposed to 2 slots (round up)
-    Note: do not apply this function to any exposure times that are less than 1 slot size.
+    Computes the slots needed for a given exposure.When always_round_up_flag is false,
+    we can round up or down.
+    Example: with 5 minute slot sizes, we want a 6 minute exposure to only require one slot
+            (round down) as opposed to 2 slots (round up)
 
     Args:
-        exptime (int): the exposure time in seconds
-        slotsize (int): the slot size in minutes
-        alwaysRoundUp (boolean): if true, minimum slots needed is always larger than exposure time
+        exposure_time (int): the exposure time in seconds
+        slot_size (int): the slot size in minutes
+        always_round_up_flag (boolean): if true, slots needed is always larger than exposure_time
 
     Returns:
-        slotsNeededForExposure_val (int): the number of slots required for this exposure
+        slots_needed_for_exposure (int): the number of slots required for this exposure
     """
-    slotsize = slotsize * 60 # converting to seconds
-    if alwaysRoundUp:
-        slotsNeededForExposure_val = math.ceil(exptime/slotsize)
+    slot_size = slot_size * 60 # converting to seconds
+    if always_round_up_flag:
+        slots_needed_for_exposure = math.ceil(exposure_time/slot_size)
     else:
-        if exptime > slotsize:
-            slotsNeededForExposure_val = int(round(exptime/slotsize))
+        if exposure_time > slot_size:
+            slots_needed_for_exposure = int(round(exposure_time/slot_size))
         else:
-            slotsNeededForExposure_val = 1
-    return slotsNeededForExposure_val
+            slots_needed_for_exposure = 1
+    return slots_needed_for_exposure
 
-def simWeatherLoss(allocation_toDate, lossStats, covar=0.14, noLoss=False, plot=False, outputdir=''):
+def find_indices(arr, start, end):
+    """
+    Determine the indices in one array that are between two bounds of another array. Used to find
+    the indices within arr which contain all the available indices of a given date.
 
-    previousDayLost = False
-    allocation_toDate_postLoss = allocation_toDate.copy()
-    counter = 0
+    Args:
+        arr (array): a 1D array of all the indices that are available to a given target. The
+                    elements of this array are the indices that are available.
+        start (int): the first bound
+        end (boolean): the last bound
 
-    if noLoss == False:
-        # start at 1 because we never want tonight to be simulated as total loss
-        for i in range(1, len(allocation_toDate_postLoss)):
-            value2beat = lossStats[i]
-            if previousDayLost:
-                value2beat += covar
-            rolldice = np.random.uniform(0.0,1.0)
+    Returns:
+        first_index (int): the starting index number of arr
+        last_index (int): the finishing index number of arr
+    """
+    # Find the first index where the value is greater than "start"
+    left = 0
+    right = len(arr) - 1
+    first_index = -1
 
-            if rolldice < value2beat:
-                # the night is simulated a total loss
-                allocation_toDate_postLoss[i] = [0,0,0,0,]
-                previousDayLost = True
-                counter += 1
-                if plot:
-                    pt.axvline(i, color='r')
-            else:
-                previousDayLost = False
-                if plot:
-                    pt.axvline(i, color='k')
-    else:
-        print('Pretending weather is always good!')
+    while left <= right:
+        mid = (left + right) // 2
+        if arr[mid] > start:
+            first_index = mid
+            right = mid - 1  # Continue searching in the left half
+        else:
+            left = mid + 1  # Continue searching in the right half
 
-    weatherDiff_toDate = np.array(allocation_toDate) - np.array(allocation_toDate_postLoss)
-    weatherDiff_toDate_1D = weatherDiff_toDate.flatten()
+    # Find the last index where the value is less than "end"
+    left = 0
+    right = len(arr) - 1
+    last_index = -1
 
-    print("Total nights simulated as weathered out: " + str(counter) + " of " + str(len(allocation_toDate_postLoss)) + " nights remaining.")
+    while left <= right:
+        mid = (left + right) // 2
+        if arr[mid] < end:
+            last_index = mid
+            left = mid + 1  # Continue searching in the right half
+        else:
+            right = mid - 1  # Continue searching in the left half
 
-    if plot:
-        size=15
-        pt.xlabel("Days in Semester from Current Day", fontsize=size)
-        pt.tick_params(axis="both", labelsize=size)
-        pt.savefig(outputdir + "WeatherLossMap.png", dpi=200, bbox_inches='tight', facecolor='w')
+    return first_index, last_index
 
-    return allocation_toDate_postLoss, weatherDiff_toDate, weatherDiff_toDate_1D
+def write_stars_schedule_human_readable(combined_semester_schedule, Yns, starnames, semester_length, n_slots_in_night,
+                                        n_nights_in_semester, all_dates_dict, slots_needed_dict,
+                                        current_day):
+    """
+    Turns the non-square matrix of the solution into a square matrix and starts the human readable
+    solution by filling in the slots where a star's exposre is started.
 
-def buildEnforcedDates(filename, all_dates_dict):
-    enforced_dates = []
-    selections = pd.read_csv(filename)
-    for s in range(len(selections)):
-        night = all_dates_dict[selections['Date'][s]]
-        pair = [night, selections['Quarter'][s]]
-        enforced_dates.append(pair)
-    return enforced_dates
+    Args:
+        Yns (array): the Gurobi solution with keys of (starname, slot_number) and values 1 or 0.
+        starnames (array): a 1D list of the names of stars that make up one of the keys to Yns
+        semester_length (int): the number of days in the full semester
+        n_slots_in_night (int): the number of slots in a night
+        n_nights_in_semester (int): the number of nights remaining in the semester
+        all_dates_dict (dict): a dictionary where keys are calendar dates in format (YYYY-MM-DD)
+                               and values of the day number in the semester
+        current_day (str): today's date in format YYYY-MM-DD
+
+    Returns:
+        first_index (int): the starting index number of arr
+        last_index (int): the finishing index number of arr
+    """
+    end_past = all_dates_dict[current_day]*n_slots_in_night
+    n_slots_in_semester = semester_length*n_slots_in_night
+    all_star_schedules = {}
+    for name in starnames:
+        star_schedule = []
+        # buffer the past with zeros
+        for p in range(end_past):
+            star_schedule.append(0)
+        for s in range(n_slots_in_semester):
+            try:
+                value = np.round(Yns[name, s].x)
+            except:
+                value = 0.0
+            star_schedule.append(value)
+        all_star_schedules[name] = star_schedule
+
+    combined_semester_schedule = combined_semester_schedule.flatten()
+    for s in range(end_past, n_slots_in_semester - end_past):
+        slotallocated = ''
+        for name in starnames:
+            if all_star_schedules[name][s] == 1:
+                slotallocated += str(name)
+        combined_semester_schedule[s] += str(slotallocated)
+    combined_semester_schedule = np.reshape(combined_semester_schedule,
+            (semester_length, n_slots_in_night))
+
+    # The semester solver puts a 1 only in the slot that starts the exposure for a target.
+    # Therefore, many slots are empty because they are part of a multi-slot visit.
+    # Here fill in the multi-slot exposures appropriately for ease of human reading and accounting.
+    for n in range(n_nights_in_semester-1-all_dates_dict[current_day], -1, -1):
+        for s in range(n_slots_in_night-1, -1, -1):
+            if combined_semester_schedule[n+all_dates_dict[current_day]][s] in starnames:
+                target_name = combined_semester_schedule[n+all_dates_dict[current_day]][s]
+                slots_needed_for_exposure = slots_needed_dict[target_name]
+                if slots_needed_for_exposure > 1:
+                    for e in range(1, slots_needed_for_exposure):
+                        combined_semester_schedule[n+all_dates_dict[current_day]][s+e] += \
+                                target_name
+    for m in range(len(combined_semester_schedule)):
+        # convert the holder string to meaningful string
+        if combined_semester_schedule[m][0] == 'supercalifragilisticexpialidocious':
+            for l in range(len(combined_semester_schedule[m])):
+                combined_semester_schedule[m][l] = 'Past'
+    return combined_semester_schedule
+
+def write_available_human_readable(all_dates_dict, current_day, semester_length,
+                                n_nights_in_semester, n_slots_in_night,
+                                twilight_map, allocation_map_2D, weathered_map, nonqueue_map):
+    """
+    Fill in the human readable solution with the non-observation information: non-allocated slots,
+    weather loss slots, non-queue slots, twilight slots.
+
+    Args:
+        combined_semester_schedule (array): a 2D array of dimensions n_nights_in_semester by
+                                            n_slots_in_night where elements denote how the slot is
+                                            used: target, twilight, weather, not scheduled.
+        all_dates_dict (dict): a dictionary where keys are calendar dates and values are the day
+                                number within the semester
+        current_day (string): today's date in format "YYYY-MM-DD"
+        n_nights_in_semester (int): the number of calendar days remaining in the semester
+        n_slots_in_night (int): the number of slots within a single night
+
+
+        twilight_map (array): the 1D array of length n_slots_in_semester where 1's represent slots
+                            not in night time and 0's represent slots that are during day/twilight
+        allocation_map_2D (array): a 2D array where rows represent a night and columns represent
+                                   the quarter within that night. Values are 1 if that
+                                   night/quarter is allocated and 0 if not.
+        weathered_map (array): a 1D array of length s slots in semester where elements are 1 if
+                                that slot has been modeled as lost to weather and 0 if not
+        nonqueue_map (string): the path/name of the file which has an array of dimensions n nights
+                               in semester by s slots in night where elements denote if the slot is
+                               reserved for a non-queue RM observation
+
+    Returns:
+        combined_semester_schedule (array): a 2D array of dimensions n_nights_in_semester by
+                                            n_slots_in_night where elements denote how the slot is
+                                            used: target, twilight, weather, not scheduled.
+    """
+    if os.path.exists(nonqueue_map):
+        nonqueuemap_slots_strs = np.loadtxt(nonqueue_map, delimiter=',', dtype=str)
+
+    # The past does not matter to us here, so specify the days/slots that are to be ignored.
+    end_past = all_dates_dict[current_day]*n_slots_in_night
+    combined_semester_schedule = ['']*semester_length*n_slots_in_night
+    for c in range(end_past):
+        # for some reason when adding strings within an array, the max length of new string is the
+        # length of the longest string in the whole array. So choosing an arbitrary long word
+        # as a placeholder. Later I post-process this out.
+        combined_semester_schedule[c] += 'supercalifragilisticexpialidocious'
+    combined_semester_schedule = np.reshape(combined_semester_schedule,
+            (semester_length, n_slots_in_night))
+
+    for n in range(semester_length - all_dates_dict[current_day]):
+        for s in range(n_slots_in_night):
+            slotallocated = ''
+            # remember that twilight map is "inverted": the 1's are time where it is night and the
+            # 0's are time where it is day/twilight.
+            if twilight_map[n][s] == 0:
+                slotallocated += '*'
+            if allocation_map_2D[n][s] == 0:
+                slotallocated += 'X'
+            if weathered_map[n][s] == 1:# and slotallocated == '':
+                slotallocated += 'W'
+            if os.path.exists(nonqueue_map):
+                slotallocated += str(nonqueuemap_slots_strs[n + all_dates_dict[current_day], ][s])
+            combined_semester_schedule[n + all_dates_dict[current_day], ][s] += str(slotallocated)
+
+    return combined_semester_schedule
