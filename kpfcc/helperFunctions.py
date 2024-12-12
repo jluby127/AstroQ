@@ -231,29 +231,33 @@ def slotsRequired(exptime, slotsize, alwaysRoundUp=False):
             slotsNeededForExposure_val = 1
     return slotsNeededForExposure_val
 
-def simWeatherLoss(allocation_toDate, lossStats, covar=0.14, plot=False, outputdir=''):
+def simWeatherLoss(allocation_toDate, lossStats, covar=0.14, noLoss=False, plot=False, outputdir=''):
 
     previousDayLost = False
     allocation_toDate_postLoss = allocation_toDate.copy()
     counter = 0
-    # start at 1 because we never want tonight to be simulated as total loss
-    for i in range(1, len(allocation_toDate_postLoss)):
-        value2beat = lossStats[i]
-        if previousDayLost:
-            value2beat += covar
-        rolldice = np.random.uniform(0.0,1.0)
 
-        if rolldice < value2beat:
-            # the night is simulated a total loss
-            allocation_toDate_postLoss[i] = [0,0,0,0,]
-            previousDayLost = True
-            counter += 1
-            if plot:
-                pt.axvline(i, color='r')
-        else:
-            previousDayLost = False
-            if plot:
-                pt.axvline(i, color='k')
+    if noLoss == False:
+        # start at 1 because we never want tonight to be simulated as total loss
+        for i in range(1, len(allocation_toDate_postLoss)):
+            value2beat = lossStats[i]
+            if previousDayLost:
+                value2beat += covar
+            rolldice = np.random.uniform(0.0,1.0)
+
+            if rolldice < value2beat:
+                # the night is simulated a total loss
+                allocation_toDate_postLoss[i] = [0,0,0,0,]
+                previousDayLost = True
+                counter += 1
+                if plot:
+                    pt.axvline(i, color='r')
+            else:
+                previousDayLost = False
+                if plot:
+                    pt.axvline(i, color='k')
+    else:
+        print('Pretending weather is always good!')
 
     weatherDiff_toDate = np.array(allocation_toDate) - np.array(allocation_toDate_postLoss)
     weatherDiff_toDate_1D = weatherDiff_toDate.flatten()

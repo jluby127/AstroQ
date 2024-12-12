@@ -20,7 +20,7 @@ parser.add_argument('-f','--folder', help='Folder to save generated scripts and 
 parser.add_argument('-a','--AllocationFile', help='The path and filename to the allocation file', default='Allocation.csv')
 parser.add_argument('-r','--RequestFile', help='The filename to the reqeuest file', default='Requests.csv')
 parser.add_argument('-n','--NonQueueFile', help='The filename to the non queue file', default='NonQueue.csv')
-parser.add_argument('-s','--slotsizes', help='The size of slot, in minutes, to compute maps. Input as a list, ex. [5]', default=[10])
+parser.add_argument('-s','--slotsizes', help='The size of slot, in minutes, to compute maps, integer', default=10)
 parser.add_argument('-d1','--semesterStartDate', help='The first day of the semester, ex. 2024-08-01')#, default='2020-01-01') # in practice must be supplied by user
 parser.add_argument('-d2','--semesterEndDate', help='The last day of the semester, ex. 2025-01-31')#, default='2020-01-01')    # in practice must be supplied by user
 parser.add_argument('-t1','--nightlyStartTime', help='The first timeslot of each night, HST, ex. 17:30:00', default='17:30:00')
@@ -42,7 +42,7 @@ args = parser.parse_args()
 # --- The set of PI requests for cadenced queue observations, downloaded from the Request Submission Webform
 # --- The set of PI requests for time-sensitive non-queue observations, downloaded from the Request Submission Webform which include start/stop times for the event windows
 
-# allocation = mf.reformatKeckAllocationData(args.folder + args.AllocationFile)
+allocation = mf.reformatKeckAllocationData(args.folder + args.AllocationFile)
 nonqueues = pd.read_csv(args.folder + args.NonQueueFile)
 requests = pd.read_csv(args.folder + args.RequestFile)
 
