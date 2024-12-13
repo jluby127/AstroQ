@@ -100,27 +100,29 @@ def get_stars_for_tonight(backup_frame, backup_observability_frame, current_date
     exposure_time = []
     n_shots = []
     total_time = 0
-    for i in enumerate(starlist):
-        ind = backup_frame.index[backup_frame['Starname'] == starlist[i]].tolist()[0]
-        name.append(backup_frame['Starname'][ind])
-        ra.append(backup_frame['RA'][ind]*15.0)
-        dec.append(backup_frame['Dec'][ind])
-        exposure_time.append(backup_frame['exposure_time'][ind])
-        if backup_frame['exptime'][ind] <= 150.0 and backup_frame['exptime'][ind] > 72.0:
-            n_shot = 2
-        elif backup_frame['exptime'][ind] <= 72.0 and backup_frame['exptime'][ind] > 45.0:
-            n_shot = 3
-        elif backup_frame['exptime'][ind] <= 45.0:
-            n_shot = 5
-        else:
-            n_shot = 1
-        n_shots.append(n_shot)
-        total_time += backup_frame['exposure_time'][ind]*n_shot + 45*(n_shot-1)
+    for i, item in enumerate(starlist):
+        ind = backup_frame.index[backup_frame['Starname'] == starlist[i]].tolist()
+        if len(ind) != 0:
+            ind = ind[0]
+            name.append(backup_frame['Starname'][ind])
+            ra.append(backup_frame['RA'][ind]*15.0)
+            dec.append(backup_frame['Dec'][ind])
+            exposure_time.append(backup_frame['Nominal Exposure Time [s]'][ind])
+            if backup_frame['Nominal Exposure Time [s]'][ind] <= 150.0 and backup_frame['Nominal Exposure Time [s]'][ind] > 72.0:
+                n_shot = 2
+            elif backup_frame['Nominal Exposure Time [s]'][ind] <= 72.0 and backup_frame['Nominal Exposure Time [s]'][ind] > 45.0:
+                n_shot = 3
+            elif backup_frame['Nominal Exposure Time [s]'][ind] <= 45.0:
+                n_shot = 5
+            else:
+                n_shot = 1
+            n_shots.append(n_shot)
+            total_time += backup_frame['Nominal Exposure Time [s]'][ind]*n_shot + 45*(n_shot-1)
 
     stars_for_tonight = pd.DataFrame({'Starname':name, "RA":ra, "Dec":dec,
                              'Exposure Time':exposure_time, 'Exposures Per Visit':n_shots,
-                             'Visits In Night':[1]*len(starlist),
-                             'Intra_Night_Cadence':[0]*len(starlist), 'Priority':[1]*len(starlist)})
+                             'Visits In Night':[1]*len(name),
+                             'Intra_Night_Cadence':[0]*len(name), 'Priority':[1]*len(name)})
 
     stars_for_tonight.sort_values(by='Exposure Time', ascending=False, inplace=True)
     stars_for_tonight.reset_index(inplace=True)
@@ -143,7 +145,7 @@ def get_times_worth(backup_list_tonight, n_hours_needed):
         selected_stars_frame (array): contains the subset of stars from the wider backup pool
                                       selected as  observable for tonight
     """
-    save_stars = list(starlist['Starname'])
+    save_stars = list(backup_list_tonight['Starname'])
     selected_stars = []
     time_used = 0.0
     while time_used < n_hours_needed and len(save_stars) != 0:
@@ -151,11 +153,11 @@ def get_times_worth(backup_list_tonight, n_hours_needed):
         ind1 = save_stars.index(chosen_star)
         save_stars.pop(ind1)
 
-        ind2 = starlist.index[starlist['Starname'] == chosen_star].tolist()[0]
-        star_row = starlist.loc[starlist['Starname'] == chosen_star]
+        ind2 = backup_list_tonight.index[backup_list_tonight['Starname'] == chosen_star].tolist()[0]
+        star_row = backup_list_tonight.loc[backup_list_tonight['Starname'] == chosen_star]
         selected_stars.append(star_row)
-        time_used += (starlist['Exposure Time'][ind2]*starlist['Exposures Per Visit'][ind2] + \
-                        45*(starlist['Exposures Per Visit'][ind2]-1))/3600
+        time_used += (backup_list_tonight['Exposure Time'][ind2]*backup_list_tonight['Exposures Per Visit'][ind2] + \
+                        45*(backup_list_tonight['Exposures Per Visit'][ind2]-1))/3600
     selected_stars_frame = pd.concat(selected_stars)
     selected_stars_frame.reset_index(inplace=True, drop=True)
 

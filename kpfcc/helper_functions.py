@@ -217,14 +217,16 @@ def write_stars_schedule_human_readable(combined_semester_schedule, Yns, starnam
             star_schedule.append(0)
         for s in range(n_slots_in_semester):
             try:
-                value = np.round(Yns[name, s].x)
-            except:
+                value = int(np.round(Yns[name, s].x))
+            except KeyError:
                 value = 0.0
+            except:
+                print("Error: helper_functions.py line 224")
             star_schedule.append(value)
         all_star_schedules[name] = star_schedule
 
     combined_semester_schedule = combined_semester_schedule.flatten()
-    for s in range(end_past, n_slots_in_semester - end_past):
+    for s in range(n_slots_in_semester):
         slotallocated = ''
         for name in starnames:
             if all_star_schedules[name][s] == 1:
