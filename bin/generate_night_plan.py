@@ -1,47 +1,60 @@
+import sys
+import argparse
+import os
+
 import numpy as np
 import pandas as pd
 from astropy.time import Time
 from astropy.time import TimeDelta
-import argparse
-import os
+
+# the -3 cuts of the "bin/" of the path to this current file
+path2modules = os.path.dirname(os.path.abspath(__file__))[:-3] + "/kpfcc/"
+sys.path.append(path2modules)
+import solve_semester as ss
+import helper_functions as hf
+import plotting_functions as ptf
+import processing_functions as pf
+
+sys.path.append(os.environ["TTP_PATH"] + "ttp/")
+import formatting
+import telescope
+import plotting
+import model
+
+named_colors = ['blue', 'red', 'green', 'gold', 'maroon', 'gray', 'orange', 'magenta', 'purple']
 
 parser = argparse.ArgumentParser(description='Generate schedules with KPF-CC v2')
-parser.add_argument('-d','--schedule_dates',action='append',help='Date(s) to be scheduled as strings in format YYYY-MM-DD. Must be in allocated_nights')
-parser.add_argument('-f','--folder', help='Folder to save generated scripts and plots', default=os.environ["KPFCC_SAVE_PATH"])
-parser.add_argument('-r','--run_extra_rounds',action='store_true', help='Turn on the additional rounds of scheduling', default=False)
-parser.add_argument('-t','--time_limit', help='Max time spent optimizing (s)',type=int, default=300)
-parser.add_argument('-s','--slot_size', help='The slot size (min)',type=int, default=10)
-parser.add_argument('-g','--gurobi_output',action='store_true', help='Activate Gurobi console outputs',default=True)
-parser.add_argument('-p','--plot_results',action='store_true', help='Turn on plotting for semester/upcoming quarter nights', default=True)
-# hard code these in just for now
-parser.add_argument('-b1','--backupStarList',action='store_true', help="File containing the backup star names/RAs/Decs/exptimes", default='/Users/jack/Documents/KPF_CC/StandardStarInfo/testBackupScriptGenerationFiles/backupStarlist.csv')
-parser.add_argument('-b2','--backupStarObservability',action='store_true', help="File containing the backup star accessibilties", default='/Users/jack/Documents/KPF_CC/StandardStarInfo/testBackupScriptGenerationFiles/backupObservability_justJan.csv')
-# parser.add_argument('-b1','--backupStarList',action='store_true', help="File containing the backup star names/RAs/Decs/exptimes", default='')
-# parser.add_argument('-b2','--backupStarObservability',action='store_true', help="File containing the backup star accessibilties", default='')
+parser.add_argument('-d','--schedule_dates',action='append',help='Date(s) to be scheduled; \
+                            string in format YYYY-MM-DD. Use a -d flag between each date.')
+parser.add_argument('-f','--folder', help='Folder to save all outputs',
+                            default=os.environ["KPFCC_SAVE_PATH"])
+parser.add_argument('-r','--run_extra_rounds', help='Run the bonus round', default=False)
+parser.add_argument('-t','--timeout', help='Max time spent optimizing (sec)',type=int, default=300)
+parser.add_argument('-s','--slot_size', help='The slot size (minutes)', type=int, default=10)
+parser.add_argument('-w','--dont_run_weather_loss', help='If True, do not simulate weather losses', default=True)
+parser.add_argument('-t','--run_ttp', help='If True, run the TTP.', default=True)
+parser.add_argument('-g','--show_gurobi', help='Turn on Gurobi console print', action='store_false')
+parser.add_argument('-p','--show_plots', help='Turn on plot outputs', action='store_false')
+parser.add_argument('-bsl','--backupStarList', help='Turn on plot outputs', default='noname.txt')
+parser.add_argument('-bso','--backupStarObservability', help='Turn on plot outputs', default='noname.txt')
 
 args = parser.parse_args()
 
 request_sheet = args.folder + "inputs/Requests.csv"
 allocated_nights = args.folder + "inputs/2024B_Binary_Schedule.txt"
-pastDatabase = 'nofilename.txt'#args.folder + "inputs/queryJumpDatabase.csv"
+past_database = "nofilename.txt" #args.folder + "inputs/queryJumpDatabase.csv"
 twilight_times = args.folder + "inputs/2024B_twilight_times.csv"
 access_map = args.folder + "inputs/2024B_AccessMaps_" + str(args.slot_size) + "minSlots.txt"
-turnFile = args.folder + "inputs/2024B_turnOnOffDates.csv"
+turn_on_off_file = args.folder + "inputs/2024B_turnOnOffDates.csv"
 starmap_template_filename = args.folder + "inputs/2024B_cadenceTemplateFile.csv"
-nonqueueMap =  args.folder + 'inputs/2024B_NonQueueMap'  + str(args.slot_size) + '.txt'
-specialMaps = args.folder + 'inputs/2024B_specialMaps_' + str(args.slot_size) + 'minSlots.txt'
-zeroOutFile = 'nofilename.txt'
-startstoptimes = pd.read_csv(args.folder + "inputs/2024B_NightlyStartStopTimes.csv")
-backupStarList = args.backupStarList
-backupStarObservability = args.backupStarObservability
+nonqueue_map =  args.folder + 'inputs/2024B_NonQueueMap'  + str(args.slot_size) + '.txt'
+special_map = args.folder + 'inputs/2024B_specialMaps_' + str(args.slot_size) + 'minSlots.txt'
+nightly_start_stop_times = pd.read_csv(args.folder + "inputs/2024B_NightlyStartStopTimes.csv")
+zero_out_file = 'nofilename.txt'
+folder_forecasts = args.folder + '/data/first_forecasts/'
+folder_cadences = args.folder + '/outputs/' + str(args.schedule_dates[0]) + '/cadences/'
 
-import sys
-path2modules = os.path.dirname(os.path.abspath(__file__))[:-3] #the -3 cuts of the "bin/" of the path to this current file
-sys.path.append(path2modules + "kpfcc/")
-import solveSemester as ssm
-import processingFunctions as pf
-
-ssm.runKPFCCv2(args.schedule_dates,
+ss.run_kpfcc(args.schedule_dates,
                           request_sheet,
                           allocated_nights,
                           access_map,
@@ -49,111 +62,165 @@ ssm.runKPFCCv2(args.schedule_dates,
                           args.folder + 'outputs/' + str(args.schedule_dates[0]) + '/',
                           args.slot_size,
                           args.run_extra_rounds,
-                          pastDatabase,
+                          past_database,
                           starmap_template_filename,
-                          turnFile,
-                          nonqueueMap,
-                          specialMaps,
-                          zeroOutFile,
-                          args.gurobi_output,
-                          args.plot_results,
-                          args.time_limit)
-#
-# import helperFunctions as hf
-# sys.path.append(os.environ["TTP_PATH"] + "ttp/")
-# import formatting
-# import telescope
-# import plotting
-# import model
-# savepath = args.folder + 'outputs/' + str(args.schedule_dates[0]) + '/'
-# print("Prepare schedule for the TTP.")
-# tel = telescope.Keck1()
-# semester_start_date, semester_end_date, semesterLength, semesterYear, semesterLetter = hf.getSemesterInfo(args.schedule_dates[0])
-# all_dates_dict = hf.buildDayDateDictionary(semester_start_date, semesterLength)
-# the_schedule = np.loadtxt(savepath + 'raw_combined_semester_schedule_Round2.txt', delimiter=',', dtype=str)
-# for n in range(len(args.schedule_dates)):
-#
-#     dayInSemester = all_dates_dict[args.schedule_dates[n]]
-#     # starttime = startstoptimes['Start'][idx]
-#     # stoptime = startstoptimes['Stop'][idx]
-#     starttime = '05:00'
-#     stoptime = '10:00'
-#     startObs = Time(str(args.schedule_dates[n]) + "T" + str(starttime), format='isot')
-#     endObs = Time(str(args.schedule_dates[n]) + "T" + str(stoptime), format='isot')
-#     total_time = np.round((endObs.jd-startObs.jd)*24,3)
-#     print("Time in Night for Observations: " + str(total_time) + " hours.")
-#
-#     idx = startstoptimes.index[startstoptimes['Date']==str(args.schedule_dates[n])][0]
-#
-#     Round2_Requests = np.loadtxt(savepath + 'Round2_Requests.txt', dtype=str)
-#     toTTP = pf.prepareTTP(request_sheet, the_schedule[dayInSemester], Round2_Requests)
-#
-#     filename = savepath + '/Selected_' + str(args.schedule_dates[n]) + ".txt"
-#     if os.path.exists(args.backupStarList) and os.path.exists(args.backupStarObservability):
-#         print("Generating filler bright stars and backup weather script")
-#         check = os.path.isdir(savepath + 'Backups/')
-#         if not check:
-#             os.makedirs(savepath + 'Backups/')
-#         import backupStarFunctions as bsf
-#         backup_starlist = pd.read_csv(args.backupStarList)
-#         backUpObservability = pd.read_csv(args.backupStarObservability)
-#         backups = bsf.getStarsForTonight(backup_starlist, backUpObservability, args.schedule_dates[0][5:], minimumUpTime=4.0)
-#         backups.drop(columns='index', inplace=True)
-#         subsetBackups = bsf.getTimesWorth(backups, 1.0) # get targets for 1 hours' worth of exposures
-#
-#         toTTP_all = pd.concat([toTTP, subsetBackups], ignore_index=True)
-#         toTTP_all.to_csv(filename, index=False)
-#         filename_backups = savepath + '/Backups_' + str(args.schedule_dates[n]) + ".txt"
-#         backups_full = bsf.getTimesWorth(backups, total_time+1) # get targets for 1 hours' worth of exposures
-#         backups_full.to_csv(filename_backups, index=False)
-#         # print("median: ", np.median(backups['Exposure Time']))
-#         # print("mean: ", np.mean(backups['Exposure Time']))
-#         # print("max: ", max(backups['Exposure Time']))
-#         # print("min: ", min(backups['Exposure Time']))
-#         # totalopenshutterwithreadout = []
-#         # for w in range(len(backups)):
-#         #     if backup_starlist['ExpTime'][w] <= 150.0 and backup_starlist['ExpTime'][w] > 72.0:
-#         #         nshot = 2
-#         #     elif backup_starlist['ExpTime'][w] <= 72.0 and backup_starlist['ExpTime'][w] > 45.0:
-#         #         nshot = 3
-#         #     elif backup_starlist['ExpTime'][w] <= 45.0:
-#         #         nshot = 5
-#         #     else:
-#         #         nshot = 1
-#         #     totalexptime = backup_starlist['ExpTime'][w]*nshot + 45*(nshot-1)
-#         #     totalopenshutterwithreadout.append(totalexptime)
-#         # print("--------------------------------------")
-#         # print("Now with nshots and read time accounted")
-#         # print("--------------------------------------")
-#         # print("median: ", np.median(totalopenshutterwithreadout))
-#         # print("mean: ", np.mean(totalopenshutterwithreadout))
-#         # print("max: ", max(totalopenshutterwithreadout))
-#         # print("min: ", min(totalopenshutterwithreadout))
-#     else:
-#         toTTP.to_csv(filename, index=False)
-#
-#     targlist = formatting.theTTP(filename)
-#     solution = model.TTPModel(startObs, endObs, targlist, tel, savepath)
-#
-#     plotting.writeStarList(solution.plotly, startObs, args.schedule_dates[n], outputdir=savepath)
-#     plotting.plot_path_2D(solution,outputdir=savepath)
-#     plotting.nightPlan(solution.plotly, args.schedule_dates[n], outputdir=savepath)
-#
-#     obs_and_times = pd.read_csv(savepath + 'ObserveOrder_' + str(args.schedule_dates[0]) + ".txt")
-#     all_targets_frame = pd.read_csv(request_sheet)
-#     # pf.write_starlist(all_targets_frame, obs_and_times, solution.extras, Round2_Requests, 'nominal', str(args.schedule_dates[0]), savepath)
-#
-#     if os.path.exists(args.backupStarList) and os.path.exists(args.backupStarObservability):
-#         print('Generating independent backup weather script.')
-#         targlist_backups = formatting.theTTP(filename_backups)
-#
-#         solution_b = model.TTPModel(startObs, endObs, targlist_backups, tel, savepath + "Backups/", runtime=600, optgap=0.05)
-#
-#         plotting.writeStarList(solution_b.plotly, startObs, args.schedule_dates[n], outputdir=savepath + "Backups/")
-#         plotting.plot_path_2D(solution_b,outputdir=savepath+ "Backups/")
-#         plotting.nightPlan(solution_b.plotly, args.schedule_dates[n], outputdir=savepath + "Backups/")
-#
-#         obs_and_times_b = pd.read_csv(savepath + 'Backups/ObserveOrder_' + str(args.schedule_dates[0]) + ".txt")
-#         # pf.write_starlist(backup_starlist, obs_and_times_b, solution_b.extras, [], 'Backups', str(args.schedule_dates[0]), savepath + "Backups/")
-#
-# print("Semester is scheduled and script is generated. Complete.")
+                          turn_on_off_file,
+                          nonqueue_map,
+                          special_map,
+                          zero_out_file,
+                          args.dont_run_weather_loss,
+                          args.show_gurobi,
+                          args.show_plots,
+                          args.timeout)
+
+print("Semester is scheduled. Complete.")
+if args.show_plots:
+    future_forecast = args.folder + "outputs/" + str(args.schedule_dates[0]) + \
+                      '/raw_combined_semester_schedule_Round2.txt'
+    nonqueue_list = args.folder + "inputs/NonQueue.csv"
+
+    data = ptf.DataHandler(args.schedule_dates[0], request_sheet, past_database, future_forecast,
+                           twilight_times, nonqueue_list, folder_forecasts, folder_cadences,
+                           args.folder + 'reports/', args.slot_size)
+
+    all_program_cofs = []
+    all_program_info = {}
+    all_program_first_forecast = {}
+
+    all_star_maps_all_programs = []
+    all_star_colors_all_programs = []
+    all_star_nObs_all_programs = []
+    all_stars_in_program = []
+
+    all_stars = []
+    all_completions = []
+    for p, item in enumerate(data.programs):
+        program_COF, program_total_obs_request, program_first_forecast, stars_in_program, stars_completion = \
+            ptf.generate_single_program_plot_suite(data, data.programs[p])
+        all_program_cofs.append(program_COF)
+        all_stars.append(stars_in_program)
+        all_completions.append(stars_completion)
+
+        all_program_info[data.programs[p]] = program_total_obs_request
+        all_program_first_forecast[data.programs[p]] = program_first_forecast
+
+        all_star_maps, all_star_cols, all_star_nObs, stars_in_program = \
+            ptf.create_single_program_birds_eye(data, data.programs[p])
+        all_star_maps_all_programs.append(all_star_maps)
+
+        program_color = named_colors[p%len(named_colors)]
+        all_star_colors_all_programs += [program_color]*len(all_star_maps)
+        all_star_nObs_all_programs.append(all_star_nObs)
+
+        all_stars_in_program.append(stars_in_program)
+
+        print("Building Birds Eye View")
+        ptf.generate_birds_eye(data, all_star_maps, all_star_cols, all_star_nObs,
+                             data.programs[p], stars_in_program)
+
+    flat_all_star_maps_all_programs = np.concatenate(all_star_maps_all_programs)
+    flat_all_star_nObs_all_programs = np.concatenate(all_star_nObs_all_programs)
+    flat_all_stars_in_program = np.concatenate(all_stars_in_program)
+
+    ptf.generate_admin_view_plot_suite(data, all_program_cofs, all_program_info,
+                                       all_program_first_forecast, flat_all_star_maps_all_programs,
+                                       all_star_colors_all_programs,
+                                       flat_all_star_nObs_all_programs, flat_all_stars_in_program)
+    all_stars = np.array(all_stars).flatten()
+    all_completions = np.array(all_completions).flatten()
+    complete_frame = pd.DataFrame({"Starname":all_stars, 'CompletetionPercent':all_completions})
+    complete_frame.to_csv(args.folder + 'reports/admin/' + str(args.schedule_dates[0]) + '/cofs/final_completion_rates.csv', index=False)
+
+if args.run_ttp:
+    savepath = args.folder + 'reports/observer/' + str(args.schedule_dates[0]) + '/'
+    output_path = args.folder + 'outputs/' + str(args.schedule_dates[0]) + "/"
+    print("Prepare schedule for the TTP.")
+    observatory = telescope.Keck1()
+    semester_start_date, semester_end_date, semester_length, semester_year, semester_letter = \
+            hf.get_semester_info(args.schedule_dates[0])
+    all_dates_dict = hf.build_date_dictionary(semester_start_date, semester_length)
+    the_schedule = np.loadtxt(output_path + 'raw_combined_semester_schedule_Round2.txt',
+                                delimiter=',', dtype=str)
+
+    for n in range(len(args.schedule_dates)):
+        day_in_semester = all_dates_dict[args.schedule_dates[n]]
+        idx = nightly_start_stop_times[nightly_start_stop_times['Date'] == str(args.schedule_dates[n])].index[0]
+        night_start_time = nightly_start_stop_times['Start'][idx]
+        night_stop_time = nightly_start_stop_times['Stop'][idx]
+        observation_start_time = Time(str(args.schedule_dates[n]) + "T" + str(night_start_time),
+            format='isot')
+        observation_stop_time = Time(str(args.schedule_dates[n]) + "T" + str(night_stop_time),
+            format='isot')
+        total_time = np.round((observation_stop_time.jd-observation_start_time.jd)*24,3)
+        print("Time in Night for Observations: " + str(total_time) + " hours.")
+
+        round_two_requests = np.loadtxt(output_path + 'Round2_Requests.txt', dtype=str)
+        request_frame = pd.read_csv(request_sheet)
+        send_to_ttp = pf.prepare_for_ttp(request_frame, the_schedule[day_in_semester],
+                                            round_two_requests)
+
+        filename = output_path + 'Selected_' + str(args.schedule_dates[n]) + ".txt"
+        if os.path.exists(args.backupStarList) and os.path.exists(args.backupStarObservability):
+            print("Generating filler bright stars and backup weather script")
+            check = os.path.isdir(savepath + 'Backups/')
+            if not check:
+                os.makedirs(savepath + 'Backups/')
+            import backupStarFunctions as bsf
+            backup_starlist = pd.read_csv(args.backupStarList)
+            backUpObservability = pd.read_csv(args.backupStarObservability)
+            backups = bsf.get_stars_for_tonight(backup_starlist, backUpObservability,
+                    args.schedule_dates[0][5:], minimumUpTime=4.0)
+            backups.drop(columns='index', inplace=True)
+            subsetBackups = bsf.get_times_worth(backups, 1.0)
+
+            send_to_ttp_all = pd.concat([send_to_ttp, subsetBackups], ignore_index=True)
+            send_to_ttp_all.to_csv(filename, index=False)
+            filename_backups = savepath + '/Backups_' + str(args.schedule_dates[n]) + ".txt"
+            backups_full = bsf.get_times_worth(backups, total_time+1)
+            backups_full.to_csv(filename_backups, index=False)
+        else:
+            send_to_ttp.to_csv(filename, index=False)
+
+        target_list = formatting.theTTP(filename)
+
+        solution = model.TTPModel(observation_start_time, observation_stop_time, target_list,
+                                    observatory, savepath)
+
+        plotting.writeStarList(solution.plotly, observation_start_time, args.schedule_dates[n],
+                            outputdir=savepath)
+        plotting.plot_path_2D(solution,outputdir=savepath)
+        plotting.nightPlan(solution.plotly, args.schedule_dates[n], outputdir=savepath)
+
+        obs_and_times = pd.read_csv(savepath + 'ObserveOrder_' + str(args.schedule_dates[0]) + ".txt")
+        pf.write_starlist(request_frame, solution.plotly, observation_start_time, solution.extras,
+                            round_two_requests, str(args.schedule_dates[0]), savepath)
+
+        if os.path.exists(args.backupStarList) and os.path.exists(args.backupStarObservability):
+            print('Generating independent backup weather script.')
+            targlist_backups = formatting.theTTP(filename_backups)
+
+            solution_b = model.TTPModel(observation_start_time, observation_stop_time,
+                                        targlist_backups, observatory, savepath + "Backups/",
+                                        runtime=600, optgap=0.05)
+
+            plotting.writeStarList(solution_b.plotly, observation_start_time, args.schedule_dates[n],
+                                        outputdir=savepath + "Backups/")
+            plotting.plot_path_2D(solution_b,outputdir=savepath+ "Backups/")
+            plotting.nightPlan(solution_b.plotly, args.schedule_dates[n],
+                                        outputdir=savepath + "Backups/")
+
+            obs_and_times_b = pd.read_csv(savepath + 'Backups/ObserveOrder_' + \
+                                str(args.schedule_dates[0]) + ".txt")
+            # pf.write_starlist(backup_starlist,
+            #                     obs_and_times_b,
+            #                     solution_b.extras,
+            #                     [],
+            #                     'Backups',
+            #                     str(args.schedule_dates[0]),
+            #                     savepath + "Backups/")
+
+            pf.write_starlist(backup_starlist, solution_b.plotly, observation_start_time,
+                                solution_b.extras, [], str(args.schedule_dates[0]),
+                                savepath + "Backups/")
+
+    print("Semester is scheduled and script is generated. Complete.")
