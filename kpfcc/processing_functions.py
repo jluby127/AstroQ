@@ -10,6 +10,7 @@ import os
 from astropy.coordinates import Angle, SkyCoord
 import astropy.units as u
 from astropy.time import Time
+from astropy.time import TimeDelta
 import requests
 import re
 from bs4 import BeautifulSoup
@@ -141,15 +142,16 @@ def prepare_for_ttp(request_frame, night_plan, round_two_targets):
                           "Priority":priorities})
     return to_ttp
 
-def write_starlist(frame, stars_in_order, extras, filler_stars, current_day, outputdir):
+def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars, current_day,
+                    outputdir):
     """
     Generate the nightly script in the correct format.
 
     Args:
         frame (dataframe): the csv of PI requests for just the targets that were selected
                             to be observed tonight
-        stars_in_order (array): a 1D array of the names of the targets selected to be observed
-                                tonight, in the order they were selected to be observed by the TTP
+        solution_frame (dataframe): the solution to the TTP model.plotly
+        night_start_time (astropy time object): Beginning of observing interval
         extras (array): starnames of "extra" stars (those not fit into the script)
         filler_stars (array): star names of the stars added in the bonus round
         current_day (str): today's date in format YYYY-MM-DD
@@ -165,13 +167,21 @@ def write_starlist(frame, stars_in_order, extras, filler_stars, current_day, out
     print('Writing starlist to ' + script_file)
 
     lines = []
-    for i, item in enumerate(stars_in_order):
-        filler_flag = stars_in_order['Target'][i] in filler_stars
-        row = frame.loc[frame['Starname'] == stars_in_order['Target'][i]]
+    for i, item in enumerate(solution_frame['Starname']):
+        filler_flag = solution_frame['Starname'][i] in filler_stars
+        row = frame.loc[frame['Starname'] == solution_frame['Starname'][i]]
         row.reset_index(inplace=True)
         total_exptime += float(row['Nominal Exposure Time [s]'][0])
-        lines.append(format_kpf_row(row, stars_in_order['StartExposure'][i], current_day,
-                                    filler_flag = filler_flag))
+
+        start_exposure_hst = str(TimeDelta(solution_frame['Start Exposure'][i]*60,format='sec') + \
+                                                night_start_time)[11:16]
+        first_available_hst = str(TimeDelta(solution_frame['First Available'][i]*60,format='sec') + \
+                                                night_start_time)[11:16]
+        last_available_hst = str(TimeDelta(solution_frame['Last Available'][i]*60,format='sec') + \
+                                                night_start_time)[11:16]
+
+        lines.append(format_kpf_row(row, start_exposure_hst, first_available_hst, last_available_hst,
+                                    current_day, filler_flag = filler_flag))
 
     lines.append('')
     lines.append('X' * 45 + 'EXTRAS' + 'X' * 45)
@@ -194,7 +204,8 @@ def write_starlist(frame, stars_in_order, extras, filler_stars, current_day, out
         f.write('\n'.join(lines))
     print("Total Open Shutter Time Scheduled: " + str(np.round((total_exptime/3600),2)) + " hours")
 
-def format_kpf_row(row, obs_time, current_day, filler_flag = False, extra=False):
+def format_kpf_row(row, obs_time, first_available, last_available, current_day,
+                    filler_flag = False, extra=False):
     """
     Format request data in the specific way needed for the script (relates to the Keck "Magiq"
     software's data ingestion requirements).
@@ -203,6 +214,10 @@ def format_kpf_row(row, obs_time, current_day, filler_flag = False, extra=False)
         row (dataframe): a single row from the requests sheet dataframe
         obs_time (str): the timestamp of the night to begin the exposure according to the TTP.
                         In format HH:MM in HST timezone
+        first_available (str): the timestamp of the night where the star is first accessible.
+                                In format HH:MM in HST timezone.
+        last_available (str): the timestamp of the night where the star is last accessible.
+                                In format HH:MM in HST timezone.
         filler_flag (boolean): True of the target was added in the bonus round
         extra (boolean): is this an "extra" target
 
@@ -218,21 +233,6 @@ def format_kpf_row(row, obs_time, current_day, filler_flag = False, extra=False)
     if updated_dec[0] != "-":
         updated_dec = "+" + updated_dec
 
-    # print(updated_ra)
-    # print(updated_dec)
-    # #coord = SkyCoord(ra=row['RA'][0]*u.degree, dec=row['Dec'][0]*u.degree, frame='icrs')
-    # coord = SkyCoord(ra=updated_ra*u.degree, dec=updated_dec*u.degree, frame='icrs')
-    # temp = coord.to_string('hmsdms')
-    # radec = temp.split(' ')
-    # ra_h = radec[0][0:2]
-    # ra_m = radec[0][3:5]
-    # ra_s = radec[0][6:8]
-    # pm = radec[1][0]
-    # dec_h = radec[1][1:3]
-    # dec_m = radec[1][4:6]
-    # dec_s = radec[1][7:9]
-    # rastring = ra_h + " " + ra_m + " " + ra_s
-    # decstring = pm + dec_h + " " + dec_m + " " + dec_s
     namestring = ' '*(16-len(row['Starname'][0][:16])) + row['Starname'][0][:16]
 
     jmagstring = ('jmag=' + str(np.round(float(row['J Magnitude'][0]),1)) + ' '* \
@@ -272,7 +272,8 @@ def format_kpf_row(row, obs_time, current_day, filler_flag = False, extra=False)
     line = (namestring + ' ' + updated_ra + ' ' + updated_dec + ' ' + str(epochstr) + ' '
                 + jmagstring + ' ' + exposurestring + ' ' + ofstring + ' ' + scstring +  ' '
                 + numstring + ' '+ gmagstring + ' ' + teffstr + ' ' + gaiastring + ' CC '
-                        + priostring + ' ' + programstring + ' ' + timestring2)
+                        + priostring + ' ' + programstring + ' ' + timestring2 +
+                         ' ' + first_available  + ' ' + last_available )
 
     if not pd.isnull(row['Observing Notes'][0]):
         line += (' ' + str(row['Observing Notes'][0]))
