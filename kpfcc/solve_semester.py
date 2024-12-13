@@ -20,8 +20,8 @@ import pandas as pd
 import gurobipy as gp
 from gurobipy import GRB
 
-DIR_PATH = '/Users/jack/Documents/Github/optimalAllocation/kpfcc/'
-sys.path.append(DIR_PATH)
+DIR_PATH = '/Users/jack/Documents/Github/optimalAllocation/'
+sys.path.append(DIR_PATH + 'kpfcc/')
 # KPF-CC specific files
 import helper_functions as hf
 import twilight_functions as tw
@@ -140,7 +140,7 @@ def run_kpfcc(current_day,
 
     print("Compiling past observation history.")
     database_info_dict = {}
-    #pf.get_kpf_past_database(past_observations_file)
+    pf.get_kpf_past_database(past_observations_file)
     if os.path.exists(past_observations_file):
         print("Pulled database of past observations this semester.")
         database = pd.read_csv(past_observations_file)
@@ -255,7 +255,7 @@ def run_kpfcc(current_day,
 
     # Sample out future allocated nights to simulate weather loss based on empirical weather data.
     print("Sampling out weather losses")
-    historical_weather_data = pd.read_csv(DIR_PATH + "Maunakea_WeatherLossData.csv")
+    historical_weather_data = pd.read_csv(DIR_PATH + "data/maunakea_weather_loss_data.csv")
     loss_stats_remaining = []
     for i, item in enumerate(all_dates_array):
         ind = historical_weather_data.index[historical_weather_data['Date'] == \
@@ -620,7 +620,7 @@ def run_kpfcc(current_day,
                     first_stage_objval + epsilon)
         m.setObjective(gp.quicksum(slots_needed_for_exposure_dict[name]*Yrs[name,s]
                         for name in requests_frame['Starname']
-                        for s in range(n_slots_in_semester)),
+                        for s in available_indices_for_request[name]),
                         GRB.MAXIMIZE)
         m.update()
         m.optimize()
