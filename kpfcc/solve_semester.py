@@ -174,8 +174,6 @@ def run_kpfcc(current_day,
                 [most_recent_observation_date, unique_hst_dates_observed, quarter_observed, \
                 n_obs_on_date]
 
-    # print(database_info_dict['TOI-2470'])
-    # sys.exit()
     print("Determining slots needed for exposures.")
     # schedule multi-shots and multi-visits as if a single, long exposure.
     # When n_shots and n_visits are both 1, this reduces down to just the stated exposure time.
@@ -187,11 +185,10 @@ def run_kpfcc(current_day,
         slots_needed_for_exposure_dict[name] = \
             hf.slots_required_for_exposure(singlevisit*row['# Visits per Night'], slot_size)
 
-    # Sub-divide target list into only those that are more than 1 unique night of observations.
+    # Sub-divide target list into those that require >1 visit per night
     # Don't allow these requests to receive bonus observations.
     # Currently this is not implemented. - Jack Oct. 29, 2024
-    cadenced_targets = requests_frame[(requests_frame['# of Nights Per Semester'] > 1)]
-    cadenced_targets.reset_index(inplace=True)
+    intra_targets = list(requests_frame['Starname'][(requests_frame['# of Visits Per Night'] > 1)])
 
     print("Determine available slots in each night.")
     # available_slots_in_each_night is a 1D matrix of length nights n
@@ -334,17 +331,28 @@ def run_kpfcc(current_day,
             end = start + n_slots_in_night
             possible_open_slots = np.sum(allocation_map_1D[start:end]& \
                 twilight_map_remaining_flat[start:end]&access[start:end])
-
             if possible_open_slots < minimum_slots_required:
                 no_multi_visit_observations.append([0]*n_slots_in_night)
             else:
                 no_multi_visit_observations.append([1]*n_slots_in_night)
         no_multi_visit_observations = np.array(no_multi_visit_observations)
 
+        fit_within_night = np.array([1]*n_slots_in_semester)
+        observability = allocation_map_1D & twilight_map_remaining_flat
+        slots_needed = slots_needed_for_exposure_dict[name]
+        if slots_needed > 1:
+            for s in range(n_slots_in_semester - 1):
+                if observability[s] = 1 and observability[s+1] = 0:
+                    # The -1 is because target can be started if just fits before end of night
+                    for e in range(slots_needed - 1):
+                        fit_within_night[s - e] = 0
+
         # Construct the ultimate intersection of maps for the given request.
         # Define the slot indices that are available to the request for scheduling.
         available_slots_for_request[name] = allocation_map_1D & twilight_map_remaining_flat & \
-            nonqueue_map_file_slots_ints & access & custom_map & zero_out_map & respect_past_cadence
+            nonqueue_map_file_slots_ints & access & custom_map & zero_out_map & \
+            respect_past_cadence & fit_within_night
+
         available_indices_for_request[name] = np.where(available_slots_for_request[name] == 1)[0]
 
     # Define the tuples of request and available slot for each request.
@@ -425,26 +433,6 @@ def run_kpfcc(current_day,
                     continue
                 except:
                     print("Non-Key Error. Manually check: ", name, s)
-
-    print("Constraint: exposure can't start if it won't complete in the night.")
-    for d in range(n_nights_in_semester):
-        # The -1 so that we don't hit the end of the loop.
-        # Plus the last slot should never be allocated (alwasys during twilight), no need to test.
-        for s in range(n_slots_in_night - 1):
-            if allocation_map_2D[d][s] == 1 and allocation_map_2D[d][s+1] == 0:
-                for name in requests_frame['Starname']:
-                    slots_needed = slots_needed_for_exposure_dict[name]
-                    if slots_needed > 1:
-                        # The -1 is because target can be started if just fits before end of night
-                        for e in range(0, slots_needed-1):
-                            try:
-                                m.addConstr(Yrs[name,d*n_slots_in_night + s - e] == 0,
-                                    'mustCompleteWithinNight_' + name + "_" + \
-                                    str(s) + 's_' + str(e) + 'e')
-                            except KeyError:
-                                continue
-                            except:
-                                print("Non-Key Error. Manually check: ", name, s, e)
 
     print("Constraint: inter-night cadence of future observations.")
     for d in range(n_nights_in_semester):
