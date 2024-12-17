@@ -294,6 +294,7 @@ def write_available_human_readable(all_dates_dict, current_day, semester_length,
     # The past does not matter to us here, so specify the days/slots that are to be ignored.
     end_past = all_dates_dict[current_day]*n_slots_in_night
     combined_semester_schedule = ['']*semester_length*n_slots_in_night
+    combined_semester_schedule[0] = 'longwordhereformakingspace'
     for c in range(end_past):
         # for some reason when adding strings within an array, the max length of new string is the
         # length of the longest string in the whole array. So choosing an arbitrary long word
