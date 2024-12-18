@@ -140,7 +140,8 @@ def run_kpfcc(current_day,
 
     print("Compiling past observation history.")
     database_info_dict = {}
-    pf.get_kpf_past_database(past_observations_file)
+    past_observations_file = 'noname.txt'
+    #pf.get_kpf_past_database(past_observations_file)
     if os.path.exists(past_observations_file):
         print("Pulled database of past observations this semester.")
         database = pd.read_csv(past_observations_file)
@@ -188,7 +189,7 @@ def run_kpfcc(current_day,
     # Sub-divide target list into those that require >1 visit per night
     # Don't allow these requests to receive bonus observations.
     # Currently this is not implemented. - Jack Oct. 29, 2024
-    intra_targets = list(requests_frame['Starname'][(requests_frame['# of Visits Per Night'] > 1)])
+    intra_targets = list(requests_frame['Starname'][(requests_frame['# Visits per Night'] > 1)])
 
     print("Determine available slots in each night.")
     # available_slots_in_each_night is a 1D matrix of length nights n
@@ -342,7 +343,7 @@ def run_kpfcc(current_day,
         slots_needed = slots_needed_for_exposure_dict[name]
         if slots_needed > 1:
             for s in range(n_slots_in_semester - 1):
-                if observability[s] = 1 and observability[s+1] = 0:
+                if observability[s] == 1 and observability[s+1] == 0:
                     # The -1 is because target can be started if just fits before end of night
                     for e in range(slots_needed - 1):
                         fit_within_night[s - e] = 0
@@ -353,15 +354,57 @@ def run_kpfcc(current_day,
             nonqueue_map_file_slots_ints & access & custom_map & zero_out_map & \
             respect_past_cadence & fit_within_night
 
-        available_indices_for_request[name] = np.where(available_slots_for_request[name] == 1)[0]
+        # reshape into n_nights_in_semester by n_slots_in_night
+        available_slots_for_request[name] = np.reshape(available_slots_for_request[name],
+                                                    (n_nights_in_semester, n_slots_in_night))
+        nightly_available_slots = []
+        for d in range(len(available_slots_for_request[name])):
+             nightly_available_slots.append(list(np.where(available_slots_for_request[name][d] == 1)[0]))
+        available_indices_for_request[name] = nightly_available_slots
 
     # Define the tuples of request and available slot for each request.
     # This becomes the grid over which the Gurobi variables are defined.
     # Now, slots that were never possible for scheduling are not included in the model.
+    import pdb;pdb.set_trace()
     all_indices = []
-    for star in requests_frame['Starname']:
-        for a in available_indices_for_request[star]:
-            all_indices.append((star, a))
+    frame_keys = []
+    for n,row in requests_frame.iterrows():
+        name = row['Starname']
+        n_visits = int(row['# Visits per Night'])
+        slots_needed = slots_needed_for_exposure_dict[name]
+        for d in range(len(available_indices_for_request[name])):
+            for s in available_indices_for_request[name][d]:
+                all_indices.append((name, d, s))
+                frame_keys.append([name, d, s, n_visits, slots_needed])
+
+    frame = pd.DataFrame(frame_keys, columns =['r', 'd', 's', 'i', 'e'])
+
+
+    targ = 'TOI-2470'
+    print("HEREHEREHERHERHEREHERERHEREHRERHERE")
+    print(available_indices_for_request[targ])
+    print()
+    print()
+    print()
+
+    indices1 =  frame[(frame.r == targ)].index
+    indices2 =  frame[(frame.r == targ) & (frame.d == 1)].index
+
+    dspairs = []
+    for idx in indices1:
+        col1_value = frame.loc[idx, 'd']
+        col2_value = frame.loc[idx, 's']
+        dspairs.append((col1_value, col2_value))
+    print(dspairs)
+    print()
+    print()
+    print()
+
+    indices3 =  frame[(frame.i > 1)].index
+    unique_values = list(frame.loc[indices3, 'r'].unique())
+    print(unique_values)
+    sys.exit()
+
 
     # -------------------------------------------------------------------
     # -------------------------------------------------------------------
