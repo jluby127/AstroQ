@@ -32,7 +32,7 @@ parser.add_argument('-r','--run_extra_rounds', help='Run the bonus round', actio
 parser.add_argument('-t','--timeout', help='Max time spent optimizing (sec)',type=int, default=300)
 parser.add_argument('-s','--slot_size', help='The slot size (minutes)', type=int, default=10)
 parser.add_argument('-w','--dont_run_weather_loss', help='If True, do not simulate weather losses', default=True)
-parser.add_argument('-ttp','--run_ttp', help='If True, run the TTP.', default=True)
+parser.add_argument('-ttp','--run_ttp', help='If True, run the TTP.', action='store_false')
 parser.add_argument('-g','--show_gurobi', help='Turn on Gurobi console print', action='store_false')
 parser.add_argument('-p','--show_plots', help='Turn on plot outputs', action='store_false')
 parser.add_argument('-b','--run_backups', help='Turn on plot outputs', action='store_true')
