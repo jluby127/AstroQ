@@ -463,7 +463,8 @@ def run_kpfcc(current_day,
         available_days = sf.get_Dr(group_frame, name)
         for d in available_days:
             slots = sf.get_Srd(group_frame, name, d)
-            m.addConstr((gp.quicksum(Yrs[name,d,s] for s in slots) <= visits),
+            # m.addConstr((gp.quicksum(Yrs[name,d,s] for s in slots) <= visits),
+            m.addConstr((gp.quicksum(Yrs[name,d,s] for s in slots) <= 1),
                         'max_observations_per_night_' + name + "_" + str(d) + "d_" + str(s) + "s")
 
     print("Constraint 4: Enforce inter-night cadence.")
