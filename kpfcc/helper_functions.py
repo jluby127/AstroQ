@@ -215,14 +215,15 @@ def write_stars_schedule_human_readable(combined_semester_schedule, Yns, starnam
         # buffer the past with zeros
         for p in range(end_past):
             star_schedule.append(0)
-        for s in range(n_slots_in_semester):
-            try:
-                value = int(np.round(Yns[name, s].x))
-            except KeyError:
-                value = 0.0
-            except:
-                print("Error: helper_functions.py line 224")
-            star_schedule.append(value)
+        for d in range(n_nights_in_semester):
+            for s in range(n_slots_in_night):
+                try:
+                    value = int(np.round(Yns[name, d, s].x))
+                except KeyError:
+                    value = 0.0
+                except:
+                    print("Error: helper_functions.py line 224")
+                star_schedule.append(value)
         all_star_schedules[name] = star_schedule
 
     combined_semester_schedule = combined_semester_schedule.flatten()
