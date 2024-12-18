@@ -141,8 +141,8 @@ def run_kpfcc(current_day,
 
     print("Compiling past observation history.")
     database_info_dict = {}
-    past_observations_file = 'noname.txt'
-    #pf.get_kpf_past_database(past_observations_file)
+    # past_observations_file = 'noname.txt'
+    # pf.get_kpf_past_database(past_observations_file)
     if os.path.exists(past_observations_file):
         print("Pulled database of past observations this semester.")
         database = pd.read_csv(past_observations_file)
@@ -409,15 +409,18 @@ def run_kpfcc(current_day,
     # -------------------------------------------------------------------
 
     print("Constraint 0: Build theta variable")
-    max_bonus_observations_pct = 0.25
+    max_bonus_observations_pct = 0.5
+    max_bonus_observations = 10
     for t,row in requests_frame.iterrows():
         name = row['Starname']
         if database_info_dict == {}:
             past_nights_observed = 0
         else:
             past_nights_observed = len(database_info_dict[name][1])
-        shortfall = row['# of Nights Per Semester'] - past_nights_observed + \
-                            int(row['# of Nights Per Semester']*max_bonus_observations_pct)
+
+        # shortfall = row['# of Nights Per Semester'] - past_nights_observed + \
+        #                     int(row['# of Nights Per Semester']*max_bonus_observations_pct)
+        shortfall = row['# of Nights Per Semester'] - past_nights_observed + max_bonus_observations
         m.addConstr(theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
 
         available = sf.get_Sr(group_frame, name)
@@ -425,7 +428,7 @@ def run_kpfcc(current_day,
                     gp.quicksum(Yrs[name, d, s] for d,s in available)),
                     'greater_than_nobs_shortfall_' + str(name))
         m.addConstr(gp.quicksum(Yrs[name, d, s] for d,s in available) <=
-                    shortfall, 'max_unique_nights_for_request' + str(name))
+                    shortfall, 'max_unique_nights_for_request_' + str(name))
 
     print('Defining available slots.')
     tds_yes, tds_no = sf.get_Tds(group_frame, n_nights_in_semester, n_slots_in_night)
@@ -603,9 +606,8 @@ def run_kpfcc(current_day,
         m.params.MIPGap = 0.05
         m.addConstr(gp.quicksum(theta[name] for name in requests_frame['Starname']) <= \
                     first_stage_objval + epsilon)
-        m.setObjective(gp.quicksum(slots_needed_for_exposure_dict[name]*Yrs[name,s]
-                        for name in requests_frame['Starname']
-                        for s in available_indices_for_request[name]),
+        m.setObjective(gp.quicksum(slots_needed_for_exposure_dict[r]*Yrs[r,d,s]
+                        for r, d, s in Aset),
                         GRB.MAXIMIZE)
         m.update()
         m.optimize()
