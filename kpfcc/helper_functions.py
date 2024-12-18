@@ -222,7 +222,7 @@ def write_stars_schedule_human_readable(combined_semester_schedule, Yns, starnam
                 except KeyError:
                     value = 0.0
                 except:
-                    print("Error: helper_functions.py line 224")
+                    print("Error: helper_functions.py line 224: ", name, d, s)
                 star_schedule.append(value)
         all_star_schedules[name] = star_schedule
 
