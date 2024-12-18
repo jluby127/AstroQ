@@ -15,7 +15,7 @@ import helper_functions as hf
 import plotting_functions as ptf
 import processing_functions as pf
 
-sys.path.append(os.environ["TTP_PATH"])# + "ttp/")
+sys.path.append(os.environ["TTP_PATH"] + "ttp/")
 import formatting
 import telescope
 import plotting

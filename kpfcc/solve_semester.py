@@ -140,7 +140,8 @@ def run_kpfcc(current_day,
 
     print("Compiling past observation history.")
     database_info_dict = {}
-    pf.get_kpf_past_database(past_observations_file)
+    past_observations_file = 'nonametesting.txt'
+    #pf.get_kpf_past_database(past_observations_file)
     if os.path.exists(past_observations_file):
         print("Pulled database of past observations this semester.")
         database = pd.read_csv(past_observations_file)
