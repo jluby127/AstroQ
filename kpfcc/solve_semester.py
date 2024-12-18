@@ -418,17 +418,25 @@ def run_kpfcc(current_day,
         else:
             past_nights_observed = len(database_info_dict[name][1])
 
-        # shortfall = row['# of Nights Per Semester'] - past_nights_observed + \
-        #                     int(row['# of Nights Per Semester']*max_bonus_observations_pct)
-        shortfall = row['# of Nights Per Semester'] - past_nights_observed + max_bonus_observations
-        m.addConstr(theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
+        # Safety valve for if the target is over-observed for any reason
+        # Example: a cadence target that is also an RM target will have many more past
+        # observations than is requested.
+        # When we move over to parsing the Keck database for a unique request ID, instead of
+        # parsing the Jump database on non-unique star name, this can be removed.
+        if past_nights_observed > (row['# of Nights Per Semester'] + max_bonus_observations)
+            true_max_obs = past_nights_observed
+        else:
+            true_max_obs = (row['# of Nights Per Semester'] - past_nights_observed) + \
+                                int(row['# of Nights Per Semester']*max_bonus_observations_pct)
+            # true_max_obs = (row['# of Nights Per Semester'] - past_nights_observed) + max_bonus_observations
 
+        m.addConstr(theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
         available = sf.get_Sr(group_frame, name)
         m.addConstr(theta[name] >= ((row['# of Nights Per Semester'] - past_nights_observed) -
                     gp.quicksum(Yrs[name, d, s] for d,s in available)),
                     'greater_than_nobs_shortfall_' + str(name))
         m.addConstr(gp.quicksum(Yrs[name, d, s] for d,s in available) <=
-                    shortfall, 'max_unique_nights_for_request_' + str(name))
+                    true_max_obs, 'max_unique_nights_for_request_' + str(name))
 
     print('Defining available slots.')
     tds_yes, tds_no = sf.get_Tds(group_frame, n_nights_in_semester, n_slots_in_night)
