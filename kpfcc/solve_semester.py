@@ -423,7 +423,8 @@ def run_kpfcc(current_day,
         # observations than is requested.
         # When we move over to parsing the Keck database for a unique request ID, instead of
         # parsing the Jump database on non-unique star name, this can be removed.
-        if past_nights_observed > (row['# of Nights Per Semester'] + max_bonus_observations)
+        if past_nights_observed > row['# of Nights Per Semester'] + \
+                                    int(row['# of Nights Per Semester']*max_bonus_observations_pct):
             true_max_obs = past_nights_observed
         else:
             true_max_obs = (row['# of Nights Per Semester'] - past_nights_observed) + \
@@ -555,6 +556,7 @@ def run_kpfcc(current_day,
     print("Sum of Theta: " + str(counter))
     filename.write("Sum of Theta: " + str(counter) + "\n")
 
+    plot_results = False
     if plot_results:
         print("Writing cadence plot files.")
         turn_on_off_frame = pd.read_csv(turn_off_on_file)
