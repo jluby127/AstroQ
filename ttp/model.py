@@ -121,6 +121,8 @@ class TTPModel(object):
                     print('Target {} does not meet observability requirements'.format(s.name))
                     te.append(0)
                     tl.append(0)
+            s.te = te[-1]
+            s.tl = tl[-1]
 
         self.te = np.array(te)
         self.tl = np.array(tl)
@@ -353,6 +355,8 @@ class TTPModel(object):
         num_scheduled = 0
         scheduled_targets = []
         extras = []
+        extra_rises = []
+        extra_sets = []
         for i in range(self.N)[1:-1]:
             # Parsing Gurobi variables is difficult. We retrieve each variable
             # by its internal gurobi name using the node index
@@ -365,7 +369,15 @@ class TTPModel(object):
             else:# np.round(Yvar.X,0) == 0:
                 s = self.stars[self.node_to_star[i]].name
                 extras.append(s)
-        self.extras = {'Starname':extras}
+                first_available_minutes_from_start = self.stars[self.node_to_star[i]].te
+                last_available_minutes_from_start = self.stars[self.node_to_star[i]].tl
+                t1 = Time(self.nightstarts.jd + first_available_minutes_from_start/(24*60),format='jd') - TimeDelta(60*self.stars[self.node_to_star[i]].expwithreadout,format='sec')
+                t2 = Time(self.nightstarts.jd + last_available_minutes_from_start/(24*60),format='jd')
+                extra_rises.append(str(t1.isot)[11:16])
+                extra_sets.append(str(t2.isot)[11:16])
+                # extra_rises.append('00:00')
+                # extra_sets.append('00:00')
+        self.extras = {'Starname':extras, 'First Available':extra_rises, 'Last Available':extra_sets}
         self.num_scheduled = num_scheduled
 
         # Retrieve slew times for statistics
