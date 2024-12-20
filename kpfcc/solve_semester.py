@@ -141,7 +141,7 @@ def run_kpfcc(current_day,
 
     print("Compiling past observation history.")
     database_info_dict = {}
-    # past_observations_file = 'noname.txt'
+    past_observations_file = 'nonametesting.txt'
     # pf.get_kpf_past_database(past_observations_file)
     if os.path.exists(past_observations_file):
         print("Pulled database of past observations this semester.")
@@ -383,7 +383,7 @@ def run_kpfcc(current_day,
     Aframe['rr'] = Aframe['r']
     Aframe['dd'] = Aframe['d']
     Aframe['ss'] = Aframe['s']
-    group_frame = Aframe.groupby(['rr','dd','ss']).first()
+    group_frame = Aframe #Aframe.groupby(['rr','dd','ss']).first()
 
     # -------------------------------------------------------------------
     # -------------------------------------------------------------------
