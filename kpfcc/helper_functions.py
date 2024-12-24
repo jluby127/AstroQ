@@ -250,7 +250,7 @@ def write_stars_schedule_human_readable(combined_semester_schedule, Yns, starnam
                                 target_name
     for m in range(len(combined_semester_schedule)):
         # convert the holder string to meaningful string
-        if combined_semester_schedule[m][0] == 'supercalifragilisticexpialidocious':
+        if combined_semester_schedule[m][1] == 'supercalifragilisticexpialidocious':
             for l in range(len(combined_semester_schedule[m])):
                 combined_semester_schedule[m][l] = 'Past'
     return combined_semester_schedule

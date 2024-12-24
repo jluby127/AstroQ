@@ -41,7 +41,7 @@ args = parser.parse_args()
 
 request_sheet = args.folder + "inputs/Requests.csv"
 allocated_nights = args.folder + "inputs/2024B_Binary_Schedule.txt"
-past_database = args.folder + "inputs/queryJumpDatabase.csv"
+past_database = args.folder + "nopasthistoryplease.txt" #"inputs/queryJumpDatabase.csv"
 twilight_times = args.folder + "inputs/2024B_twilight_times.csv"
 access_map = args.folder + "inputs/2024B_AccessMaps_" + str(args.slot_size) + "minSlots.txt"
 turn_on_off_file = args.folder + "inputs/2024B_turnOnOffDates.csv"
