@@ -120,7 +120,6 @@ def prepare_for_ttp(request_frame, night_plan, round_two_targets):
     cadences = []
     priorities = []
     for j, item in enumerate(selected_stars):
-        # idx = request_frame[request_frame['Starname'] == str(selected_stars[j])].index[0]
         idx = request_frame.index[request_frame['Starname']==str(selected_stars[j])][0]
         starnames.append(str(request_frame['Starname'][idx]))
         ras.append(request_frame['RA'][idx])
@@ -175,12 +174,12 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
 
         start_exposure_hst = str(TimeDelta(solution_frame['Start Exposure'][i]*60,format='sec') + \
                                                 night_start_time)[11:16]
-        first_available_hst = str(TimeDelta(solution_frame['First Available'][i]*60,format='sec') + \
+        first_available_hst = str(TimeDelta(solution_frame['First Available'][i]*60,format='sec')+ \
                                                 night_start_time)[11:16]
         last_available_hst = str(TimeDelta(solution_frame['Last Available'][i]*60,format='sec') + \
                                                 night_start_time)[11:16]
 
-        lines.append(format_kpf_row(row, start_exposure_hst, first_available_hst, last_available_hst,
+        lines.append(format_kpf_row(row, start_exposure_hst, first_available_hst,last_available_hst,
                                     current_day, filler_flag = filler_flag))
 
     lines.append('')
@@ -252,8 +251,10 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
     scstring = 'sc=' + scval
 
     numstring = str(int(row['# of Exposures per Visit'][0])) + "x"
-    gmagstring = 'gmag=' + str(np.round(float(row['G Magnitude'][0]),1)) + ' '*(4-len(str(np.round(row['G Magnitude'][0],1))))
-    teffstr = 'Teff=' + str(int(row['Effective Temperature [Kelvin]'][0])) + ' '*(4-len(str(int(row['Effective Temperature [Kelvin]'][0]))))
+    gmagstring = 'gmag=' + str(np.round(float(row['G Magnitude'][0]),1)) + \
+                                                ' '*(4-len(str(np.round(row['G Magnitude'][0],1))))
+    teffstr = 'Teff=' + str(int(row['Effective Temperature [Kelvin]'][0])) + \
+                                    ' '*(4-len(str(int(row['Effective Temperature [Kelvin]'][0]))))
 
     gaiastring = str(row['GAIA Identifier'][0]) + ' '*(25-len(str(row['GAIA Identifier'][0])))
     programstring = row['Program_Code'][0]
