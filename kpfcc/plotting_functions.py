@@ -138,6 +138,7 @@ class DataHandler:
                         int(self.requests['# Visits per Night'][index])
         total_observations_requested = expected_nobs_per_night * \
                         int(self.requests['# of Nights Per Semester'][index])
+
         return expected_nobs_per_night, total_observations_requested, exposure_time, slots_per_night, \
                 program
 
@@ -255,6 +256,7 @@ def single_request_cof(data_handler, star):
             counter += observations_future[data_handler.all_dates_array[i]]
         running_total_obs_counter.append(counter)
         running_total_obs_percent.append(np.round((counter/total_observations_requested)*100))
+
     return running_total_obs_counter, running_total_obs_percent, total_observations_requested, \
             first_forecast
 
