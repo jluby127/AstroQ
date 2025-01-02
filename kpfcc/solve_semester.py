@@ -32,7 +32,7 @@ import set_functions as sf
 
 import line_profiler
 
-#@profile
+# @profile
 def run_kpfcc(current_day,
                requests_file,
                allocation_file,
@@ -459,61 +459,50 @@ def run_kpfcc(current_day,
     Aset_ds_no_duplicates = Aframe.copy()
     Aset_ds_no_duplicates = Aframe.drop_duplicates(subset=['d', 's'])
     # Construct the constraint
-    for i, item in Aset_ds_no_duplicates.iterrows():
-        r = Aset_ds_no_duplicates.r[i]
-        d = Aset_ds_no_duplicates.d[i]
-        s = Aset_ds_no_duplicates.s[i]
-        requests_valid_in_slot = list(ds_requests.loc[(d, s)])[0]
-        m.addConstr((gp.quicksum(Yrds[name,d,s] for name in requests_valid_in_slot) <= 1),
-                        'one_request_per_slot_' + str(d) + "d_" + str(s) + "s")
+    for i, row in Aset_ds_no_duplicates.iterrows():
+        requests_valid_in_slot = list(ds_requests.loc[(row.d, row.s)])[0]
+        m.addConstr((gp.quicksum(Yrds[name,row.d,row.s] for name in requests_valid_in_slot) <= 1),
+                        'one_request_per_slot_' + str(row.d) + "d_" + str(row.s) + "s")
 
     print("Constraint 2: Reserve slots for for multi-slot exposures.")
     # Get all requests that are  valid in (d,s) pair
     requests_valid_in_slot = Aframe.groupby(['d','s'])[['rr', 'dd', 'ss']].agg(list)
     # If request requires only 1 slot to complete, then no constraint on reserving additional slots
     Aframe_multislots = Aframe[Aframe.e > 1]
-    for i, item in Aframe_multislots.iterrows():
-        r = Aframe_multislots.r[i]
-        d = Aframe_multislots.d[i]
-        s = Aframe_multislots.s[i]
-        slots_needed = Aframe_multislots.e[i]
+    for i, row in Aframe_multislots.iterrows():
         # construct list of (r,d,s) indices to be constrained. These are all requests that are
         # valid in slots (d, s+1) through (d, s + e)
         # Ensuring slot (d, s) is not double filled already taken care of in Constraint 1.
         all_reserved_slots = []
-        for e in range(1, slots_needed):
+        for e in range(1, row.e):
             try:
-                forbid = list(requests_valid_in_slot.loc[(d, s+e)])[0]
-                days = [d]*len(forbid)
-                slots = [s+e]*len(forbid)
+                forbid = list(requests_valid_in_slot.loc[(row.d, row.s+row.e)])[0]
+                days = [row.d]*len(forbid)
+                slots = [row.s+row.e]*len(forbid)
                 all_reserved_slots.extend(list(zip(forbid, days, slots)))
             except:
                 # the (d,s) pair has no valid/possible requests
                 continue
-        m.addConstr((slots_needed*(1 - Yrds[r,d,s])) >= gp.quicksum(Yrds[c]
+        m.addConstr((row.e*(1 - Yrds[row.r,row.d,row.s])) >= gp.quicksum(Yrds[c]
                                                         for c in all_reserved_slots),
-                                    'reserve_multislot_' + r + "_" + str(d) + "d_" + str(s) + "s")
+                        'reserve_multislot_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
 
     print("Constraint 3: Schedule request's maximum observations per night.")
     # Get all valid slots s for request r on day d
     aframe_slots_on_day = pd.merge(
         Aframe.drop_duplicates(['r','d',]),
-        Aframe[['r','d','s']], #
+        Aframe[['r','d','s']],
         suffixes=['','2'],on=['r']
     ).query('d == d2')
     slots_on_day = aframe_slots_on_day.groupby(['r','d'])[['s2']].agg(list)
     unique_request_day_pairs = Aframe.drop_duplicates(['r','d'])
     # Build the constraint
-    for i, item in unique_request_day_pairs.iterrows():
-        r = unique_request_day_pairs.r[i]
-        d = unique_request_day_pairs.d[i]
-        visits = unique_request_day_pairs.v[i]
-        constrained_slots_tonight = np.array(slots_on_day.loc[(r, d)][0])
-        m.addConstr((gp.quicksum(Yrds[r,d,ss] for ss in constrained_slots_tonight) <= visits),
-                    'max_observations_per_night_' + name + "_" + str(d) + "d_" + str(s) + "s")
+    for i, row in unique_request_day_pairs.iterrows():
+        constrained_slots_tonight = np.array(slots_on_day.loc[(row.r, row.d)][0])
+        m.addConstr((gp.quicksum(Yrds[row.r,row.d,ss] for ss in constrained_slots_tonight) <= row.v),
+                'max_observations_per_night_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
 
     print("Constraint 4: Enforce inter-night cadence.")
-    # Get all
     aframe_intercadence = pd.merge(
         Aframe.drop_duplicates(['r','d',]),
         Aframe[['r','d','s']], #
@@ -533,19 +522,15 @@ def run_kpfcc(current_day,
     # is superfluous since we are summing over tonight's slots
     Aset_inter_no_duplicates = Aset_inter.copy()
     Aset_inter_no_duplicates = Aset_inter_no_duplicates.drop_duplicates(subset=['r', 'd'])
-    for i, item in Aset_inter_no_duplicates.iterrows():
-        r = Aset_inter.r[i]
-        d = Aset_inter.d[i]
-        s = Aset_inter.s[i]
-        visits = Aset_inter.v[i]
-        constrained_slots_tonight = np.array(slots_on_day.loc[(r, d)][0])
+    for i, row in Aset_inter_no_duplicates.iterrows():
+        constrained_slots_tonight = np.array(slots_on_day.loc[(row.r, row.d)][0])
         # Get all slots for pair (r, d) where valid
-        if (r, d) in intercadence.index:
-            slots_to_constrain_future = intercadence.loc[(r, d)]
+        if (row.r, row.d) in intercadence.index:
+            slots_to_constrain_future = intercadence.loc[(row.r, row.d)]
             ds_pairs = list(zip(slots_to_constrain_future.d2, slots_to_constrain_future.s2))
-            m.addConstr((gp.quicksum(Yrds[r,d,s2] for s2 in constrained_slots_tonight)/visits <= \
-                            (1 - (gp.quicksum(Yrds[r,d3,s3] for d3, s3 in ds_pairs)))), \
-                            'enforce_internight_cadence_' + r + "_" + str(d) + "d_" + str(s) + "s")
+            m.addConstr((gp.quicksum(Yrds[row.r,row.d,s2] for s2 in constrained_slots_tonight)/row.v \
+                 <= (1 - (gp.quicksum(Yrds[row.r,d3,s3] for d3, s3 in ds_pairs)))), \
+                'enforce_internight_cadence_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
         else:
             # For request r, there are no (d,s) pairs that are within "inter cadence" days of the
             # given day d, therefore nothing to constrain. If I can find a way to filter out these
