@@ -469,6 +469,7 @@ def run_kpfcc(current_day,
     requests_valid_in_slot = Aframe.groupby(['d','s'])[['rr', 'dd', 'ss']].agg(list)
     # If request requires only 1 slot to complete, then no constraint on reserving additional slots
     Aframe_multislots = Aframe[Aframe.e > 1]
+    count = 0
     for i, row in Aframe_multislots.iterrows():
         # construct list of (r,d,s) indices to be constrained. These are all requests that are
         # valid in slots (d, s+1) through (d, s + e)
@@ -476,16 +477,18 @@ def run_kpfcc(current_day,
         all_reserved_slots = []
         for e in range(1, row.e):
             try:
-                forbid = list(requests_valid_in_slot.loc[(row.d, row.s+row.e)])[0]
+                forbid = list(requests_valid_in_slot.loc[(row.d, row.s+e)])[0]
                 days = [row.d]*len(forbid)
-                slots = [row.s+row.e]*len(forbid)
+                slots = [row.s+e]*len(forbid)
                 all_reserved_slots.extend(list(zip(forbid, days, slots)))
             except:
-                # the (d,s) pair has no valid/possible requests
+                count += 1
+                # the (d,s) pair that is within e slots of the original slot has no valid/possible requests
                 continue
         m.addConstr((row.e*(1 - Yrds[row.r,row.d,row.s])) >= gp.quicksum(Yrds[c]
                                                         for c in all_reserved_slots),
                         'reserve_multislot_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
+    print("Entered except on " + str(count) + " of " + str(len(Aframe_multislots)) + " loops.")
 
     print("Constraint 3: Schedule request's maximum observations per night.")
     # Get all valid slots s for request r on day d

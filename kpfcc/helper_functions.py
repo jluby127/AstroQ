@@ -239,6 +239,7 @@ def write_stars_schedule_human_readable(combined_semester_schedule, Yns, starnam
     # The semester solver puts a 1 only in the slot that starts the exposure for a target.
     # Therefore, many slots are empty because they are part of a multi-slot visit.
     # Here fill in the multi-slot exposures appropriately for ease of human reading and accounting.
+    starnames = list(starnames)
     for n in range(n_nights_in_semester-1-all_dates_dict[current_day], -1, -1):
         for s in range(n_slots_in_night-1, -1, -1):
             if combined_semester_schedule[n+all_dates_dict[current_day]][s] in starnames:
