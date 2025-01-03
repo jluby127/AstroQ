@@ -11,8 +11,8 @@ import warnings
 warnings.filterwarnings('ignore')
 import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__))[:-3] + "kpfcc/")
-import mappingFunctions as mf
-import helperFunctions as hf
+import mapping_functions as mf
+import helper_functions as hf
 
 import argparse
 parser = argparse.ArgumentParser(description='Generate schedules with KPF-CC v2')
@@ -42,7 +42,7 @@ args = parser.parse_args()
 # --- The set of PI requests for cadenced queue observations, downloaded from the Request Submission Webform
 # --- The set of PI requests for time-sensitive non-queue observations, downloaded from the Request Submission Webform which include start/stop times for the event windows
 
-allocation = mf.reformatKeckAllocationData(args.folder + args.AllocationFile)
+allocation = mf.format_keck_allocation_info(args.folder + args.AllocationFile)
 nonqueues = pd.read_csv(args.folder + args.NonQueueFile)
 requests = pd.read_csv(args.folder + args.RequestFile)
 
@@ -59,7 +59,7 @@ t2 = Time(start_date + "T" + slotEndTimestamp, format='isot', scale='utc')
 t2 += 1
 time_diff = t2 - t1
 nHoursInNight = round(abs(time_diff.to('hour').value),0)
-junk1, junk2, junk3, semesterYear, semesterLetter = hf.getSemesterInfo(start_date)
+junk1, junk2, junk3, semesterYear, semesterLetter = hf.get_semester_info(start_date)
 semester = str(semesterYear) + semesterLetter
 
 print("Preparing meta data. ")
@@ -97,14 +97,14 @@ if args.optimalAllocation == False:
         elif np.sum(datemask) == 1:
             # for night where only one program is allocated (regardless of length of allocation)
             oneNight.reset_index(inplace=True)
-            map1 = mf.translator(oneNight['Start'][0], oneNight['Stop'][0])
+            map1 = mf.quarter_translator(oneNight['Start'][0], oneNight['Stop'][0])
             map2 = [int(map1[0]), int(map1[2]), int(map1[4]), int(map1[6])]
             uniqueDays += 1
         elif np.sum(datemask) >= 1:
             # for night where multiple programs are allocated (regardless of their lengths)
             oneNight.reset_index(inplace=True)
             last = len(oneNight)
-            map1 = mf.translator(oneNight['Start'][0], oneNight['Stop'][last-1])
+            map1 = mf.quarter_translator(oneNight['Start'][0], oneNight['Stop'][last-1])
             map2 = [int(map1[0]), int(map1[2]), int(map1[4]), int(map1[6])]
             uniqueDays += 1
         else:
@@ -123,7 +123,6 @@ if args.optimalAllocation == False:
         line = all_dates[a] + " : " + str(allocationMap[a])
         file.write(str(line) + "\n")
     file.close()
-
 
     # Produce and write the start and stop times of each night to file.
     # For the TTP.
@@ -218,7 +217,7 @@ for s in range(len(slotsizes)):
     print("Computing for " + str(slotsizes[s]) + " minute slots.")
     for n,row in requests.iterrows():
         print("Calculating access map for: ", row['Starname'])
-        access_map, turnonoff = mf.singleTargetAccessible(row['Starname'], row['RA'], row['Dec'], start_date, nNightsInSemester, slotsizes[s], turnonoff=True)
+        access_map, turnonoff = mf.build_single_target_accessibility(row['Starname'], row['RA'], row['Dec'], start_date, nNightsInSemester, slotsizes[s], compute_turn_on_off=True)
 
         flat_access_map = np.array(access_map).flatten()
         #all_maps[row['Starname']] = access_map
@@ -283,12 +282,12 @@ for s in range(len(slotsizes)):
 
     onedaymap_str_all = []
     for i in range(len(nonqueues)):
-        starttime = mf.convertUTC2HST(nonqueues['Start'][i][11:16])
-        endtime = mf.convertUTC2HST(nonqueues['Stop'][i][11:16])
+        starttime = mf.convert_utc_to_hst(nonqueues['Start'][i][11:16])
+        endtime = mf.convert_utc_to_hst(nonqueues['Stop'][i][11:16])
 
-        startRound = mf.roundToSlot(starttime, slotsizes[s])
+        startRound = mf.round_time_to_slot(starttime, slotsizes[s])
         startRounds.append(startRound)
-        endRound = mf.roundToSlot(endtime, slotsizes[s])
+        endRound = mf.round_time_to_slot(endtime, slotsizes[s])
         endRounds.append(endRound)
 
         startSlot = slot2time.index(startRound)
