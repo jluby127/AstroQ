@@ -23,6 +23,7 @@ parser.add_argument('-f','--folder', help='Folder to save all outputs',
 parser.add_argument('-a','--run_scheduler', help='Turn off the autoscheduler', action='store_false')
 parser.add_argument('-p','--run_plots', help='Turn off the plotting', action='store_false')
 parser.add_argument('-ttp','--run_ttp', help='Turn off the TTP.', action='store_false')
+parser.add_argument('-e','--exclude_history', help='Do not parse past observing history', default=True)
 
 parser.add_argument('-r','--run_extra_rounds', help='Run the bonus round', action='store_true')
 parser.add_argument('-t','--timeout', help='Max time spent optimizing (sec)',type=int, default=300)
@@ -35,7 +36,7 @@ args = parser.parse_args()
 # files for semester solver
 request_sheet = args.folder + "inputs/Requests.csv"
 allocated_nights = args.folder + "inputs/2024B_Binary_Schedule.txt"
-past_database = args.folder + "nopasthistoryplease.txt" #"inputs/queryJumpDatabase.csv"
+past_database = args.folder + "inputs/queryJumpDatabase.csv"
 twilight_times = args.folder + "inputs/2024B_twilight_times.csv"
 access_map = args.folder + "inputs/2024B_AccessMaps_" + str(args.slot_size) + "minSlots.txt"
 special_map = args.folder + 'inputs/2024B_specialMaps_' + str(args.slot_size) + 'minSlots.txt'
@@ -72,6 +73,7 @@ if args.run_scheduler:
                               special_map,
                               zero_out_file,
                               args.run_weather_loss,
+                              args.exclude_history,
                               args.show_gurobi,
                               args.run_plots,
                               args.timeout)

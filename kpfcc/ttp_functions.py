@@ -17,7 +17,7 @@ from astropy.time import TimeDelta
 import gurobipy as gp
 from gurobipy import GRB
 
-sys.path.append(os.environ["TTP_PATH"] + "ttp/")
+sys.path.append(os.environ["TTP_PATH"])
 import formatting
 import telescope
 import plotting

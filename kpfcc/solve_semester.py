@@ -30,8 +30,7 @@ import processing_functions as pf
 import mapping_functions as mf
 import set_functions as sf
 
-import line_profiler
-
+# import line_profiler
 # @profile
 def run_kpfcc(current_day,
                requests_file,
@@ -48,6 +47,7 @@ def run_kpfcc(current_day,
                special_map_file,
                zero_out_file,
                run_weather_loss,
+               exclude_history,
                gurobi_output = True,
                plot_results = True,
                solve_time_limit = 300):
@@ -144,8 +144,8 @@ def run_kpfcc(current_day,
 
     print("Compiling past observation history.")
     database_info_dict = {}
-    # pf.get_kpf_past_database(past_observations_file)
-    if os.path.exists(past_observations_file):
+    if os.path.exists(past_observations_file) and exclude_history == True:
+        pf.get_kpf_past_database(past_observations_file)
         print("Pulled database of past observations this semester.")
         database = pd.read_csv(past_observations_file)
         for i in range(len(requests_frame['Starname'])):
@@ -677,9 +677,9 @@ def run_kpfcc(current_day,
         m.params.TimeLimit = solve_time_limit
         m.Params.OutputFlag = gurobi_output
         m.params.MIPGap = 0.05
-        m.addConstr(gp.quicksum(theta[name] for name in requests_frame['Starname']) <= \
+        m.addConstr(gp.quicksum(theta[name] for name in schedulable_requests) <= \
                     first_stage_objval + epsilon)
-        m.setObjective(gp.quicksum(slots_needed_for_exposure_dict[r]*Yrs[r,d,s]
+        m.setObjective(gp.quicksum(slots_needed_for_exposure_dict[r]*Yrds[r,d,s]
                         for r, d, s in Aset),
                         GRB.MAXIMIZE)
         m.update()
@@ -705,7 +705,7 @@ def run_kpfcc(current_day,
             np.round(complete_round2_model-start_the_clock,3))
 
         combined_semester_schedule_stars = hf.write_stars_schedule_human_readable(
-                combined_semester_schedule_available, Yrs, requests_frame['Starname'],
+                combined_semester_schedule_available, Yrds, requests_frame['Starname'],
                 semester_length, n_slots_in_night, n_nights_in_semester,
                 all_dates_dict, slots_needed_for_exposure_dict, current_day)
         np.savetxt(output_directory + 'raw_combined_semester_schedule_Round2.txt',
