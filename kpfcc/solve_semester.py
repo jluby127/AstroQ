@@ -28,10 +28,8 @@ import twilight_functions as tw
 import reporting_functions as rf
 import processing_functions as pf
 import mapping_functions as mf
-import set_functions as sf
 
 # import line_profiler
-#
 # @profile
 def run_kpfcc(current_day,
                requests_file,
