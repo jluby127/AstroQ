@@ -30,8 +30,8 @@ import processing_functions as pf
 import mapping_functions as mf
 import set_functions as sf
 
-import line_profiler
-
+# import line_profiler
+#
 # @profile
 def run_kpfcc(current_day,
                requests_file,
@@ -339,21 +339,24 @@ def run_kpfcc(current_day,
                 no_multi_visit_observations.append([1]*n_slots_in_night)
         no_multi_visit_observations = np.array(no_multi_visit_observations)
 
+        # Construct the penultimate intersection of maps for the given request.
+        penultimate_map = allocation_map_1D & twilight_map_remaining_flat & \
+            nonqueue_map_file_slots_ints & access & custom_map & zero_out_map & \
+            respect_past_cadence
+
+        # find when target goes from available to unavailable, for any reason is not available a
         fit_within_night = np.array([1]*n_slots_in_semester)
-        observability = allocation_map_1D & twilight_map_remaining_flat
         slots_needed = slots_needed_for_exposure_dict[name]
         if slots_needed > 1:
             for s in range(n_slots_in_semester - 1):
-                if observability[s] == 1 and observability[s+1] == 0:
-                    # The -1 is because target can be started if just fits before end of night
+                if penultimate_map[s] == 1 and penultimate_map[s+1] == 0:
+                    # The -1 below is because target can be started if just fits before unavailable
                     for e in range(slots_needed - 1):
                         fit_within_night[s - e] = 0
 
         # Construct the ultimate intersection of maps for the given request.
         # Define the slot indices that are available to the request for scheduling.
-        available_slots_for_request[name] = allocation_map_1D & twilight_map_remaining_flat & \
-            nonqueue_map_file_slots_ints & access & custom_map & zero_out_map & \
-            respect_past_cadence & fit_within_night
+        available_slots_for_request[name] = penultimate_map & fit_within_night
 
         # reshape into n_nights_in_semester by n_slots_in_night
         available_slots_for_request[name] = np.reshape(available_slots_for_request[name], \
@@ -367,7 +370,6 @@ def run_kpfcc(current_day,
     # Define the tuples of request and available slot for each request.
     # This becomes the grid over which the Gurobi variables are defined.
     # Now, slots that were never possible for scheduling are not included in the model.
-    #import pdb;pdb.set_trace()
     Aset = []
     Aframe_keys = []
     for n,row in requests_frame.iterrows():
@@ -465,30 +467,22 @@ def run_kpfcc(current_day,
                         'one_request_per_slot_' + str(row.d) + "d_" + str(row.s) + "s")
 
     print("Constraint 2: Reserve slots for for multi-slot exposures.")
-    # Get all requests that are  valid in (d,s) pair
-    requests_valid_in_slot = Aframe.groupby(['d','s'])[['rr', 'dd', 'ss']].agg(list)
+    # Get all requests that are  valid in (d,s+e) pair for a given (d,s,1..e)
+    requests_valid_in_reserved_slots = pd.merge(Aframe.query('e > 1 ')['r d s e'.split()] \
+        ,Aframe['r d s'.split()],on=['d'],suffixes=['','2']) \
+        .query('s < s2 < s + e').groupby('r d s'.split()).agg(list)
     # If request requires only 1 slot to complete, then no constraint on reserving additional slots
     Aframe_multislots = Aframe[Aframe.e > 1]
-    count = 0
     for i, row in Aframe_multislots.iterrows():
         # construct list of (r,d,s) indices to be constrained. These are all requests that are
         # valid in slots (d, s+1) through (d, s + e)
         # Ensuring slot (d, s) is not double filled already taken care of in Constraint 1.
-        all_reserved_slots = []
-        for e in range(1, row.e):
-            try:
-                forbid = list(requests_valid_in_slot.loc[(row.d, row.s+e)])[0]
-                days = [row.d]*len(forbid)
-                slots = [row.s+e]*len(forbid)
-                all_reserved_slots.extend(list(zip(forbid, days, slots)))
-            except:
-                count += 1
-                # the (d,s) pair that is within e slots of the original slot has no valid/possible requests
-                continue
+        allr = list(requests_valid_in_reserved_slots.loc[row.r, row.d, row.s]['r2'])
+        alls = list(requests_valid_in_reserved_slots.loc[row.r, row.d, row.s]['s2'])
+        all_reserved_slots = list(zip(allr, [row.d]*len(allr), alls))
         m.addConstr((row.e*(1 - Yrds[row.r,row.d,row.s])) >= gp.quicksum(Yrds[c]
                                                         for c in all_reserved_slots),
                         'reserve_multislot_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
-    print("Entered except on " + str(count) + " of " + str(len(Aframe_multislots)) + " loops.")
 
     print("Constraint 3: Schedule request's maximum observations per night.")
     # Get all valid slots s for request r on day d
