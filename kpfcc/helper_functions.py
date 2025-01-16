@@ -215,16 +215,19 @@ def write_stars_schedule_human_readable(combined_semester_schedule, Yns, starnam
         # buffer the past with zeros
         for p in range(end_past):
             star_schedule.append(0)
-        for s in range(n_slots_in_semester):
-            try:
-                value = np.round(Yns[name, s].x)
-            except:
-                value = 0.0
-            star_schedule.append(value)
+        for d in range(n_nights_in_semester):
+            for s in range(n_slots_in_night):
+                try:
+                    value = int(np.round(Yns[name, d, s].x))
+                except KeyError:
+                    value = 0.0
+                except:
+                    print("Error: helper_functions.py line 224: ", name, d, s)
+                star_schedule.append(value)
         all_star_schedules[name] = star_schedule
 
     combined_semester_schedule = combined_semester_schedule.flatten()
-    for s in range(end_past, n_slots_in_semester - end_past):
+    for s in range(n_slots_in_semester):
         slotallocated = ''
         for name in starnames:
             if all_star_schedules[name][s] == 1:
@@ -236,6 +239,7 @@ def write_stars_schedule_human_readable(combined_semester_schedule, Yns, starnam
     # The semester solver puts a 1 only in the slot that starts the exposure for a target.
     # Therefore, many slots are empty because they are part of a multi-slot visit.
     # Here fill in the multi-slot exposures appropriately for ease of human reading and accounting.
+    starnames = list(starnames)
     for n in range(n_nights_in_semester-1-all_dates_dict[current_day], -1, -1):
         for s in range(n_slots_in_night-1, -1, -1):
             if combined_semester_schedule[n+all_dates_dict[current_day]][s] in starnames:
@@ -247,7 +251,7 @@ def write_stars_schedule_human_readable(combined_semester_schedule, Yns, starnam
                                 target_name
     for m in range(len(combined_semester_schedule)):
         # convert the holder string to meaningful string
-        if combined_semester_schedule[m][0] == 'supercalifragilisticexpialidocious':
+        if combined_semester_schedule[m][1] == 'supercalifragilisticexpialidocious':
             for l in range(len(combined_semester_schedule[m])):
                 combined_semester_schedule[m][l] = 'Past'
     return combined_semester_schedule
@@ -292,6 +296,7 @@ def write_available_human_readable(all_dates_dict, current_day, semester_length,
     # The past does not matter to us here, so specify the days/slots that are to be ignored.
     end_past = all_dates_dict[current_day]*n_slots_in_night
     combined_semester_schedule = ['']*semester_length*n_slots_in_night
+    combined_semester_schedule[0] = 'longwordhereformakingspace'
     for c in range(end_past):
         # for some reason when adding strings within an array, the max length of new string is the
         # length of the longest string in the whole array. So choosing an arbitrary long word
