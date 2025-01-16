@@ -7,7 +7,7 @@ that is in correct formatting for running the TTP. Further designed to be only r
 call from the generateScript.py script.
 
 Example usage:
-    import solveSemester as ssm
+    import solve_semester as ssm
 """
 import sys
 import time
@@ -20,7 +20,7 @@ import pandas as pd
 import gurobipy as gp
 from gurobipy import GRB
 
-DIR_PATH = '/Users/jack/Documents/Github/optimalAllocation/kpfcc/'
+DIR_PATH = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(DIR_PATH)
 # KPF-CC specific files
 import helper_functions as hf
@@ -29,6 +29,8 @@ import reporting_functions as rf
 import processing_functions as pf
 import mapping_functions as mf
 
+# import line_profiler
+# @profile
 def run_kpfcc(current_day,
                requests_file,
                allocation_file,
@@ -43,7 +45,7 @@ def run_kpfcc(current_day,
                nonqueue_map_file,
                special_map_file,
                zero_out_file,
-               dont_run_weather_loss = False,
+               run_weather_loss,
                gurobi_output = True,
                plot_results = True,
                solve_time_limit = 300):
@@ -82,7 +84,7 @@ def run_kpfcc(current_day,
                                     scheduled into for various reasons of the PI
         - zero_out_file (str) = the path and file name of list of stars that cannot be scheduled
                                 tonight for any reason. Often this is empty.
-        - dont_run_weather_loss (boolean) = if True, then no nights are lost to weather.
+        - run_weather_loss (boolean) = if False, then no nights are lost to weather.
         - gurobi_output (boolean) = a flag to turn off or on the feature of Gurobi printing
                                     to the terminal as it solves the model.
         - plot_results (boolean) = a flag to turn off or on the plotting outputs.
@@ -140,7 +142,7 @@ def run_kpfcc(current_day,
 
     print("Compiling past observation history.")
     database_info_dict = {}
-    #pf.get_kpf_past_database(past_observations_file)
+    # pf.get_kpf_past_database(past_observations_file)
     if os.path.exists(past_observations_file):
         print("Pulled database of past observations this semester.")
         database = pd.read_csv(past_observations_file)
@@ -161,7 +163,6 @@ def run_kpfcc(current_day,
             else:
                 # If request has not been observed, set a dummy value.
                 most_recent_observation_date = '0000-00-00'
-
             # Within the database_info_dict dictionary, each target's data is always in order:
             # element 0 = the calendar date of the most recent observation (HST date)
             # element 1 = a list of calendar dates with at least one observation
@@ -173,9 +174,9 @@ def run_kpfcc(current_day,
             database_info_dict[requests_frame['Starname'][i]] = \
                 [most_recent_observation_date, unique_hst_dates_observed, quarter_observed, \
                 n_obs_on_date]
+    else:
+        print("No past observation history to parse.")
 
-    # print(database_info_dict['TOI-2470'])
-    # sys.exit()
     print("Determining slots needed for exposures.")
     # schedule multi-shots and multi-visits as if a single, long exposure.
     # When n_shots and n_visits are both 1, this reduces down to just the stated exposure time.
@@ -186,12 +187,6 @@ def run_kpfcc(current_day,
             45*(row['# Visits per Night'] - 1)
         slots_needed_for_exposure_dict[name] = \
             hf.slots_required_for_exposure(singlevisit*row['# Visits per Night'], slot_size)
-
-    # Sub-divide target list into only those that are more than 1 unique night of observations.
-    # Don't allow these requests to receive bonus observations.
-    # Currently this is not implemented. - Jack Oct. 29, 2024
-    cadenced_targets = requests_frame[(requests_frame['# of Nights Per Semester'] > 1)]
-    cadenced_targets.reset_index(inplace=True)
 
     print("Determine available slots in each night.")
     # available_slots_in_each_night is a 1D matrix of length nights n
@@ -206,7 +201,8 @@ def run_kpfcc(current_day,
                                 n_slots_in_night, invert=False))
     twilight_map_remaining = twilight_map_all[all_dates_dict[current_day]:]
     twilight_map_remaining_flat = twilight_map_remaining.copy().flatten()
-    twilight_map_remaining_2D = np.reshape(twilight_map_remaining, (n_nights_in_semester, n_slots_in_night))
+    twilight_map_remaining_2D = np.reshape(twilight_map_remaining,
+                                    (n_nights_in_semester, n_slots_in_night))
 
     print("Reading pre-comupted accessibility maps.")
     rewrite_flag = False
@@ -255,22 +251,23 @@ def run_kpfcc(current_day,
 
     # Sample out future allocated nights to simulate weather loss based on empirical weather data.
     print("Sampling out weather losses")
-    historical_weather_data = pd.read_csv(DIR_PATH + "Maunakea_WeatherLossData.csv")
+    historical_weather_data = pd.read_csv(DIR_PATH[:-5] + "data/maunakea_weather_loss_data.csv")
     loss_stats_remaining = []
     for i, item in enumerate(all_dates_array):
         ind = historical_weather_data.index[historical_weather_data['Date'] == \
             all_dates_array[i][5:]].tolist()[0]
         loss_stats_remaining.append(historical_weather_data['% Total Loss'][ind])
 
-    allocation_remaining_post_weather_loss, weather_diff_remaining, weather_diff_remaining_1D, days_lost = \
-        mf.simulate_weather_losses(allocation_remaining, loss_stats_remaining,
-        covariance=0.14, dont_lose_nights=dont_run_weather_loss, plot=True, outputdir=output_directory)
+    allocation_remaining_post_weather_loss, weather_diff_remaining, weather_diff_remaining_1D, \
+        days_lost = mf.simulate_weather_losses(allocation_remaining, loss_stats_remaining, \
+        covariance=0.14, dont_lose_nights=run_weather_loss, plot=True, outputdir=output_directory)
     allocation_map_1D, allocation_map_2D, weathered_map = \
         mf.build_allocation_map(allocation_remaining_post_weather_loss, weather_diff_remaining,
         available_slots_in_each_night[today_starting_night:], n_slots_in_night)
 
 
-    mf.write_out_weather_stats(all_dates_dict, current_day, days_lost, allocation_remaining, output_directory)
+    mf.write_out_weather_stats(all_dates_dict, current_day, days_lost, allocation_remaining, \
+                                output_directory)
 
     print("Incorporating non-queue observations.")
     # Exclude slots that must be assigned to time-sensative observations
@@ -297,7 +294,7 @@ def run_kpfcc(current_day,
     available_indices_for_request = {}
     for name in requests_frame['Starname']:
         accessibility_r = default_access_maps[name]
-        access = accessibility_r[today_starting_slot:]#-84:] #delete the -84! temp solution for testing
+        access = accessibility_r[today_starting_slot:]
 
         if name in list(custom_access_maps.keys()):
             custom_map = custom_access_maps[name][today_starting_slot:]
@@ -332,28 +329,67 @@ def run_kpfcc(current_day,
         for d in range(n_nights_in_semester):
             start = d*n_slots_in_night
             end = start + n_slots_in_night
-            possible_open_slots = np.sum(allocation_map_1D[start:end]& \
-                twilight_map_remaining_flat[start:end]&access[start:end])
-
+            possible_open_slots = np.sum(allocation_map_1D[start:end] & \
+                                        twilight_map_remaining_flat[start:end] & access[start:end])
             if possible_open_slots < minimum_slots_required:
                 no_multi_visit_observations.append([0]*n_slots_in_night)
             else:
                 no_multi_visit_observations.append([1]*n_slots_in_night)
         no_multi_visit_observations = np.array(no_multi_visit_observations)
 
+        # Construct the penultimate intersection of maps for the given request.
+        penultimate_map = allocation_map_1D & twilight_map_remaining_flat & \
+            nonqueue_map_file_slots_ints & access & custom_map & zero_out_map & \
+            respect_past_cadence
+
+        # find when target goes from available to unavailable, for any reason is not available a
+        fit_within_night = np.array([1]*n_slots_in_semester)
+        slots_needed = slots_needed_for_exposure_dict[name]
+        if slots_needed > 1:
+            for s in range(n_slots_in_semester - 1):
+                if penultimate_map[s] == 1 and penultimate_map[s+1] == 0:
+                    # The -1 below is because target can be started if just fits before unavailable
+                    for e in range(slots_needed - 1):
+                        fit_within_night[s - e] = 0
+
         # Construct the ultimate intersection of maps for the given request.
         # Define the slot indices that are available to the request for scheduling.
-        available_slots_for_request[name] = allocation_map_1D & twilight_map_remaining_flat & \
-            nonqueue_map_file_slots_ints & access & custom_map & zero_out_map & respect_past_cadence
-        available_indices_for_request[name] = np.where(available_slots_for_request[name] == 1)[0]
+        available_slots_for_request[name] = penultimate_map & fit_within_night
+
+        # reshape into n_nights_in_semester by n_slots_in_night
+        available_slots_for_request[name] = np.reshape(available_slots_for_request[name], \
+                                                    (n_nights_in_semester, n_slots_in_night))
+        nightly_available_slots = []
+        for d in range(len(available_slots_for_request[name])):
+             nightly_available_slots.append(list(np.where( \
+                                                    available_slots_for_request[name][d] == 1)[0]))
+        available_indices_for_request[name] = nightly_available_slots
 
     # Define the tuples of request and available slot for each request.
     # This becomes the grid over which the Gurobi variables are defined.
     # Now, slots that were never possible for scheduling are not included in the model.
-    all_indices = []
-    for star in requests_frame['Starname']:
-        for a in available_indices_for_request[star]:
-            all_indices.append((star, a))
+    Aset = []
+    Aframe_keys = []
+    for n,row in requests_frame.iterrows():
+        name = row['Starname']
+        n_visits = int(row['# Visits per Night'])
+        intra = int(row['Minimum Intra-Night Cadence'])
+        inter = int(row['Minimum Inter-Night Cadence'])
+        slots_needed = slots_needed_for_exposure_dict[name]
+        for d in range(len(available_indices_for_request[name])):
+            for s in available_indices_for_request[name][d]:
+                Aset.append((name, d, s))
+                Aframe_keys.append([name, d, s, slots_needed, n_visits, intra, inter])
+
+    Aframe = pd.DataFrame(Aframe_keys, columns =['r', 'd', 's', 'e', 'v', 'tra', 'ter'])
+    schedulable_requests = list(Aframe['r'].unique())
+    for name in list(requests_frame['Starname']):
+        if name not in schedulable_requests:
+            print("WARNING: Target " + name + " has no valid day/slot pairs and therefore is effectively removed from the model.")
+    # duplicate columns for easy indexing later
+    Aframe['rr'] = Aframe['r']
+    Aframe['dd'] = Aframe['d']
+    Aframe['ss'] = Aframe['s']
 
     # -------------------------------------------------------------------
     # -------------------------------------------------------------------
@@ -366,11 +402,11 @@ def run_kpfcc(current_day,
     # Yrs is technically a 1D matrix indexed by tuples.
     # But in practice best think of it as a 2D square matrix of requests r and slots s, with gaps.
     # Slot s for request r will be 1 to indicate starting an exposure for that request in that slot
-    Yrs = m.addVars(all_indices, vtype = GRB.BINARY, name = 'Requests_Slots')
+    Yrds = m.addVars(Aset, vtype = GRB.BINARY, name = 'Requests_Slots')
 
     # theta is the "shortfall" variable, continous in natural numbers.
-    theta = m.addVars(requests_frame['Starname'], name='Shortfall')
-
+    # theta = m.addVars(requests_frame['Starname'], name='Shortfall')
+    theta = m.addVars(schedulable_requests, name='Shortfall')
 
     # -------------------------------------------------------------------
     # -------------------------------------------------------------------
@@ -378,109 +414,123 @@ def run_kpfcc(current_day,
     # -------------------------------------------------------------------
     # -------------------------------------------------------------------
 
-    print("Constraint: one observation per night.")
-    for d in range(n_nights_in_semester):
-        start = d*n_slots_in_night
-        end = start + n_slots_in_night
-        for name in requests_frame['Starname']:
-            begin, stop = hf.find_indices(available_indices_for_request[name], start, end)
-            # The +1 ensures that all slots in the night are captured,
-            # avoids missing the last available slot for request "name" in the night
-            # Code will run without this +1 but accidentally allows multiple exposure start slots
-            # for the same target in the same night, since last available slot then is not
-            # included in the summation.
-            tonight_available_slots = available_indices_for_request[name][begin:stop+1]
-            m.addConstr((gp.quicksum(Yrs[name,s] for s in tonight_available_slots) <= 1),
-                'oneObservationPerNight_' + str(name) + "_" + str(d) + "d")
+    print("Constraint 0: Build theta variable")
+    max_bonus_observations_pct = 0.5
+    max_bonus_observations = 10
+    aframe_slots_for_request = Aframe.groupby(['r'])[['d', 's']].agg(list)
+    for name in schedulable_requests:
+        idx = requests_frame.index[requests_frame['Starname']==name][0]
 
-    print("Constraint: only 1 exposure per slot")
-    for s in range(n_slots_in_semester):
-        # in order to not get a KeyError exception, we must only loop the constraint over
-        # the stars that are possible to be scheduled into slot s.
-        stars_conceivable_tonight = []
-        for name in requests_frame['Starname']:
-            if available_slots_for_request[name][s] == 1:
-                stars_conceivable_tonight.append(name)
-        try:
-            m.addConstr(gp.quicksum(Yrs[name,s] for name in stars_conceivable_tonight) <= 1,
-                        'ensureSingleObservationPerSlot_' + str(s) + "s")
-        except KeyError:
-            continue
-        except:
-            print("Non-Key Error. Manually check: ", name, s)
-
-    print("Constraint: no other exposures can start during multi-slot exposures")
-    for n,row in requests_frame.iterrows():
-        name = row['Starname']
-        slots_needed = slots_needed_for_exposure_dict[name]
-        if slots_needed > 1:
-            for s in range(n_slots_in_semester):
-                try:
-                    m.addConstr((slots_needed-1)*Yrs[name,s] <=
-                        ((slots_needed - 1) - gp.quicksum(Yrs[name2,s+t]
-                        for name2 in requests_frame['Starname']
-                        for t in range(1, min(slots_needed, n_slots_in_semester - s)))),
-                        'UsedByMultiSlotExposure_' + str(name) + "_" + str(s) + "s")
-                except KeyError:
-                    continue
-                except:
-                    print("Non-Key Error. Manually check: ", name, s)
-
-    print("Constraint: exposure can't start if it won't complete in the night.")
-    for d in range(n_nights_in_semester):
-        # The -1 so that we don't hit the end of the loop.
-        # Plus the last slot should never be allocated (alwasys during twilight), no need to test.
-        for s in range(n_slots_in_night - 1):
-            if allocation_map_2D[d][s] == 1 and allocation_map_2D[d][s+1] == 0:
-                for name in requests_frame['Starname']:
-                    slots_needed = slots_needed_for_exposure_dict[name]
-                    if slots_needed > 1:
-                        # The -1 is because target can be started if just fits before end of night
-                        for e in range(0, slots_needed-1):
-                            try:
-                                m.addConstr(Yrs[name,d*n_slots_in_night + s - e] == 0,
-                                    'mustCompleteWithinNight_' + name + "_" + \
-                                    str(s) + 's_' + str(e) + 'e')
-                            except KeyError:
-                                continue
-                            except:
-                                print("Non-Key Error. Manually check: ", name, s, e)
-
-    print("Constraint: inter-night cadence of future observations.")
-    for d in range(n_nights_in_semester):
-        start = d*n_slots_in_night
-        end = start + n_slots_in_night
-        for t,row in requests_frame.iterrows():
-            name = row['Starname']
-            begin, stop = hf.find_indices(available_indices_for_request[name], start, end)
-            # The +1 for same reasons as above.
-            tonight_available_slots = available_indices_for_request[name][begin:stop+1]
-            for dlta in range(1, int(row['Minimum Inter-Night Cadence'])):
-                begin_future, stop_future = hf.find_indices(available_indices_for_request[name],
-                                                             start+(dlta*n_slots_in_night),
-                                                             end+(dlta*n_slots_in_night))
-                future_night_available_slots = \
-                        available_indices_for_request[name][begin_future:stop_future+1]
-                m.addConstr(gp.quicksum(Yrs[name,s] for s in tonight_available_slots) <=
-                            1 - gp.quicksum(Yrs[name,f] for f in future_night_available_slots),
-                            'enforceFutureInterNightCadence_' + str(name) + "_" +
-                            str(d) + "d_" + str(dlta) + "dlta")
-
-    print("Constraint: build Theta variable")
-    max_bonus_observations = 5
-    for t,row in requests_frame.iterrows():
-        name = row['Starname']
         if database_info_dict == {}:
             past_nights_observed = 0
         else:
             past_nights_observed = len(database_info_dict[name][1])
-        shortfall = row['# of Nights Per Semester'] - past_nights_observed + max_bonus_observations
-        m.addConstr(theta[name] >= 0, 'ensureGreaterThanZero_' + str(name))
-        m.addConstr(theta[name] >= ((row['# of Nights Per Semester'] - past_nights_observed) -
-                    gp.quicksum(Yrs[name, s] for s in available_indices_for_request[name])),
-                    'ensureGreaterThanNobsShortfall_' + str(name))
-        m.addConstr(gp.quicksum(Yrs[name,s] for s in available_indices_for_request[name]) <=
-                    shortfall, 'maximumUniqueNightsPerTarget_' + str(name))
+
+        # Safety valve for if the target is over-observed for any reason
+        # Example: a cadence target that is also an RM target will have many more past
+        # observations than is requested.
+        # When we move over to parsing the Keck database for a unique request ID, instead of
+        # parsing the Jump database on non-unique star name, this can be removed.
+        if past_nights_observed > requests_frame['# of Nights Per Semester'][idx] + \
+                    int(requests_frame['# of Nights Per Semester'][idx]*max_bonus_observations_pct):
+            true_max_obs = past_nights_observed
+        else:
+            true_max_obs = (requests_frame['# of Nights Per Semester'][idx] - past_nights_observed)\
+                   + int(requests_frame['# of Nights Per Semester'][idx]*max_bonus_observations_pct)
+
+        m.addConstr(theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
+        # Get all (d,s) pairs for which this request is valid.
+        available = list(zip(list(aframe_slots_for_request.loc[name].d), \
+                                                        list(aframe_slots_for_request.loc[name].s)))
+        m.addConstr(theta[name] >= ((requests_frame['# of Nights Per Semester'][idx] - \
+                    past_nights_observed) - gp.quicksum(Yrds[name, d, s] for d,s in available)), \
+                    'greater_than_nobs_shortfall_' + str(name))
+        m.addConstr(gp.quicksum(Yrds[name, d, s] for d,s in available) <=
+                    true_max_obs, 'max_unique_nights_for_request_' + str(name))
+
+    print("Constraint 1: Enforce one request per slot.")
+    # Get all requests which are valid in slot (d, s)
+    Aframe_ds = pd.merge(
+        Aframe.drop_duplicates(['d', 's']),
+        Aframe[['r', 'd', 's']],
+        suffixes=['', '2'],
+        on=['d', 's'])
+    ds_requests = Aframe_ds.groupby(['d','s'])[['r2']].agg(list)
+    Aset_ds_no_duplicates = Aframe.copy()
+    Aset_ds_no_duplicates = Aframe.drop_duplicates(subset=['d', 's'])
+    # Construct the constraint
+    for i, row in Aset_ds_no_duplicates.iterrows():
+        requests_valid_in_slot = list(ds_requests.loc[(row.d, row.s)])[0]
+        m.addConstr((gp.quicksum(Yrds[name,row.d,row.s] for name in requests_valid_in_slot) <= 1),
+                        'one_request_per_slot_' + str(row.d) + "d_" + str(row.s) + "s")
+
+    print("Constraint 2: Reserve slots for for multi-slot exposures.")
+    # Get all requests that are  valid in (d,s+e) pair for a given (d,s,1..e)
+    requests_valid_in_reserved_slots = pd.merge(Aframe.query('e > 1 ')['r d s e'.split()] \
+        ,Aframe['r d s'.split()],on=['d'],suffixes=['','2']) \
+        .query('s < s2 < s + e').groupby('r d s'.split()).agg(list)
+    # If request requires only 1 slot to complete, then no constraint on reserving additional slots
+    Aframe_multislots = Aframe[Aframe.e > 1]
+    for i, row in Aframe_multislots.iterrows():
+        # construct list of (r,d,s) indices to be constrained. These are all requests that are
+        # valid in slots (d, s+1) through (d, s + e)
+        # Ensuring slot (d, s) is not double filled already taken care of in Constraint 1.
+        allr = list(requests_valid_in_reserved_slots.loc[row.r, row.d, row.s]['r2'])
+        alls = list(requests_valid_in_reserved_slots.loc[row.r, row.d, row.s]['s2'])
+        all_reserved_slots = list(zip(allr, [row.d]*len(allr), alls))
+        m.addConstr((row.e*(1 - Yrds[row.r,row.d,row.s])) >= gp.quicksum(Yrds[c]
+                                                        for c in all_reserved_slots),
+                        'reserve_multislot_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
+
+    print("Constraint 3: Schedule request's maximum observations per night.")
+    # Get all valid slots s for request r on day d
+    aframe_slots_on_day = pd.merge(
+        Aframe.drop_duplicates(['r','d',]),
+        Aframe[['r','d','s']],
+        suffixes=['','2'],on=['r']
+    ).query('d == d2')
+    slots_on_day = aframe_slots_on_day.groupby(['r','d'])[['s2']].agg(list)
+    unique_request_day_pairs = Aframe.drop_duplicates(['r','d'])
+    # Build the constraint
+    for i, row in unique_request_day_pairs.iterrows():
+        constrained_slots_tonight = np.array(slots_on_day.loc[(row.r, row.d)][0])
+        m.addConstr((gp.quicksum(Yrds[row.r,row.d,ss] for ss in constrained_slots_tonight) <= row.v),
+                'max_observations_per_night_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
+
+    print("Constraint 4: Enforce inter-night cadence.")
+    aframe_intercadence = pd.merge(
+        Aframe.drop_duplicates(['r','d',]),
+        Aframe[['r','d','s']], #
+        suffixes=['','2'],on=['r']
+    ).query('d + 0 < d2 < d + ter') # When +1, it excludes the first day of the semester always
+    intercadence = aframe_intercadence.groupby(['r','d'])[['d2','s2']].agg(list)
+    # When inter-night cadence is 1, there will be no keys to constrain so skip
+    # While the if/else statement would catch these, by shrinking the list here we do fewer
+    # total steps in the loop.
+    mask_inter_1 = Aframe['ter'] > 1
+    # mask_inter_2 = # ensure that even if request r has at least one slot on day d,
+    #                   if there are no slots for request r on days d + delta for all delta in
+    #                   internight cadence, then don't include day d
+    Aset_inter = Aframe[mask_inter_1]
+    # We don't want duplicate slots on day d because we only need this constraint once per day
+    # With duplicates, the same constraint would be applied to (r, d, s) and (r, d, s+1) which
+    # is superfluous since we are summing over tonight's slots
+    Aset_inter_no_duplicates = Aset_inter.copy()
+    Aset_inter_no_duplicates = Aset_inter_no_duplicates.drop_duplicates(subset=['r', 'd'])
+    for i, row in Aset_inter_no_duplicates.iterrows():
+        constrained_slots_tonight = np.array(slots_on_day.loc[(row.r, row.d)][0])
+        # Get all slots for pair (r, d) where valid
+        if (row.r, row.d) in intercadence.index:
+            slots_to_constrain_future = intercadence.loc[(row.r, row.d)]
+            ds_pairs = list(zip(slots_to_constrain_future.d2, slots_to_constrain_future.s2))
+            m.addConstr((gp.quicksum(Yrds[row.r,row.d,s2] for s2 in constrained_slots_tonight)/row.v \
+                 <= (1 - (gp.quicksum(Yrds[row.r,d3,s3] for d3, s3 in ds_pairs)))), \
+                'enforce_internight_cadence_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
+        else:
+            # For request r, there are no (d,s) pairs that are within "inter cadence" days of the
+            # given day d, therefore nothing to constrain. If I can find a way to filter out these
+            # rows as a "mask_inter_2", then the if/else won't be needed
+            continue
 
     complete_constraints_build = time.time()
     print("Total Time to build constraints: ",
@@ -492,7 +542,7 @@ def run_kpfcc(current_day,
     # -------------------------------------------------------------------
     # -------------------------------------------------------------------
     print("Begin model solve.")
-    m.setObjective(gp.quicksum(theta[name] for name in requests_frame['Starname']), GRB.MINIMIZE)
+    m.setObjective(gp.quicksum(theta[name] for name in schedulable_requests), GRB.MINIMIZE)
 
     m.params.TimeLimit = solve_time_limit
     m.Params.OutputFlag = gurobi_output
@@ -538,8 +588,9 @@ def run_kpfcc(current_day,
     np.savetxt(output_directory + 'raw_combined_semester_schedule_available.txt',
         combined_semester_schedule_available, delimiter=',', fmt="%s")
 
-    combined_semester_schedule_stars = hf.write_stars_schedule_human_readable(combined_semester_schedule_available, Yrs,
-            requests_frame['Starname'], semester_length, n_slots_in_night, n_nights_in_semester,
+    combined_semester_schedule_stars = hf.write_stars_schedule_human_readable( \
+            combined_semester_schedule_available, Yrds, list(requests_frame['Starname']),
+            semester_length, n_slots_in_night, n_nights_in_semester,
             all_dates_dict, slots_needed_for_exposure_dict, current_day)
     np.savetxt(output_directory + 'raw_combined_semester_schedule_Round1.txt',
         combined_semester_schedule_stars, delimiter=',', fmt="%s")
@@ -559,13 +610,15 @@ def run_kpfcc(current_day,
     print("Sum of Theta: " + str(counter))
     filename.write("Sum of Theta: " + str(counter) + "\n")
 
+    plot_results = False
     if plot_results:
         print("Writing cadence plot files.")
         turn_on_off_frame = pd.read_csv(turn_off_on_file)
         all_starmaps = {}
         for i in range(len(requests_frame)):
             if database_info_dict != {}:
-                starmap = rf.build_observed_map_past(database_info_dict[requests_frame['Starname'][i]], semester_template_file)
+                starmap = rf.build_observed_map_past( \
+                    database_info_dict[requests_frame['Starname'][i]], semester_template_file)
             else:
                 starmap = rf.build_observed_map_past([[],[],[],[]], semester_template_file)
 
@@ -618,9 +671,8 @@ def run_kpfcc(current_day,
         m.params.MIPGap = 0.05
         m.addConstr(gp.quicksum(theta[name] for name in requests_frame['Starname']) <= \
                     first_stage_objval + epsilon)
-        m.setObjective(gp.quicksum(slots_needed_for_exposure_dict[name]*Yrs[name,s]
-                        for name in requests_frame['Starname']
-                        for s in range(n_slots_in_semester)),
+        m.setObjective(gp.quicksum(slots_needed_for_exposure_dict[r]*Yrs[r,d,s]
+                        for r, d, s in Aset),
                         GRB.MAXIMIZE)
         m.update()
         m.optimize()
@@ -644,15 +696,16 @@ def run_kpfcc(current_day,
         print("Total Time to finish round 2 solver: ",
             np.round(complete_round2_model-start_the_clock,3))
 
-        combined_semester_schedule_stars = hf.write_stars_schedule_human_readable(combined_semester_schedule_available, Yrs,
-                requests_frame['Starname'], semester_length, n_slots_in_night, n_nights_in_semester,
+        combined_semester_schedule_stars = hf.write_stars_schedule_human_readable(
+                combined_semester_schedule_available, Yrs, requests_frame['Starname'],
+                semester_length, n_slots_in_night, n_nights_in_semester,
                 all_dates_dict, slots_needed_for_exposure_dict, current_day)
         np.savetxt(output_directory + 'raw_combined_semester_schedule_Round2.txt',
             combined_semester_schedule_stars, delimiter=',', fmt="%s")
 
         round = 'Round 2'
-        rf.build_fullness_report(combined_semester_schedule_stars, allocation_map_2D, requests_frame,
-                                    slot_size, round, output_directory)
+        rf.build_fullness_report(combined_semester_schedule_stars, allocation_map_2D,
+                                    requests_frame, slot_size, round, output_directory)
 
         scheduleR1 = np.loadtxt(output_directory + 'raw_combined_semester_schedule_Round1.txt',
             delimiter=',', dtype=str)
@@ -684,4 +737,4 @@ def run_kpfcc(current_day,
         R2_requests = []
         np.savetxt(output_directory + 'Round2_Requests.txt', R2_requests, delimiter=',', fmt="%s")
 
-    print("All done, clear skies!")
+    print("The optimal semester schedule is found, clear skies!")
