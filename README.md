@@ -39,7 +39,7 @@ pip install gurobipy
 
 To test installation and practice the workflow of running the autoscheduler, use the supplied example. From your terminal, run the following command:
 ```
-python <LOCAL_DIR>/bin/generateScript.py -d 2024-08-02 -f <LOCAL_DIR>/examples/
+python <LOCAL_DIR>/bin/generate_night_plan.py -d 2024-08-02 -f <LOCAL_DIR>/examples/
 ```
 
 ## Flags
