@@ -15,6 +15,7 @@ setup(
         'ipykernel==6.9.1',
         'imageio==2.24.0',
         'kaleido==0.2.1',
+        'gurobipy'
     ],
     description="The Traveling Telescope Problem Solver, orders a set of targets in the optimal slew path.",
     long_description=open("README.md").read(),
