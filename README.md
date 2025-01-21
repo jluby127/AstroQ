@@ -6,41 +6,38 @@ Astronomical observation planning tool that solves the Traveling Telescope Probl
 
 `ttpsolver` employs a Mixed-Integer Linear Programming formulation to optimize scheduling in a time-dependent manner, similar to the Traveling Salesman Problem. It determines both the order of targets and the timing of observations to respect celestial object rise and set times. The algorithm is detailed in the Astronomical Journal [here](https://iopscience.iop.org/article/10.3847/1538-3881/ad0dfb). Please cite this work when using `ttpsolver` for planning scientific observations.
 
-## Installation
+## Installation (READ CAREFULLY)
 We highly recommend (though optional) setting everything up in a new Conda environment first. To do so, run this command and then be sure to activate the environment:
 ```
 conda create -n ttpsolver python=3.9
 conda activate ttpsolver
 ```
 
-To install `ttpsolver`, clone this repository:
+### Installing Gurobi
+`ttpsolver` relies on Gurobi for solving large matrix equations efficiently. Follow these steps to install and set up Gurobi. _*YOU MUST OBTAIN A LICENSE BEFORE PIP INSTALLING THE TTP PACKAGE*_:
+
+1. **Create an an Account** on Gurobi's [registration site](https://portal.gurobi.com/iam/register/). Select that you are an "Academic", type in your home institution, and submit the form via "Access Now". You will receive an email to complete the registration.
+2. **Download Gurobi** for your OS from [this download page](https://www.gurobi.com/downloads/gurobi-software/). Run the installer file following their instructions.
+3. **Request an Academic License** from your [user portal](https://portal.gurobi.com/iam/licenses/request/) *while connected to a university network*. You want the 'Named-User Academic License' which has a one year lifetime. At the end of the year, you can obtain a new license easily within your account (and for free) so long as you have maintained your academic status.
+4. **Retrieve the License** by running the command from the popup window in a shell. It should look like:
+```
+grbgetkey 253e22f3...
+```
+
+### Install the TTP
+
+Once you have obtained a license using the steps above, it is time to install `ttpsolver`. Now you can clone this repository:
 ```
 $ git clone https://github.com/lukehandley/ttp.git
 ```
 Next cd in to ttp directory and you can install all relevant packages at once using pip:
 ```
-pip install -r requirements.txt
+pip install .
 ```
-This will set up the environment with the _**exception**_ of Gurobipy. Very important _**do not**_ pip install Gurobipy at this step. Before installing Gurobipy, we must first install Gurobi from their website and acquire a license. See below.
-
-
-### Installing Gurobi
-`ttpsolver` relies on Gurobi for solving large matrix equations efficiently. Follow these steps to install and set up Gurobi:
-
-1. **Create an an Account** on Gurobi's [registration site](https://portal.gurobi.com/iam/register/). Select that you are an "Academic", type in your home institution, and submit the form via "Access Now". You will receive an email to complete the registration.
-2. **Download Gurobi** for your OS from [this download page](https://www.gurobi.com/downloads/gurobi-software/). Run the installer file following their instructions.
-3. **Request an Academic License** from your [user portal](https://portal.gurobi.com/iam/licenses/request/) *while connected to a university network*. You want the 'Named-User Academic License' which has a one year lifetime. At the end of the year, you can obtain a new license easily within your account (and for free) so long as you have maintained your academic status. 
-4. **Retrieve the License** by running the command from the popup window in a shell. It should look like:
+This will set up the environment with gurobipy. It is very important that you _**do not**_ run this command until you have obtained a Gurobi license. Now you can import the TTP package as a whole and/or its modules into any python script, for example:
 ```
-grbgetkey 253e22f3...
-```
-5. **Install Gurobipy** using either pip or conda *after* completing the previous steps. The reason we must wait to run this line until after obtaining a license is that, without a specific license, Gurobipy will give you a trial license. This trial license limits the size of the models you can solve and expires quickly. We need a full, true license in order to solve this model, so you must obtain a 'Name-User Academic License' (see above) before installing Gurobipy.
-```
-pip install gurobipy
-```
-Or:
-```
-conda install -c gurobi gurobi
+import ttp
+import ttp.telescope as tel
 ```
 
 ## Tutorials
