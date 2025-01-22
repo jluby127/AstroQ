@@ -25,10 +25,10 @@ parser.add_argument('-a','--run_scheduler', help='Turn off the autoscheduler', a
 parser.add_argument('-p','--run_plots', help='Turn off the plotting', action='store_false')
 parser.add_argument('-r','--run_extra_rounds', help='Run the bonus round', action='store_true')
 parser.add_argument('-ttp','--run_ttp', help='Turn off the TTP.', action='store_false')
+parser.add_argument('-w','--run_weather_loss', help='If False, do not simulate weather', action='store_false')
 # Optional parameters - Use Default 99% of the time
 parser.add_argument('-t','--timeout', help='Max time spent optimizing (sec)',type=int, default=300)
 parser.add_argument('-s','--slot_size', help='The slot size (minutes)', type=int, default=5)
-parser.add_argument('-w','--run_weather_loss', help='If False, do not simulate weather', action='store_false')
 parser.add_argument('-g','--show_gurobi', help='Turn on Gurobi console print', action='store_false')
 parser.add_argument('-b','--run_backups', help='Turn on plot outputs', action='store_true')
 args = parser.parse_args()

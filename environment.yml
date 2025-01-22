@@ -1,4 +1,4 @@
-name: kpfcc
+name: kpfccenv
 channels:
   - conda-forge
   - defaults
@@ -6,7 +6,7 @@ dependencies:
   - astroplan==0.8
   - astropy==5.0.1
   - beautifulsoup4==4.12.3
-  - matplotlib==3.8.4 
+  - matplotlib==3.8.4
   - numpy==1.22.1
   - pandas==1.4.1
   - pip
@@ -15,3 +15,4 @@ dependencies:
   - requests==2.32.3
   - pip:
      - kaleido==0.2.1
+     - git+https://github.com/lukehandley/ttp.git@main#egg=ttp
