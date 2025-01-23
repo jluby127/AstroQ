@@ -7,21 +7,18 @@ This package contains the code for solving two related problems:
 
 # Installation instructions
 
-We highly recommend (though optional) setting everything up in a new Conda environment first. To do so, first clone the repository:
-```
-git clone https://github.com/jluby127/optimalAllocation.git
-```
+The installation of this package is not straight-forward. Please read carefully and follow closely.
 
-Then run this command to create the environment and then be sure to activate the environment:
+We _*highly recommend*_ (though optional) setting up within a new Conda environment first. To do so, run this command and then be sure to activate the environment:
 ```
-conda env create -f <LOCAL_DIR>/environment.yml
+conda create -n kpfcc python=3.9
 conda activate kpfcc
 ```
 
-This will set up the environment with the _**exception**_ of Gurobipy. Very important _**do not**_ pip install Gurobipy at this step. Before installing Gurobipy, we must first install Gurobi from their website and acquire a license. See below.
-
 ### Installing Gurobi
-`ttpsolver` relies on Gurobi for solving large matrix equations efficiently. Follow these steps to install and set up Gurobi:
+Before doing anything else, you must obtain a license for Gurobi.
+
+`kpfcc` relies on Gurobi for solving large matrix equations efficiently. Follow these steps to install and set up Gurobi:
 
 1. **Create an an Account** on Gurobi's [registration site](https://portal.gurobi.com/iam/register/). Select that you are an "Academic", type in your home institution, and submit the form via "Access Now". You will receive an email to complete the registration.
 2. **Download Gurobi** for your OS from [this download page](https://www.gurobi.com/downloads/gurobi-software/). Run the installer file following their instructions.
@@ -30,10 +27,23 @@ This will set up the environment with the _**exception**_ of Gurobipy. Very impo
 ```
 grbgetkey 253e22f3...
 ```
-5. **Install Gurobipy** using either pip or conda *after* completing the previous steps. The reason we must wait to run this line until after obtaining a license is that, without a specific license, Gurobipy will give you a trial license. This trial license limits the size of the models you can solve and expires quickly. We need a full, true license in order to solve this model, so you must obtain a 'Name-User Academic License' (see above) before installing Gurobipy.
+
+### Install optimalAllocation
+
+Only once you have obtained a Gurobi license can clone this repository:
 ```
-pip install gurobipy
+git clone https://github.com/jluby127/optimalAllocation.git
 ```
+
+And then install via:
+```
+pip install .
+```
+
+This will set up the environment and all dependency packages. Once again, it is very important that you _**do not**_ run the pip installer until you have obtained a Gurobi license. I cannot stress this enough.
+
+### Install ttpsolver
+One of the optimalAllocation dependencies is a package we co-developed, the TTP Solver (Traveling Telescope Problem). While the optimalAllocation autoscheduler decides which requests should be observed on a given night, the TTP solves for the optimal slew path to observe all those targets within the night. When pip installing the optimalAllocation package, the ttpsolver will be cloned from its repo as well. You must navigate to its local path and similarly pip install the package. For more information on installation and documentation of the TTP, see its Github Repo at: https://github.com/lukehandley/ttp. Since you have obtained a Gurobi license as part of the installation instructions above, you may skip that section of the TTP's installation instructions. Be sure to update your environment variables to include the path to the TTP.
 
 # Run instructions
 
@@ -43,24 +53,35 @@ python <LOCAL_DIR>/bin/generate_night_plan.py -d 2024-08-02 -f <LOCAL_DIR>/examp
 ```
 
 ## Flags
--d specifies the date for which to produce a script, format YYYY-MM-DD (No Default)
+
+### Required
 
 -f specifies the folder containing the inputs and outputs directory (can be defaulted to an environment variable: key name "KPFCC_SAVE_PATH")
 
--s specifies the slot size, in minutes (Default: 10)
+-d specifies the date for which to produce a script, format YYYY-MM-DD (No Default)
+
+### Advanced
+
+-a specifies to run the autoscheduler (Default: True)
+
+-p specifies to run the plotting/reporting suite (Default: True)
+
+-ttp specifies to turn off the ttp solver (Default: False)
 
 -r specifies to run the "bonus" round (Default: False)
 
--t specifies the maximum time to solve the model (Default: 600s)
+-w specifies to turn off the weather loss simulations. Now no nights will be lost to weather. (Default: False)
+
+### Optional
+
+-s specifies the slot size, in minutes (Default: 5)
+
+-b specifies to turn on the back up bright star list script. Now we will produce an additional night plan of only bright (V < 8) stars. (Default: False)
+
+-t specifies the maximum time to solve the model (Default: 300s)
 
 -g specifies to print the gorubi output to terminal (Default: True)
 
--p specifies to plot the results (Default: True)
-
-# Solving the Traveling Telescope Problem (TTP)
-Once the Optimal Semester Schedule is solved, we then wish to take the list of stars that have been chosen to be observed on a given night and further determine the optimal order within the night to observe these stars, effectively minimizing the slew time between them. To do this, we must employ the Traveling Telescope Problem (TTP) software.
-
-For installation info and documentation on the TTP, see its Github Repo at: https://github.com/lukehandley/ttp. Be sure to update your environment variables to include the path to the TTP. The TTP must be installed in order for optimalAllocation to run fully and properly.
 
 # More Info
 More information on the KPF-CC program and the algorithm can be found in these places:
