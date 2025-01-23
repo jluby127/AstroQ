@@ -11,9 +11,6 @@ from astropy.coordinates import Angle, SkyCoord
 import astropy.units as u
 from astropy.time import Time
 from astropy.time import TimeDelta
-import requests
-import re
-from bs4 import BeautifulSoup
 
 import numpy as np
 import pandas as pd
@@ -31,6 +28,9 @@ def access_jump():
         s (object): a session request
     """
 
+    import requests
+    import re
+    from bs4 import BeautifulSoup
     login_url = 'https://jump.caltech.edu/user/login/'
     s = requests.session()
     s.get(login_url)
