@@ -16,4 +16,4 @@ dependencies:
   - gurobipy
   - pip:
      - kaleido==0.2.1
-     - git+https://github.com/lukehandley/ttp.git@main#egg=ttp
+     - git+https://github.com/lukehandley/ttp.git@dev#egg=ttp
