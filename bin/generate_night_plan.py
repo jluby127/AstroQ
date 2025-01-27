@@ -12,7 +12,7 @@ import solve_semester as ss
 import helper_functions as hf
 import plotting_functions as ptf
 import processing_functions as pf
-import ttp_functions as ttp
+import ttp_functions as ttpf
 
 parser = argparse.ArgumentParser(description='Generate schedules with KPF-CC v2')
 # Required parameters
@@ -40,12 +40,12 @@ past_database = os.path.join(args.folder, "inputs/queryJumpDatabase.csv")
 twilight_times = os.path.join(args.folder, "inputs/2024B_twilight_times.csv")
 access_map = os.path.join(args.folder, "inputs/2024B_AccessMaps_" + str(args.slot_size) + "minSlots.txt")
 special_map = os.path.join(args.folder, "inputs/2024B_specialMaps_" + str(args.slot_size) + "minSlots.txt")
-nonqueue_map =  os.path.join(args.folder, "inputs/2024B_NonQueueMap"  + str(args.slot_size) + "".txt")
+nonqueue_map =  os.path.join(args.folder, "inputs/2024B_NonQueueMap"  + str(args.slot_size) + ".txt")
 zero_out_file = os.path.join(args.folder, "inputs/zero_out.csv")
 
 # Files for plotting
 folder_forecasts = os.path.join(args.folder, "/data/first_forecasts/")
-folder_cadences = os.path.join(args.folder, "/outputs/" + str(args.schedule_dates[0]) + "/cadences/"
+folder_cadences = os.path.join(args.folder, "/outputs/" + str(args.schedule_dates[0]) + "/cadences/")
 turn_on_off_file = os.path.join(args.folder, "inputs/2024B_turnOnOffDates.csv")
 starmap_template_filename = os.path.join(args.folder, "inputs/2024B_cadenceTemplateFile.csv")
 nonqueue_list = os.path.join(args.folder, "inputs/NonQueue.csv")
@@ -55,7 +55,7 @@ future_forecast = os.path.join(args.folder, "outputs/" + str(args.schedule_dates
 # Files for the TTP
 nightly_start_stop_times = os.path.join(args.folder, "inputs/2024B_NightlyStartStopTimes.csv")
 backup_file = os.path.join(path2modules, "data/bright_backups_frame.csv")
-backup_observability_file = os.path.join(path2modules, "data/bright_backup_observability.csv"
+backup_observability_file = os.path.join(path2modules, "data/bright_backup_observability.csv")
 
 if args.run_scheduler:
     ss.run_kpfcc(args.schedule_dates,
@@ -84,5 +84,5 @@ if args.run_plots:
     ptf.run_plot_suite(data, args.folder)
 
 if args.run_ttp:
-    ttp.run_ttp(future_forecast, nightly_start_stop_times, request_sheet,
+    ttpf.run_ttp(future_forecast, nightly_start_stop_times, request_sheet,
                                     args.schedule_dates[0], args.folder)
