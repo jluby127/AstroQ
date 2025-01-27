@@ -13,7 +13,7 @@ dependencies:
   - plotly==5.24.1
   - python==3.9
   - requests==2.32.3
-  - gurobipy
   - pip:
+     - gurobipy
      - kaleido==0.2.1
-     - git+https://github.com/lukehandley/ttp.git@dev#egg=ttp
+     - git+https://github.com/lukehandley/ttp.git@dev#egg=ttpsolver
