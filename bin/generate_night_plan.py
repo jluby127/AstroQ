@@ -8,11 +8,11 @@ import pandas as pd
 # The -3 cuts of the "bin/" of the path to this current file
 # path2modules = os.path.dirname(os.path.abspath(__file__))[:-3]
 # sys.path.append(path2modules  + "/kpfcc/")
-import optimalAllocation.solve_semester as ss
-import optimalAllocation.helper_functions as hf
-import optimalAllocation.plotting_functions as ptf
-import optimalAllocation.processing_functions as pf
-import optimalAllocation.ttp_functions as ttpf
+import kpfcc.solve_semester as ss
+import kpfcc.helper_functions as hf
+import kpfcc.plotting_functions as ptf
+import kpfcc.processing_functions as pf
+import kpfcc.ttp_functions as ttpf
 
 parser = argparse.ArgumentParser(description='Generate schedules with KPF-CC v2')
 # Required parameters
