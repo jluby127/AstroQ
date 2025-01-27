@@ -14,6 +14,8 @@ from astropy.time import TimeDelta
 
 import numpy as np
 import pandas as pd
+JUMP_USERNAME = os.environ['KPFCC_JUMP_USERNAME']
+JUMP_PASSWORD = os.environ['KPFCC_JUMP_PASSWORD']
 
 def access_jump():
     """
@@ -36,7 +38,7 @@ def access_jump():
     s.get(login_url)
     csrftoken = s.cookies['csrftoken']
     # you'll need to add your credentials for username and password
-    payload = {'action':'login', 'username':'jblubin','password':'jumpinJackspass',
+    payload = {'action':'login', 'username':JUMP_USERNAME,'password':JUMP_PASSWORD,
                'csrfmiddlewaretoken': csrftoken}
     new_login = s.post(login_url, data = payload, headers = dict(Referer = login_url))
     return s
