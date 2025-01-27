@@ -20,9 +20,7 @@ import pandas as pd
 import gurobipy as gp
 from gurobipy import GRB
 
-# DIR_PATH = os.path.dirname(os.path.abspath(__file__))
-# sys.path.append(DIR_PATH)
-# KPF-CC specific files
+from kpfcc import DATADIR
 import kpfcc.helper_functions as hf
 import kpfcc.twilight_functions as tw
 import kpfcc.reporting_functions as rf
@@ -251,7 +249,8 @@ def run_kpfcc(current_day,
 
     # Sample out future allocated nights to simulate weather loss based on empirical weather data.
     print("Sampling out weather losses")
-    historical_weather_data = pd.read_csv(DIR_PATH[:-5] + "data/maunakea_weather_loss_data.csv")
+    fn = os.path.join(DATADIR,"maunakea_weather_loss_data.csv")
+    historical_weather_data = pd.read_csv(fn)
     loss_stats_remaining = []
     for i, item in enumerate(all_dates_array):
         ind = historical_weather_data.index[historical_weather_data['Date'] == \

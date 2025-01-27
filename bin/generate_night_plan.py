@@ -6,13 +6,14 @@ import numpy as np
 import pandas as pd
 
 # The -3 cuts of the "bin/" of the path to this current file
-# path2modules = os.path.dirname(os.path.abspath(__file__))[:-3]
+#path2modules = os.path.dirname(os.path.abspath(__file__))[:-3]
 # sys.path.append(path2modules  + "/kpfcc/")
 import kpfcc.solve_semester as ss
 import kpfcc.helper_functions as hf
 import kpfcc.plotting_functions as ptf
 import kpfcc.processing_functions as pf
 import kpfcc.ttp_functions as ttpf
+from kpfcc import DATADIR
 
 parser = argparse.ArgumentParser(description='Generate schedules with KPF-CC v2')
 # Required parameters
@@ -54,8 +55,8 @@ future_forecast = os.path.join(args.folder, "outputs/" + str(args.schedule_dates
 
 # Files for the TTP
 nightly_start_stop_times = os.path.join(args.folder, "inputs/2024B_NightlyStartStopTimes.csv")
-backup_file = os.path.join(path2modules, "data/bright_backups_frame.csv")
-backup_observability_file = os.path.join(path2modules, "data/bright_backup_observability.csv")
+backup_file = os.path.join(DATADIR,"bright_backups_frame.csv")
+backup_observability_file = os.path.join(DATADIR,"bright_backup_observability.csv")
 
 if args.run_scheduler:
     ss.run_kpfcc(args.schedule_dates,
