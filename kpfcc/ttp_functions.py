@@ -17,11 +17,10 @@ from astropy.time import TimeDelta
 import gurobipy as gp
 from gurobipy import GRB
 
-sys.path.append(os.environ["TTP_PATH"] + "ttp/")
-import formatting
-import telescope
-import plotting
-import model
+import ttp.formatting as formatting
+import ttp.telescope as telescope
+import ttp.plotting as plotting
+import ttp.model as model
 
 path2modules = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(path2modules)
