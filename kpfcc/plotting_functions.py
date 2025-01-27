@@ -15,9 +15,9 @@ from astropy.time import Time
 import numpy as np
 import pandas as pd
 
-import helper_functions as hf
-import processing_functions as pf
-import reporting_functions as rf
+import kpfcc.helper_functions as hf
+import kpfcc.processing_functions as pf
+import kpfcc.reporting_functions as rf
 
 named_colors = ['blue', 'red', 'green', 'gold', 'maroon', 'gray', 'orange', 'magenta', 'purple']
 color_scales = {'blue':[[0, 'rgba(0,0,0,0)'],[1, 'rgb(0,0,255)']],

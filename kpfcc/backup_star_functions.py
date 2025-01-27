@@ -18,7 +18,7 @@ import pandas as pd
 import warnings
 warnings.filterwarnings('ignore')
 
-import mapping_functions as mf
+import kpfcc.mapping_functions as mf
 
 def compute_hours_observable_tonight(date, target, slot_size):
     """

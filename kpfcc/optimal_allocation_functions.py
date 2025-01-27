@@ -20,14 +20,14 @@ import pandas as pd
 import gurobipy as gp
 from gurobipy import GRB
 
-DIR_PATH = '/Users/jack/Documents/Github/optimalAllocation/kpfcc/'
-sys.path.append(DIR_PATH)
+# DIR_PATH = '/Users/jack/Documents/Github/optimalAllocation/kpfcc/'
+# sys.path.append(DIR_PATH)
 # KPF-CC specific files
-import helper_functions as hf
-import twilight_functions as tw
-import reporting_functions as rf
-import processing_functions as pf
-import mapping_functions as mf
+import kpfcc.helper_functions as hf
+import kpfcc.twilight_functions as tw
+import kpfcc.reporting_functions as rf
+import kpfcc.processing_functions as pf
+import kpfcc.mapping_functions as mf
 
 def run_optimal_instrument_allocation(current_day,
                                        requests_file,
