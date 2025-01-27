@@ -7,10 +7,10 @@ setup(
     install_requires=[
         'astroplan==0.8',
         'astropy==5.0.1',
-        'gurobipy'
+        'gurobipy',
         'imageio==2.24.0',
         'ipykernel==6.9.1',
-        'jupyter_client==7.1.2',
+        'jupyter_client>=7.1.2',
         'kaleido==0.2.1',
         'matplotlib==3.8.4',
         'numpy==1.22.1',
