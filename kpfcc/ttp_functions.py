@@ -22,11 +22,11 @@ import ttp.telescope as telescope
 import ttp.plotting as plotting
 import ttp.model as model
 
-path2modules = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(path2modules)
-import backup_star_functions as bsf
-import helper_functions as hf
-import processing_functions as pf
+# path2modules = os.path.dirname(os.path.abspath(__file__))
+# sys.path.append(path2modules)
+import kpfcc.backup_star_functions as bsf
+import kpfcc.helper_functions as hf
+import kpfcc.processing_functions as pf
 
 named_colors = ['blue', 'red', 'green', 'gold', 'maroon', 'gray', 'orange', 'magenta', 'purple']
 
