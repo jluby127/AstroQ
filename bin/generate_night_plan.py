@@ -82,7 +82,7 @@ if args.run_plots:
     data = ptf.DataHandler(args.schedule_dates[0], request_sheet, past_database, future_forecast,
                            twilight_times, nonqueue_list, folder_forecasts, folder_cadences,
                            args.folder + 'reports/', args.slot_size)
-    ptf.run_plot_suite(data, args.folder)
+    ptf.run_plot_suite(data, args.folder, build_starmaps=True)
 
 if args.run_ttp:
     ttp.run_ttp(future_forecast, nightly_start_stop_times, request_sheet,

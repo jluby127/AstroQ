@@ -250,6 +250,8 @@ def run_kpfcc(current_day,
         allocation_all.append(convert)
         if a >= all_dates_dict[current_day]:
             allocation_remaining.append(convert)
+    print("There are " + str(np.sum(allocation_all)) + " quarters allocated total in the semester (" + str(int(np.sum(allocation_all)/4)) + " nights).")
+    print("There are " + str(np.sum(allocation_remaining)) + " quarters allocated remaining in the semester (" + str(int(np.sum(allocation_remaining)/4)) + " nights).")
 
     # Sample out future allocated nights to simulate weather loss based on empirical weather data.
     print("Sampling out weather losses")
@@ -331,8 +333,7 @@ def run_kpfcc(current_day,
         for d in range(n_nights_in_semester):
             start = d*n_slots_in_night
             end = start + n_slots_in_night
-            possible_open_slots = np.sum(allocation_map_1D[start:end] & \
-                                        twilight_map_remaining_flat[start:end] & access[start:end])
+            possible_open_slots = np.sum(allocation_map_1D[start:end] & twilight_map_remaining_flat[start:end] & access[start:end])
             if possible_open_slots < minimum_slots_required:
                 no_multi_visit_observations.append([0]*n_slots_in_night)
             else:
@@ -618,7 +619,7 @@ def run_kpfcc(current_day,
     print("Sum of Theta: " + str(counter))
     filename.write("Sum of Theta: " + str(counter) + "\n")
 
-    plot_results = False
+    # plot_results = False
     if plot_results:
         print("Writing cadence plot files.")
         turn_on_off_frame = pd.read_csv(turn_off_on_file)
