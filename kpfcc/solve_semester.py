@@ -50,7 +50,7 @@ def run_kpfcc(current_day,
                exclude_history,
                gurobi_output = True,
                plot_results = True,
-               solve_time_limit = 300):
+               solve_time_limit = 1800):
 
     """run_kpfcc
     Args:
@@ -250,8 +250,10 @@ def run_kpfcc(current_day,
         allocation_all.append(convert)
         if a >= all_dates_dict[current_day]:
             allocation_remaining.append(convert)
-    print("There are " + str(np.sum(allocation_all)) + " quarters allocated total in the semester (" + str(int(np.sum(allocation_all)/4)) + " nights).")
-    print("There are " + str(np.sum(allocation_remaining)) + " quarters allocated remaining in the semester (" + str(int(np.sum(allocation_remaining)/4)) + " nights).")
+    count1 = sum(any(cell == 1 for cell in row) for row in allocation_all)
+    count2 = sum(any(cell == 1 for cell in row) for row in allocation_remaining)
+    print("There are " + str(np.sum(allocation_all)) + " quarters allocated total in the semester (" + str(int(np.sum(allocation_all)/4)) + " nights, spread out across " + str(count1) + " unique nights).")
+    print("There are " + str(np.sum(allocation_remaining)) + " quarters allocated remaining in the semester (" + str(int(np.sum(allocation_remaining)/4)) + " nights, spread out across " + str(count2) + " unique nights).")
 
     # Sample out future allocated nights to simulate weather loss based on empirical weather data.
     print("Sampling out weather losses")
@@ -364,6 +366,7 @@ def run_kpfcc(current_day,
              nightly_available_slots.append(list(np.where( \
                                                     available_slots_for_request[name][d] == 1)[0]))
         available_indices_for_request[name] = nightly_available_slots
+        #print(name + " -- #slots available = " + str(np.sum(available_slots_for_request[name])) + " --- " + str(np.shape(available_slots_for_request[name])))
 
     # Define the tuples of request and available slot for each request.
     # This becomes the grid over which the Gurobi variables are defined.
@@ -391,6 +394,8 @@ def run_kpfcc(current_day,
     Aframe['rr'] = Aframe['r']
     Aframe['dd'] = Aframe['d']
     Aframe['ss'] = Aframe['s']
+    Aframe.to_csv('/Users/jack/Desktop/aframe.csv', index=False)
+    print("CAN STOP")
 
     # -------------------------------------------------------------------
     # -------------------------------------------------------------------
@@ -466,30 +471,56 @@ def run_kpfcc(current_day,
                         'one_request_per_slot_' + str(row.d) + "d_" + str(row.s) + "s")
 
     print("Constraint 2: Reserve slots for for multi-slot exposures.")
-    # Get all requests that are  valid in (d,s) pair
-    requests_valid_in_slot = Aframe.groupby(['d','s'])[['rr', 'dd', 'ss']].agg(list)
+    # get all requests valid in a given d/s pair
+    requests_in_slot = Aframe.groupby(['d','s'])[['rr']].agg(list)
+    # Get all requests that are  valid in (d,s+e) pair for a given (d,s,1..e)
+    requests_valid_in_reserved_slots = pd.merge(Aframe.query('e > 1 ')['r d s e'.split()] \
+        ,Aframe['r d s'.split()],on=['d'],suffixes=['','2']) \
+        .query('s < s2 < s + e').groupby('r d s'.split()).agg(list)
     # If request requires only 1 slot to complete, then no constraint on reserving additional slots
     Aframe_multislots = Aframe[Aframe.e > 1]
     count = 0
     for i, row in Aframe_multislots.iterrows():
-        # construct list of (r,d,s) indices to be constrained. These are all requests that are
-        # valid in slots (d, s+1) through (d, s + e)
-        # Ensuring slot (d, s) is not double filled already taken care of in Constraint 1.
-        all_reserved_slots = []
-        for e in range(1, row.e):
-            try:
-                forbid = list(requests_valid_in_slot.loc[(row.d, row.s+e)])[0]
-                days = [row.d]*len(forbid)
-                slots = [row.s+e]*len(forbid)
-                all_reserved_slots.extend(list(zip(forbid, days, slots)))
-            except:
-                count += 1
-                # the (d,s) pair that is within e slots of the original slot has no valid/possible requests
-                continue
-        m.addConstr((row.e*(1 - Yrds[row.r,row.d,row.s])) >= gp.quicksum(Yrds[c]
-                                                        for c in all_reserved_slots),
-                        'reserve_multislot_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
-    print("Entered except on " + str(count) + " of " + str(len(Aframe_multislots)) + " loops.")
+        if (row.r, row.d, row.s) in requests_valid_in_reserved_slots.index:
+        # if len(list(requests_in_slot.loc[(row.d, row.s)][0])) > 1: #(row.d, row.s + 1) in Aframe_multislots.index and
+            # construct list of (r,d,s) indices to be constrained. These are all requests that are
+            # valid in slots (d, s+1) through (d, s + e)
+            # Ensuring slot (d, s) is not double filled already taken care of in Constraint 1.
+            allr = list(requests_valid_in_reserved_slots.loc[row.r, row.d, row.s]['r2'])
+            alls = list(requests_valid_in_reserved_slots.loc[row.r, row.d, row.s]['s2'])
+            all_reserved_slots = list(zip(allr, [row.d]*len(allr), alls))
+            m.addConstr((row.e*(1 - Yrds[row.r,row.d,row.s])) >= gp.quicksum(Yrds[c]
+                                                            for c in all_reserved_slots),
+                            'reserve_multislot_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
+        else:
+            count += 1
+    print("############## " + str(count) + " of " + str(len(Aframe_multislots)))
+
+    # print("Constraint 2: Reserve slots for for multi-slot exposures.")
+    # # Get all requests that are  valid in (d,s) pair
+    # requests_valid_in_slot = Aframe.groupby(['d','s'])[['rr', 'dd', 'ss']].agg(list)
+    # # If request requires only 1 slot to complete, then no constraint on reserving additional slots
+    # Aframe_multislots = Aframe[Aframe.e > 1]
+    # count = 0
+    # for i, row in Aframe_multislots.iterrows():
+    #     # construct list of (r,d,s) indices to be constrained. These are all requests that are
+    #     # valid in slots (d, s+1) through (d, s + e)
+    #     # Ensuring slot (d, s) is not double filled already taken care of in Constraint 1.
+    #     all_reserved_slots = []
+    #     for e in range(1, row.e):
+    #         try:
+    #             forbid = list(requests_valid_in_slot.loc[(row.d, row.s+e)])[0]
+    #             days = [row.d]*len(forbid)
+    #             slots = [row.s+e]*len(forbid)
+    #             all_reserved_slots.extend(list(zip(forbid, days, slots)))
+    #         except:
+    #             count += 1
+    #             # the (d,s) pair that is within e slots of the original slot has no valid/possible requests
+    #             continue
+    #     m.addConstr((row.e*(1 - Yrds[row.r,row.d,row.s])) >= gp.quicksum(Yrds[c]
+    #                                                     for c in all_reserved_slots),
+    #                     'reserve_multislot_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
+    # print("Entered except on " + str(count) + " of " + str(len(Aframe_multislots)) + " loops.")
 
     print("Constraint 3: Schedule request's maximum observations per night.")
     # Get all valid slots s for request r on day d

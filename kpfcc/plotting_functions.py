@@ -11,6 +11,7 @@ warnings.filterwarnings('ignore')
 import plotly.graph_objects as go
 import plotly.express as px
 from astropy.time import Time
+import seaborn as sns
 
 import numpy as np
 import pandas as pd
@@ -19,6 +20,7 @@ import helper_functions as hf
 import processing_functions as pf
 import reporting_functions as rf
 
+palette = sns.color_palette("colorblind")
 named_colors = ['blue', 'red', 'green', 'gold', 'maroon', 'gray', 'orange', 'magenta', 'purple']
 color_scales = {'blue':[[0, 'rgba(0,0,0,0)'],[1, 'rgb(0,0,255)']],
                 'red':[[0, 'rgba(0,0,0,0)'],[1, 'rgb(255,0,0)']],
@@ -53,7 +55,10 @@ def run_plot_suite(data, output_dir, build_starmaps=False):
 
     all_stars = []
     all_completions = []
+    prog_colors = {}
     for p, item in enumerate(data.programs):
+        prog_colors[p] = palette[p%len(palette)]
+
         program_COF, program_total_obs_request, program_first_forecast, stars_in_program, \
             stars_completion = generate_single_program_plot_suite(data, data.programs[p],
                                                                 build_cadence_plots=build_starmaps)
@@ -65,11 +70,11 @@ def run_plot_suite(data, output_dir, build_starmaps=False):
         all_program_first_forecast[data.programs[p]] = program_first_forecast
 
         all_star_maps, all_star_cols, all_star_nObs, stars_in_program = \
-            create_single_program_birds_eye(data, data.programs[p])
+            create_single_program_birds_eye(data, data.programs[p], prog_colors[p])
         all_star_maps_all_programs.append(all_star_maps)
 
-        program_color = named_colors[p%len(named_colors)]
-        all_star_colors_all_programs += [program_color]*len(all_star_maps)
+        #program_color = named_colors[p%len(named_colors)]
+        all_star_colors_all_programs += [prog_colors[p]]*len(all_star_maps)
         all_star_nObs_all_programs.append(all_star_nObs)
 
         all_stars_in_program.append(stars_in_program)
@@ -84,7 +89,8 @@ def run_plot_suite(data, output_dir, build_starmaps=False):
     generate_admin_view_plot_suite(data, all_program_cofs, all_program_info,
                                        all_program_first_forecast, flat_all_star_maps_all_programs,
                                        all_star_colors_all_programs,
-                                       flat_all_star_nObs_all_programs, flat_all_stars_in_program)
+                                       flat_all_star_nObs_all_programs, flat_all_stars_in_program,
+                                       prog_colors)
     all_stars = np.array(all_stars).flatten()
     all_completions = np.array(all_completions).flatten()
     complete_frame = pd.DataFrame({"Starname":all_stars, 'CompletetionPercent':all_completions})
@@ -351,7 +357,7 @@ def programmatic_cof(data_handler, list_of_request_cofs, total_program_observati
     return program_cof_counter, program_cof_percent
 
 def build_multi_request_cof(data_handler, all_cofs_array, star_info, all_first_forecasts,
-                            even_burn_rate=True, flag=False):
+                            even_burn_rate=True, flag=False, color_palette={}):
     """
     Build the COF plot
 
@@ -366,6 +372,9 @@ def build_multi_request_cof(data_handler, all_cofs_array, star_info, all_first_f
     Returns:
         None
     """
+    if flag and color_palette == {}:
+        print("Must input a color_palette value when flag==True.")
+
     starnames = list(star_info.keys())
     fig = go.Figure()
     if even_burn_rate:
@@ -381,7 +390,10 @@ def build_multi_request_cof(data_handler, all_cofs_array, star_info, all_first_f
             hovertemplate= 'Date: %{x}' + '<br>% Complete: %{y}'
         ))
     for i, y_values in enumerate(all_cofs_array):
-        color_line = np.random.choice(named_colors)
+        if flag:
+            color_line = f"rgb({int(color_palette[i][0]*255)}, {int(color_palette[i][1]*255)}, {int(color_palette[i][2]*255)})"
+        else:
+            color_line = np.random.choice(named_colors)
         star = starnames[i]
         label = star_info[star]
         fig.add_trace(go.Scatter(
@@ -605,13 +617,14 @@ def process_single_target_for_birds_eye(data_handler, starname):
     nobs = np.sum(np.sum(starmap,axis=1))
     return starmap, nobs
 
-def create_single_program_birds_eye(data_handler, program):
+def create_single_program_birds_eye(data_handler, program, color):
     """
     Prepare data for a birds eye view plot of one program's requests
 
     Args:
         data_handler (object): a object from the DataHandler class
         program (str): the program code
+        color (object): seaborn color palette value for this program
 
     Returns:
         all_star_maps (array): all of the starmaps of requests in the program
@@ -632,7 +645,7 @@ def create_single_program_birds_eye(data_handler, program):
                 program = data_handler.get_star_stats(starname)
             starmap, nobs = process_single_target_for_birds_eye(data_handler, starname)
             all_star_maps.append(starmap)
-            all_star_cols.append(named_colors[color_counter%len(named_colors)])
+            all_star_cols.append(color)#named_colors[color_counter%len(named_colors)])
             all_star_nobs.append(nobs/slots_per_night)
             color_counter += 1
 
@@ -657,11 +670,12 @@ def generate_birds_eye(data_handler, all_star_maps, all_star_cols, all_star_nobs
     fig = go.Figure()
     for i in range(len(all_star_maps)):
         all_star_maps_transpose = np.array(all_star_maps[i]).T
-        col = all_star_cols[i]
+        #col = all_star_cols[i]
+        col = f"rgb({int(all_star_cols[i][0]*255)}, {int(all_star_cols[i][1]*255)}, {int(all_star_cols[i][2]*255)})"
         nobscounter = [str(all_star_nobs[i])]
         fig.add_trace(go.Heatmap(
             z = all_star_maps_transpose,
-            colorscale=color_scales[col],
+            colorscale=[[0, 'rgba(0,0,0,0)'],[1, col]],
             zmin=0, zmax=1,
             opacity=1.0,
             showscale=False,
@@ -715,7 +729,7 @@ def generate_birds_eye(data_handler, all_star_maps, all_star_cols, all_star_nobs
 def generate_admin_view_plot_suite(data_handler, set_of_program_cofs, program_info,
                                    all_program_first_forecasts, all_star_maps_all_programs,
                                    all_star_colors_all_programs, all_star_nobs_all_programs,
-                                   all_stars_in_program):
+                                   all_stars_in_program, prog_colors):
     """
     Construct all plots for admin view
 
@@ -734,7 +748,7 @@ def generate_admin_view_plot_suite(data_handler, set_of_program_cofs, program_in
     """
     print("Building admin view of COFs.")
     build_multi_request_cof(data_handler, set_of_program_cofs, program_info,
-            all_first_forecasts=all_program_first_forecasts, flag=True)
+            all_first_forecasts=all_program_first_forecasts, flag=True, color_palette=prog_colors)
     print("Building admin view of Birds Eye")
     generate_birds_eye(data_handler, all_star_maps_all_programs, all_star_colors_all_programs,
             all_star_nobs_all_programs, 'admin', all_stars_in_program, nonqueue=True)
