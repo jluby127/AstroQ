@@ -93,6 +93,58 @@ def get_kpf_past_database(path_to_csv):
     get_database_explorer(name, path_to_csv)
     print("This semester's past KPF observations pulled from Jump. Saved to csv: " + path_to_csv)
 
+def build_past_history(past_observations_file, requests_frame, twilight_frame):
+    """
+    Construct the past history dictionary having pulled a table of observations from Jump.
+    Later this function will be replaced by one which pulls history from Keck OB database.
+
+    Args:
+        past_observations_file (str): the path and filename of the csv pulled from Jump
+        requests_frame (dataframe): the dataframe containing the request information
+        twilight_frame (dataframe): the dataframe containing the twilight information
+
+    Returns:
+        database_info_dict (dictionary): contains keys of starnames and values are lists where
+                    elements follow order described below.
+    """
+    print("Compiling past observation history.")
+    database_info_dict = {}
+    # pf.get_kpf_past_database(past_observations_file)
+    if os.path.exists(past_observations_file):
+        print("Pulled database of past observations this semester.")
+        database = pd.read_csv(past_observations_file)
+        for i in range(len(requests_frame['Starname'])):
+            starmask = database['star_id'] == requests_frame['Starname'][i]
+            star_past_obs = database[starmask]
+            star_past_obs.sort_values(by='utctime', inplace=True)
+            star_past_obs.reset_index(inplace=True)
+            total_past_observations = int(len(star_past_obs)/
+                                    (requests_frame['# Visits per Night'][i]*
+                                    requests_frame['# of Exposures per Visit'][i]))
+            star_past_obs, unique_hst_dates_observed, quarter_observed = \
+                rf.get_unique_nights(star_past_obs, twilight_frame)
+            n_obs_on_date = rf.get_nobs_on_night(star_past_obs, unique_hst_dates_observed)
+
+            if len(unique_hst_dates_observed) > 0:
+                most_recent_observation_date = unique_hst_dates_observed[-1]
+            else:
+                # If request has not been observed, set a dummy value.
+                most_recent_observation_date = '0000-00-00'
+            # Within the database_info_dict dictionary, each target's data is always in order:
+            # element 0 = the calendar date of the most recent observation (HST date)
+            # element 1 = a list of calendar dates with at least one observation
+            # element 2 = a list of the quarters where the observation took place on the
+            #             corresponding the nights in element 1.
+            #             If multiple visits in one night, then this is quarter of the first visit.
+            # element 3 = a list of the # of observations on each past night,
+            #             corresponding the nights in element 1.
+            database_info_dict[requests_frame['Starname'][i]] = \
+                [most_recent_observation_date, unique_hst_dates_observed, quarter_observed, \
+                n_obs_on_date]
+    else:
+        print("No past observation history to parse.")
+    return database_info_dict
+
 def prepare_for_ttp(request_frame, night_plan, round_two_targets):
     """
     Prepare tonight's scheduled stars for their run through the TTP (separate software package)

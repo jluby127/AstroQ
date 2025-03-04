@@ -20,6 +20,260 @@ import astropy as apy
 import astropy.units as u
 import astroplan as apl
 
+def produce_ultimate_map(requests_frame, allocation_map_1D, twilight_map_remaining_flat, 
+                         default_access_maps, custom_access_maps, zero_out_names,
+                         nonqueue_map_file_slots_ints, database_info_dict,
+                         slots_needed_for_exposure_dict, all_dates_dict, current_day, slot_size):
+    """
+    Combine all maps for a target to produce the final map
+
+    Args:
+        requests_frame (dataframe): the pandas dataframe containing request information
+
+    Returns:
+        available_slots_for_request (dictionary): keys are the starnames and values are the 1D array
+                                                  of the final map
+        available_indices_for_request (dictionary): keys are the starnames and values are a 1D array
+                                                  the indices where available_slots_for_request is 1.
+
+    """
+    print("Build unique star available slot indices.")
+    available_slots_for_request = {}
+    available_indices_for_request = {}
+    for name in requests_frame['Starname']:
+        accessibility_r = default_access_maps[name]
+        access = accessibility_r[today_starting_slot:]
+
+        if name in list(custom_access_maps.keys()):
+            custom_map = custom_access_maps[name][today_starting_slot:]
+        else:
+            custom_map = np.array([1]*n_slots_in_semester)
+
+        zero_out_map = np.array([1]*n_slots_in_semester)
+        if name in zero_out_names:
+            zero_out_map[:n_slots_in_night] = np.array([0]*n_slots_in_night)
+
+        respect_past_cadence = np.ones(n_slots_in_semester, dtype=np.int64)
+        if database_info_dict != {}:
+            date_last_observed = database_info_dict[name][0]
+            if date_last_observed != '0000-00-00':
+                date_last_observed_number = all_dates_dict[date_last_observed]
+                today_number = all_dates_dict[current_day]
+                diff = today_number - date_last_observed_number
+                if diff < int(row['Minimum Inter-Night Cadence']):
+                    block_upcoming_days = int(row['Minimum Inter-Night Cadence']) - diff
+                    respect_past_cadence[:block_upcoming_days*n_slots_in_night] = 0
+
+        # Determine which nights a multi-visit request is allowed to be attempted to be scheduled.
+        # This equation is a political decision and can be modified.
+        # It states that for each visit, after the intra-night cadence time has elapsed,
+        # we require a 90 minute window within which to allow for scheduling the next visit.
+        # We then assume the next visit is scheduled at the very end of this 90 minute window,
+        # which then restarts the clock for any additional visits.
+        minimum_time_required = ((int(row['# Visits per Night']) - 1)* \
+            (int(row['Minimum Intra-Night Cadence']) + 1.5))*3600 #convert hours to seconds
+        minimum_slots_required = hf.slots_required_for_exposure(minimum_time_required, slot_size)
+        no_multi_visit_observations = []
+        for d in range(n_nights_in_semester):
+            start = d*n_slots_in_night
+            end = start + n_slots_in_night
+            possible_open_slots = np.sum(allocation_map_1D[start:end] & \
+                                        twilight_map_remaining_flat[start:end] & access[start:end])
+            if possible_open_slots < minimum_slots_required:
+                no_multi_visit_observations.append([0]*n_slots_in_night)
+            else:
+                no_multi_visit_observations.append([1]*n_slots_in_night)
+        no_multi_visit_observations = np.array(no_multi_visit_observations)
+
+        # Construct the penultimate intersection of maps for the given request.
+        penultimate_map = allocation_map_1D & twilight_map_remaining_flat & \
+            nonqueue_map_file_slots_ints & access & custom_map & zero_out_map & \
+            respect_past_cadence
+
+        # find when target goes from available to unavailable, for any reason is not available a
+        fit_within_night = np.array([1]*n_slots_in_semester)
+        slots_needed = slots_needed_for_exposure_dict[name]
+        if slots_needed > 1:
+            for s in range(n_slots_in_semester - 1):
+                if penultimate_map[s] == 1 and penultimate_map[s+1] == 0:
+                    # The -1 below is because target can be started if just fits before unavailable
+                    for e in range(slots_needed - 1):
+                        fit_within_night[s - e] = 0
+
+        # Construct the ultimate intersection of maps for the given request.
+        # Define the slot indices that are available to the request for scheduling.
+        available_slots_for_request[name] = penultimate_map & fit_within_night
+
+        # reshape into n_nights_in_semester by n_slots_in_night
+        available_slots_for_request[name] = np.reshape(available_slots_for_request[name], \
+                                                    (n_nights_in_semester, n_slots_in_night))
+        nightly_available_slots = []
+        for d in range(len(available_slots_for_request[name])):
+             nightly_available_slots.append(list(np.where( \
+                                                    available_slots_for_request[name][d] == 1)[0]))
+        available_indices_for_request[name] = nightly_available_slots
+
+        return available_indices_for_request
+
+def construct_access_dict(accessibilities_file, requests_frame):
+    """
+    Define the dictionary of accessibility maps
+
+    Args:
+        accessibilities_file (str): path and filename of the precomputed access maps
+        requests_frame (dataframe): the pandas dataframe containing request information
+
+    Returns:
+        default_access_maps (dictionary): keys are the starnames and values are the 1D access maps
+    """
+    print("Reading pre-comupted accessibility maps.")
+    rewrite_flag = False
+    default_access_maps = read_accessibilty_map_dict(accessibilities_file)
+    for n,row in requests_frame.iterrows():
+        name = row['Starname']
+        # check that this target has a pre-computed accessibility map,
+        # if not, make one and add it to the file
+        try:
+            try_read = default_access_maps[name]
+        except:
+            print(name + " not found in precomputed accessibilty maps. Running now.")
+            # Note: the -1 is to account for python indexing
+            new_written_access_map = build_single_target_accessibility(name, row['RA'], row['Dec'],
+                                               semester_start_date, semester_length-1, slot_size)
+            default_access_maps[name] = np.array(new_written_access_map).flatten()
+            rewrite_flag = True
+    if rewrite_flag:
+        # overwrite with the updated file
+        mf.write_accessibilty_map_dict(default_access_maps, accessibilities_file)
+
+    return default_access_maps
+
+def construct_custom_map_dict(special_map_file):
+    """
+    Read in the customize acccessibility maps for unique targets, if exists.
+
+    Args:
+        special_map_file (str): path and filename of the precomputed custom maps
+
+    Returns:
+        custom_access_maps (dictionary): keys are the starnames and values are the 1D custom maps
+    """
+    if os.path.exists(special_map_file):
+        custom_access_maps = read_accessibilty_map_dict(special_map_file)
+    else:
+        custom_access_maps = {}
+    return custom_access_maps
+
+def construct_zero_out_arr(zero_out_file):
+    """
+    Read in the list of targets to "zero out", i.e. not allowed to be scheduled only tonight.
+
+    Args:
+        zero_out_file (str): path and filename of the stars to be zeroed out
+
+    Returns:
+        zero_out_names (array): list of stars to be zeroed out
+    """
+    if os.path.exists(zero_out_file):
+        zero_out = pd.read_csv(zero_out_file)
+        zero_out_names = list(zero_out['Target'])
+    else:
+        zero_out_names = []
+    return zero_out_names
+
+def construct_nonqueue_arr(nonqueue_map_file):
+    """
+    Build the 1D non-queue map
+
+    Args:
+        nonqueue_map_file (str): path and filename of the non-queue map
+
+    Returns:
+        nonqueue_map_file_slots_ints (array): the 1D array of 1's and 0's indicating nonqueue map
+    """
+    print("Incorporating non-queue observations.")
+    if os.path.exists(nonqueue_map_file):
+        print("Constraint: accommodate time-sensative non-queue observations.")
+        nonqueue_map_file_slots_strs = np.loadtxt(nonqueue_map_file, delimiter=',', dtype=str)
+        nonqueue_map_file_slots_ints = []
+        for i, item in enumerate(nonqueue_map_file_slots_strs):
+            holder = []
+            for j, item2 in enumerate(nonqueue_map_file_slots_strs[i]):
+                if nonqueue_map_file_slots_strs[i][j] == '':
+                    holder.append(1)
+                else:
+                    holder.append(0)
+            nonqueue_map_file_slots_ints.append(holder)
+        nonqueue_map_file_slots_ints = np.array(nonqueue_map_file_slots_ints).flatten()
+        nonqueue_map_file_slots_ints = nonqueue_map_file_slots_ints[today_starting_slot:]
+    else:
+        nonqueue_map_file_slots_ints = np.array(n_slots_in_semester)
+        print("No non-queue observations are scheduled.")
+    return nonqueue_map_file_slots_ints
+
+def prepare_allocation_map(allocation_file, current_day, semester_length, DATADIR, \
+            all_dates_array, output_directory):
+    """
+    When not in optimal allocation mode, prepare and construct the allocation map, as well as
+    perform the weather loss modeling.
+
+    Args:
+        allocation_file (str): the path and filename to the binary map of allocated quarters/nights
+        current_day (str): today's date, format YYYY-MM-DD
+        semester_length (int): the number of days in a full semester
+        DATADIR (str): the path to the pre-computed data files
+        all_dates_array (array): the list of calendar dates in the semester
+        run_weather_loss (boolean): If True, run the weather loss model. If False, no weather loss.
+        output_directory (str): the path to which to save
+        available_slots_in_night (array): a 1D array of length n_nights_in_semester where each
+                              element is an integer representing the number of slots within that
+                              night that during night time
+        today_starting_night (int): the day number of today's date in the semester
+        n_slots_in_night (int): the number of slots in a single night
+
+    Returns:
+        weather_diff_remaining (array): 1D array for remainder of semester where elements are 1 if
+                                        the night was allocated, but modelled as a weather loss
+        allocation_map_1D (array): a 1D array of length equal to n_slots_in_semester,
+                                1's are allocated and 0's are non-allocated slots
+        allocation_map_2D (array): a 2D array of shape n_nights_in_semester by n_slots_in_night
+                                    with same information as allocation_map_1D
+        weathered_map (array): a 2D array of shape n_nights_in_semester by
+                                    n_slots_in_night where 1's are nights that were
+                                    allocated but weathered out (for plotting purposes)
+    """
+    print("Preparing allocation map.")
+    # Convert allocation info from human to computer-readable
+    allocation_raw = np.loadtxt(allocation_file, dtype=str)
+    allocation_remaining = []
+    allocation_all = []
+    for a in range(semester_length):
+        convert = list(map(int, allocation_raw[a][2:]))
+        allocation_all.append(convert)
+        if a >= all_dates_dict[current_day]:
+            allocation_remaining.append(convert)
+
+    # Sample out future allocated nights to simulate weather loss based on empirical weather data.
+    print("Sampling out weather losses")
+    fn = os.path.join(DATADIR,"maunakea_weather_loss_data.csv")
+    historical_weather_data = pd.read_csv(fn)
+    loss_stats_remaining = []
+    for i, item in enumerate(all_dates_array):
+        ind = historical_weather_data.index[historical_weather_data['Date'] == \
+            all_dates_array[i][5:]].tolist()[0]
+        loss_stats_remaining.append(historical_weather_data['% Total Loss'][ind])
+
+    allocation_remaining_post_weather_loss, weather_diff_remaining, weather_diff_remaining_1D, \
+        days_lost = mf.simulate_weather_losses(allocation_remaining, loss_stats_remaining, \
+        covariance=0.14, dont_lose_nights=run_weather_loss, plot=True, outputdir=output_directory)
+    allocation_map_1D, allocation_map_2D, weathered_map = \
+        mf.build_allocation_map(allocation_remaining_post_weather_loss, weather_diff_remaining,
+        available_slots_in_each_night[today_starting_night:], n_slots_in_night)
+
+    mf.write_out_weather_stats(all_dates_dict, current_day, days_lost, allocation_remaining, \
+                                output_directory)
+    return weather_diff_remaining, allocation_map_1D, allocation_map_2D, weathered_map
+
 def build_allocation_map(allocation_schedule, weather_diff, available_slots_in_night,
                         n_slots_in_night):
     """

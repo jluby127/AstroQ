@@ -118,30 +118,40 @@ def current_day_tracker(current_day, all_dates):
     days_remaining = len(all_dates) - 1 - remove_days
     return days_remaining
 
-def slots_required_for_exposure(exposure_time, slot_size, always_round_up_flag=False):
+def build_slots_required_dictionary(requests_frame, slot_size, always_round_up_flag=False):
     """
-    Computes the slots needed for a given exposure.When always_round_up_flag is false,
-    we can round up or down.
+    Computes the slots needed for a given exposure for all requests.
+    When always_round_up_flag is false, we can round up or down.
     Example: with 5 minute slot sizes, we want a 6 minute exposure to only require one slot
             (round down) as opposed to 2 slots (round up)
 
     Args:
-        exposure_time (int): the exposure time in seconds
+        requests_frame (dataframe): the pandas dataframe containing the request information
         slot_size (int): the slot size in minutes
         always_round_up_flag (boolean): if true, slots needed is always larger than exposure_time
 
     Returns:
-        slots_needed_for_exposure (int): the number of slots required for this exposure
+        slots_needed_for_exposure_dict (dictionary): keys are the request names, values are the
+                        number of slots required for one exposure of that request
     """
+    print("Determining slots needed for exposures.")
     slot_size = slot_size * 60 # converting to seconds
-    if always_round_up_flag:
-        slots_needed_for_exposure = math.ceil(exposure_time/slot_size)
-    else:
-        if exposure_time > slot_size:
-            slots_needed_for_exposure = int(round(exposure_time/slot_size))
+
+    # schedule multi-shots and multi-visits as if a single, long exposure.
+    # When n_shots and n_visits are both 1, this reduces down to just the stated exposure time.
+    slots_needed_for_exposure_dict = {}
+    for n,row in requests_frame.iterrows():
+        name = row['Starname']
+        exposure_time = row['Nominal Exposure Time [s]']*row['# of Exposures per Visit'] + \
+            45*(row['# Visits per Night'] - 1)
+        if always_round_up_flag:
+            slots_needed_for_exposure = math.ceil(exposure_time/slot_size)
         else:
-            slots_needed_for_exposure = 1
-    return slots_needed_for_exposure
+            if exposure_time > slot_size:
+                slots_needed_for_exposure = int(round(exposure_time/slot_size))
+            else:
+                slots_needed_for_exposure = 1
+        slots_needed_for_exposure_dict[name] = slots_needed_for_exposure
 
 def find_indices(arr, start, end):
     """
@@ -321,3 +331,45 @@ def write_available_human_readable(all_dates_dict, current_day, semester_length,
             combined_semester_schedule[n + all_dates_dict[current_day], ][s] += str(slotallocated)
 
     return combined_semester_schedule
+
+def define_slot_index_frame(requests_frame, slots_needed_for_exposure_dict, available_indices_for_request):
+    """
+    Using the dictionary of indices where each request is available, define a dataframe for which
+    we will use to cut/filter/merge r,d,s tuples
+
+    Args:
+        requests_frame (dataframe): the pandas dataframe containing the request information
+        slots_needed_for_exposure_dict (dictionary): keys are the request names, values are the
+                        number of slots required for one exposure of that request
+        available_indices_for_request (dictionary): keys are the starnames and values are a 1D array
+                                                  the indices where available_slots_for_request is 1.
+    Returns:
+        Aframe (dataframe): a pandas dataframe containing one row for each valid r,d,s tuple
+    """
+    # Define the tuples of request and available slot for each request.
+    # This becomes the grid over which the Gurobi variables are defined.
+    # Now, slots that were never possible for scheduling are not included in the model.
+    Aset = []
+    Aframe_keys = []
+    for n,row in requests_frame.iterrows():
+        name = row['Starname']
+        n_visits = int(row['# Visits per Night'])
+        intra = int(row['Minimum Intra-Night Cadence'])
+        inter = int(row['Minimum Inter-Night Cadence'])
+        slots_needed = slots_needed_for_exposure_dict[name]
+        for d in range(len(available_indices_for_request[name])):
+            for s in available_indices_for_request[name][d]:
+                Aset.append((name, d, s))
+                Aframe_keys.append([name, d, s, slots_needed, n_visits, intra, inter])
+
+    Aframe = pd.DataFrame(Aframe_keys, columns =['r', 'd', 's', 'e', 'v', 'tra', 'ter'])
+    schedulable_requests = list(Aframe['r'].unique())
+    for name in list(requests_frame['Starname']):
+        if name not in schedulable_requests:
+            print("WARNING: Target " + name + " has no valid day/slot pairs and therefore is effectively removed from the model.")
+    # duplicate columns for easy indexing later
+    Aframe['rr'] = Aframe['r']
+    Aframe['dd'] = Aframe['d']
+    Aframe['ss'] = Aframe['s']
+
+    return Aframe
