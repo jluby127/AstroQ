@@ -48,6 +48,35 @@ def construct_twilight_map(current_day, twilight_frame, slot_size, all_dates_dic
                                     (n_nights_in_semester, n_slots_in_night))
     return twilight_map_remaining_flat, twilight_map_remaining_2D, available_slots_in_each_night
 
+def convert_slot_to_quarter(twilight_map_remaining_2D_d):
+    '''
+    Determine the slot numbers within the night that breaks the night into "equal" length quarters
+    Take extra precaution when the total number of slots between twilight times is not easily
+    divisable by 4.
+    '''
+
+    n_available_slots_in_quarter_tonight = int(np.sum(twilight_map_remaining_2D_d)/4)
+    extra_slots = np.sum(twilight_map_remaining_2D_d)%4
+    first_slot = np.argmax(twilight_map_remaining_2D_d)
+
+    if extra_slots == 0:
+        # when night is naturally divided into 4, accept as is
+        split_1st2nd = first_slot + n_available_slots_in_quarter_tonight
+        split_2nd3rd = split_1st2nd + n_available_slots_in_quarter_tonight
+        split_3rd4th = split_2nd3rd + n_available_slots_in_quarter_tonight
+    elif extra_slots == 1 or extra_slots == 2:
+        # when night has 1 extra slot, we place it into the 1st quarter
+        # when night has 2 extra slots, we place one into 1st, and one into 4th
+        split_1st2nd = first_slot + n_available_slots_in_quarter_tonight + 1
+        split_2nd3rd = split_1st2nd + n_available_slots_in_quarter_tonight
+        split_3rd4th = split_2nd3rd + n_available_slots_in_quarter_tonight
+    elif extra_slots == 3:
+        # when night has 3 extra slots, we place one into 1st, one into 3rd, and one into 4th
+        split_1st2nd = first_slot + n_available_slots_in_quarter_tonight + 1
+        split_2nd3rd = split_1st2nd + n_available_slots_in_quarter_tonight
+        split_3rd4th = split_2nd3rd + n_available_slots_in_quarter_tonight + 1
+    return split_1st2nd, split_2nd3rd, split_3rd4th
+
 def generate_twilight_times(all_dates_array):
     """generate_twilight_times
 

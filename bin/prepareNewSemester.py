@@ -10,9 +10,9 @@ import json
 import warnings
 warnings.filterwarnings('ignore')
 import sys
-sys.path.append(os.path.dirname(os.path.abspath(__file__))[:-3] + "kpfcc/")
-import mapping_functions as mf
-import helper_functions as hf
+sys.path.append(os.path.dirname(os.path.abspath(__file__))[:-3])# + "kpfcc/")
+import kpfcc.mapping_functions as mf
+import kpfcc.helper_functions as hf
 
 import argparse
 parser = argparse.ArgumentParser(description='Generate schedules with KPF-CC v2')
