@@ -50,7 +50,7 @@ def run_kpfcc(current_day,
                include_aesthetic = False,
                gurobi_output = True,
                plot_results = True,
-               solve_time_limit = 300
+               solve_time_limit = 300,
                whiteout_file = 'nofilename.txt',
                blackout_file = 'nofilename.txt'):
 
@@ -99,6 +99,10 @@ def run_kpfcc(current_day,
     """
     start_the_clock = time.time()
 
+    check = os.path.isdir(output_directory)
+    if not check:
+        os.makedirs(output_directory)
+
     # admin = af.data_admin(output_directory, current_day[0])
 
     # Set up logistics.
@@ -126,6 +130,7 @@ def run_kpfcc(current_day,
                                 = tw.construct_twilight_map(current_day, \
                                 twilight_frame, slot_size, all_dates_dict, \
                                 n_slots_in_night, n_nights_in_semester)
+
     nonqueue_map_file_slots_ints = mf.construct_nonqueue_arr(nonqueue_map_file, today_starting_slot)
 
     # When running a normal schedule, include the observatory's allocation map
@@ -147,7 +152,7 @@ def run_kpfcc(current_day,
         weathered_map = np.zeros((n_nights_in_semester, n_slots_in_night), dtype='int')
 
         # allocation maps are ones because all nights are possible to be allocated
-        allocation_map_1D = np.ones(n_nights_in_semester, dtype='int')
+        allocation_map_1D = np.ones(n_slots_in_semester, dtype='int')
         allocation_map_2D = np.ones((n_nights_in_semester, n_slots_in_night), dtype='int')
 
         # note here add blackout restrictions to cut down parameter space
@@ -167,7 +172,9 @@ def run_kpfcc(current_day,
 
     model = cf.GorubiModel(Aset, Aframe, schedulable_requests, requests_frame, database_info_dict, \
                             n_nights_in_semester, slots_needed_for_exposure_dict,
-                            solve_time_limit, gurobi_output, run_optimal_allocation=optional_allo, semester_grid, quarters_grid)
+                            solve_time_limit=solve_time_limit, gurobi_output=gurobi_output, run_optimal_allocation=optional_allo,
+                            semester_grid=semester_grid, quarters_grid=quarters_grid,
+                            max_quarters = 10, max_unique_nights = 10) #update with flag later
 
     model.constraint_build_theta()
     model.constraint_one_request_per_slot()
@@ -179,9 +186,10 @@ def run_kpfcc(current_day,
         model.constraint_set_max_quarters_allocated()
         model.constraint_set_max_onsky_allocated()
         model.constraint_relate_allocation_and_onsky()
-        model.constraint_all_portions_of_night_represented()
+        model.constraint_all_portions_of_night_represented(min_represented=1)
         model.constraint_forbidden_quarter_patterns(allow_singles=False) #update with flag value
-        model.constraint_cannot_observe_if_not_allocated(available_slots_in_each_night, n_slots_in_night)
+        # model.constraint_cannot_observe_if_not_allocated(available_slots_in_each_night, n_slots_in_night)
+        model.constraint_cannot_observe_if_not_allocated(twilight_map_remaining_2D)
         if os.path.exists(blackout_file):
             constraint_enforce_restricted_nights(blackout_file, limit=0)
         if os.path.exists(whiteout_file):
@@ -215,10 +223,9 @@ def run_kpfcc(current_day,
             else:
                 allocation_schedule_1d.append(0)
         allocation_schedule = np.reshape(allocation_schedule_1d, (n_nights_in_semester, n_quarters_in_night))
-        allocation_schedule_full = allocation_schedule
         holder = np.zeros(np.shape(allocation_schedule))
         allocation_map_1D, allocation_map_2D, weathered_map = mf.build_allocation_map(allocation_schedule, holder, available_slots_in_each_night, n_slots_in_night)
-        mf.convert_allocation_array_to_binary(allocation_map_2D, all_dates_dict, output_dir + "optimal_allocation_binary_schedule.txt")
+        mf.convert_allocation_array_to_binary(allocation_schedule, all_dates_array, output_directory + "optimal_allocation_binary_schedule.txt")
 
     print("Building human readable schedule.")
     combined_semester_schedule_available = hf.write_available_human_readable(

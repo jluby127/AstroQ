@@ -27,6 +27,7 @@ parser.add_argument('-p','--run_plots', help='Turn off the plotting', action='st
 parser.add_argument('-r','--run_extra_rounds', help='Run the bonus round', action='store_true')
 parser.add_argument('-ttp','--run_ttp', help='Turn off the TTP.', action='store_false')
 parser.add_argument('-w','--run_weather_loss', help='If False, do not simulate weather', action='store_false')
+parser.add_argument('-opt','--run_as_optimal_allocation', help='If True, run in optimal allocation mode', action='store_true')
 # Optional parameters - Use Default 99% of the time
 parser.add_argument('-t','--timeout', help='Max time spent optimizing (sec)',type=int, default=300)
 parser.add_argument('-s','--slot_size', help='The slot size (minutes)', type=int, default=5)
@@ -74,8 +75,8 @@ if args.run_scheduler:
                               special_map,
                               zero_out_file,
                               args.run_weather_loss,
-                              False,
-                              False,
+                              args.run_as_optimal_allocation,
+                              False, #run with aesthetic constraints
                               args.show_gurobi,
                               args.run_plots,
                               args.timeout)

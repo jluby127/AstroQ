@@ -200,7 +200,7 @@ def construct_nonqueue_arr(nonqueue_map_file, today_starting_slot):
     """
     print("Incorporating non-queue observations.")
     if os.path.exists(nonqueue_map_file):
-        print("Constraint: accommodate time-sensative non-queue observations.")
+        print("Accommodating time-sensative non-queue observations.")
         nonqueue_map_file_slots_strs = np.loadtxt(nonqueue_map_file, delimiter=',', dtype=str)
         nonqueue_map_file_slots_ints = []
         for i, item in enumerate(nonqueue_map_file_slots_strs):
@@ -326,7 +326,7 @@ def build_allocation_map(allocation_schedule, weather_diff, available_slots_in_n
 
     return allocation_map_1D, allocation_map_2D, allocation_map_weather_diff_2D
 
-def convert_allocation_array_to_binary(allocation_map_2D, all_dates_dict, filename):
+def convert_allocation_array_to_binary(allocation_map_2D, all_dates_array, filename):
     """
     Used in optimal allocation, write out the results of the calendar to human readable format.
 
@@ -340,7 +340,7 @@ def convert_allocation_array_to_binary(allocation_map_2D, all_dates_dict, filena
     """
     file = open(filename, 'w')
     for i in range(len(all_dates_array)):
-        line = all_dates_array[i] + " : " + str(allocation_map_2D[i])
+        line = all_dates_array[i] + " : " + str(" ".join(map(str, allocation_map_2D[i])))
         file.write(str(line) + "\n")
     file.close()
 
