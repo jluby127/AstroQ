@@ -155,6 +155,17 @@ def build_slots_required_dictionary(requests_frame, slot_size, always_round_up_f
         slots_needed_for_exposure_dict[name] = slots_needed_for_exposure
     return slots_needed_for_exposure_dict
 
+def slots_required_for_exposure(exposure_time, slot_size, always_round_up_flag=True):
+    slot_size = slot_size * 60 # converting to seconds
+    if always_round_up_flag:
+        slots_needed_for_exposure = math.ceil(exposure_time/slot_size)
+    else:
+        if exposure_time > slot_size:
+            slots_needed_for_exposure = int(round(exposure_time/slot_size))
+        else:
+            slots_needed_for_exposure = 1
+    return slots_needed_for_exposure
+
 def find_indices(arr, start, end):
     """
     Determine the indices in one array that are between two bounds of another array. Used to find

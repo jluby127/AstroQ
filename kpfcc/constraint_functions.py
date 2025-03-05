@@ -28,8 +28,10 @@ class GorubiModel(object):
     """A Gorubi Model object, from which we can add constraints and share variables easily."""
 
     def __init__(self, Aset, Aframe, schedulable_requests, requests_frame, database_info_dict,
-                 solve_time_limit, gurobi_output, max_gap=0.05, max_bonus_observations_pct = 0.5,
-                 run_optimal_allocation=False, semester_grid = [], quarters_grid = []):
+                 n_nights_in_semester, slots_needed_for_exposure_dict, n_quarters_in_night = 4, max_bonus_observations_pct = 0.5
+                 solve_time_limit = 300, gurobi_output = True, max_gap=0.05,
+                 run_optimal_allocation=False, semester_grid = [], quarters_grid = [],
+                 max_quarters = 0, max_unique_nights = 0):
 
         print("Defining model.")
         self.Aset = Aset
@@ -37,6 +39,10 @@ class GorubiModel(object):
         self.schedulable_requests = schedulable_requests
         self.requests_frame = requests_frame
         self.database_info_dict = database_info_dict
+        self.n_nights_in_semester = n_nights_in_semester
+        self.n_quarters_in_night = n_quarters_in_night
+        self.slots_needed_for_exposure_dict = slots_needed_for_exposure_dict
+
         self.solve_time_limit = solve_time_limit
         self.gurobi_output = gurobi_output
         self.max_gap = max_gap
@@ -45,8 +51,13 @@ class GorubiModel(object):
         self.run_optimal_allocation = run_optimal_allocation
         self.semester_grid = semester_grid
         self.quarters_grid = quarters_grid
-        if self.run_optimal_allocation and (self.semester_grid == [] or self.quarters_grid == []):
+        self.max_quarters = max_quarters
+        self.max_unique_nights = max_unique_nights
+        if self.run_optimal_allocation and (self.semester_grid == [] or self.quarters_grid == [])
+            and (self.max_quarters > 0 and self.max_unique_nights > 0):
+            print("Missing necessary parameters to run Optimal Allocation.")
             print("A semester grid and a quarters grid is required to run optimal allocation.")
+            print("Neither Max Quarters and Max Unique Nights parameters cannot be zero.")
 
         self.m = gp.Model('Semester_Scheduler')
         # Yrs is technically a 1D matrix indexed by tuples.
@@ -66,10 +77,11 @@ class GorubiModel(object):
             self.Un = self.m.addVars(self.semester_grid, vtype = GRB.BINARY, name = 'On-Sky')
             self.m.update()
 
-    def add_constraint_build_theta(self):
+    def constraint_build_theta(self):
         """
         According to Eq X in Lubin et al. 2025.
         """
+        print(self.max_bonus_observations_pct)
         print("Constraint 0: Build theta variable")
         aframe_slots_for_request = self.Aframe.groupby(['r'])[['d', 's']].agg(list)
         for name in self.schedulable_requests:
@@ -102,7 +114,7 @@ class GorubiModel(object):
             self.m.addConstr(gp.quicksum(self.Yrds[name, d, s] for d,s in available) <=
                         true_max_obs, 'max_unique_nights_for_request_' + str(name))
 
-    def add_constraint_one_request_per_slot(self):
+    def constraint_one_request_per_slot(self):
         """
         According to Eq X in Lubin et al. 2025.
         """
@@ -114,15 +126,15 @@ class GorubiModel(object):
             suffixes=['', '2'],
             on=['d', 's'])
         ds_requests = Aframe_ds.groupby(['d','s'])[['r2']].agg(list)
-        # Aset_inter_no_duplicates = Aframe.copy()
-        Aset_inter_no_duplicates = self.Aframe.drop_duplicates(subset=['d', 's'])
+        Aset_ds_no_duplicates = self.Aframe.copy()
+        Aset_ds_no_duplicates = self.Aframe.drop_duplicates(subset=['d', 's'])
         # Construct the constraint
         for i, row in Aset_ds_no_duplicates.iterrows():
             requests_valid_in_slot = list(ds_requests.loc[(row.d, row.s)])[0]
             self.m.addConstr((gp.quicksum(self.Yrds[name,row.d,row.s] for name in requests_valid_in_slot) <= 1),
                             'one_request_per_slot_' + str(row.d) + "d_" + str(row.s) + "s")
 
-    def add_constraint_reserve_multislot_exposures(self):
+    def constraint_reserve_multislot_exposures(self):
         """
         According to Eq X in Lubin et al. 2025.
         """
@@ -144,7 +156,7 @@ class GorubiModel(object):
                                                             for c in all_reserved_slots),
                             'reserve_multislot_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
 
-    def add_constraint_max_visits_per_night(self):
+    def constraint_max_visits_per_night(self):
         """
         According to Eq X in Lubin et al. 2025.
         """
@@ -163,7 +175,7 @@ class GorubiModel(object):
             self.m.addConstr((gp.quicksum(self.Yrds[row.r,row.d,ss] for ss in constrained_slots_tonight) <= row.v),
                     'max_observations_per_night_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
 
-    def add_constraint_enforce_internight_cadence(self):
+    def constraint_enforce_internight_cadence(self):
         """
         According to Eq X in Lubin et al. 2025.
         """
@@ -199,13 +211,168 @@ class GorubiModel(object):
                 # rows as a "mask_inter_2", then the if/else won't be needed
                 continue
 
+    def constraint_set_max_quarters_allocated(self):
+        """
+        According to Eq X in Lubin et al. 2025.
+        """
+        print("Constraint: setting max number of quarters allocated.")
+        # No more than a maximum number of quarters can be allocated
+        self.m.addConstr(gp.quicksum(self.Anq[d,q] for d in range(self.n_nights_in_semester)
+                        for q in range(n_quarters_in_night))
+                        <= self.max_quarters, "maximumQuartersAllocated")
 
+    def constraint_set_max_onsky_allocated(self):
+        """
+        According to Eq X in Lubin et al. 2025.
+        """
+        print("Constraint: setting max number of unique nights allocated.")
+        # No more than a maximum number of unique nights can be allocated
+        self.m.addConstr(gp.quicksum(self.Un[d] for d in range(self.n_nights_in_semester))
+                            <= self.max_unique_nights, "maximumNightsAllocated")
 
+    def constraint_relate_allocation_and_onsky(self):
+        """
+        According to Eq X in Lubin et al. 2025.
+        """
+        print("Constraint: relating allocation map and unique night allocation map.")
+        # relate unique_allocation and allocation
+        # if any one of the q in allocation[given date, q] is 1, then unique_allocation[given date] must be 1, zero otherwise
+        for d in range(self.n_nights_in_semester):
+            for q in range(self.n_quarters_in_night):
+                self.m.addConstr(self.Un[d] >= self.Anq[d,q], "relatedUnique_andNonUnique_lowerbound_" + str(d) + "d_" + str(q) + "q")
+            self.m.addConstr(self.Un[d] <= gp.quicksum(self.Anq[d,q] for q in range(self.n_quarters_in_night)), "relatedUnique_andNonUnique_upperbound_" + str(d) + "d")
+
+    def constraint_all_portions_of_night_represented(self, minQuarterSelection=3):
+        """
+        According to Eq X in Lubin et al. 2025.
+        """
+        print("Constraint: setting min number each quarter to be allocated.")
+        # Minimum number of each quarter must be allocated
+        self.m.addConstr(gp.quicksum(self.Anq[d,0] for d in range(self.n_nights_in_semester)) >= minQuarterSelection, "minQuarterSelection_0q")
+        self.m.addConstr(gp.quicksum(self.Anq[d,1] for d in range(self.n_nights_in_semester)) >= minQuarterSelection, "minQuarterSelection_1q")
+        self.m.addConstr(gp.quicksum(self.Anq[d,2] for d in range(self.n_nights_in_semester)) >= minQuarterSelection, "minQuarterSelection_2q")
+        self.m.addConstr(gp.quicksum(self.Anq[d,3] for d in range(self.n_nights_in_semester)) >= minQuarterSelection, "minQuarterSelection_3q")
+
+    def constraint_forbidden_quarter_patterns(self, allow_singles=False):
+        """
+        According to Eq X in Lubin et al. 2025.
+        """
+        print("Constraint: forbid certain patterns of quarter night allocations within night.")
+        # Disallow certain patterns of quarters selected within same night
+        for d in range(self.n_nights_in_semester):
+            # Cannot have 1st and 3rd quarter allocated without also allocating 2nd quarter (no gap), regardless of if 4th quarter is allocated or not
+            self.m.addConstr(self.Anq[d,0] + (self.Un[d]-self.Anq[d,1]) + self.Anq[d,2] <= 2*self.Un[d], "NoGap2_" + str(d) + "d")
+            # Cannot have 2nd and 4th quarter allocated without also allocating 3rd quarter (no gap), regardless of if 1st quarter is allocated or not
+            self.m.addConstr(self.Anq[d,1] + (self.Un[d]-self.Anq[d,2]) + self.Anq[d,3] <= 2*self.Un[d], "NoGap3_" + str(d) + "d")
+            # Cannot have only 2nd and 3rd quarters allocated (no middle half)
+            self.m.addConstr((self.Un[d]-self.Anq[d,0]) + self.Anq[d,1] + self.Anq[d,2] + (self.Un[d]-self.Anq[d,3]) <= 3*self.Un[d], "NoMiddleHalf_" + str(d) + "d")
+            if allow_singles == False:
+                # Cannot have only 1st and 4th quarters allocated (no end-cap half)
+                self.m.addConstr(self.Anq[d,0] + (self.Un[d]-self.Anq[d,1]) + (self.Un[d]-self.Anq[d,2]) + self.Anq[d,3] <= 3*self.Un[d], "NoEndCapHalf_" + str(d) + "d")
+                # Cannot choose single quarter allocations
+                self.m.addConstr(self.Anq[d,0] + (self.Un[d]-self.Anq[d,1]) + (self.Un[d]-self.Anq[d,2]) + (self.Un[d]-self.Anq[d,3]) <= 3*self.Un[d], "No1stQOnly_" + str(d) + "d")
+                self.m.addConstr((self.Un[d]-self.Anq[d,0]) + self.Anq[d,1] + (self.Un[d]-self.Anq[d,2]) + (self.Un[d]-self.Anq[d,3]) <= 3*self.Un[d], "No2ndQOnly_" + str(d) + "d")
+                self.m.addConstr((self.Un[d]-self.Anq[d,0]) + (self.Un[d]-self.Anq[d,1]) + self.Anq[d,2] + (self.Un[d]-self.Anq[d,3]) <= 3*self.Un[d], "No3rdQOnly_" + str(d) + "d")
+                self.m.addConstr((self.Un[d]-self.Anq[d,0]) + (self.Un[d]-self.Anq[d,1]) + (self.Un[d]-self.Anq[d,2]) + self.Anq[d,3] <= 3*self.Un[d], "No4thQOnly_" + str(d) + "d")
+                # Cannot choose 3/4 allocations
+                self.m.addConstr(self.Anq[d,0] + self.Anq[d,1] + self.Anq[d,2] + (self.Un[d]-self.Anq[d,3]) <= 3*self.Un[d], "No3/4Q_v1_" + str(d) + "d")
+                self.m.addConstr((self.Un[d]-self.Anq[d,0]) + self.Anq[d,1] + self.Anq[d,2] + self.Anq[d,3] <= 3*self.Un[d], "No3/4Q_v2_" + str(d) + "d")
+
+    def constraint_cannot_observe_if_not_allocated(self, available_slots_in_given_night, n_slots_in_night):
+        """
+        According to Eq X in Lubin et al. 2025.
+        """
+        print("Constraint: cannot observe if night/quarter is not allocated.")
+        # if quarter is not allocated, all slots in quarter must be zero
+        # note that the twilight times at the front and end of the night have to be respected
+        for d in range(self.n_nights_in_semester):
+
+            #First determine, based on length of night, how many slots are in each quarter of night
+            offset = int(available_slots_in_given_night[d]/2)
+            n_slots_in_quarter_tonight = int((n_slots_in_night - offset)/4)
+            extra_slot = n_slots_in_quarter_tonight%4
+            if extra_slot == 3:
+                n_slots_in_quarter_tonight + 1
+            # Now constrain all slots (for given name, d within Yrds) within a quarter to the Anq
+            for q in range(self.n_quarters_in_night):
+                start = d*n_slots_in_night + offset + q*n_slots_in_quarter_tonight
+                end = start + n_slots_in_quarter_tonight
+                #print("Day " + str(d) + "; Available " +  str(available_slots_in_given_night[d]) + "; True " + str(n_slots_in_quarter_tonight) + "; start/end " + str(start) + " -- " + str(end) )
+                for s in range(start, end):
+                    for name in all_targets_frame['Starname']:
+                        self.m.addConstr(self.Yrds[name, d, s] <= self.Anq[d, q], "dontSched_ifNot_Allocated_"+ str(d) + "d_" + str(q) + "q_" + str(s) + "s_" + name)
+
+    def constraint_max_consecutive_onsky(self, max_consecutive=6):
+        """
+        According to Eq X in Lubin et al. 2025.
+        """
+        print("Constraint: setting max number of consecutive unique nights allocated.")
+        # Don't allocate more than X consecutive nights
+        for d in range(self.n_nights_in_semester - max_consecutive):
+            self.m.addConstr(gp.quicksum(self.Un[d + t] for t in range(max_consecutive)) <= max_consecutive - 1, "consecutiveNightsMax_" + str(d) + "d")
+
+    def constraint_minimum_consecutive_offsky(self, min_consecutive=10):
+        """
+        According to Eq X in Lubin et al. 2025.
+        """
+        print("Constraint: setting min gap in days between allocated unique nights.")
+        # Enforce at least one day allocated every X days (no large gaps)
+        # Note you cannot run this when observatory/instrument has an extended shutdown
+        for d in range(self.n_nights_in_semester - min_consecutive):
+            self.m.addConstr(gp.quicksum(self.Un[d + t] for t in range(min_consecutive)) >= 2, "noLargeGaps_" + str(d) + "d")
+
+    def constraint_enforce_restricted_nights(self, enforced_file, limit):
+        """
+        According to Eq X in Lubin et al. 2025.
+
+        limit (int): either 0 or 1 to enforce blackout and whiteout, respectively
+        """
+        if limit != 0 or limit != 1:
+            print("Limit must be an integer, either 0 (blackout) or 1 (whiteout).")
+
+        # enforce that certain nights/quarters CANNOT or MUST be chosen
+        print("Constraint: enforcing quarters that cannot be chosen.")
+        enforce = hf.enforce_dates(enforced_file, all_dates_dict)
+        for i in range(len(enforce)):
+            night = enforcedNO[i][0]
+            quart = enforcedNO[i][1]
+            self.m.addConstr(self.Anq[night,quart] == limit, "enforced_" + str(limit) "_" + str(night) + "d_" + str(quart) + 'q')
+
+    def constraint_maximize_baseline(self, max_base=5):
+        """
+        According to Eq X in Lubin et al. 2025.
+        """
+        print("Constraint: maximize the baseline of unique nights allocated.")
+        # Enforce a night to be allocated within the first X nights and the last X nights of the semester (max baseline)
+        self.m.addConstr(gp.quicksum(self.Un[0 + t] for t in range(max_base)) >= 1, "maxBase_early")
+        self.m.addConstr(gp.quicksum(self.Un[self.n_nights_in_semester - max_base + t] for t in range(max_base)) >= 1, "maxBase_late")
+
+    def constraint_fix_previous_objective(self, epsilon=5):
+        """
+        According to Eq X in Lubin et al. 2025.
+        """
+        print("Constraint: Fixing the previous solution's objective value.")
+        first_stage_objval =
+        self.m.addConstr(gp.quicksum(self.theta[name] for name in self.requests_frame['Starname']) <= \
+                        m.objval + epsilon)
+
+    def set_objective_maximize_slots_used(self):
+        """
+        According to Eq X in Lubin et al. 2025.
+        """
+        print("Objective: Maximize the number of slots used.")
+        self.m.setObjective(gp.quicksum(self.slots_needed_for_exposure_dict[r]*self.Yrds[r,d,s]
+                            for r, d, s in Aset), GRB.MAXIMIZE)
+
+    def set_objective_minimize_theta(self):
+        """
+        According to Eq X in Lubin et al. 2025.
+        """
+        self.m.setObjective(gp.quicksum(self.theta[name] for name in self.schedulable_requests), GRB.MINIMIZE)
 
 
     def solve_model(self):
         print("Begin model solve.")
-        self.m.setObjective(gp.quicksum(self.theta[name] for name in self.schedulable_requests), GRB.MINIMIZE)
 
         self.m.params.TimeLimit = self.solve_time_limit
         self.m.Params.OutputFlag = self.gurobi_output
@@ -227,4 +394,4 @@ class GorubiModel(object):
                 if c.IISGenConstr:
                     print('%s' % c.GenConstrName)
         else:
-            print("Round 1 Model Solved.")
+            print("Model Successfully Solved.")
