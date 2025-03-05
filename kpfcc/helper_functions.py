@@ -209,6 +209,15 @@ def find_indices(arr, start, end):
 
     return first_index, last_index
 
+def enforce_dates(filename, all_dates_dict):
+    enforced_dates = []
+    selections = pd.read_csv(filename)
+    for s in range(len(selections)):
+        night = all_dates_dict[selections['Date'][s]]
+        pair = [night, selections['Quarter'][s]]
+        enforced_dates.append(pair)
+    return enforced_dates
+
 def write_stars_schedule_human_readable(combined_semester_schedule, Yns, starnames, semester_length, n_slots_in_night,
                                         n_nights_in_semester, all_dates_dict, slots_needed_dict,
                                         current_day):
