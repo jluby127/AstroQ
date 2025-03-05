@@ -27,8 +27,10 @@ import kpfcc.mapping_functions as mf
 class GorubiModel(object):
     """A Gorubi Model object, from which we can add constraints and share variables easily."""
 
-    def __init__(self, Aset, Aframe, schedulable_requests, requests_frame, database_info_dict
-                 solve_time_limit, gurobi_output, max_gap=0.05, max_bonus_observations_pct = 0.5):
+    def __init__(self, Aset, Aframe, schedulable_requests, requests_frame, database_info_dict,
+                 solve_time_limit, gurobi_output, max_gap=0.05, max_bonus_observations_pct = 0.5,
+                 run_optimal_allocation=False, semester_grid = [], quarters_grid = []):
+
         print("Defining model.")
         self.Aset = Aset
         self.Aframe = Aframe
@@ -40,22 +42,37 @@ class GorubiModel(object):
         self.max_gap = max_gap
         self.max_bonus_observations_pct = max_bonus_observations_pct
 
+        self.run_optimal_allocation = run_optimal_allocation
+        self.semester_grid = semester_grid
+        self.quarters_grid = quarters_grid
+        if self.run_optimal_allocation and (self.semester_grid == [] or self.quarters_grid == []):
+            print("A semester grid and a quarters grid is required to run optimal allocation.")
+
         self.m = gp.Model('Semester_Scheduler')
         # Yrs is technically a 1D matrix indexed by tuples.
         # But in practice best think of it as a 2D square matrix of requests r and slots s, with gaps.
         # Slot s for request r will be 1 to indicate starting an exposure for that request in that slot
-        self.Yrds = m.addVars(self.Aset, vtype = GRB.BINARY, name = 'Requests_Slots')
+        self.Yrds = self.m.addVars(self.Aset, vtype = GRB.BINARY, name = 'Requests_Slots')
         # theta is the "shortfall" variable, continous in natural numbers.
-        self.theta = m.addVars(self.schedulable_requests, name='Shortfall')
+        self.theta = self.m.addVars(self.schedulable_requests, name = 'Shortfall')
 
+        if self.run_optimal_allocation:
+            # Anq is a 2D matrix of N_nights_in_semester by N_quarters_in_night
+            # element will be 1 if that night/quarter is allocated to KPF and 0 otherwise
+            self.Anq = self.m.addVars(self.semester_grid, self.quarters_grid, vtype = GRB.BINARY, name = 'Allocation')
 
-    def Constraint0(self):
+            # Un is a 1D matrix of N_nights_in_semester
+            # element will be 1 if at least one quarter in that night is allocated
+            self.Un = self.m.addVars(self.semester_grid, vtype = GRB.BINARY, name = 'On-Sky')
+            self.m.update()
+
+    def add_constraint_build_theta(self):
         """
         According to Eq X in Lubin et al. 2025.
         """
         print("Constraint 0: Build theta variable")
         aframe_slots_for_request = self.Aframe.groupby(['r'])[['d', 's']].agg(list)
-        for name in schedulable_requests:
+        for name in self.schedulable_requests:
             idx = self.requests_frame.index[self.requests_frame['Starname']==name][0]
 
             if self.database_info_dict == {}:
@@ -85,7 +102,7 @@ class GorubiModel(object):
             self.m.addConstr(gp.quicksum(self.Yrds[name, d, s] for d,s in available) <=
                         true_max_obs, 'max_unique_nights_for_request_' + str(name))
 
-    def Constraint1(self):
+    def add_constraint_one_request_per_slot(self):
         """
         According to Eq X in Lubin et al. 2025.
         """
@@ -105,7 +122,7 @@ class GorubiModel(object):
             self.m.addConstr((gp.quicksum(self.Yrds[name,row.d,row.s] for name in requests_valid_in_slot) <= 1),
                             'one_request_per_slot_' + str(row.d) + "d_" + str(row.s) + "s")
 
-    def Constraint2(self):
+    def add_constraint_reserve_multislot_exposures(self):
         """
         According to Eq X in Lubin et al. 2025.
         """
@@ -127,7 +144,7 @@ class GorubiModel(object):
                                                             for c in all_reserved_slots),
                             'reserve_multislot_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
 
-    def Constraint3(self):
+    def add_constraint_max_visits_per_night(self):
         """
         According to Eq X in Lubin et al. 2025.
         """
@@ -146,7 +163,7 @@ class GorubiModel(object):
             self.m.addConstr((gp.quicksum(self.Yrds[row.r,row.d,ss] for ss in constrained_slots_tonight) <= row.v),
                     'max_observations_per_night_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
 
-    def Constraint4(self):
+    def add_constraint_enforce_internight_cadence(self):
         """
         According to Eq X in Lubin et al. 2025.
         """

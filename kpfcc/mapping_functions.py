@@ -9,6 +9,7 @@ Example usage:
     import mapping_functions as mf
 """
 import json
+import os
 
 import numpy as np
 import pandas as pd
@@ -20,10 +21,14 @@ import astropy as apy
 import astropy.units as u
 import astroplan as apl
 
-def produce_ultimate_map(requests_frame, allocation_map_1D, twilight_map_remaining_flat, 
+import kpfcc.helper_functions as hf
+
+
+def produce_ultimate_map(requests_frame, allocation_map_1D, twilight_map_remaining_flat,
                          default_access_maps, custom_access_maps, zero_out_names,
-                         nonqueue_map_file_slots_ints, database_info_dict,
-                         slots_needed_for_exposure_dict, all_dates_dict, current_day, slot_size):
+                         nonqueue_map_file_slots_ints, today_starting_slot, database_info_dict,
+                         slots_needed_for_exposure_dict, all_dates_dict, current_day, slot_size,
+                         n_slots_in_night, n_nights_in_semester, n_slots_in_semester):
     """
     Combine all maps for a target to produce the final map
 
@@ -40,7 +45,8 @@ def produce_ultimate_map(requests_frame, allocation_map_1D, twilight_map_remaini
     print("Build unique star available slot indices.")
     available_slots_for_request = {}
     available_indices_for_request = {}
-    for name in requests_frame['Starname']:
+    for i,row in requests_frame.iterrows():
+        name = row['Starname']
         accessibility_r = default_access_maps[name]
         access = accessibility_r[today_starting_slot:]
 
@@ -72,7 +78,7 @@ def produce_ultimate_map(requests_frame, allocation_map_1D, twilight_map_remaini
         # which then restarts the clock for any additional visits.
         minimum_time_required = ((int(row['# Visits per Night']) - 1)* \
             (int(row['Minimum Intra-Night Cadence']) + 1.5))*3600 #convert hours to seconds
-        minimum_slots_required = hf.slots_required_for_exposure(minimum_time_required, slot_size)
+        minimum_slots_required = slots_needed_for_exposure_dict[name]#hf.slots_required_for_exposure(minimum_time_required, slot_size)
         no_multi_visit_observations = []
         for d in range(n_nights_in_semester):
             start = d*n_slots_in_night
@@ -113,7 +119,7 @@ def produce_ultimate_map(requests_frame, allocation_map_1D, twilight_map_remaini
                                                     available_slots_for_request[name][d] == 1)[0]))
         available_indices_for_request[name] = nightly_available_slots
 
-        return available_indices_for_request
+    return available_indices_for_request
 
 def construct_access_dict(accessibilities_file, requests_frame):
     """
@@ -181,12 +187,13 @@ def construct_zero_out_arr(zero_out_file):
         zero_out_names = []
     return zero_out_names
 
-def construct_nonqueue_arr(nonqueue_map_file):
+def construct_nonqueue_arr(nonqueue_map_file, today_starting_slot):
     """
     Build the 1D non-queue map
 
     Args:
         nonqueue_map_file (str): path and filename of the non-queue map
+        today_starting_slot (int): the slot number that represents today's first slot
 
     Returns:
         nonqueue_map_file_slots_ints (array): the 1D array of 1's and 0's indicating nonqueue map
@@ -212,7 +219,8 @@ def construct_nonqueue_arr(nonqueue_map_file):
     return nonqueue_map_file_slots_ints
 
 def prepare_allocation_map(allocation_file, current_day, semester_length, DATADIR, \
-            all_dates_array, output_directory):
+            all_dates_dict, all_dates_array, run_weather_loss, n_slots_in_night,
+            available_slots_in_each_night, today_starting_night, output_directory):
     """
     When not in optimal allocation mode, prepare and construct the allocation map, as well as
     perform the weather loss modeling.
@@ -264,13 +272,13 @@ def prepare_allocation_map(allocation_file, current_day, semester_length, DATADI
         loss_stats_remaining.append(historical_weather_data['% Total Loss'][ind])
 
     allocation_remaining_post_weather_loss, weather_diff_remaining, weather_diff_remaining_1D, \
-        days_lost = mf.simulate_weather_losses(allocation_remaining, loss_stats_remaining, \
+        days_lost = simulate_weather_losses(allocation_remaining, loss_stats_remaining, \
         covariance=0.14, dont_lose_nights=run_weather_loss, plot=True, outputdir=output_directory)
     allocation_map_1D, allocation_map_2D, weathered_map = \
-        mf.build_allocation_map(allocation_remaining_post_weather_loss, weather_diff_remaining,
+        build_allocation_map(allocation_remaining_post_weather_loss, weather_diff_remaining,
         available_slots_in_each_night[today_starting_night:], n_slots_in_night)
 
-    mf.write_out_weather_stats(all_dates_dict, current_day, days_lost, allocation_remaining, \
+    write_out_weather_stats(all_dates_dict, current_day, days_lost, allocation_remaining, \
                                 output_directory)
     return weather_diff_remaining, allocation_map_1D, allocation_map_2D, weathered_map
 

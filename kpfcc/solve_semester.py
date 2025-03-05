@@ -26,7 +26,8 @@ import kpfcc.twilight_functions as tw
 import kpfcc.reporting_functions as rf
 import kpfcc.processing_functions as pf
 import kpfcc.mapping_functions as mf
-import kpfcc.constraints_functions as cf
+import kpfcc.constraint_functions as cf
+import kpfcc.admin_functions as af
 
 # import line_profiler
 # @profile
@@ -45,7 +46,7 @@ def run_kpfcc(current_day,
                special_map_file,
                zero_out_file,
                run_weather_loss,
-               optional_allo = False
+               optional_allo = False,
                gurobi_output = True,
                plot_results = True,
                solve_time_limit = 300):
@@ -95,14 +96,15 @@ def run_kpfcc(current_day,
     """
     start_the_clock = time.time()
 
-    admin = af.data_admin(output_directory, current_day[0])
+    # admin = af.data_admin(output_directory, current_day[0])
 
     # Set up logistics.
     # Only today is important to the semester solver.
     # Any additional dates in the array are for the TTP.
     current_day = current_day[0]
-    semester_start_date, semester_length, all_dates_dict, all_dates_array, n_slots_in_night \
-            n_nights_in_semester, today_starting_slot, today_starting_night = run_admin(current_day)
+    semester_start_date, semester_length, all_dates_dict, all_dates_array, n_slots_in_night, \
+            n_nights_in_semester, today_starting_slot, today_starting_night = af.run_admin(current_day, slot_size)
+    n_slots_in_semester = n_nights_in_semester*n_slots_in_night
 
     # -------------------------------------------------------------------
     # -------------------------------------------------------------------
@@ -117,18 +119,26 @@ def run_kpfcc(current_day,
     default_access_maps = mf.construct_access_dict(accessibilities_file, requests_frame)
     custom_access_maps = mf.construct_custom_map_dict(special_map_file)
     zero_out_names = mf.construct_zero_out_arr(zero_out_file)
-    twilight_map_remaining_flat, twilight_map_remaining_2D = tw.construct_twilight_map(current_day, \
+    twilight_map_remaining_flat, twilight_map_remaining_2D, available_slots_in_each_night \
+                                = tw.construct_twilight_map(current_day, \
                                 twilight_frame, slot_size, all_dates_dict, \
                                 n_slots_in_night, n_nights_in_semester)
-    nonqueue_map_file_slots_ints = mf.construct_nonqueue_arr(nonqueue_map_file)
+    nonqueue_map_file_slots_ints = mf.construct_nonqueue_arr(nonqueue_map_file, today_starting_slot)
 
     # When running a normal schedule, include the observatory's allocation map
     # When running the optimal allocation, all dates are possible except for those specifically blacked out
     if optional_allo == False:
         weather_diff_remaining, allocation_map_1D, allocation_map_2D, weathered_map = \
-                    prepare_allocation_map(allocation_file, current_day, semester_length, DATADIR, \
-                    all_dates_array, output_directory)
+                    mf.prepare_allocation_map(allocation_file, current_day, semester_length, DATADIR, \
+                    all_dates_dict, all_dates_array, run_weather_loss, n_slots_in_night,
+                    available_slots_in_each_night, today_starting_night, output_directory)
+        semester_grid = []
+        quarters_grid = []
     else:
+        semester_grid = np.arange(0, n_nights_in_semester, 1)
+        n_quarters_in_night = 4
+        quarters_grid = np.arange(0, n_quarters_in_night, 1)
+
         # Weather arrays are zeros since no weather losses are modeled
         weather_diff_remaining = np.zeros(n_nights_in_semester, dtype='int')
         weathered_map = np.zeros((n_nights_in_semester, n_slots_in_night), dtype='int')
@@ -138,22 +148,26 @@ def run_kpfcc(current_day,
         allocation_map_2D = np.ones((n_nights_in_semester, n_slots_in_night), dtype='int')
         # note here add blackout restrictions to cut down parameter space
 
-    available_indices_for_request = mf.produce_ultimate_map(requests_frame, allocation_map_1D,
+    available_indices_for_request = mf.produce_ultimate_map(requests_frame, allocation_map_1D.flatten(),
                                                          twilight_map_remaining_flat,
                                                          default_access_maps, custom_access_maps,
                                                          zero_out_names, nonqueue_map_file_slots_ints,
-                                                         database_info_dict, slots_needed_for_exposure_dict,
-                                                         all_dates_dict, current_day, slot_size)
+                                                         today_starting_slot, database_info_dict,
+                                                         slots_needed_for_exposure_dict,
+                                                         all_dates_dict, current_day, slot_size,
+                                                         n_slots_in_night, n_nights_in_semester,
+                                                         n_slots_in_semester)
 
-    Aframe = hf.define_slot_index_frame(requests_frame, slots_needed_for_exposure_dict,
+    Aframe, Aset, schedulable_requests = hf.define_slot_index_frame(requests_frame, slots_needed_for_exposure_dict,
                                         available_indices_for_request)
 
-    model = cf.GorubiModel(Aset, Aframe, schedulable_requests, requests_frame, database_info_dict)
-    model.Constraint0()
-    model.Constraint1()
-    model.Constraint2()
-    model.Constraint3()
-    model.Constraint4()
+    model = cf.GorubiModel(Aset, Aframe, schedulable_requests, requests_frame, database_info_dict, \
+                            optional_allo, semester_grid, quarters_grid)
+    model.add_constraint_build_theta()
+    model.add_constraint_one_request_per_slot()
+    model.add_constraint_reserve_multislot_exposures()
+    model.add_constraint_max_visits_per_night()
+    model.add_constraint_enforce_internight_cadence()
 
     if optional_allo == False:
         model.Constraint5()
