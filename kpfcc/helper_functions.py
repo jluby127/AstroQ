@@ -9,6 +9,7 @@ import os
 import math
 
 import numpy as np
+import pandas as pd
 from astropy.time import Time
 from astropy.time import TimeDelta
 
@@ -152,6 +153,7 @@ def build_slots_required_dictionary(requests_frame, slot_size, always_round_up_f
             else:
                 slots_needed_for_exposure = 1
         slots_needed_for_exposure_dict[name] = slots_needed_for_exposure
+    return slots_needed_for_exposure_dict
 
 def find_indices(arr, start, end):
     """
@@ -372,4 +374,4 @@ def define_slot_index_frame(requests_frame, slots_needed_for_exposure_dict, avai
     Aframe['dd'] = Aframe['d']
     Aframe['ss'] = Aframe['s']
 
-    return Aframe
+    return Aframe, Aset, schedulable_requests

@@ -5,10 +5,14 @@ Designed to be only run as a function call from the generateScript.py script.
 Example usage:
     import twilight_functions as tf
 """
+import numpy as np
 import pandas as pd
+
 from astropy.time import Time
 from astropy.time import TimeDelta
 import astroplan as apl
+
+import kpfcc.mapping_functions as mf
 
 def construct_twilight_map(current_day, twilight_frame, slot_size, all_dates_dict, \
                             n_slots_in_night, n_nights_in_semester):
@@ -34,7 +38,7 @@ def construct_twilight_map(current_day, twilight_frame, slot_size, all_dates_dic
     # quarter of a given night, after accounting for non-observable times due to day/twilight.
     available_slots_in_each_night = []
     for date in list(all_dates_dict.keys()):
-        slots_tonight = tw.determine_twilight_edge(date, twilight_frame, slot_size)
+        slots_tonight = determine_twilight_edge(date, twilight_frame, slot_size)
         available_slots_in_each_night.append(slots_tonight)
     twilight_map_all = np.array(mf.build_twilight_map(available_slots_in_each_night,
                                 n_slots_in_night, invert=False))
@@ -42,7 +46,7 @@ def construct_twilight_map(current_day, twilight_frame, slot_size, all_dates_dic
     twilight_map_remaining_flat = twilight_map_remaining.copy().flatten()
     twilight_map_remaining_2D = np.reshape(twilight_map_remaining,
                                     (n_nights_in_semester, n_slots_in_night))
-    return twilight_map_remaining_flat, twilight_map_remaining_2D
+    return twilight_map_remaining_flat, twilight_map_remaining_2D, available_slots_in_each_night
 
 def generate_twilight_times(all_dates_array):
     """generate_twilight_times

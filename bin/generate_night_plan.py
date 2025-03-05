@@ -6,8 +6,8 @@ import numpy as np
 import pandas as pd
 
 # The -3 cuts of the "bin/" of the path to this current file
-#path2modules = os.path.dirname(os.path.abspath(__file__))[:-3]
-# sys.path.append(path2modules  + "/kpfcc/")
+path2modules = os.path.dirname(os.path.abspath(__file__))[:-3]
+sys.path.append(path2modules)
 import kpfcc.solve_semester as ss
 import kpfcc.helper_functions as hf
 import kpfcc.plotting_functions as ptf
@@ -74,6 +74,7 @@ if args.run_scheduler:
                               special_map,
                               zero_out_file,
                               args.run_weather_loss,
+                              False,
                               args.show_gurobi,
                               args.run_plots,
                               args.timeout)
