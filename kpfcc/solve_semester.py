@@ -47,9 +47,12 @@ def run_kpfcc(current_day,
                zero_out_file,
                run_weather_loss,
                optional_allo = False,
+               include_aesthetic = False,
                gurobi_output = True,
                plot_results = True,
-               solve_time_limit = 300):
+               solve_time_limit = 300
+               whiteout_file = 'nofilename.txt',
+               blackout_file = 'nofilename.txt'):
 
     """run_kpfcc
     Args:
@@ -126,7 +129,6 @@ def run_kpfcc(current_day,
     nonqueue_map_file_slots_ints = mf.construct_nonqueue_arr(nonqueue_map_file, today_starting_slot)
 
     # When running a normal schedule, include the observatory's allocation map
-    # When running the optimal allocation, all dates are possible except for those specifically blacked out
     if optional_allo == False:
         weather_diff_remaining, allocation_map_1D, allocation_map_2D, weathered_map = \
                     mf.prepare_allocation_map(allocation_file, current_day, semester_length, DATADIR, \
@@ -134,6 +136,7 @@ def run_kpfcc(current_day,
                     available_slots_in_each_night, today_starting_night, output_directory)
         semester_grid = []
         quarters_grid = []
+    # When running the optimal allocation, all dates are possible except for those specifically blacked out
     else:
         semester_grid = np.arange(0, n_nights_in_semester, 1)
         n_quarters_in_night = 4
@@ -146,6 +149,7 @@ def run_kpfcc(current_day,
         # allocation maps are ones because all nights are possible to be allocated
         allocation_map_1D = np.ones(n_nights_in_semester, dtype='int')
         allocation_map_2D = np.ones((n_nights_in_semester, n_slots_in_night), dtype='int')
+
         # note here add blackout restrictions to cut down parameter space
 
     available_indices_for_request = mf.produce_ultimate_map(requests_frame, allocation_map_1D.flatten(),
@@ -162,19 +166,34 @@ def run_kpfcc(current_day,
                                         available_indices_for_request)
 
     model = cf.GorubiModel(Aset, Aframe, schedulable_requests, requests_frame, database_info_dict, \
-                            optional_allo, semester_grid, quarters_grid)
-    model.add_constraint_build_theta()
-    model.add_constraint_one_request_per_slot()
-    model.add_constraint_reserve_multislot_exposures()
-    model.add_constraint_max_visits_per_night()
-    model.add_constraint_enforce_internight_cadence()
+                            n_nights_in_semester, slots_needed_for_exposure_dict,
+                            solve_time_limit, gurobi_output, run_optimal_allocation=optional_allo, semester_grid, quarters_grid)
 
-    if optional_allo == False:
-        model.Constraint5()
+    model.constraint_build_theta()
+    model.constraint_one_request_per_slot()
+    model.constraint_reserve_multislot_exposures()
+    model.constraint_max_visits_per_night()
+    model.constraint_enforce_internight_cadence()
 
+    if optional_allo:
+        model.constraint_set_max_quarters_allocated()
+        model.constraint_set_max_onsky_allocated()
+        model.constraint_relate_allocation_and_onsky()
+        model.constraint_all_portions_of_night_represented()
+        model.constraint_forbidden_quarter_patterns(allow_singles=False) #update with flag value
+        model.constraint_cannot_observe_if_not_allocated(available_slots_in_each_night, n_slots_in_night)
+        if os.path.exists(blackout_file):
+            constraint_enforce_restricted_nights(blackout_file, limit=0)
+        if os.path.exists(whiteout_file):
+            constraint_enforce_restricted_nights(whiteout_file, limit=1)
+        if include_aesthetic:
+            model.constraint_max_consecutive_onsky(max_consecutive=6) #update with flag value
+            model.constraint_minimum_consecutive_offsky(min_consecutive=10) #update with flag value
+            model.constraint_maximize_baseline(max_base=5) #update with flag value
 
     complete_constraints_build = time.time()
     print("Total Time to build constraints: ", np.round(complete_constraints_build-start_the_clock,3))
+    model.set_objective_minimize_theta()
     model.solve_model()
     complete_round1_model = time.time()
     print("Total Time to finish solver: ", np.round(complete_round1_model-start_the_clock,3))
@@ -187,6 +206,20 @@ def run_kpfcc(current_day,
     file = open(output_directory + "runReport.txt", "w")
     file.close()
 
+    if optional_allo:
+        print("Reading results of optimal allocation map.")
+        allocation_schedule_1d = []
+        for v in model.Anq.values():
+            if np.round(v.X,0) == 1:
+                allocation_schedule_1d.append(1)
+            else:
+                allocation_schedule_1d.append(0)
+        allocation_schedule = np.reshape(allocation_schedule_1d, (n_nights_in_semester, n_quarters_in_night))
+        allocation_schedule_full = allocation_schedule
+        holder = np.zeros(np.shape(allocation_schedule))
+        allocation_map_1D, allocation_map_2D, weathered_map = mf.build_allocation_map(allocation_schedule, holder, available_slots_in_each_night, n_slots_in_night)
+        mf.convert_allocation_array_to_binary(allocation_map_2D, all_dates_dict, output_dir + "optimal_allocation_binary_schedule.txt")
+
     print("Building human readable schedule.")
     combined_semester_schedule_available = hf.write_available_human_readable(
                                 all_dates_dict, current_day, semester_length,
@@ -196,7 +229,7 @@ def run_kpfcc(current_day,
         combined_semester_schedule_available, delimiter=',', fmt="%s")
 
     combined_semester_schedule_stars = hf.write_stars_schedule_human_readable( \
-            combined_semester_schedule_available, Yrds, list(requests_frame['Starname']),
+            combined_semester_schedule_available, model.Yrds, list(requests_frame['Starname']),
             semester_length, n_slots_in_night, n_nights_in_semester,
             all_dates_dict, slots_needed_for_exposure_dict, current_day)
     np.savetxt(output_directory + 'raw_combined_semester_schedule_Round1.txt',
@@ -210,7 +243,7 @@ def run_kpfcc(current_day,
     filename = open(output_directory + "runReport.txt", "a")
     theta_n_var = []
     counter = 0
-    for v in theta.values():
+    for v in model.theta.values():
         varname = v.VarName
         varval = v.X
         counter += varval
@@ -271,33 +304,10 @@ def run_kpfcc(current_day,
 
     if run_round_two:
         print("Beginning Round 2 Scheduling.")
-        first_stage_objval = m.objval
-        epsilon = 5
-        m.params.TimeLimit = solve_time_limit
-        m.Params.OutputFlag = gurobi_output
-        m.params.MIPGap = 0.05
-        m.addConstr(gp.quicksum(theta[name] for name in requests_frame['Starname']) <= \
-                    first_stage_objval + epsilon)
-        m.setObjective(gp.quicksum(slots_needed_for_exposure_dict[r]*Yrs[r,d,s]
-                        for r, d, s in Aset),
-                        GRB.MAXIMIZE)
-        m.update()
-        m.optimize()
+        model.constraint_fix_previous_objective()
+        model.set_objective_maximize_slots_used()
+        model.solve_model()
 
-        if m.Status == GRB.INFEASIBLE:
-            print('Model remains infeasible. Searching for invalid constraints')
-            search = m.computeIIS()
-            print("Printing bad constraints:")
-            for c in m.getConstrs():
-                if c.IISConstr:
-                    print('%s' % c.ConstrName)
-            for c in m.getGenConstrs():
-                if c.IISGenConstr:
-                    print('%s' % c.GenConstrName)
-        else:
-            print("")
-            print("")
-            print("Round 2 Model Solved.")
 
         complete_round2_model = time.time()
         print("Total Time to finish round 2 solver: ",

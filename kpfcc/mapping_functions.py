@@ -326,6 +326,24 @@ def build_allocation_map(allocation_schedule, weather_diff, available_slots_in_n
 
     return allocation_map_1D, allocation_map_2D, allocation_map_weather_diff_2D
 
+def convert_allocation_array_to_binary(allocation_map_2D, all_dates_dict, filename):
+    """
+    Used in optimal allocation, write out the results of the calendar to human readable format.
+
+    Args:
+        allocation_map_2D (array): a 2D array of length n_nights_in_semester by n_quarters_in_night,
+                                [Q1, Q2, Q3, Q4] where binary elements indicate allocation.
+        all_dates_array (dict): the calendar dates of the semester
+        filename (str): the path and filename to save the outputted file
+    Returns:
+        None
+    """
+    file = open(filename, 'w')
+    for i in range(len(all_dates_array)):
+        line = all_dates_array[i] + " : " + str(allocation_map_2D[i])
+        file.write(str(line) + "\n")
+    file.close()
+
 def single_night_allocated_slots(allocated_quarters_tonight, available_slots_in_night,
                                 n_slots_in_night):
     """

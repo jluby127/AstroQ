@@ -75,6 +75,7 @@ if args.run_scheduler:
                               zero_out_file,
                               args.run_weather_loss,
                               False,
+                              False,
                               args.show_gurobi,
                               args.run_plots,
                               args.timeout)
