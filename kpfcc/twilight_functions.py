@@ -14,8 +14,7 @@ import astroplan as apl
 
 import kpfcc.mapping_functions as mf
 
-def construct_twilight_map(current_day, twilight_frame, slot_size, all_dates_dict, \
-                            n_slots_in_night, n_nights_in_semester):
+def construct_twilight_map(manager):
     """
     Compute the number of slots per night available, based on strictly twilight times
 
@@ -37,15 +36,15 @@ def construct_twilight_map(current_day, twilight_frame, slot_size, all_dates_dic
     # Each element will hold an integer which represents the number of slots are available in each
     # quarter of a given night, after accounting for non-observable times due to day/twilight.
     available_slots_in_each_night = []
-    for date in list(all_dates_dict.keys()):
-        slots_tonight = determine_twilight_edge(date, twilight_frame, slot_size)
+    for date in list(manager.all_dates_array):
+        slots_tonight = determine_twilight_edge(date, manager.twilight_frame, manager.slot_size)
         available_slots_in_each_night.append(slots_tonight)
     twilight_map_all = np.array(mf.build_twilight_map(available_slots_in_each_night,
-                                n_slots_in_night, invert=False))
-    twilight_map_remaining = twilight_map_all[all_dates_dict[current_day]:]
+                                manager.n_slots_in_night, invert=False))
+    twilight_map_remaining = twilight_map_all[manager.all_dates_dict[manager.current_day]:]
     twilight_map_remaining_flat = twilight_map_remaining.copy().flatten()
     twilight_map_remaining_2D = np.reshape(twilight_map_remaining,
-                                    (n_nights_in_semester, n_slots_in_night))
+                                    (manager.n_nights_in_semester, manager.n_slots_in_night))
     return twilight_map_remaining_flat, twilight_map_remaining_2D, available_slots_in_each_night
 
 def convert_slot_to_quarter(twilight_map_remaining_2D_d):
