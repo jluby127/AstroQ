@@ -228,39 +228,32 @@ def enforce_dates(filename, all_dates_dict):
         enforced_dates.append(pair)
     return enforced_dates
 
-def write_stars_schedule_human_readable(combined_semester_schedule, Yns, starnames, semester_length, n_slots_in_night,
-                                        n_nights_in_semester, all_dates_dict, slots_needed_dict,
-                                        current_day):
+def write_stars_schedule_human_readable(combined_semester_schedule, Yrds, manager, round_info):
     """
     Turns the non-square matrix of the solution into a square matrix and starts the human readable
     solution by filling in the slots where a star's exposre is started.
 
     Args:
+        combined_semester_schedule (array): the human readable solution
         Yns (array): the Gurobi solution with keys of (starname, slot_number) and values 1 or 0.
-        starnames (array): a 1D list of the names of stars that make up one of the keys to Yns
-        semester_length (int): the number of days in the full semester
-        n_slots_in_night (int): the number of slots in a night
-        n_nights_in_semester (int): the number of nights remaining in the semester
-        all_dates_dict (dict): a dictionary where keys are calendar dates in format (YYYY-MM-DD)
-                               and values of the day number in the semester
-        current_day (str): today's date in format YYYY-MM-DD
+        manager (obj): a data_admin object
+        round_info (str): the solution round, ie "Round1"
 
     Returns:
-        first_index (int): the starting index number of arr
-        last_index (int): the finishing index number of arr
+        combined_semester_schedule (array): the updated human readable solution
     """
-    end_past = all_dates_dict[current_day]*n_slots_in_night
-    n_slots_in_semester = semester_length*n_slots_in_night
+
+    end_past = manager.all_dates_dict[manager.current_day]*manager.n_slots_in_night
     all_star_schedules = {}
-    for name in starnames:
+    for name in list(manager.requests_frame['Starname']):
         star_schedule = []
         # buffer the past with zeros
         for p in range(end_past):
             star_schedule.append(0)
-        for d in range(n_nights_in_semester):
-            for s in range(n_slots_in_night):
+        for d in range(manager.n_nights_in_semester):
+            for s in range(manager.n_slots_in_night):
                 try:
-                    value = int(np.round(Yns[name, d, s].x))
+                    value = int(np.round(Yrds[name, d, s].x))
                 except KeyError:
                     value = 0.0
                 except:
@@ -269,53 +262,44 @@ def write_stars_schedule_human_readable(combined_semester_schedule, Yns, starnam
         all_star_schedules[name] = star_schedule
 
     combined_semester_schedule = combined_semester_schedule.flatten()
-    for s in range(n_slots_in_semester):
+    for s in range(manager.n_slots_in_semester):
         slotallocated = ''
-        for name in starnames:
+        for name in list(manager.requests_frame['Starname']):
             if all_star_schedules[name][s] == 1:
                 slotallocated += str(name)
         combined_semester_schedule[s] += str(slotallocated)
     combined_semester_schedule = np.reshape(combined_semester_schedule,
-            (semester_length, n_slots_in_night))
+            (manager.semester_length, manager.n_slots_in_night))
 
     # The semester solver puts a 1 only in the slot that starts the exposure for a target.
     # Therefore, many slots are empty because they are part of a multi-slot visit.
     # Here fill in the multi-slot exposures appropriately for ease of human reading and accounting.
-    starnames = list(starnames)
-    for n in range(n_nights_in_semester-1-all_dates_dict[current_day], -1, -1):
-        for s in range(n_slots_in_night-1, -1, -1):
-            if combined_semester_schedule[n+all_dates_dict[current_day]][s] in starnames:
-                target_name = combined_semester_schedule[n+all_dates_dict[current_day]][s]
-                slots_needed_for_exposure = slots_needed_dict[target_name]
+    for n in range(manager.n_nights_in_semester-1-manager.all_dates_dict[manager.current_day], -1, -1):
+        for s in range(manager.n_slots_in_night-1, -1, -1):
+            if combined_semester_schedule[n+manager.all_dates_dict[manager.current_day]][s] in list(manager.requests_frame['Starname']):
+                target_name = combined_semester_schedule[n+manager.all_dates_dict[manager.current_day]][s]
+                slots_needed_for_exposure = manager.slots_needed_for_exposure_dict[target_name]
                 if slots_needed_for_exposure > 1:
                     for e in range(1, slots_needed_for_exposure):
-                        combined_semester_schedule[n+all_dates_dict[current_day]][s+e] += \
+                        combined_semester_schedule[n+manager.all_dates_dict[manager.current_day]][s+e] += \
                                 target_name
     for m in range(len(combined_semester_schedule)):
         # convert the holder string to meaningful string
         if combined_semester_schedule[m][1] == 'supercalifragilisticexpialidocious':
             for l in range(len(combined_semester_schedule[m])):
                 combined_semester_schedule[m][l] = 'Past'
+
+    np.savetxt(manager.output_directory + 'raw_combined_semester_schedule_' + round_info + '.txt',
+        combined_semester_schedule, delimiter=',', fmt="%s")
     return combined_semester_schedule
 
-def write_available_human_readable(all_dates_dict, current_day, semester_length,
-                                n_nights_in_semester, n_slots_in_night,
-                                twilight_map, allocation_map_2D, weathered_map, nonqueue_map):
+def write_available_human_readable(manager, twilight_map, allocation_map_2D, weathered_map):
     """
     Fill in the human readable solution with the non-observation information: non-allocated slots,
     weather loss slots, non-queue slots, twilight slots.
 
     Args:
-        combined_semester_schedule (array): a 2D array of dimensions n_nights_in_semester by
-                                            n_slots_in_night where elements denote how the slot is
-                                            used: target, twilight, weather, not scheduled.
-        all_dates_dict (dict): a dictionary where keys are calendar dates and values are the day
-                                number within the semester
-        current_day (string): today's date in format "YYYY-MM-DD"
-        n_nights_in_semester (int): the number of calendar days remaining in the semester
-        n_slots_in_night (int): the number of slots within a single night
-
-
+        manager (obj): a data_admin object
         twilight_map (array): the 1D array of length n_slots_in_semester where 1's represent slots
                             not in night time and 0's represent slots that are during day/twilight
         allocation_map_2D (array): a 2D array where rows represent a night and columns represent
@@ -323,21 +307,18 @@ def write_available_human_readable(all_dates_dict, current_day, semester_length,
                                    night/quarter is allocated and 0 if not.
         weathered_map (array): a 1D array of length s slots in semester where elements are 1 if
                                 that slot has been modeled as lost to weather and 0 if not
-        nonqueue_map (string): the path/name of the file which has an array of dimensions n nights
-                               in semester by s slots in night where elements denote if the slot is
-                               reserved for a non-queue RM observation
 
     Returns:
         combined_semester_schedule (array): a 2D array of dimensions n_nights_in_semester by
                                             n_slots_in_night where elements denote how the slot is
                                             used: target, twilight, weather, not scheduled.
     """
-    if os.path.exists(nonqueue_map):
-        nonqueuemap_slots_strs = np.loadtxt(nonqueue_map, delimiter=',', dtype=str)
+    if os.path.exists(manager.nonqueue_map_file):
+        nonqueuemap_slots_strs = np.loadtxt(manager.nonqueue_map_file, delimiter=',', dtype=str)
 
     # The past does not matter to us here, so specify the days/slots that are to be ignored.
-    end_past = all_dates_dict[current_day]*n_slots_in_night
-    combined_semester_schedule = ['']*semester_length*n_slots_in_night
+    end_past = manager.all_dates_dict[manager.current_day]*manager.n_slots_in_night
+    combined_semester_schedule = ['']*manager.semester_length*manager.n_slots_in_night
     combined_semester_schedule[0] = 'longwordhereformakingspace'
     for c in range(end_past):
         # for some reason when adding strings within an array, the max length of new string is the
@@ -345,10 +326,10 @@ def write_available_human_readable(all_dates_dict, current_day, semester_length,
         # as a placeholder. Later I post-process this out.
         combined_semester_schedule[c] += 'supercalifragilisticexpialidocious'
     combined_semester_schedule = np.reshape(combined_semester_schedule,
-            (semester_length, n_slots_in_night))
+            (manager.semester_length, manager.n_slots_in_night))
 
-    for n in range(semester_length - all_dates_dict[current_day]):
-        for s in range(n_slots_in_night):
+    for n in range(manager.semester_length - manager.all_dates_dict[manager.current_day]):
+        for s in range(manager.n_slots_in_night):
             slotallocated = ''
             # remember that twilight map is "inverted": the 1's are time where it is night and the
             # 0's are time where it is day/twilight.
@@ -358,13 +339,15 @@ def write_available_human_readable(all_dates_dict, current_day, semester_length,
                 slotallocated += 'X'
             if weathered_map[n][s] == 1:# and slotallocated == '':
                 slotallocated += 'W'
-            if os.path.exists(nonqueue_map):
-                slotallocated += str(nonqueuemap_slots_strs[n + all_dates_dict[current_day], ][s])
-            combined_semester_schedule[n + all_dates_dict[current_day], ][s] += str(slotallocated)
+            if os.path.exists(manager.nonqueue_map_file):
+                slotallocated += str(nonqueuemap_slots_strs[n + manager.all_dates_dict[manager.current_day], ][s])
+            combined_semester_schedule[n + manager.all_dates_dict[manager.current_day], ][s] += str(slotallocated)
 
+    np.savetxt(manager.output_directory + 'raw_combined_semester_schedule_available.txt',
+        combined_semester_schedule, delimiter=',', fmt="%s")
     return combined_semester_schedule
 
-def define_slot_index_frame(requests_frame, slots_needed_for_exposure_dict, available_indices_for_request):
+def define_slot_index_frame(manager, available_indices_for_request):
     """
     Using the dictionary of indices where each request is available, define a dataframe for which
     we will use to cut/filter/merge r,d,s tuples
@@ -383,12 +366,12 @@ def define_slot_index_frame(requests_frame, slots_needed_for_exposure_dict, avai
     # Now, slots that were never possible for scheduling are not included in the model.
     Aset = []
     Aframe_keys = []
-    for n,row in requests_frame.iterrows():
+    for n,row in manager.requests_frame.iterrows():
         name = row['Starname']
         n_visits = int(row['# Visits per Night'])
         intra = int(row['Minimum Intra-Night Cadence'])
         inter = int(row['Minimum Inter-Night Cadence'])
-        slots_needed = slots_needed_for_exposure_dict[name]
+        slots_needed = manager.slots_needed_for_exposure_dict[name]
         for d in range(len(available_indices_for_request[name])):
             for s in available_indices_for_request[name][d]:
                 Aset.append((name, d, s))
@@ -396,7 +379,7 @@ def define_slot_index_frame(requests_frame, slots_needed_for_exposure_dict, avai
 
     Aframe = pd.DataFrame(Aframe_keys, columns =['r', 'd', 's', 'e', 'v', 'tra', 'ter'])
     schedulable_requests = list(Aframe['r'].unique())
-    for name in list(requests_frame['Starname']):
+    for name in list(manager.requests_frame['Starname']):
         if name not in schedulable_requests:
             print("WARNING: Target " + name + " has no valid day/slot pairs and therefore is effectively removed from the model.")
     # duplicate columns for easy indexing later
