@@ -98,9 +98,19 @@ class data_admin(object):
                 solve_max_gap,
                 run_round_two,
                 max_bonus,
+                folder_forecasts,
+                folder_cadences,
+                turn_on_off_file,
+                starmap_template_filename,
+                future_forecast,
+                build_starmaps,
+                nightly_start_stop_times,
+                backup_file,
+                backup_observability_file,
                 ):
 
         self.current_day = current_day
+        self.semester_directory = output_directory
         self.output_directory = output_directory  + "outputs/" + str(self.current_day) + "/"
         self.reports_directory = output_directory + 'reports/'
         # Suggest your output directory be something so that it doesn't autosave
@@ -148,6 +158,16 @@ class data_admin(object):
         self.run_round_two = run_round_two
         self.max_bonus = max_bonus
 
+        self.folder_forecasts = folder_forecasts
+        self.folder_cadences = folder_cadences
+        self.turn_on_off_file = turn_on_off_file
+        self.starmap_template_filename = starmap_template_filename
+        self.future_forecast = future_forecast
+        self.build_starmaps = build_starmaps
+
+        self.nightly_start_stop_times = nightly_start_stop_times
+        self.backup_file = backup_file
+        self.backup_observability_file = backup_observability_file
 
     def run_admin(self):
         """

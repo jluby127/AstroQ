@@ -14,6 +14,7 @@ import kpfcc.helper_functions as hf
 import kpfcc.plotting_functions as ptf
 import kpfcc.processing_functions as pf
 import kpfcc.ttp_functions as ttpf
+import kpfcc.star_tracker as st
 from kpfcc import DATADIR
 
 parser = argparse.ArgumentParser(description='Generate schedules with KPF-CC v2')
@@ -47,11 +48,15 @@ parser.add_argument('-stl','--solve_time_limit', help='Max time spent optimizing
 parser.add_argument('-s','--slot_size', help='The slot size (minutes)', type=int, default=5)
 parser.add_argument('-g','--show_gurobi', help='Turn on Gurobi console print', action='store_false')
 parser.add_argument('-b','--run_backups', help='Turn on plot outputs', action='store_true')
+parser.add_argument('-stmp','--build_starmaps', help='Turn on plot outputs', action='store_true')
 args = parser.parse_args()
 
-manager = af.data_admin(args.folder,
+manager = af.data_admin(
+                        # basic parameters
+                        args.folder,
                         str(args.schedule_dates[0]),
                         args.slot_size,
+                        # files for running scheduler
                         # important to name files appropriately
                         os.path.join(args.folder, "inputs/requests.csv"),
                         os.path.join(args.folder, "inputs/twilight_times.csv"),
@@ -63,6 +68,7 @@ manager = af.data_admin(args.folder,
                         os.path.join(args.folder, "inputs/NonQueueMap"  + str(args.slot_size) + ".txt"),
                         os.path.join(args.folder, "inputs/NonQueue.csv"),
                         args.run_weather_loss,
+                        # parameters for running optimal allocation
                         args.run_as_optimal_allocation,
                         args.run_with_aesthetic,
                         args.max_quarters,
@@ -73,34 +79,35 @@ manager = af.data_admin(args.folder,
                         args.max_baseline,
                         os.path.join(args.folder, "inputs/whiteout_dates.txt"),
                         os.path.join(args.folder, "inputs/blackout_dates.txt"),
+                        # flags for running gurobi
                         args.show_gurobi,
                         args.run_plots,
                         args.solve_time_limit,
                         args.solve_max_gap,
                         args.run_round_two,
                         args.max_bonus,
+                        # files for plotting
+                        os.path.join(args.folder, "/data/first_forecasts/"),
+                        os.path.join(args.folder, "/outputs/" + str(args.schedule_dates[0]) + "/cadences/"),
+                        os.path.join(args.folder, "inputs/turnOnOffDates.csv"),
+                        os.path.join(args.folder, "inputs/cadenceTemplateFile.csv"),
+                        os.path.join(args.folder, "outputs/" + str(args.schedule_dates[0]) + "/raw_combined_semester_schedule_Round2.txt"),
+                        args.build_starmaps,
+                        # files for ttp
+                        os.path.join(args.folder, "inputs/NightlyStartStopTimes.csv"),
+                        os.path.join(DATADIR,"bright_backups_frame.csv"),
+                        os.path.join(DATADIR,"bright_backup_observability.csv")
                         )
+
 manager.run_admin()
 
 if args.run_scheduler:
     ss.run_kpfcc(manager)
 
 if args.run_plots:
-    folder_forecasts = os.path.join(args.folder, "/data/first_forecasts/")
-    folder_cadences = os.path.join(args.folder, "/outputs/" + str(args.schedule_dates[0]) + "/cadences/")
-    turn_on_off_file = os.path.join(args.folder, "inputs/turnOnOffDates.csv")
-    starmap_template_filename = os.path.join(args.folder, "inputs/cadenceTemplateFile.csv")
-    nonqueue_list = os.path.join(args.folder, "inputs/NonQueue.csv")
-    future_forecast = os.path.join(args.folder, "outputs/" + str(args.schedule_dates[0]) + \
-                          "/raw_combined_semester_schedule_Round2.txt")
-
-    ptf.write_cadence_plot_files(manager, turn_on_off_file, starmap_template_filename)
-    data = ptf.DataHandler(manager, future_forecast, folder_forecasts, folder_cadences)
-    ptf.run_plot_suite(data, args.folder)
+    star_tracker = st.StarTracker(manager)
+    ptf.write_cadence_plot_files(manager)
+    ptf.run_plot_suite(star_tracker, manager)
 
 if args.run_ttp:
-    nightly_start_stop_times = os.path.join(args.folder, "inputs/NightlyStartStopTimes.csv")
-    backup_file = os.path.join(DATADIR,"bright_backups_frame.csv")
-    backup_observability_file = os.path.join(DATADIR,"bright_backup_observability.csv")
-    ttpf.run_ttp(future_forecast, nightly_start_stop_times, manager.request_sheet,
-                                    args.schedule_dates[0], args.folder)
+    ttpf.run_ttp(manager)
