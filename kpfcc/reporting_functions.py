@@ -7,6 +7,7 @@ Example usage:
 """
 import os
 import math
+import time
 from astropy.time import Time
 from astropy.time import TimeDelta
 

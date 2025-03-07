@@ -18,6 +18,7 @@ import pandas as pd
 import kpfcc.helper_functions as hf
 import kpfcc.processing_functions as pf
 import kpfcc.reporting_functions as rf
+import kpfcc.star_tracker as st
 
 named_colors = ['blue', 'red', 'green', 'gold', 'maroon', 'gray', 'orange', 'magenta', 'purple']
 color_scales = {'blue':[[0, 'rgba(0,0,0,0)'],[1, 'rgb(0,0,255)']],
@@ -30,12 +31,12 @@ color_scales = {'blue':[[0, 'rgba(0,0,0,0)'],[1, 'rgb(0,0,255)']],
                 'magenta':[[0, 'rgba(0,0,0,0)'],[1, 'rgb(255,0,255)']],
                 'purple':[[0, 'rgba(0,0,0,0)'],[1, 'rgb(127,0,255)']],}
 
-def run_plot_suite(data, output_dir, build_starmaps=False):
+def run_plot_suite(star_tracker, manager):
     """
     A one line call to kick off all the plotting/reporting routines
 
     Args:
-        data (object): a object from the DataHandler class
+        star_tracker (object): a object from the StarTracker class
         outputdir (str): directory to save outputs
         build_starmaps (boolean): if true, spend the time to build the star maps
 
@@ -53,19 +54,19 @@ def run_plot_suite(data, output_dir, build_starmaps=False):
 
     all_stars = []
     all_completions = []
-    for p, item in enumerate(data.programs):
+    for p, item in enumerate(star_tracker.programs):
         program_COF, program_total_obs_request, program_first_forecast, stars_in_program, \
-            stars_completion = generate_single_program_plot_suite(data, data.programs[p],
-                                                                build_cadence_plots=build_starmaps)
+            stars_completion = generate_single_program_plot_suite(star_tracker, star_tracker.programs[p],
+                                                                build_cadence_plots=manager.build_starmaps)
         all_program_cofs.append(program_COF)
         all_stars.append(stars_in_program)
         all_completions.append(stars_completion)
 
-        all_program_info[data.programs[p]] = program_total_obs_request
-        all_program_first_forecast[data.programs[p]] = program_first_forecast
+        all_program_info[star_tracker.programs[p]] = program_total_obs_request
+        all_program_first_forecast[star_tracker.programs[p]] = program_first_forecast
 
         all_star_maps, all_star_cols, all_star_nObs, stars_in_program = \
-            create_single_program_birds_eye(data, data.programs[p])
+            create_single_program_birds_eye(star_tracker, star_tracker.programs[p])
         all_star_maps_all_programs.append(all_star_maps)
 
         program_color = named_colors[p%len(named_colors)]
@@ -74,34 +75,34 @@ def run_plot_suite(data, output_dir, build_starmaps=False):
 
         all_stars_in_program.append(stars_in_program)
 
-        generate_birds_eye(data, all_star_maps, all_star_cols, all_star_nObs,
-                             data.programs[p], stars_in_program)
+        generate_birds_eye(star_tracker, all_star_maps, all_star_cols, all_star_nObs,
+                             star_tracker.programs[p], stars_in_program)
 
     flat_all_star_maps_all_programs = np.concatenate(all_star_maps_all_programs)
     flat_all_star_nObs_all_programs = np.concatenate(all_star_nObs_all_programs)
     flat_all_stars_in_program = np.concatenate(all_stars_in_program)
 
-    generate_admin_view_plot_suite(data, all_program_cofs, all_program_info,
+    generate_admin_view_plot_suite(star_tracker, all_program_cofs, all_program_info,
                                        all_program_first_forecast, flat_all_star_maps_all_programs,
                                        all_star_colors_all_programs,
                                        flat_all_star_nObs_all_programs, flat_all_stars_in_program)
     all_stars = np.array(all_stars).flatten()
     all_completions = np.array(all_completions).flatten()
     complete_frame = pd.DataFrame({"Starname":all_stars, 'CompletetionPercent':all_completions})
-    complete_frame.to_csv(output_dir+ 'reports/admin/' + str(data.manager.current_day) + \
+    complete_frame.to_csv(manager.semester_directory + 'reports/admin/' + str(star_tracker.manager.current_day) + \
                                                     '/cofs/final_completion_rates.csv', index=False)
-    print("All plots generated. Saved to " + output_dir + "reports/")
+    print("All plots generated. Saved to " + manager.semester_directory + "reports/")
 
-def write_cadence_plot_files(manager, turn_off_on_file, semester_template_file):
+def write_cadence_plot_files(manager):
     print("Writing cadence plot files.")
-    turn_on_off_frame = pd.read_csv(turn_off_on_file)
+    turn_on_off_frame = pd.read_csv(manager.turn_on_off_file)
     all_starmaps = {}
     for i in range(len(manager.requests_frame)):
         if manager.database_info_dict != {}:
             starmap = rf.build_observed_map_past( \
-                manager.database_info_dict[manager.requests_frame['Starname'][i]], semester_template_file)
+                manager.database_info_dict[manager.requests_frame['Starname'][i]], manager.starmap_template_filename)
         else:
-            starmap = rf.build_observed_map_past([[],[],[],[]], semester_template_file)
+            starmap = rf.build_observed_map_past([[],[],[],[]], manager.starmap_template_filename)
 
         starmap_updated = rf.build_observed_map_future(manager.combined_semester_schedule_stars,
                             manager.requests_frame['Starname'][i], starmap,
@@ -126,192 +127,12 @@ def write_cadence_plot_files(manager, turn_off_on_file, semester_template_file):
                                     past_unique_dates_for_star,
                                     manager.current_day, manager.output_directory)
 
-class DataHandler:
-    """
-    An object to easily pass around data and compute values.
-    """
-    def __init__(self, manager, forecast, first_forecast_dir, cadence_files_dir):
-        """
-        Define the DataHandler object. Set up the shared variables.
-
-        Args:
-            current_day (str): today's date in format YYYY-MM-DD
-            requests (str): filename of the dataframe containing the requests
-            past (str): filename of the dataframe containing the past database query
-            forecast (str): filename of the dataframe containing future human readable forecast
-            twilight (str): filename of the dataframe containing the twilight info
-            nonqueue (str): filename of the dataframe containing the non-queue map
-            first_forecast_dir (str): directory hosting the first forecast files for each star
-            cadence_files_dir (str): directory hosting the cadence files for each star
-            outputdir (str): directory to save outputs
-            slot_size (int): size of a slot, in minutes
-
-        Returns:
-            None
-        """
-        self.manager = manager
-        self.slot_size = manager.slot_size*60 # convert to seconds
-        self.first_forecast_dir = first_forecast_dir
-        self.cadence_files_dir = cadence_files_dir
-
-        self.programs = self.manager.requests_frame['Program_Code'].unique()
-        account_types = ["admin"]
-        account_types.extend(self.programs)
-        styles = ["birds_eyes", "cofs", "cadences"]
-        self.create_folders(manager.reports_directory, account_types, [self.manager.current_day], styles)
-
-        try:
-            self.past = pd.read_csv(self.manager.past_database_file)
-        except:
-            self.past = pd.DataFrame(columns=['star_id', 'utctime'])
-        self.nonqueue = pd.read_csv(self.manager.nonqueue_file)
-        forecast_by_day = []
-        with open(forecast, 'r') as file:
-            for line in file:
-                splits = line.split(',')
-                forecast_by_day.append(splits)
-        self.forecast = forecast_by_day
-
-        print("Data successfully loaded for calendar date: ", self.manager.current_day)
-
-    def create_folders(self, main_path, account_types, dates, styles):
-        """
-        Check if folders exist, if not, create them
-
-        Args:
-            main_path (str): primary root path to save to
-            account_types (str): the user acount types (admin, PI, etc)
-            dates (str): the dates in question
-            styles (str): the names of the plots to be generated, store them separately
-
-        Returns:
-            None
-        """
-        print("Checking/Creating folder structure")
-        if not os.path.exists(main_path + 'observer/'):
-            os.makedirs(main_path + 'observer/')
-        if not os.path.exists(main_path + 'observer/' + self.manager.current_day + "/"):
-            os.makedirs(main_path + 'observer/' + self.manager.current_day + "/")
-
-        for account in account_types:
-            for date in dates:
-                base_dir = os.path.join(main_path, account, date)
-                for style in styles:
-                    style_dir = os.path.join(base_dir, style)
-                    if not os.path.exists(style_dir):
-                        os.makedirs(style_dir)
-
-    def get_star_stats(self, starname):
-        """
-        Grab the observational stategy information for a given star
-
-        Args:
-            starname (str): the name of the star in question
-
-        Returns:
-            expected_nobs_per_night (int): how many exposures we expect to take
-            total_observations_requested (int): sum of observational strategie values
-            exposure_time (int): exposure time of single shot
-            slots_per_night (int): number of slots required to complete all exposures in a night
-            program (str): the program code
-        """
-        index = self.manager.requests_frame.loc[self.manager.requests_frame['Starname'] == starname].index
-        program = str(self.manager.requests_frame['Program_Code'][index].values[0])
-        exposure_time = int(self.manager.requests_frame['Nominal Exposure Time [s]'][index].values[0])
-        slots_per_night = hf.slots_required_for_exposure(
-                        self.manager.requests_frame['Nominal Exposure Time [s]'][index].values[0], \
-                        self.slot_size)*self.manager.requests_frame['# Visits per Night'][index].values[0]
-        expected_nobs_per_night = int(self.manager.requests_frame['# of Exposures per Visit'][index]) * \
-                        int(self.manager.requests_frame['# Visits per Night'][index])
-        total_observations_requested = expected_nobs_per_night * \
-                        int(self.manager.requests_frame['# of Nights Per Semester'][index])
-
-        return expected_nobs_per_night, total_observations_requested, exposure_time, \
-                slots_per_night, program
-
-    def get_star_past(self, starname):
-        """
-        Gather the information about a star's past observation history this semester
-
-        Args:
-            starname (str): the name of the star in question
-
-        Returns:
-            observations_past (dict): a dictionary where keys are the dates of an observation
-                                      and the values are number of observations taken on that night
-        """
-        starmask = self.past['star_id'] == starname
-        star_obs_past = self.past[starmask]
-        star_obs_past.sort_values(by='utctime', inplace=True)
-        star_obs_past.reset_index(inplace=True)
-        star_obs_past, unique_hst_dates_past, quarters_observed_past = \
-                    rf.get_unique_nights(star_obs_past, self.manager.twilight_frame)
-        nobs_on_date_past = rf.get_nobs_on_night(star_obs_past, unique_hst_dates_past)
-        observations_past = {}
-        for i in range(len(unique_hst_dates_past)):
-            observations_past[unique_hst_dates_past[i]] = nobs_on_date_past[i]
-        return observations_past
-
-    def get_star_forecast(self, starname):
-        """
-        Gather the information about a star's future forecast this semester
-
-        Args:
-            starname (str): the name of the star in question
-
-        Returns:
-            observations_future (dict): a dictionary where keys are the dates of an observation and
-                                       the values are number of observations to be taken that night
-        """
-        index = self.manager.requests_frame.loc[self.manager.requests_frame['Starname'] == starname].index
-        requested_nobs_per_night, total_observations_requested, exposure_time, slots_per_night, \
-                    program = self.get_star_stats(starname)
-        observations_future = {}
-        for i in range(len(self.forecast)):
-            if starname in self.forecast[i]:
-                observations_future[self.manager.all_dates_array[i]] = requested_nobs_per_night
-        return observations_future
-
-    def write_star_first_forecast(self, program, starname):
-        """
-        After the first time running a forecast, record the information for later comparison
-
-        Args:
-            program (str): the program code
-            starname (str): the name of the star in question
-
-        Returns:
-            None
-        """
-        observations_future = self.get_star_forecast(starname)
-        forecast_frame = pd.DataFrame({"date":self.manager.all_dates_array,
-                                       "pct_complete":observations_future})
-        forecast_frame.to_csv(self.manager.reports_directory + program + "/first_forecast/" + starname + \
-                            ".csv", index=False)
-
-    def get_star_first_forecast(self, program, name):
-        """
-        Retrieve the information for later comparison
-
-        Args:
-            program (str): the program code
-            name (str): the name of the star in question
-
-        Returns:
-            first_forecast (dataframe): contains information on the first forecast of the target
-        """
-        try:
-            first_forecast = pd.read_csv(self.first_forecast_dir + program + "/" + name + ".csv")
-        except:
-            first_forecast = None
-        return first_forecast
-
-def single_request_cof(data_handler, star):
+def single_request_cof(star_tracker, star):
     """
     Compute cumulative observation function for a single request
 
     Args:
-        data_handler (object): a object from the DataHandler class
+        star_tracker (object): a object from the StarTracker class
         star (str): the name of the star in question
 
     Returns:
@@ -323,36 +144,36 @@ def single_request_cof(data_handler, star):
         first_forecast (dataframe): contains information on the first forecast of the target
     """
     requested_nobs_per_night, total_observations_requested, exposure_time, slots_per_night, \
-                 program = data_handler.get_star_stats(star)
+                 program = star_tracker.get_star_stats(star)
 
     # to add an absolute time accounting COF, need:
     # parse past open shutter time + overhead per night
     # define expected time (incl. overhead) per night
     # define total time ask for request
-    first_forecast = data_handler.get_star_first_forecast(program, star)
+    first_forecast = star_tracker.get_star_first_forecast(program, star)
 
-    observations_past = data_handler.get_star_past(star)
-    observations_future = data_handler.get_star_forecast(star)
+    observations_past = star_tracker.get_star_past(star)
+    observations_future = star_tracker.get_star_forecast(star)
     running_total_obs_counter = []
     running_total_obs_percent = []
     counter = 0
-    for i in range(len(data_handler.manager.all_dates_array)):
-        if data_handler.manager.all_dates_array[i] in list(observations_past.keys()):
-            counter += observations_past[data_handler.manager.all_dates_array[i]]
-        if data_handler.manager.all_dates_array[i] in list(observations_future.keys()):
-            counter += observations_future[data_handler.manager.all_dates_array[i]]
+    for i in range(len(star_tracker.manager.all_dates_array)):
+        if star_tracker.manager.all_dates_array[i] in list(observations_past.keys()):
+            counter += observations_past[star_tracker.manager.all_dates_array[i]]
+        if star_tracker.manager.all_dates_array[i] in list(observations_future.keys()):
+            counter += observations_future[star_tracker.manager.all_dates_array[i]]
         running_total_obs_counter.append(counter)
         running_total_obs_percent.append(np.round((counter/total_observations_requested)*100))
 
     return running_total_obs_counter, running_total_obs_percent, total_observations_requested, \
             first_forecast
 
-def programmatic_cof(data_handler, list_of_request_cofs, total_program_observations):
+def programmatic_cof(star_tracker, list_of_request_cofs, total_program_observations):
     """
     Build the cumulative obesrvation function for a group of requests
 
     Args:
-        data_handler (object): a object from the DataHandler class
+        star_tracker (object): a object from the StarTracker class
         list_of_request_cofs (array): an array of COF arrays
         total_program_observations (int): sum of all exposures for the set of requests
 
@@ -365,7 +186,7 @@ def programmatic_cof(data_handler, list_of_request_cofs, total_program_observati
     program_cof_counter = []
     program_cof_percent = []
     all_counter = 0
-    for i in range(len(data_handler.manager.all_dates_array)):
+    for i in range(len(star_tracker.manager.all_dates_array)):
         day_counter = 0
         for j in range(len(list_of_request_cofs)):
             day_counter += list_of_request_cofs[j][i]
@@ -374,13 +195,13 @@ def programmatic_cof(data_handler, list_of_request_cofs, total_program_observati
         program_cof_percent.append(np.round((day_counter/total_program_observations)*100,2))
     return program_cof_counter, program_cof_percent
 
-def build_multi_request_cof(data_handler, all_cofs_array, star_info, all_first_forecasts,
+def build_multi_request_cof(star_tracker, all_cofs_array, star_info, all_first_forecasts,
                             even_burn_rate=True, flag=False):
     """
     Build the COF plot
 
     Args:
-        data_handler (object): a object from the DataHandler class
+        star_tracker (object): a object from the StarTracker class
         all_cofs_array (array): an array of COF arrays
         star_info (dict): keys are the star names, values are
         all_first_forecasts (array): array of the first forecast arrays for each star in set
@@ -393,11 +214,11 @@ def build_multi_request_cof(data_handler, all_cofs_array, star_info, all_first_f
     starnames = list(star_info.keys())
     fig = go.Figure()
     if even_burn_rate:
-        burn_line = np.linspace(0, 100, len(data_handler.manager.all_dates_array))
+        burn_line = np.linspace(0, 100, len(star_tracker.manager.all_dates_array))
         for b in range(len(burn_line)):
             burn_line[b] = np.round(burn_line[b],2)
         fig.add_trace(go.Scatter(
-            x=data_handler.manager.all_dates_array,
+            x=star_tracker.manager.all_dates_array,
             y=burn_line,
             mode='lines',
             line=dict(color='black', width=2, dash='dash'),
@@ -409,7 +230,7 @@ def build_multi_request_cof(data_handler, all_cofs_array, star_info, all_first_f
         star = starnames[i]
         label = star_info[star]
         fig.add_trace(go.Scatter(
-            x=data_handler.manager.all_dates_array,
+            x=star_tracker.manager.all_dates_array,
             y=y_values,
             mode='lines',
             line=dict(color=color_line, width=2),
@@ -419,7 +240,7 @@ def build_multi_request_cof(data_handler, all_cofs_array, star_info, all_first_f
         ))
         try:
             fig.add_trace(go.Scatter(
-                x=data_handler.manager.all_dates_array,
+                x=star_tracker.manager.all_dates_array,
                 y=all_first_forecasts[star]['pct_complete'],
                 mode='lines',
                 line=dict(color=color_line, width=2, dash='dash'),
@@ -430,8 +251,8 @@ def build_multi_request_cof(data_handler, all_cofs_array, star_info, all_first_f
         except:
             continue
     fig.add_vrect(
-            x0=data_handler.manager.current_day,
-            x1=data_handler.manager.current_day,
+            x0=star_tracker.manager.current_day,
+            x1=star_tracker.manager.current_day,
             annotation_text="Today",
             line_dash="dash",
             fillcolor=None,
@@ -445,19 +266,19 @@ def build_multi_request_cof(data_handler, all_cofs_array, star_info, all_first_f
         yaxis_title="Request % Complete",
         showlegend=True
     )
-    admin_path = data_handler.manager.reports_directory + "admin/" + data_handler.manager.current_day + "/cofs/"
+    admin_path = star_tracker.manager.reports_directory + "admin/" + star_tracker.manager.current_day + "/cofs/"
     if flag:
         fileout_path = admin_path
         fileout_name = 'all_programs_pct_by_program.html'
     else:
-        fileout_path = data_handler.manager.reports_directory + list(star_info.keys())[0] + "/" + \
-            data_handler.manager.current_day + "/cofs/"
+        fileout_path = star_tracker.manager.reports_directory + list(star_info.keys())[0] + "/" + \
+            star_tracker.manager.current_day + "/cofs/"
         fileout_name = list(star_info.keys())[0] + '_COF_pct_by_star.html'
         # write copy to admin folder
         fig.write_html(admin_path + fileout_name)
     fig.write_html(fileout_path + fileout_name)
 
-def generate_cadence_view_plot(data_handler, program, star):
+def generate_cadence_view_plot(star_tracker, program, star):
     """
     Build cadence overview plot
 
@@ -489,7 +310,7 @@ def generate_cadence_view_plot(data_handler, program, star):
     # line14 --- "q4_end:{string}"
     # line15 --- "current_day:{string}"
     # then a csv with columns: ['Date', 'Observed', 'Quarter', 'Weathered', '']
-    file_in = data_handler.cadence_files_dir + program + "/" + star + "_Cadence_Interactive.csv"
+    file_in = star_tracker.cadence_files_dir + program + "/" + star + "_Cadence_Interactive.csv"
     data_fig = pd.read_csv(file_in, comment='#')
     parameter_dict = {}
     with  open(file_in,'r') as cmt_file:
@@ -596,32 +417,32 @@ def generate_cadence_view_plot(data_handler, program, star):
     fig.add_annotation(x=parameter_dict['current_day'], y=0.1, text="Today",
         showarrow=False,yshift=10)
 
-    admin_path = data_handler.manager.reports_directory + "admin/" + data_handler.manager.current_day + "/cadences/"
-    program_path = data_handler.manager.reports_directory + program + "/" + data_handler.manager.current_day + "/cadences/"
+    admin_path = star_tracker.manager.reports_directory + "admin/" + star_tracker.manager.current_day + "/cadences/"
+    program_path = star_tracker.manager.reports_directory + program + "/" + star_tracker.manager.current_day + "/cadences/"
     fileout_name = star + '_cadence_overview.html'
     fig.write_html(admin_path + fileout_name)
     fig.write_html(program_path + fileout_name)
 
-def process_single_target_for_birds_eye(data_handler, starname):
+def process_single_target_for_birds_eye(star_tracker, starname):
     """
     Collect the data for a birds eye view plot
 
     Args:
-        data_handler (object): a object from the DataHandler class
+        star_tracker (object): a object from the StarTracker class
         starname (str): the name of the star in question
 
     Returns:
         starmap (array): n_nights_in_semester by n_slots_in_night, 1 when target is scheduled
         nobs (int): the sum of all future observations
     """
-    schedule_array = np.array(data_handler.forecast)
+    schedule_array = np.array(star_tracker.forecast)
     consolidate = []
     for i in range(len(schedule_array)):
         if schedule_array[i][0] != 'Past':
             consolidate.append(np.array(schedule_array[i]))
-    data_handler.forecast_no_Past = np.array(consolidate)
-    starmap = np.zeros(np.shape(data_handler.forecast_no_Past))
-    indices = np.where(data_handler.forecast_no_Past == starname)
+    star_tracker.forecast_no_Past = np.array(consolidate)
+    starmap = np.zeros(np.shape(star_tracker.forecast_no_Past))
+    indices = np.where(star_tracker.forecast_no_Past == starname)
     if len(indices[0]) != 0:
         coords = list(zip(indices[0], indices[1]))
         for i in range(len(coords)):
@@ -629,12 +450,12 @@ def process_single_target_for_birds_eye(data_handler, starname):
     nobs = np.sum(np.sum(starmap,axis=1))
     return starmap, nobs
 
-def create_single_program_birds_eye(data_handler, program):
+def create_single_program_birds_eye(star_tracker, program):
     """
     Prepare data for a birds eye view plot of one program's requests
 
     Args:
-        data_handler (object): a object from the DataHandler class
+        star_tracker (object): a object from the StarTracker class
         program (str): the program code
 
     Returns:
@@ -648,13 +469,13 @@ def create_single_program_birds_eye(data_handler, program):
     all_star_nobs = []
     stars_in_program = []
     color_counter = 0
-    for i in range(len(data_handler.manager.requests_frame)):
-        if data_handler.manager.requests_frame['Program_Code'][i] == program:
-            starname = data_handler.manager.requests_frame['Starname'][i]
+    for i in range(len(star_tracker.manager.requests_frame)):
+        if star_tracker.manager.requests_frame['Program_Code'][i] == program:
+            starname = star_tracker.manager.requests_frame['Starname'][i]
             stars_in_program.append(starname)
             requested_nobs_per_night, total_observations_requested, exposure_time, slots_per_night,\
-                program = data_handler.get_star_stats(starname)
-            starmap, nobs = process_single_target_for_birds_eye(data_handler, starname)
+                program = star_tracker.get_star_stats(starname)
+            starmap, nobs = process_single_target_for_birds_eye(star_tracker, starname)
             all_star_maps.append(starmap)
             all_star_cols.append(named_colors[color_counter%len(named_colors)])
             all_star_nobs.append(nobs/slots_per_night)
@@ -662,13 +483,13 @@ def create_single_program_birds_eye(data_handler, program):
 
     return all_star_maps, all_star_cols, all_star_nobs, stars_in_program
 
-def generate_birds_eye(data_handler, all_star_maps, all_star_cols, all_star_nobs, program,
+def generate_birds_eye(star_tracker, all_star_maps, all_star_cols, all_star_nobs, program,
                     stars_in_program, nonqueue=False):
     """
     Plot a birds eye view of one program's requests
 
     Args:
-        data_handler (object): a object from the DataHandler class
+        star_tracker (object): a object from the StarTracker class
         all_star_maps (array): all of the starmaps of requests in the program
         all_star_cols (array): the colors to plot each request on the birds eye
         all_star_nobs (array): the number of observations in each scheduled window
@@ -697,11 +518,11 @@ def generate_birds_eye(data_handler, all_star_maps, all_star_cols, all_star_nobs
             showlegend=True,
         ))
     if nonqueue:
-        for i in range(len(data_handler.nonqueue)):
-            starname = 'RM__' + data_handler.nonqueue['Starname'][i]
-            starmap, nobs = process_single_target_for_birds_eye(data_handler, starname)
-            starttime = Time(data_handler.nonqueue['Start'][i])
-            stoptime = Time(data_handler.nonqueue['Stop'][i])
+        for i in range(len(star_tracker.nonqueue)):
+            starname = 'RM__' + star_tracker.nonqueue['Starname'][i]
+            starmap, nobs = process_single_target_for_birds_eye(star_tracker, starname)
+            starttime = Time(star_tracker.nonqueue['Start'][i])
+            stoptime = Time(star_tracker.nonqueue['Stop'][i])
 
             starmap_transpose = np.array(starmap).T
             fig.add_trace(go.Heatmap(
@@ -710,9 +531,9 @@ def generate_birds_eye(data_handler, all_star_maps, all_star_cols, all_star_nobs
                 zmin=0, zmax=1,
                 opacity=1.0,
                 showscale=False,
-                name=data_handler.nonqueue['Starname'][i],
+                name=star_tracker.nonqueue['Starname'][i],
                 text=[str(nobs)],
-                hovertemplate='<b>' + str(data_handler.nonqueue['Starname'][i]) +
+                hovertemplate='<b>' + str(star_tracker.nonqueue['Starname'][i]) +
                     '</b><br><b>Date: %{y}</b><br><b>Slot: %{x}</b><br>Window: ' + \
                     str(starttime) + " to " + str(stoptime) + '<extra></extra>',
                 showlegend=True,
@@ -726,8 +547,8 @@ def generate_birds_eye(data_handler, all_star_maps, all_star_cols, all_star_nobs
         template="plotly",
         showlegend=True,
     )
-    admin_path = data_handler.manager.reports_directory + "admin/" + data_handler.manager.current_day + "/birds_eyes/"
-    fileout_path = data_handler.manager.reports_directory + program + "/" + data_handler.manager.current_day+ "/birds_eyes/"
+    admin_path = star_tracker.manager.reports_directory + "admin/" + star_tracker.manager.current_day + "/birds_eyes/"
+    fileout_path = star_tracker.manager.reports_directory + program + "/" + star_tracker.manager.current_day+ "/birds_eyes/"
     if program == 'admin':
         fileout_name = 'all_programs_birds_eyes.html'
     else:
@@ -736,7 +557,7 @@ def generate_birds_eye(data_handler, all_star_maps, all_star_cols, all_star_nobs
         fig.write_html(admin_path + fileout_name)
     fig.write_html(fileout_path + fileout_name)
 
-def generate_admin_view_plot_suite(data_handler, set_of_program_cofs, program_info,
+def generate_admin_view_plot_suite(star_tracker, set_of_program_cofs, program_info,
                                    all_program_first_forecasts, all_star_maps_all_programs,
                                    all_star_colors_all_programs, all_star_nobs_all_programs,
                                    all_stars_in_program):
@@ -744,7 +565,7 @@ def generate_admin_view_plot_suite(data_handler, set_of_program_cofs, program_in
     Construct all plots for admin view
 
     Args:
-        data_handler (object): a object from the DataHandler class
+        star_tracker (object): a object from the StarTracker class
         set_of_program_cofs (array): each element is an array containing the cof of a program
         program_info (dict): keys are program codes and values are total obs for program
         all_program_first_forecasts (array): each element is an array containing the first forecast
@@ -757,18 +578,18 @@ def generate_admin_view_plot_suite(data_handler, set_of_program_cofs, program_in
         None
     """
     print("Building admin view of COFs.")
-    build_multi_request_cof(data_handler, set_of_program_cofs, program_info,
+    build_multi_request_cof(star_tracker, set_of_program_cofs, program_info,
             all_first_forecasts=all_program_first_forecasts, flag=True)
     print("Building admin view of Birds Eye")
-    generate_birds_eye(data_handler, all_star_maps_all_programs, all_star_colors_all_programs,
+    generate_birds_eye(star_tracker, all_star_maps_all_programs, all_star_colors_all_programs,
             all_star_nobs_all_programs, 'admin', all_stars_in_program, nonqueue=True)
 
-def generate_single_program_plot_suite(data_handler, program_code, build_cadence_plots=False):
+def generate_single_program_plot_suite(star_tracker, program_code, build_cadence_plots=False):
     """
     Plot the birds eye view for the single program PI view
 
     Args:
-        data_handler (object): a object from the DataHandler class
+        star_tracker (object): a object from the StarTracker class
         program_code (str): the program code
     Returns:
         program_cof_percent (array): the calculated cof array for each star in program
@@ -782,34 +603,34 @@ def generate_single_program_plot_suite(data_handler, program_code, build_cadence
     stars_cofs_first_forecasts = {}
     stars_info = {}
     print("Building individual program report for ", program_code)
-    for i in range(len(data_handler.manager.requests_frame['Program_Code'])):
-        if data_handler.manager.requests_frame['Program_Code'][i] == program_code:
-            star = data_handler.manager.requests_frame['Starname'][i]
-            if data_handler.manager.requests_frame['# of Nights Per Semester'][i] != 0:
+    for i in range(len(star_tracker.manager.requests_frame['Program_Code'])):
+        if star_tracker.manager.requests_frame['Program_Code'][i] == program_code:
+            star = star_tracker.manager.requests_frame['Starname'][i]
+            if star_tracker.manager.requests_frame['# of Nights Per Semester'][i] != 0:
                 stars_in_program.append(star)
                 running_total_obs_counter, running_total_obs_percent, total_observations_requested,\
-                    first_forecast = single_request_cof(data_handler, star)
+                    first_forecast = single_request_cof(star_tracker, star)
                 stars_completion.append(running_total_obs_percent[-1])
                 stars_cofs_counters.append(running_total_obs_counter)
                 stars_cofs_percents.append(running_total_obs_percent)
                 stars_cofs_first_forecasts[star] = first_forecast
                 stars_info[star] = total_observations_requested
                 if build_cadence_plots:
-                    generate_cadence_view_plot(data_handler, program_code, star)
+                    generate_cadence_view_plot(star_tracker, program_code, star)
     total_program_requested_nobs = np.sum(list(stars_info.values()))
-    program_cof_counter, program_cof_percent = programmatic_cof(data_handler, stars_cofs_counters,
+    program_cof_counter, program_cof_percent = programmatic_cof(star_tracker, stars_cofs_counters,
         total_program_requested_nobs)
     stars_cofs_counters.append(program_cof_counter)
     stars_cofs_percents.append(program_cof_percent)
     stars_info[program_code] = np.sum(list(stars_info.values()))
-    program_first_forecast = data_handler.get_star_first_forecast(program_code, program_code)
+    program_first_forecast = star_tracker.get_star_first_forecast(program_code, program_code)
     stars_cofs_first_forecasts[program_code] = program_first_forecast
 
     # reverse ordering so the program code always appears at the top of the plotly figure
     stars_cofs_counters.reverse()
     stars_cofs_percents.reverse()
     stars_info = dict(reversed(list(stars_info.items())))
-    build_multi_request_cof(data_handler, stars_cofs_percents, stars_info,
+    build_multi_request_cof(star_tracker, stars_cofs_percents, stars_info,
         all_first_forecasts=stars_cofs_first_forecasts)
 
     return program_cof_percent, total_program_requested_nobs, program_first_forecast, \

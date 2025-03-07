@@ -30,30 +30,7 @@ import kpfcc.processing_functions as pf
 
 named_colors = ['blue', 'red', 'green', 'gold', 'maroon', 'gray', 'orange', 'magenta', 'purple']
 
-def build_directories(current_day, output_dir):
-    """
-    Make necessary directories
-
-    Args:
-        current_day (str) - today's date in format YYYY-MM-DD
-        output_dir (str) - the path to save the results
-
-    Returns:
-        None
-    """
-    # Build required directories if necessary
-    savepath = output_dir + 'reports/observer/' + str(current_day) + '/'
-    check1 = os.path.isdir(savepath)
-    if not check1:
-        os.makedirs(savepath)
-    output_path = output_dir + 'outputs/' + str(current_day) + "/"
-    check2 = os.path.isdir(output_path)
-    if not check2:
-        os.makedirs(output_path)
-
-    return savepath, output_path
-
-def run_ttp(schedule_file, nightly_start_stop_times_file, request_sheet, current_day, output_dir):
+def run_ttp(manager):
     """
     Produce the TTP solution given the results of the autoscheduler
 
@@ -67,48 +44,49 @@ def run_ttp(schedule_file, nightly_start_stop_times_file, request_sheet, current
     Returns:
         None
     """
+
     print("Preparing for the TTP.")
-    savepath, output_path = build_directories(current_day, output_dir)
+    observers_path = manager.semester_directory + 'reports/observer/' + str(manager.current_day) + '/'
+    check1 = os.path.isdir(observers_path)
+    if not check1:
+        os.makedirs(observers_path)
+
     observatory = telescope.Keck1()
-    semester_start_date, semester_end_date, semester_length, semester_year, semester_letter = \
-            hf.get_semester_info(current_day)
-    all_dates_dict = hf.build_date_dictionary(semester_start_date, semester_length)
-    the_schedule = np.loadtxt(schedule_file, delimiter=',', dtype=str)
-    nightly_start_stop_times = pd.read_csv(nightly_start_stop_times_file)
+    the_schedule = np.loadtxt(manager.schedule_file, delimiter=',', dtype=str)
+    nightly_start_stop_times = pd.read_csv(manager.nightly_start_stop_times_file)
 
     # Determine time bounds of the night
-    day_in_semester = all_dates_dict[current_day]
-    idx = nightly_start_stop_times[nightly_start_stop_times['Date'] == str(current_day)].index[0]
+    day_in_semester = manager.all_dates_dict[manager.current_day]
+    idx = nightly_start_stop_times[nightly_start_stop_times['Date'] == str(manager.current_day)].index[0]
     night_start_time = nightly_start_stop_times['Start'][idx]
     night_stop_time = nightly_start_stop_times['Stop'][idx]
-    observation_start_time = Time(str(current_day) + "T" + str(night_start_time),
+    observation_start_time = Time(str(mangaer.current_day) + "T" + str(night_start_time),
         format='isot')
-    observation_stop_time = Time(str(current_day) + "T" + str(night_stop_time),
+    observation_stop_time = Time(str(manager.current_day) + "T" + str(night_stop_time),
         format='isot')
     total_time = np.round((observation_stop_time.jd-observation_start_time.jd)*24,3)
     print("Time in Night for Observations: " + str(total_time) + " hours.")
 
     # Prepare relevant files
     round_two_requests = np.loadtxt(output_path + 'Round2_Requests.txt', dtype=str)
-    request_frame = pd.read_csv(request_sheet)
-    send_to_ttp = pf.prepare_for_ttp(request_frame, the_schedule[day_in_semester],
+    send_to_ttp = pf.prepare_for_ttp(manager.request_frame, the_schedule[day_in_semester],
                                         round_two_requests)
-    filename = output_path + 'Selected_' + str(current_day) + ".txt"
+    filename = output_path + 'Selected_' + str(manager.current_day) + ".txt"
     send_to_ttp.to_csv(filename, index=False)
     target_list = formatting.theTTP(filename)
 
     print("Initializing the optimizer.")
     solution = model.TTPModel(observation_start_time, observation_stop_time, target_list,
-                                observatory, savepath)
+                                observatory, observers_path)
 
     print("Processing the solution.")
-    plotting.writeStarList(solution.plotly, observation_start_time, current_day,
-                        outputdir=savepath)
-    plotting.plot_path_2D(solution,outputdir=savepath)
-    plotting.nightPlan(solution.plotly, current_day, outputdir=savepath)
-    obs_and_times = pd.read_csv(savepath + 'ObserveOrder_' + str(current_day) + ".txt")
-    pf.write_starlist(request_frame, solution.plotly, observation_start_time, solution.extras,
-                        round_two_requests, str(current_day), savepath)
+    plotting.writeStarList(solution.plotly, observation_start_time, manager.current_day,
+                        outputdir=observers_path)
+    plotting.plot_path_2D(solution,outputdir=observers_path)
+    plotting.nightPlan(solution.plotly, manager.current_day, outputdir=observers_path)
+    obs_and_times = pd.read_csv(observers_path + 'ObserveOrder_' + str(manager.current_day) + ".txt")
+    pf.write_starlist(manager.request_frame, solution.plotly, observation_start_time, solution.extras,
+                        round_two_requests, str(manager.current_day), observers_path)
     print("The optimal path through the sky for the selected stars is found. Clear skies!")
 
 def produce_bright_backups(backup_file, backup_observability_file, observatory,
@@ -130,10 +108,10 @@ def produce_bright_backups(backup_file, backup_observability_file, observatory,
         None
     """
     print("Generating bright star backup weather script.")
-    savepath = output_dir + 'outputs/' + current_day + '/Backups/'
-    check = os.path.isdir(output_dir + 'outputs/' + current_day + '/Backups/')
+    backups_path = output_dir + 'outputs/' + current_day + '/Backups/'
+    check = os.path.isdir(backups_path)
     if not check:
-        os.makedirs(savepath)
+        os.makedirs(backups_path)
 
     backup_starlist = pd.read_csv(backup_file)
     backup_observability_frame = pd.read_csv(backup_observability_file)
@@ -142,21 +120,20 @@ def produce_bright_backups(backup_file, backup_observability_file, observatory,
             current_day[5:], minimum_up_time=4.0)
     backups.drop(columns='index', inplace=True)
 
-    filename_backups = savepath + '/Backups_' + str(current_day) + ".txt"
+    filename_backups = backups_path + '/Backups_' + str(current_day) + ".txt"
     backups_full = bsf.get_times_worth(backups, total_time+1)
     backups_full.to_csv(filename_backups, index=False)
     targlist_backups = formatting.theTTP(filename_backups)
 
     solution_b = model.TTPModel(observation_start_time, observation_stop_time,
-                                targlist_backups, observatory, savepath,
+                                targlist_backups, observatory, backups_path,
                                 runtime=300, optgap=0.05)
 
     plotting.writeStarList(solution_b.plotly, observation_start_time, current_day,
-                                outputdir = savepath)
-    plotting.plot_path_2D(solution_b, outputdir = savepath)
-    plotting.nightPlan(solution_b.plotly, current_day, outputdir = savepath)
-    obs_and_times_b = pd.read_csv(savepath + 'Backups/ObserveOrder_' + current_day + ".txt")
+                                outputdir = backups_path)
+    plotting.plot_path_2D(solution_b, outputdir = backups_path)
+    plotting.nightPlan(solution_b.plotly, current_day, outputdir = backups_path)
+    obs_and_times_b = pd.read_csv(backups_path + 'ObserveOrder_' + current_day + ".txt")
     pf.write_starlist(backup_starlist, solution_b.plotly, observation_start_time,
-                        solution_b.extras, [], str(current_day),
-                        savepath + "Backups/")
+                        solution_b.extras, [], str(current_day), backups_path)
     print("Bright backups script created.")
