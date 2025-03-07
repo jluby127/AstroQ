@@ -35,11 +35,12 @@ parser.add_argument('-w','--run_weather_loss', help='If False, do not simulate w
 # Optimal Allocation Flags - optional
 parser.add_argument('-opt','--run_as_optimal_allocation', help='If True, run in optimal allocation mode', action='store_true')
 parser.add_argument('-aes','--run_with_aesthetic', help='If True, run optimal allocation with aesthetic constraints', action='store_false')
-parser.add_argument('-mQ','--max_quarters', help='The maximum quarters that can be allocated in optimal allocation', type=int, default=1)
-parser.add_argument('-mN','--max_nights', help='The maximum unique nights on sky that can be allocated in optimal allocation', type=int, default=1)
+parser.add_argument('-mQ','--max_quarters', help='The maximum quarters that can be allocated in optimal allocation', type=int, default=10)
+parser.add_argument('-mN','--max_nights', help='The maximum unique nights on sky that can be allocated in optimal allocation', type=int, default=10)
+parser.add_argument('-mR','--min_represented', help='The minimum times each quarter can be represented in the solution', type=int, default=1)
 parser.add_argument('-aS','--allow_single_quarters', help='If True, in optimal allocation we can allocate single quarter nights.', action='store_false')
 parser.add_argument('-mxC','--max_consecutive', help='In optimal allocation set max consecutive on sky nights allowed.', type=int, default=6)
-parser.add_argument('-mnC','--min_consecutive', help='In optimal allocation set min consecutive off sky nights allowed.', type=int, default=10)
+parser.add_argument('-mnC','--min_consecutive', help='In optimal allocation set min consecutive off sky nights allowed.', type=int, default=200)
 parser.add_argument('-mxB','--max_baseline', help='In optimal allocation set minimum days from start/end.', type=int, default=5)
 
 # Optional parameters - Use Default 99% of the time
@@ -73,6 +74,7 @@ manager = af.data_admin(
                         args.run_with_aesthetic,
                         args.max_quarters,
                         args.max_nights,
+                        args.min_represented,
                         args.allow_single_quarters,
                         args.max_consecutive,
                         args.min_consecutive,

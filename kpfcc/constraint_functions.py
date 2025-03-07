@@ -84,8 +84,8 @@ class GorubiModel(object):
                         int(self.manager.requests_frame['# of Nights Per Semester'][idx]*self.manager.max_bonus):
                 true_max_obs = past_nights_observed
             else:
-                true_max_obs = (self.manager.requests_frame['# of Nights Per Semester'][idx] - past_nights_observed)#\
-                       #+ int(self.requests_frame['# of Nights Per Semester'][idx]*self.manager.max_bonus)
+                true_max_obs = (self.manager.requests_frame['# of Nights Per Semester'][idx] - past_nights_observed)\
+                       + int(self.manager.requests_frame['# of Nights Per Semester'][idx]*self.manager.max_bonus)
 
             self.m.addConstr(self.theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
             # Get all (d,s) pairs for which this request is valid.
@@ -211,7 +211,7 @@ class GorubiModel(object):
         print("Constraint: setting max number of unique nights allocated.")
         # No more than a maximum number of unique nights can be allocated
         self.m.addConstr(gp.quicksum(self.Un[d] for d in range(self.manager.n_nights_in_semester))
-                            <= self.manager.max_nights, "maximumNightsAllocated")
+                            <= self.manager.max_unique_nights, "maximumNightsAllocated")
 
     def constraint_relate_allocation_and_onsky(self):
         """
@@ -225,16 +225,16 @@ class GorubiModel(object):
                 self.m.addConstr(self.Un[d] >= self.Anq[d,q], "relatedUnique_andNonUnique_lowerbound_" + str(d) + "d_" + str(q) + "q")
             self.m.addConstr(self.Un[d] <= gp.quicksum(self.Anq[d,q] for q in range(self.manager.n_quarters_in_night)), "relatedUnique_andNonUnique_upperbound_" + str(d) + "d")
 
-    def constraint_all_portions_of_night_represented(self, min_represented=3):
+    def constraint_all_portions_of_night_represented(self):
         """
         According to Eq X in Lubin et al. 2025.
         """
         print("Constraint: setting min number each quarter to be allocated.")
         # Minimum number of each quarter must be allocated
-        self.m.addConstr(gp.quicksum(self.Anq[d,0] for d in range(self.manager.n_nights_in_semester)) >= min_represented, "minQuarterSelection_0q")
-        self.m.addConstr(gp.quicksum(self.Anq[d,1] for d in range(self.manager.n_nights_in_semester)) >= min_represented, "minQuarterSelection_1q")
-        self.m.addConstr(gp.quicksum(self.Anq[d,2] for d in range(self.manager.n_nights_in_semester)) >= min_represented, "minQuarterSelection_2q")
-        self.m.addConstr(gp.quicksum(self.Anq[d,3] for d in range(self.manager.n_nights_in_semester)) >= min_represented, "minQuarterSelection_3q")
+        self.m.addConstr(gp.quicksum(self.Anq[d,0] for d in range(self.manager.n_nights_in_semester)) >= self.manager.min_represented, "minQuarterSelection_0q")
+        self.m.addConstr(gp.quicksum(self.Anq[d,1] for d in range(self.manager.n_nights_in_semester)) >= self.manager.min_represented, "minQuarterSelection_1q")
+        self.m.addConstr(gp.quicksum(self.Anq[d,2] for d in range(self.manager.n_nights_in_semester)) >= self.manager.min_represented, "minQuarterSelection_2q")
+        self.m.addConstr(gp.quicksum(self.Anq[d,3] for d in range(self.manager.n_nights_in_semester)) >= self.manager.min_represented, "minQuarterSelection_3q")
 
     def constraint_forbidden_quarter_patterns(self):
         """
@@ -249,7 +249,7 @@ class GorubiModel(object):
             self.m.addConstr(self.Anq[d,1] + (self.Un[d]-self.Anq[d,2]) + self.Anq[d,3] <= 2*self.Un[d], "NoGap3_" + str(d) + "d")
             # Cannot have only 2nd and 3rd quarters allocated (no middle half)
             self.m.addConstr((self.Un[d]-self.Anq[d,0]) + self.Anq[d,1] + self.Anq[d,2] + (self.Un[d]-self.Anq[d,3]) <= 3*self.Un[d], "NoMiddleHalf_" + str(d) + "d")
-            if self.manager.allow_singles == False:
+            if self.manager.allow_single_quarters == False:
                 # Cannot have only 1st and 4th quarters allocated (no end-cap half)
                 self.m.addConstr(self.Anq[d,0] + (self.Un[d]-self.Anq[d,1]) + (self.Un[d]-self.Anq[d,2]) + self.Anq[d,3] <= 3*self.Un[d], "NoEndCapHalf_" + str(d) + "d")
                 # Cannot choose single quarter allocations
@@ -299,7 +299,7 @@ class GorubiModel(object):
         print("Constraint: setting min gap in days between allocated unique nights.")
         # Enforce at least one day allocated every X days (no large gaps)
         # Note you cannot run this when observatory/instrument has an extended shutdown
-        for d in range(manager.n_nights_in_semester - self.manager.min_consecutive):
+        for d in range(self.manager.n_nights_in_semester - self.manager.min_consecutive):
             self.m.addConstr(gp.quicksum(self.Un[d + t] for t in range(self.manager.min_consecutive)) >= 2, "noLargeGaps_" + str(d) + "d")
 
     def constraint_enforce_restricted_nights(self, enforced_file, limit):
@@ -325,8 +325,8 @@ class GorubiModel(object):
         """
         print("Constraint: maximize the baseline of unique nights allocated.")
         # Enforce a night to be allocated within the first X nights and the last X nights of the semester (max baseline)
-        self.m.addConstr(gp.quicksum(self.Un[0 + t] for t in range(self.manager.max_base)) >= 1, "maxBase_early")
-        self.m.addConstr(gp.quicksum(self.Un[self.manager.n_nights_in_semester - self.manager.max_base + t] for t in range(self.manager.max_base)) >= 1, "maxBase_late")
+        self.m.addConstr(gp.quicksum(self.Un[0 + t] for t in range(self.manager.max_baseline)) >= 1, "maxBase_early")
+        self.m.addConstr(gp.quicksum(self.Un[self.manager.n_nights_in_semester - self.manager.max_baseline + t] for t in range(self.manager.max_baseline)) >= 1, "maxBase_late")
 
     def constraint_fix_previous_objective(self, epsilon=5):
         """
@@ -334,7 +334,7 @@ class GorubiModel(object):
         """
         print("Constraint: Fixing the previous solution's objective value.")
         self.m.addConstr(gp.quicksum(self.theta[name] for name in self.manager.requests_frame['Starname']) <= \
-                        m.objval + epsilon)
+                        self.m.objval + epsilon)
 
     def set_objective_maximize_slots_used(self):
         """
@@ -342,7 +342,7 @@ class GorubiModel(object):
         """
         print("Objective: Maximize the number of slots used.")
         self.m.setObjective(gp.quicksum(self.manager.slots_needed_for_exposure_dict[r]*self.Yrds[r,d,s]
-                            for r, d, s in Aset), GRB.MAXIMIZE)
+                            for r, d, s in self.Aset), GRB.MAXIMIZE)
 
     def set_objective_minimize_theta(self):
         """

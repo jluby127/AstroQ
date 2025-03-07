@@ -86,6 +86,7 @@ class data_admin(object):
                 include_aesthetic,
                 max_quarters,
                 max_nights,
+                min_represented,
                 allow_single_quarters,
                 max_consecutive,
                 min_consecutive,
@@ -113,11 +114,14 @@ class data_admin(object):
         self.semester_directory = output_directory
         self.output_directory = output_directory  + "outputs/" + str(self.current_day) + "/"
         self.reports_directory = output_directory + 'reports/'
+
         # Suggest your output directory be something so that it doesn't autosave
         # to the same directory as the run files and crowds up the GitHub repo.
         check = os.path.isdir(self.output_directory)
         if not check:
             os.makedirs(self.output_directory)
+        file = open(self.output_directory + "runReport.txt", "w") # later append to this file
+        file.close()
 
         self.slot_size = slot_size
         self.n_quarters_in_night = 4
@@ -141,7 +145,8 @@ class data_admin(object):
         self.run_optimal_allocation = run_optimal_allocation
         self.include_aesthetic = include_aesthetic
         self.max_quarters = max_quarters
-        self.max_nights = max_nights
+        self.max_unique_nights = max_nights
+        self.min_represented = min_represented
         self.whiteout_file = whiteout_file
         self.blackout_file = blackout_file
         self.allow_single_quarters = allow_single_quarters

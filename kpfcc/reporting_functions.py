@@ -14,8 +14,7 @@ from astropy.time import TimeDelta
 import numpy as np
 import pandas as pd
 
-def build_fullness_report(combined_semester_schedule, allocation_map_2D, requests_frame,
-                            slot_size, round_string, outputdir):
+def build_fullness_report(combined_semester_schedule, allocation_map_2D, manager, round_info):
     """
     Determine how full the schedule is: slots available, slots scheduled, and slots required
 
@@ -26,18 +25,15 @@ def build_fullness_report(combined_semester_schedule, allocation_map_2D, request
         allocation_map_2D (array): a 2D array where rows represent a night and columns represent
                                    the quarter within that night. Values are 1 if that
                                    night/quarter is allocated and 0 if not.
-        requests_frame (dataframe): contains the information describing each request's strategy
-        slot_size (int): the size of the slots in minutes
-        round_string (str): the round of scheduling to investigate (round 1 vs round 2, etc)
-        outputdir (str): the path to save the output file
+        manager (obj): a data_admin object
 
     Returns:
         None
     """
-    file = open(outputdir + "runReport.txt", "a")
-    file.write("Stats for " + str(round_string) + "\n")
+    file = open(manager.output_directory + "runReport.txt", "a")
+    file.write("Stats for " + str(round_info) + "\n")
     file.write("------------------------------------------------------" + "\n")
-    listnames = list(requests_frame['Starname'])
+    listnames = list(manager.requests_frame['Starname'])
     unavailable = 0
     unused = 0
     used = 0
@@ -53,20 +49,17 @@ def build_fullness_report(combined_semester_schedule, allocation_map_2D, request
     available = unused + used
     allocated = np.sum(allocation_map_2D.flatten())
     file.write("N slots in semester:" + str(np.prod(combined_semester_schedule.shape)) + "\n")
-    # file.write("N available slots: " + str(available) + "\n")
     file.write("N available slots:" + str(allocated) + "\n")
     file.write("N slots scheduled: " + str(used) + "\n")
     file.write("N slots left empty: " + str(allocated-used) + "\n")
 
     total_slots_requested = 0
-    for i in range(len(requests_frame)):
-        total_slots_requested += requests_frame['# of Nights Per Semester'][i]* \
-            math.ceil(requests_frame['Nominal Exposure Time [s]'][i]/(slot_size*60.))
+    for i in range(len(manager.requests_frame)):
+        total_slots_requested += manager.requests_frame['# of Nights Per Semester'][i]* \
+            math.ceil(manager.requests_frame['Nominal Exposure Time [s]'][i]/(manager.slot_size*60.))
     file.write("N slots requested (total): " + str(total_slots_requested) + "\n")
-    # percentage = np.round((used*100)/available,3)
-    percentage2 = np.round((used*100)/allocated,3)
-    # file.write("Percent full: " + str(percentage) + "%." + "\n")
-    file.write("Percent full: " + str(percentage2) + "%." + "\n")
+    percentage = np.round((used*100)/allocated,3)
+    file.write("Percent full: " + str(percentage) + "%." + "\n")
     file.close()
 
 def report_allocation_stats(allocation_map_2D, all_dates_dict, current_day, outputdir):
@@ -316,23 +309,25 @@ def write_cadence_plot_file(starname, starmap, turn_frame, requests_frame, futur
     starmap.to_csv(commentsfile, index=False)
     commentsfile.close()
 
-def get_gap_filler_targets(schedule_round_one, schedule_round_two, current_day_number):
+def get_gap_filler_targets(manager):
     """
     Using the results of the two rounds of scheduling, determine what is different between them,
     i.e. which targets were added in Round 2
 
     Args:
-        schedule_round_one (array): the Round 1 solution for the current day
-        schedule_round_two (array): the Round 2 solution for the current day
-        current_day_number (int): today in number of days from start of semester
+        manager (obj): a data_admin object
 
     Returns:
-        gap_fillers (array): a 1D list of the target names for those that were gap fillers
+        None
     """
-    new = schedule_round_two[current_day_number]
-    old = schedule_round_one[current_day_number]
+    scheduleR1 = np.loadtxt(manager.output_directory + 'raw_combined_semester_schedule_Round1.txt',
+        delimiter=',', dtype=str)
+    scheduleR2 = np.loadtxt(manager.output_directory + 'raw_combined_semester_schedule_Round2.txt',
+        delimiter=',', dtype=str)
+    new = scheduleR2[manager.all_dates_dict[manager.current_day]]
+    old = scheduleR1[manager.all_dates_dict[manager.current_day]]
     gap_fillers = [x for x in new if x not in old]
-    return gap_fillers
+    np.savetxt(manager.output_directory + 'Round2_Requests.txt', gap_fillers, delimiter=',', fmt="%s")
 
 def get_unique_nights(star_past_obs, twilight_frame):
     """
@@ -447,11 +442,8 @@ def write_out_results(manager, model, round, start_the_clock):
     print("Sum of Theta: " + str(counter))
     filename.write("Sum of Theta: " + str(counter) + "\n")
 
-    complete_round = time.time()
-    print("Total Time to complete " + round + ": " + \
-        str(np.round(complete_round-start_the_clock,3)))
-    filename.write("Total Time to complete " + round +  ": " + \
-        str(np.round(complete_round-start_the_clock,3)) + "\n")
+    print("Total Time to complete " + round + ": " + str(np.round(time.time()-start_the_clock,3)))
+    filename.write("Total Time to complete " + round +  ": " + str(np.round(time.time()-start_the_clock,3)) + "\n")
     filename.write("\n")
     filename.write("\n")
     filename.close()

@@ -185,21 +185,20 @@ def construct_zero_out_arr(zero_out_file):
         zero_out_names = []
     return zero_out_names
 
-def construct_nonqueue_arr(nonqueue_map_file, today_starting_slot):
+def construct_nonqueue_arr(manager):
     """
     Build the 1D non-queue map
 
     Args:
-        nonqueue_map_file (str): path and filename of the non-queue map
-        today_starting_slot (int): the slot number that represents today's first slot
+        manager (obj): a data_admin object
 
     Returns:
         nonqueue_map_file_slots_ints (array): the 1D array of 1's and 0's indicating nonqueue map
     """
     print("Incorporating non-queue observations.")
-    if os.path.exists(nonqueue_map_file):
+    if os.path.exists(manager.nonqueue_map_file):
         print("Accommodating time-sensative non-queue observations.")
-        nonqueue_map_file_slots_strs = np.loadtxt(nonqueue_map_file, delimiter=',', dtype=str)
+        nonqueue_map_file_slots_strs = np.loadtxt(manager.nonqueue_map_file, delimiter=',', dtype=str)
         nonqueue_map_file_slots_ints = []
         for i, item in enumerate(nonqueue_map_file_slots_strs):
             holder = []
@@ -210,7 +209,7 @@ def construct_nonqueue_arr(nonqueue_map_file, today_starting_slot):
                     holder.append(0)
             nonqueue_map_file_slots_ints.append(holder)
         nonqueue_map_file_slots_ints = np.array(nonqueue_map_file_slots_ints).flatten()
-        nonqueue_map_file_slots_ints = nonqueue_map_file_slots_ints[today_starting_slot:]
+        nonqueue_map_file_slots_ints = nonqueue_map_file_slots_ints[manager.today_starting_slot:]
     else:
         nonqueue_map_file_slots_ints = np.array(n_slots_in_semester)
         print("No non-queue observations are scheduled.")
@@ -379,7 +378,6 @@ def single_night_allocated_slots(allocated_quarters_tonight, available_slots_in_
             for j in range(start, stop):
                 allocated_slots_tonight[j] = 0
     return allocated_slots_tonight
-
 
 def build_twilight_map(available_slots_in_night, n_slots_in_night, invert=False):
     """

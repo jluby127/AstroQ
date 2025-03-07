@@ -42,10 +42,9 @@ def construct_twilight_map(manager):
     twilight_map_all = np.array(mf.build_twilight_map(available_slots_in_each_night,
                                 manager.n_slots_in_night, invert=False))
     twilight_map_remaining = twilight_map_all[manager.all_dates_dict[manager.current_day]:]
-    twilight_map_remaining_flat = twilight_map_remaining.copy().flatten()
-    twilight_map_remaining_2D = np.reshape(twilight_map_remaining,
-                                    (manager.n_nights_in_semester, manager.n_slots_in_night))
-    return twilight_map_remaining_flat, twilight_map_remaining_2D, available_slots_in_each_night
+    twilight_map_remaining_1D = twilight_map_remaining.copy().flatten()
+    twilight_map_remaining_2D = np.reshape(twilight_map_remaining_1D, (manager.n_nights_in_semester, manager.n_slots_in_night))
+    return twilight_map_remaining_2D, available_slots_in_each_night
 
 def convert_slot_to_quarter(twilight_map_remaining_2D_d):
     '''
