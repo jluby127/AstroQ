@@ -432,3 +432,25 @@ def get_nobs_on_night(star_past_obs, unique_hst_dates_observed):
         datemask = star_past_obs['hstDate'] == unique_hst_dates_observed[i]
         n_obs_on_date.append(np.sum(datemask))
     return n_obs_on_date
+
+def write_out_results(manager, model, round, start_the_clock):
+
+    print("Writing Report.")
+    filename = open(manager.output_directory + "runReport.txt", "a")
+    theta_n_var = []
+    counter = 0
+    for v in model.theta.values():
+        varname = v.VarName
+        varval = v.X
+        counter += varval
+    print("Sum of Theta: " + str(counter))
+    filename.write("Sum of Theta: " + str(counter) + "\n")
+
+    complete_round = time.time()
+    print("Total Time to complete " + round + ": " + \
+        str(np.round(complete_round-start_the_clock,3)))
+    filename.write("Total Time to complete " + round +  ": " + \
+        str(np.round(complete_round-start_the_clock,3)) + "\n")
+    filename.write("\n")
+    filename.write("\n")
+    filename.close()

@@ -210,6 +210,16 @@ def find_indices(arr, start, end):
     return first_index, last_index
 
 def enforce_dates(filename, all_dates_dict):
+    """
+    Process the dates that need to be enforced, from the standard format in file
+    Args:
+        filename (str): the path and filename to open
+        all_dates_dict (dict): a dictionary where keys are calendar dates in format (YYYY-MM-DD)
+                                       and values of the day number in the semester
+    Returns:
+        enforced_dates (array): a 2D array where each element contains a 2 element list where
+                            element 0 is the date number and element 1 is the quarter number
+    """
     enforced_dates = []
     selections = pd.read_csv(filename)
     for s in range(len(selections)):
