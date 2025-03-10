@@ -18,11 +18,7 @@ import gurobipy as gp
 from gurobipy import GRB
 
 from kpfcc import DATADIR
-import kpfcc.helper_functions as hf
-import kpfcc.twilight_functions as tw
-import kpfcc.reporting_functions as rf
-import kpfcc.processing_functions as pf
-import kpfcc.mapping_functions as mf
+import kpfcc.access as ac
 
 class GorubiModel(object):
     """A Gorubi Model object, from which we can add constraints and share variables easily."""
@@ -269,7 +265,7 @@ class GorubiModel(object):
         # if quarter is not allocated, all slots in quarter must be zero
         # note that the twilight times at the front and end of the night have to be respected
         for r, d, s in self.Aset:
-            split_1st2nd, split_2nd3rd, split_3rd4th = tw.convert_slot_to_quarter(twilight_map_remaining_2D[d])
+            split_1st2nd, split_2nd3rd, split_3rd4th = ac.convert_slot_to_quarter(twilight_map_remaining_2D[d])
             if s < split_1st2nd:
                 q = 0
             elif s >= split_1st2nd and s < split_2nd3rd:
@@ -302,22 +298,25 @@ class GorubiModel(object):
         for d in range(self.manager.n_nights_in_semester - self.manager.min_consecutive):
             self.m.addConstr(gp.quicksum(self.Un[d + t] for t in range(self.manager.min_consecutive)) >= 2, "noLargeGaps_" + str(d) + "d")
 
-    def constraint_enforce_restricted_nights(self, enforced_file, limit):
+    def constraint_enforce_restricted_nights(self, limit):
         """
         According to Eq X in Lubin et al. 2025.
 
-        limit (int): either 0 or 1 to enforce blackout and whiteout, respectively
+        Args:
+            limit (int): either 0 or 1 to enforce blackout and whiteout, respectively
         """
-        if limit != 0 or limit != 1:
+        if limit not in [0, 1]:
             print("Limit must be an integer, either 0 (blackout) or 1 (whiteout).")
-
-        # enforce that certain nights/quarters CANNOT or MUST be chosen
+        elif limit == 0:
+            filename = self.manager.blackout_file
+        else:
+            filename = self.manager.whiteout_file
         print("Constraint: enforcing quarters that cannot be chosen.")
-        enforce = hf.enforce_dates(enforced_file, all_dates_dict)
-        for i in range(len(enforce)):
-            night = enforcedNO[i][0]
-            quart = enforcedNO[i][1]
-            self.m.addConstr(self.Anq[night,quart] == limit, "enforced_" + str(limit) + "_" + str(night) + "d_" + str(quart) + 'q')
+        selections = pd.read_csv(filename)
+        for s in range(len(selections)):
+            night = self.manager.all_dates_dict[selections['Date'][s]]
+            quarter = selections['Quarter'][s]
+            self.m.addConstr(self.Anq[night,quarter] == limit, "enforced_" + str(limit) + "_" + str(night) + "d_" + str(quarter) + 'q')
 
     def constraint_maximize_baseline(self):
         """
@@ -375,3 +374,49 @@ class GorubiModel(object):
                     print('%s' % c.GenConstrName)
         else:
             print("Model Successfully Solved.")
+
+
+def define_slot_index_frame(manager, available_indices_for_request):
+    """
+    Using the dictionary of indices where each request is available, define a dataframe for which
+    we will use to cut/filter/merge r,d,s tuples
+
+    Args:
+        requests_frame (dataframe): the pandas dataframe containing the request information
+        slots_needed_for_exposure_dict (dictionary): keys are the request names, values are the
+                        number of slots required for one exposure of that request
+        available_indices_for_request (dictionary): keys are the starnames and values are a 1D array
+                                                  the indices where available_slots_for_request is 1.
+    Returns:
+        Aframe (dataframe): a pandas dataframe containing one row for each valid r,d,s tuple
+        Aset (array): an array of [r, d, s] tuples that make up the indices of Yrds
+        schedulable_requests (list): the requests that are valid for this schedule
+
+    """
+    # Define the tuples of request and available slot for each request.
+    # This becomes the grid over which the Gurobi variables are defined.
+    # Now, slots that were never possible for scheduling are not included in the model.
+    Aset = []
+    Aframe_keys = []
+    for n,row in manager.requests_frame.iterrows():
+        name = row['Starname']
+        n_visits = int(row['# Visits per Night'])
+        intra = int(row['Minimum Intra-Night Cadence'])
+        inter = int(row['Minimum Inter-Night Cadence'])
+        slots_needed = manager.slots_needed_for_exposure_dict[name]
+        for d in range(len(available_indices_for_request[name])):
+            for s in available_indices_for_request[name][d]:
+                Aset.append((name, d, s))
+                Aframe_keys.append([name, d, s, slots_needed, n_visits, intra, inter])
+
+    Aframe = pd.DataFrame(Aframe_keys, columns =['r', 'd', 's', 'e', 'v', 'tra', 'ter'])
+    schedulable_requests = list(Aframe['r'].unique())
+    for name in list(manager.requests_frame['Starname']):
+        if name not in schedulable_requests:
+            print("WARNING: Target " + name + " has no valid day/slot pairs and therefore is effectively removed from the model.")
+    # duplicate columns for easy indexing later
+    Aframe['rr'] = Aframe['r']
+    Aframe['dd'] = Aframe['d']
+    Aframe['ss'] = Aframe['s']
+
+    return Aframe, Aset, schedulable_requests

@@ -8,13 +8,11 @@ import pandas as pd
 # The -3 cuts of the "bin/" of the path to this current file
 path2modules = os.path.dirname(os.path.abspath(__file__))[:-3]
 sys.path.append(path2modules)
-import kpfcc.admin_functions as af
-import kpfcc.solve_semester as ss
-import kpfcc.helper_functions as hf
-import kpfcc.plotting_functions as ptf
-import kpfcc.processing_functions as pf
-import kpfcc.ttp_functions as ttpf
-import kpfcc.star_tracker as st
+import kpfcc.management as mn
+import kpfcc.schedule as sc
+import kpfcc.plot as pl
+import kpfcc.onsky as sk
+import kpfcc.tracking as tk
 from kpfcc import DATADIR
 
 parser = argparse.ArgumentParser(description='Generate schedules with KPF-CC v2')
@@ -23,7 +21,8 @@ parser.add_argument('-d','--schedule_dates',action='append',help='Date(s) to be 
                             string in format YYYY-MM-DD. Use a -d flag between each date.')
 parser.add_argument('-f','--folder', help='Folder to save all outputs',
                             default=os.environ["KPFCC_SAVE_PATH"])
-
+parser.add_argument('-obs','--observatory', help='Astropy query-able name for observatory',
+                            default='Keck Observatory')
 # Optional parameters - High Level
 parser.add_argument('-a','--run_scheduler', help='Turn off the autoscheduler', action='store_false')
 parser.add_argument('-p','--run_plots', help='Turn off the plotting', action='store_false')
@@ -52,10 +51,14 @@ parser.add_argument('-b','--run_backups', help='Turn on plot outputs', action='s
 parser.add_argument('-stmp','--build_starmaps', help='Turn on plot outputs', action='store_true')
 args = parser.parse_args()
 
-manager = af.data_admin(
+allowed_observatories = ['Keck Observatory']
+if args.observatory not in allowed_observatories:
+    print("WARNING: chosen observatory is not supported.")
+manager = mn.data_admin(
                         # basic parameters
                         args.folder,
                         str(args.schedule_dates[0]),
+                        args.observatory,
                         args.slot_size,
                         # files for running scheduler
                         # important to name files appropriately
@@ -100,16 +103,15 @@ manager = af.data_admin(
                         os.path.join(DATADIR,"bright_backups_frame.csv"),
                         os.path.join(DATADIR,"bright_backup_observability.csv")
                         )
-
 manager.run_admin()
 
 if args.run_scheduler:
-    ss.run_kpfcc(manager)
+    sc.run_kpfcc(manager)
 
 if args.run_plots:
-    star_tracker = st.StarTracker(manager)
-    ptf.write_cadence_plot_files(manager)
-    ptf.run_plot_suite(star_tracker, manager)
+    star_tracker = tk.StarTracker(manager)
+    pl.write_cadence_plot_files(manager)
+    pl.run_plot_suite(star_tracker, manager)
 
 if args.run_ttp:
-    ttpf.run_ttp(manager)
+    sk.run_ttp(manager)
