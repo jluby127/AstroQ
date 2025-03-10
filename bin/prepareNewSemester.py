@@ -10,9 +10,9 @@ import json
 import warnings
 warnings.filterwarnings('ignore')
 import sys
-sys.path.append(os.path.dirname(os.path.abspath(__file__))[:-3] + "kpfcc/")
-import mapping_functions as mf
-import helper_functions as hf
+sys.path.append(os.path.dirname(os.path.abspath(__file__))[:-3])# + "kpfcc/")
+import kpfcc.mapping_functions as mf
+import kpfcc.helper_functions as hf
 
 import argparse
 parser = argparse.ArgumentParser(description='Generate schedules with KPF-CC v2')
@@ -42,7 +42,6 @@ args = parser.parse_args()
 # --- The set of PI requests for cadenced queue observations, downloaded from the Request Submission Webform
 # --- The set of PI requests for time-sensitive non-queue observations, downloaded from the Request Submission Webform which include start/stop times for the event windows
 
-allocation = mf.format_keck_allocation_info(args.folder + args.AllocationFile)
 nonqueues = pd.read_csv(args.folder + args.NonQueueFile)
 requests = pd.read_csv(args.folder + args.RequestFile)
 
@@ -80,6 +79,8 @@ while True:
     assert nNightsInSemester < 1000
 
 if args.optimalAllocation == False:
+
+    allocation = mf.format_keck_allocation_info(args.folder + args.AllocationFile)
 
     # Generate the binary map for allocations this semester
     # -----------------------------------------------------------------------------------------

@@ -1,14 +1,12 @@
 Stats for Round 1
 ------------------------------------------------------
-N slots in semester:15372
-N available slots: 2087
-N available slots (recalc):2087
-N slots scheduled: 104
-N slots left empty: 1983
+N slots in semester:15456
+N available slots:2214
+N slots scheduled: 204
+N slots left empty: 2010
 N slots requested (total): 218
-Percent full: 4.983%.
-Percent full (recalc): 4.983%.
-Sum of Theta: 50.0
-Total Time to complete Round 1: 26.241
+Percent full: 9.214%.
+Sum of Theta: 40.0
+Total Time to complete Round 1: 1.618
 
 
