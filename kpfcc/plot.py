@@ -15,10 +15,7 @@ from astropy.time import Time
 import numpy as np
 import pandas as pd
 
-import kpfcc.helper_functions as hf
-import kpfcc.processing_functions as pf
-import kpfcc.reporting_functions as rf
-import kpfcc.star_tracker as st
+import kpfcc.io as io
 
 named_colors = ['blue', 'red', 'green', 'gold', 'maroon', 'gray', 'orange', 'magenta', 'purple']
 color_scales = {'blue':[[0, 'rgba(0,0,0,0)'],[1, 'rgb(0,0,255)']],
@@ -95,21 +92,21 @@ def run_plot_suite(star_tracker, manager):
 
 def write_cadence_plot_files(manager):
     print("Writing cadence plot files.")
+    with open(manager.output_directory + "raw_combined_semester_schedule_Round2.txt", 'r', encoding='utf-8') as file:
+        lines = file.readlines()
+        combined_semester_schedule_stars = [line.strip().split(',') for line in lines]
+    
     turn_on_off_frame = pd.read_csv(manager.turn_on_off_file)
     all_starmaps = {}
     for i in range(len(manager.requests_frame)):
         if manager.database_info_dict != {}:
-            starmap = rf.build_observed_map_past( \
+            starmap = io.build_observed_map_past( \
                 manager.database_info_dict[manager.requests_frame['Starname'][i]], manager.starmap_template_filename)
         else:
-            starmap = rf.build_observed_map_past([[],[],[],[]], manager.starmap_template_filename)
+            starmap = io.build_observed_map_past([[],[],[],[]], manager.starmap_template_filename)
 
-        starmap_updated = rf.build_observed_map_future(manager.combined_semester_schedule_stars,
-                            manager.requests_frame['Starname'][i], starmap,
-                            manager.slots_needed_for_exposure_dict,
-                            np.array(manager.allocation_all).flatten(),
-                            np.array(manager.weather_diff_remaining).flatten(),
-                            manager.all_dates_dict[manager.current_day])
+        starmap_updated = io.build_observed_map_future(manager, combined_semester_schedule_stars,
+                            manager.requests_frame['Starname'][i], starmap)
 
         all_starmaps[manager.requests_frame['Starname'][i]] = starmap_updated
         future_unique_days_forecasted = 0
@@ -121,11 +118,64 @@ def write_cadence_plot_files(manager):
             past_unique_dates_for_star = manager.database_info_dict[manager.requests_frame['Starname'][i]][1]
         except:
             past_unique_dates_for_star = []
-        rf.write_cadence_plot_file(manager.requests_frame['Starname'][i], starmap_updated,
+        write_one_cadence_plot_file(manager.requests_frame['Starname'][i], starmap_updated,
                                     turn_on_off_frame, manager.requests_frame,
                                     future_unique_days_forecasted,
                                     past_unique_dates_for_star,
                                     manager.current_day, manager.output_directory)
+
+
+def write_one_cadence_plot_file(starname, starmap, turn_frame, requests_frame, future_obs,
+                            unique_hst_dates_observed, current_day, outputdir):
+    """
+    Write the file from which later we can produce the cadence plot
+
+    Args:
+        starname (int): the string of the star's name
+        starmap (dataframe): contains information on observation history and forecast
+        turn_frame (dataframe): contains information on the first and last day a target
+                                 is observable in each quarter of the night. Pre-computed.
+        requests_frame (dataframe): the information on the request strategies
+        unique_hst_dates_observed (array): list of dates previously observed
+        current_day (str): today's date, format YYYY-MM-DD
+        outputdir (str): the path to the save directory
+    Returns:
+        None
+    """
+    request_id = requests_frame.index[requests_frame['Starname']==str(starname)][0]
+    program_code = requests_frame.loc[request_id,'Program_Code']
+    save_path = outputdir + "/cadences/" + str(program_code) + "/"
+    os.makedirs(save_path, exist_ok = True)
+
+    n_obs_desired = requests_frame.loc[request_id,'# of Nights Per Semester']
+    n_obs_taken = len(unique_hst_dates_observed)
+    n_obs_scheduled = future_obs #np.sum(starmap['N_obs']) #n_obs_desired - n_obs_taken #
+    cadence = requests_frame.loc[request_id,'Minimum Inter-Night Cadence']
+    turn_index = turn_frame.index[turn_frame['Starname']==str(starname)][0]
+    turns = [[turn_frame['Q1_on_date'][turn_index], turn_frame['Q1_off_date'][turn_index]],
+             [turn_frame['Q2_on_date'][turn_index], turn_frame['Q2_off_date'][turn_index]],
+             [turn_frame['Q3_on_date'][turn_index], turn_frame['Q3_off_date'][turn_index]],
+             [turn_frame['Q4_on_date'][turn_index], turn_frame['Q4_off_date'][turn_index]]]
+
+    commentsfile = open(save_path + starname + "_Cadence_Interactive.csv", 'w')
+    commentsfile.write('#starname:' + str(starname) + '\n')
+    commentsfile.write('#programcode:' + str(program_code) + '\n')
+    commentsfile.write('#Nobs_scheduled:' + str(n_obs_scheduled) + '\n')
+    commentsfile.write('#Nobs_desired:' + str(n_obs_desired) + '\n')
+    commentsfile.write('#Nobs_taken:' + str(n_obs_taken) + '\n')
+    commentsfile.write('#cadence:' + str(cadence) + '\n')
+    commentsfile.write('#q1_start:' + str(turns[0][1]) + '\n')
+    commentsfile.write('#q1_end:' + str(turns[0][0]) + '\n')
+    commentsfile.write('#q2_start:' + str(turns[1][1]) + '\n')
+    commentsfile.write('#q2_end:' + str(turns[1][0]) + '\n')
+    commentsfile.write('#q3_start:' + str(turns[2][1]) + '\n')
+    commentsfile.write('#q3_end:' + str(turns[2][0]) + '\n')
+    commentsfile.write('#q4_start:' + str(turns[3][1]) + '\n')
+    commentsfile.write('#q4_end:' + str(turns[3][0]) + '\n')
+    commentsfile.write('#current_day:' + str(current_day) + '\n')
+    starmap = starmap[starmap.Allocated == True]
+    starmap.to_csv(commentsfile, index=False)
+    commentsfile.close()
 
 def single_request_cof(star_tracker, star):
     """

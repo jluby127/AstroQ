@@ -15,8 +15,8 @@ from astropy.time import Time
 import numpy as np
 import pandas as pd
 
-import kpfcc.helper_functions as hf
-import kpfcc.reporting_functions as rf
+import kpfcc.management as mn
+import kpfcc.history as hs
 
 
 class StarTracker:
@@ -102,9 +102,9 @@ class StarTracker:
         index = self.manager.requests_frame.loc[self.manager.requests_frame['Starname'] == starname].index
         program = str(self.manager.requests_frame['Program_Code'][index].values[0])
         exposure_time = int(self.manager.requests_frame['Nominal Exposure Time [s]'][index].values[0])
-        slots_per_night = hf.slots_required_for_exposure(
+        slots_per_night = mn.compute_slots_required_for_exposure(
                         self.manager.requests_frame['Nominal Exposure Time [s]'][index].values[0], \
-                        self.slot_size)*self.manager.requests_frame['# Visits per Night'][index].values[0]
+                        self.slot_size, False)*self.manager.requests_frame['# Visits per Night'][index].values[0]
         expected_nobs_per_night = int(self.manager.requests_frame['# of Exposures per Visit'][index]) * \
                         int(self.manager.requests_frame['# Visits per Night'][index])
         total_observations_requested = expected_nobs_per_night * \
@@ -129,8 +129,8 @@ class StarTracker:
         star_obs_past.sort_values(by='utctime', inplace=True)
         star_obs_past.reset_index(inplace=True)
         star_obs_past, unique_hst_dates_past, quarters_observed_past = \
-                    rf.get_unique_nights(star_obs_past, self.manager.twilight_frame)
-        nobs_on_date_past = rf.get_nobs_on_night(star_obs_past, unique_hst_dates_past)
+                    hs.get_unique_nights(star_obs_past, self.manager.twilight_frame)
+        nobs_on_date_past = hs.get_nobs_on_night(star_obs_past, unique_hst_dates_past)
         observations_past = {}
         for i in range(len(unique_hst_dates_past)):
             observations_past[unique_hst_dates_past[i]] = nobs_on_date_past[i]

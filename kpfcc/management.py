@@ -14,8 +14,7 @@ from astropy.time import Time
 from astropy.time import TimeDelta
 
 from kpfcc import DATADIR
-import kpfcc.helper_functions as hf
-import kpfcc.processing_functions as pf
+import kpfcc.history as hs
 
 class data_admin(object):
     """A Data Admin object, from which we can easily pass around information.
@@ -71,6 +70,7 @@ class data_admin(object):
     def __init__(self,
                 output_directory,
                 current_day,
+                observatory,
                 slot_size,
                 requests_file,
                 twilight_file,
@@ -110,6 +110,7 @@ class data_admin(object):
                 backup_observability_file,
                 ):
 
+        self.observatory = observatory
         self.current_day = current_day
         self.semester_directory = output_directory
         self.output_directory = output_directory  + "outputs/" + str(self.current_day) + "/"
@@ -129,8 +130,8 @@ class data_admin(object):
 
         self.requests_frame = pd.read_csv(requests_file)
         self.twilight_frame = pd.read_csv(twilight_file, parse_dates=True)
-        self.database_info_dict = pf.build_past_history(past_observations_file, self.requests_frame, self.twilight_frame)
-        self.slots_needed_for_exposure_dict = hf.build_slots_required_dictionary(self.requests_frame, self.slot_size)
+        self.database_info_dict = hs.build_past_history(past_observations_file, self.requests_frame, self.twilight_frame)
+        self.slots_needed_for_exposure_dict = self.build_slots_required_dictionary()
 
         self.past_database_file = past_observations_file
         self.allocation_file = allocation_file
@@ -180,10 +181,9 @@ class data_admin(object):
         """
         # Get semester parameters and define important quantities
         semester_start_date, semester_end_date, semester_length, semester_year, semester_letter = \
-            hf.get_semester_info(self.current_day)
-        all_dates_dict = hf.build_date_dictionary(semester_start_date, semester_length)
-        all_dates_array = list(all_dates_dict.keys())
-        n_nights_in_semester = hf.current_day_tracker(self.current_day, all_dates_dict)
+            get_semester_info(self.current_day)
+        all_dates_dict, all_dates_array = build_date_dictionary(semester_start_date, semester_length)
+        n_nights_in_semester = len(all_dates_dict) - all_dates_dict[self.current_day]
         print("Total semester length: ", semester_length)
         print("There are " + str(n_nights_in_semester) + " calendar nights remaining in the semester.")
 
@@ -208,3 +208,140 @@ class data_admin(object):
         self.today_starting_night = today_starting_night
         self.semester_grid = np.arange(0, self.n_nights_in_semester, 1)
         self.quarters_grid = np.arange(0, self.n_quarters_in_night, 1)
+
+    def build_slots_required_dictionary(self, always_round_up_flag=False):
+        """
+        Computes the slots needed for a given exposure for all requests.
+        When always_round_up_flag is false, we can round up or down.
+        Example: with 5 minute slot sizes, we want a 6 minute exposure to only require one slot
+                (round down) as opposed to 2 slots (round up)
+
+        Args:
+            manager (obj): a data_admin object
+            always_round_up_flag (boolean): if true, slots needed is always larger than exposure_time
+        """
+        print("Determining slots needed for exposures.")
+        # schedule multi-shots and multi-visits as if a single, long exposure.
+        # When n_shots and n_visits are both 1, this reduces down to just the stated exposure time.
+        slots_needed_for_exposure_dict = {}
+        for n,row in self.requests_frame.iterrows():
+            name = row['Starname']
+            exposure_time = row['Nominal Exposure Time [s]']*row['# of Exposures per Visit'] + \
+                45*(row['# Visits per Night'] - 1)
+            slots_needed_for_exposure_dict[name] = compute_slots_required_for_exposure(exposure_time, self.slot_size, always_round_up_flag)
+        return slots_needed_for_exposure_dict
+
+def get_semester_info(current_day):
+    """
+    Given today's date, return information about the semester we are currently in.
+
+    Args:
+        manager (obj): a data_admin object
+    """
+    year_flag = False
+    # "A" semester runs from Feb 01 through July 31
+    if current_day[5:7] in ['02', '03', '04', '05', '06', '07']:
+        semester_letter = 'A'
+    # "B" semester runs from Aug 1 through Jan 01
+    elif current_day[5:7] in ['08', '09', '10', '11', '12', '01']:
+        semester_letter = 'B'
+        if current_day[5:7] == '01':
+            year_flag = True
+    else:
+        print("Invalid date. Exiting.")
+        return None
+    semester_year = current_day[:4]
+
+    if semester_letter == 'A':
+        semester_start_date = semester_year + '-02-01'
+        semester_end_date = semester_year + '-07-31'
+        # check if this is a leap year
+        this_year = 2024
+        year_limit = 2074
+        # Note from Jack Lubin in the year 2024: The year 2074 is arbitrary. In this year,
+        # you, the current queue manager, will have to update this line for another 50 years.
+        # I could have extended this thousands of years in the future, but thought it would be more
+        # fun if one day this line breaks, and every 50 years and someone manually updates it.
+        # If/when you need to update it, please send me an email because I'd like to know that Keck
+        # is still using this software! Also when you update the line, please sign the list of
+        # queue managers below:
+        #
+        # --------------------------
+        # KPF-CC Queue Managers:
+        # --------------------------
+        # 2024 - Jack Lubin
+        # 2074 - your_name_here
+        # --------------------------
+        if int(semester_year) > year_limit:
+            print("Time to update the leap year array!!! See line 255 in management.py!!!")
+            semester_length = 0
+        elif int(semester_year) in np.arange(this_year, year_limit, 4):
+            semester_length = 182
+        else:
+            semester_length = 181
+    elif semester_letter == 'B':
+        if year_flag:
+            semester_start_date = str(int(semester_year) - 1) + '-08-01'
+            semester_end_date = semester_year + '-01-31'
+        else:
+            semester_start_date = semester_year + '-08-01'
+            semester_end_date = str(int(semester_year) + 1) + '-01-31'
+        semester_length = 184
+    else:
+        print("Unrecognized semester letter designation!")
+        semester_start_date = semester_year + '-01-01'
+        semester_end_date = str(semester_year)+ '-01-01'
+        semester_length = 0
+    return semester_start_date, semester_end_date, semester_length, semester_year, semester_letter
+
+def build_date_dictionary(semester_start_date, semester_length):
+    """
+    Builds a dictionary where keys are the calendar dates within the semester and values are the
+    corresponding day numbers of the semester.
+
+    Args:
+        semester_start_date (str): the first day of the semester, format YYYY-MM-DD
+        semester_length (int): the number of days in the full semester
+    """
+    all_dates = {}
+    date_formal = Time(semester_start_date, format='iso',scale='utc')
+    date = str(date_formal)[:10]
+    all_dates[date] = 0
+    for i in range(1, semester_length):
+        date_formal += TimeDelta(1,format='jd')
+        date = str(date_formal)[:10]
+        all_dates[date] = i
+    return all_dates, list(all_dates.keys())
+    # manager.all_dates_dict = all_dates
+    # manager.all_dates_array = list(all_dates.keys())
+
+def compute_slots_required_for_exposure(exposure_time, slot_size, always_round_up_flag):
+    slot_size = slot_size * 60 # converting to seconds
+    if always_round_up_flag:
+        slots_needed_for_exposure = math.ceil(exposure_time/slot_size)
+    else:
+        if exposure_time > slot_size:
+            slots_needed_for_exposure = int(round(exposure_time/slot_size))
+        else:
+            slots_needed_for_exposure = 1
+    return slots_needed_for_exposure
+
+def get_gap_filler_targets(manager):
+    """
+    Using the results of the two rounds of scheduling, determine what is different between them,
+    i.e. which targets were added in Round 2
+
+    Args:
+        manager (obj): a data_admin object
+
+    Returns:
+        None
+    """
+    scheduleR1 = np.loadtxt(manager.output_directory + 'raw_combined_semester_schedule_Round1.txt',
+        delimiter=',', dtype=str)
+    scheduleR2 = np.loadtxt(manager.output_directory + 'raw_combined_semester_schedule_Round2.txt',
+        delimiter=',', dtype=str)
+    new = scheduleR2[manager.all_dates_dict[manager.current_day]]
+    old = scheduleR1[manager.all_dates_dict[manager.current_day]]
+    gap_fillers = [x for x in new if x not in old]
+    np.savetxt(manager.output_directory + 'Round2_Requests.txt', gap_fillers, delimiter=',', fmt="%s")
