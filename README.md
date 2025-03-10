@@ -1,35 +1,91 @@
-# optimalAllocation
-Software for solving two related problems:
-1. Determine which targets should be observed on which nights (semester-solver)
-2. Determine the best distribution of nights for the KPF-CC queue in a semester, given target request info
+# KPF-CC Autoscheduler
+This software represents Version 2.0 of the KPF-CC autoscheduler. The algorithm is now more granular, working on the timescale of "slots" and trying to schedule targets into specific slots within the semester. This new framework allows additional features as well.
 
-This software represents Version 2 of the KPF-CC algorithm, now with
-more granular scheduling of targets into individual slots within the
-semester. This new framework allows additional features as well.
+This package contains the code for solving two related problems:
+1. Optimal Semester Scheduler -- Determine which targets should be observed on which nights
+2. Optimal Instrument Scheduler -- Determine the best distribution of nights for the KPF-CC queue in a semester
 
-Installation instructions:
+# Installation instructions
 
+The installation of this package is not straight-forward. Please read carefully and follow closely.
 
-Use `conda` or `mamba` to install a dedicated envirnoment for KPF-CC
-
+We _*highly recommend*_ (though optional) setting up within a new Conda environment first. To do so, run this command and then be sure to activate the environment:
 ```
-mamba env create -n kpf-cc -f environment.yml 
+conda create -n kpfcc python=3.9
+conda activate kpfcc
 ```
 
+### Installing Gurobi
+Before doing anything else, you must obtain a license for Gurobi.
 
-Basic use instructions:
+`kpfcc` relies on Gurobi for solving large matrix equations efficiently. Follow these steps to install and set up Gurobi:
 
-python runKPFCCv2.py -d YYYY-MM-DD
+1. **Create an an Account** on Gurobi's [registration site](https://portal.gurobi.com/iam/register/). Select that you are an "Academic", type in your home institution, and submit the form via "Access Now". You will receive an email to complete the registration.
+2. **Download Gurobi** for your OS from [this download page](https://www.gurobi.com/downloads/gurobi-software/). Run the installer file following their instructions.
+3. **Request an Academic License** from your [user portal](https://portal.gurobi.com/iam/licenses/request/) *while connected to a university network*. You want the 'Named-User Academic License' which has a one year lifetime. At the end of the year, you can obtain a new license easily within your account (and for free) so long as you have maintained your academic status.
+4. **Retrieve the License** by running the command from the popup window in a shell. It should look like:
+```
+grbgetkey 253e22f3...
+```
 
-This will run the semester-solver from the supplied date (in given format) onwards to the end of the semester. Additionally, you can specify parameters via a series of flags:
+### Install optimalAllocation
 
--d -- specifies the date to start the semester-schedule solver. When running Optimal Allocation, only use the first day of the semester here. If you use another date, the code automatically resets the date to the first day of the semester. Note that any previous days in the semester will not be scheduled. There is no default and not specifying a date will throw an error that quits the program.
--f -- name of the folder you wish to save all the output files and figures (include path here too). The default can be hard-coded.
--l -- the maximum time, in seconds, to allow the solver to find the optimal solution. The default is 300s.
--s -- the slot size, in minutes, to use when solving the schedule. The default is 10 min.
--b -- the path and filename to the EnforcedNO list of nights/quarters. These are nights/quarters that cannot be chosen to be allocated. This is only relevant for when solving Optimal Allocation. The default is none.
--w -- the path and filename to the EnforcedYES list of nights/quarters. These are nights/quarters that must be chosen to be allocated. This is only relevant for when solving Optimal Allocation. The default is none.
--g -- Turn off the printing out of Gurobi's solver information. Default is on.
--o -- Turn on solving Optimal Allocation. Default is off.
--r -- Turn on solving Round 2 of the semester solver. Default is off.
--p -- Turn off printing out of plots and reports. Default is on.
+Only once you have obtained a Gurobi license can clone this repository:
+```
+git clone https://github.com/jluby127/optimalAllocation.git
+```
+
+And then install via:
+```
+pip install .
+```
+
+This will set up the environment and all dependency packages. Once again, it is very important that you _**do not**_ run the pip installer until you have obtained a Gurobi license. I cannot stress this enough.
+
+### Install ttpsolver
+One of the optimalAllocation dependencies is a package we co-developed, the TTP Solver (Traveling Telescope Problem). While the optimalAllocation autoscheduler decides which requests should be observed on a given night, the TTP solves for the optimal slew path to observe all those targets within the night. When pip installing the optimalAllocation package, the ttpsolver will be cloned from its repo as well. You must navigate to its local path and similarly pip install the package. For more information on installation and documentation of the TTP, see its Github Repo at: https://github.com/lukehandley/ttp. Since you have obtained a Gurobi license as part of the installation instructions above, you may skip that section of the TTP's installation instructions. Be sure to update your environment variables to include the path to the TTP.
+
+# Run instructions
+
+To test installation and practice the workflow of running the autoscheduler, use the supplied example. From your terminal, run the following command:
+```
+python <LOCAL_DIR>/bin/generate_night_plan.py -d 2024-08-02 -f <LOCAL_DIR>/examples/
+```
+
+## Flags
+
+### Required
+
+-f specifies the folder containing the inputs and outputs directory (can be defaulted to an environment variable: key name "KPFCC_SAVE_PATH")
+
+-d specifies the date for which to produce a script, format YYYY-MM-DD (No Default)
+
+### Advanced
+
+-a specifies to run the autoscheduler (Default: True)
+
+-p specifies to run the plotting/reporting suite (Default: True)
+
+-ttp specifies to turn off the ttp solver (Default: False)
+
+-r specifies to run the "bonus" round (Default: False)
+
+-w specifies to turn off the weather loss simulations. Now no nights will be lost to weather. (Default: False)
+
+### Optional
+
+-s specifies the slot size, in minutes (Default: 5)
+
+-b specifies to turn on the back up bright star list script. Now we will produce an additional night plan of only bright (V < 8) stars. (Default: False)
+
+-t specifies the maximum time to solve the model (Default: 300s)
+
+-g specifies to print the gorubi output to terminal (Default: True)
+
+
+# More Info
+More information on the KPF-CC program and the algorithm can be found in these places:
+- The original autoscheduler paper: https://ui.adsabs.harvard.edu/abs/2024AJ....167..122H/abstract
+- The original TTP paper (please cite this if you obtain observations through KPF-CC):  https://ui.adsabs.harvard.edu/abs/2024AJ....167...33H/abstract
+- The updated autoscheduler paper (describes this new algorithm, please cite this if you obtain observations through KPF-CC):
+- A FAQ page: https://docs.google.com/document/d/1-TfR6lNEtHO3muw_2Sc7l9Klveb3yovMUu28Jeq21t0/edit?usp=sharing

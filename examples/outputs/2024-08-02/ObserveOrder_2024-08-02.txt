@@ -1,0 +1,3 @@
+Target,StartExposure
+HAT-P-11,07:10
+191939,08:50
