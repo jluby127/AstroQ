@@ -92,10 +92,10 @@ def run_plot_suite(star_tracker, manager):
 
 def write_cadence_plot_files(manager):
     print("Writing cadence plot files.")
-    with open(manager.output_directory + "raw_combined_semester_schedule_Round2.txt", 'r', encoding='utf-8') as file:
+    with open(os.path.join(manager.output_directory, "raw_combined_semester_schedule_Round2.txt"), 'r', encoding='utf-8') as file:
         lines = file.readlines()
         combined_semester_schedule_stars = [line.strip().split(',') for line in lines]
-    
+
     turn_on_off_frame = pd.read_csv(manager.turn_on_off_file)
     all_starmaps = {}
     for i in range(len(manager.requests_frame)):

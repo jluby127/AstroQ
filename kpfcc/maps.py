@@ -186,9 +186,9 @@ def construct_nonqueue_arr(manager):
     Returns:
         nonqueue_map_file_slots_ints (array): the 1D array of 1's and 0's indicating nonqueue map
     """
-    print("Incorporating non-queue observations.")
+    #print("Incorporating non-queue observations.")
     if os.path.exists(manager.nonqueue_map_file):
-        print("Accommodating time-sensative non-queue observations.")
+        #print("Accommodating time-sensative non-queue observations.")
         nonqueue_map_file_slots_strs = np.loadtxt(manager.nonqueue_map_file, delimiter=',', dtype=str)
         nonqueue_map_file_slots_ints = []
         for i, item in enumerate(nonqueue_map_file_slots_strs):

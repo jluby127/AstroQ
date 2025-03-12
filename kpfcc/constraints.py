@@ -93,6 +93,78 @@ class GorubiModel(object):
             self.m.addConstr(gp.quicksum(self.Yrds[name, d, s] for d,s in available) <=
                         true_max_obs, 'max_unique_nights_for_request_' + str(name))
 
+    def constraint_build_theta_time_normalized(self):
+        """
+        According to Eq X in Lubin et al. 2025.
+        """
+        print("Constraint 0: Build theta variable")
+        aframe_slots_for_request = self.Aframe.groupby(['r'])[['d', 's']].agg(list)
+        for name in self.schedulable_requests:
+            idx = self.manager.requests_frame.index[self.manager.requests_frame['Starname']==name][0]
+
+            if self.manager.database_info_dict == {}:
+                past_nights_observed = 0
+            else:
+                past_nights_observed = len(self.manager.database_info_dict[name][1])
+
+            # Safety valve for if the target is over-observed for any reason
+            # Example: a cadence target that is also an RM target will have many more past
+            # observations than is requested.
+            # When we move over to parsing the Keck database for a unique request ID, instead of
+            # parsing the Jump database on non-unique star name, this can be removed.
+            if past_nights_observed > self.manager.requests_frame['# of Nights Per Semester'][idx] + \
+                        int(self.manager.requests_frame['# of Nights Per Semester'][idx]*self.manager.max_bonus):
+                true_max_obs = past_nights_observed
+            else:
+                true_max_obs = (self.manager.requests_frame['# of Nights Per Semester'][idx] - past_nights_observed)#\
+                       #+ int(self.manager.requests_frame['# of Nights Per Semester'][idx]*self.manager.max_bonus)
+
+            self.m.addConstr(self.theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
+            # Get all (d,s) pairs for which this request is valid.
+            available = list(zip(list(aframe_slots_for_request.loc[name].d), \
+                                                            list(aframe_slots_for_request.loc[name].s)))
+            self.m.addConstr(self.theta[name] >= ((self.manager.requests_frame['# of Nights Per Semester'][idx] - \
+                        past_nights_observed) - gp.quicksum(self.Yrds[name, d, s] for d,s in available))*self.manager.slots_needed_for_exposure_dict[name], \
+                        'greater_than_nobs_shortfall_' + str(name))
+            self.m.addConstr(gp.quicksum(self.Yrds[name, d, s] for d,s in available) <=
+                        true_max_obs, 'max_unique_nights_for_request_' + str(name))
+
+    def constraint_build_theta_program_normalized(self):
+        """
+        According to Eq X in Lubin et al. 2025.
+        """
+        print("Constraint 0: Build theta variable")
+        aframe_slots_for_request = self.Aframe.groupby(['r'])[['d', 's']].agg(list)
+        for name in self.schedulable_requests:
+            idx = self.manager.requests_frame.index[self.manager.requests_frame['Starname']==name][0]
+
+            if self.manager.database_info_dict == {}:
+                past_nights_observed = 0
+            else:
+                past_nights_observed = len(self.manager.database_info_dict[name][1])
+
+            # Safety valve for if the target is over-observed for any reason
+            # Example: a cadence target that is also an RM target will have many more past
+            # observations than is requested.
+            # When we move over to parsing the Keck database for a unique request ID, instead of
+            # parsing the Jump database on non-unique star name, this can be removed.
+            if past_nights_observed > self.manager.requests_frame['# of Nights Per Semester'][idx] + \
+                        int(self.manager.requests_frame['# of Nights Per Semester'][idx]*self.manager.max_bonus):
+                true_max_obs = past_nights_observed
+            else:
+                true_max_obs = (self.manager.requests_frame['# of Nights Per Semester'][idx] - past_nights_observed)#\
+                       #+ int(self.manager.requests_frame['# of Nights Per Semester'][idx]*self.manager.max_bonus)
+
+            self.m.addConstr(self.theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
+            # Get all (d,s) pairs for which this request is valid.
+            available = list(zip(list(aframe_slots_for_request.loc[name].d), \
+                                                            list(aframe_slots_for_request.loc[name].s)))
+            self.m.addConstr(self.theta[name] >= ((self.manager.requests_frame['# of Nights Per Semester'][idx] - \
+                        past_nights_observed) - gp.quicksum(self.Yrds[name, d, s] for d,s in available))/self.manager.requests_frame['# of Nights Per Semester'][idx], \
+                        'greater_than_nobs_shortfall_' + str(name))
+            self.m.addConstr(gp.quicksum(self.Yrds[name, d, s] for d,s in available) <=
+                        true_max_obs, 'max_unique_nights_for_request_' + str(name))
+
     def constraint_one_request_per_slot(self):
         """
         According to Eq X in Lubin et al. 2025.
@@ -128,12 +200,13 @@ class GorubiModel(object):
             # construct list of (r,d,s) indices to be constrained. These are all requests that are
             # valid in slots (d, s+1) through (d, s + e)
             # Ensuring slot (d, s) is not double filled already taken care of in Constraint 1.
-            allr = list(requests_valid_in_reserved_slots.loc[row.r, row.d, row.s]['r2'])
-            alls = list(requests_valid_in_reserved_slots.loc[row.r, row.d, row.s]['s2'])
-            all_reserved_slots = list(zip(allr, [row.d]*len(allr), alls))
-            self.m.addConstr((row.e*(1 - self.Yrds[row.r,row.d,row.s])) >= gp.quicksum(self.Yrds[c]
-                                                            for c in all_reserved_slots),
-                            'reserve_multislot_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
+            if (row.r, row.d, row.s) in requests_valid_in_reserved_slots.index:
+                allr = list(requests_valid_in_reserved_slots.loc[row.r, row.d, row.s]['r2'])
+                alls = list(requests_valid_in_reserved_slots.loc[row.r, row.d, row.s]['s2'])
+                all_reserved_slots = list(zip(allr, [row.d]*len(allr), alls))
+                self.m.addConstr((row.e*(1 - self.Yrds[row.r,row.d,row.s])) >= gp.quicksum(self.Yrds[c]
+                                                                for c in all_reserved_slots),
+                                'reserve_multislot_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
 
     def constraint_max_visits_per_night(self):
         """
@@ -147,6 +220,7 @@ class GorubiModel(object):
             suffixes=['','2'],on=['r']
         ).query('d == d2')
         slots_on_day = aframe_slots_on_day.groupby(['r','d'])[['s2']].agg(list)
+        self.slots_on_day = slots_on_day
         unique_request_day_pairs = self.Aframe.drop_duplicates(['r','d'])
         # Build the constraint
         for i, row in unique_request_day_pairs.iterrows():
@@ -176,7 +250,7 @@ class GorubiModel(object):
         Aset_inter_no_duplicates = Aset_inter.copy()
         Aset_inter_no_duplicates = Aset_inter_no_duplicates.drop_duplicates(subset=['r', 'd'])
         for i, row in Aset_inter_no_duplicates.iterrows():
-            constrained_slots_tonight = np.array(slots_on_day.loc[(row.r, row.d)][0])
+            constrained_slots_tonight = np.array(self.slots_on_day.loc[(row.r, row.d)][0])
             # Get all slots for pair (r, d) where valid
             if (row.r, row.d) in intercadence.index:
                 slots_to_constrain_future = intercadence.loc[(row.r, row.d)]
@@ -348,6 +422,12 @@ class GorubiModel(object):
         According to Eq X in Lubin et al. 2025.
         """
         self.m.setObjective(gp.quicksum(self.theta[name] for name in self.schedulable_requests), GRB.MINIMIZE)
+
+    def set_objective_minimize_theta_time_norm(self):
+        """
+        According to Eq X in Lubin et al. 2025.
+        """
+        self.m.setObjective(gp.quicksum(self.theta[name]*self.manager.slots_needed_for_exposure_dict[name] for name in self.schedulable_requests), GRB.MINIMIZE)
 
 
     def solve_model(self):

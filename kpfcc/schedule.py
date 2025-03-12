@@ -66,7 +66,11 @@ def run_kpfcc(manager):
     print("Building Gorubi model.")
     Aframe, Aset, schedulable_requests = cf.define_slot_index_frame(manager, available_indices_for_request)
     model = cf.GorubiModel(manager, Aset, Aframe, schedulable_requests)
-    model.constraint_build_theta()
+
+    # model.constraint_build_theta()
+    # model.constraint_build_theta_time_normalized()
+    model.constraint_build_theta_program_normalized()
+
     model.constraint_one_request_per_slot()
     model.constraint_reserve_multislot_exposures()
     model.constraint_max_visits_per_night()
@@ -89,6 +93,8 @@ def run_kpfcc(manager):
 
     print("Total Time to build constraints: ", np.round(time.time()-start_the_clock,3))
     model.set_objective_minimize_theta()
+    # model.set_objective_minimize_theta_time_norm()
+
     model.solve_model()
     print("Total Time to finish solver: ", np.round(time.time()-start_the_clock,3))
 
@@ -132,6 +138,8 @@ def run_kpfcc(manager):
 
     else:
         print("Not running Round 2. Duplicating Raw Schedule as dummy file.")
+        combined_semester_schedule_stars = io.write_stars_schedule_human_readable(
+                combined_semester_schedule_available, model.Yrds, manager, "Round2")
         np.savetxt(manager.output_directory + 'Round2_Requests.txt', [], delimiter=',', fmt="%s")
 
     manager.combined_semester_schedule_stars = combined_semester_schedule_stars
