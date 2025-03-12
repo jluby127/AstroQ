@@ -11,7 +11,7 @@ sys.path.append(path2modules)
 import kpfcc.management as mn
 import kpfcc.schedule as sc
 import kpfcc.plot as pl
-import kpfcc.onsky as sk
+# import kpfcc.onsky as sk
 import kpfcc.tracking as tk
 from kpfcc import DATADIR
 
