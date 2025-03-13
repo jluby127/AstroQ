@@ -81,7 +81,7 @@ class GorubiModel(object):
                 true_max_obs = past_nights_observed
             else:
                 true_max_obs = (self.manager.requests_frame['# of Nights Per Semester'][idx] - past_nights_observed)\
-                       + int(self.manager.requests_frame['# of Nights Per Semester'][idx]*self.manager.max_bonus)
+                        + int(self.manager.requests_frame['# of Nights Per Semester'][idx]*self.manager.max_bonus)
 
             self.m.addConstr(self.theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
             # Get all (d,s) pairs for which this request is valid.
@@ -116,8 +116,8 @@ class GorubiModel(object):
                         int(self.manager.requests_frame['# of Nights Per Semester'][idx]*self.manager.max_bonus):
                 true_max_obs = past_nights_observed
             else:
-                true_max_obs = (self.manager.requests_frame['# of Nights Per Semester'][idx] - past_nights_observed)#\
-                       #+ int(self.manager.requests_frame['# of Nights Per Semester'][idx]*self.manager.max_bonus)
+                true_max_obs = (self.manager.requests_frame['# of Nights Per Semester'][idx] - past_nights_observed)\
+                       + int(self.manager.requests_frame['# of Nights Per Semester'][idx]*self.manager.max_bonus)
 
             self.m.addConstr(self.theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
             # Get all (d,s) pairs for which this request is valid.
@@ -152,8 +152,8 @@ class GorubiModel(object):
                         int(self.manager.requests_frame['# of Nights Per Semester'][idx]*self.manager.max_bonus):
                 true_max_obs = past_nights_observed
             else:
-                true_max_obs = (self.manager.requests_frame['# of Nights Per Semester'][idx] - past_nights_observed)#\
-                       #+ int(self.manager.requests_frame['# of Nights Per Semester'][idx]*self.manager.max_bonus)
+                true_max_obs = (self.manager.requests_frame['# of Nights Per Semester'][idx] - past_nights_observed)\
+                       + int(self.manager.requests_frame['# of Nights Per Semester'][idx]*self.manager.max_bonus)
 
             self.m.addConstr(self.theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
             # Get all (d,s) pairs for which this request is valid.
@@ -428,6 +428,12 @@ class GorubiModel(object):
         According to Eq X in Lubin et al. 2025.
         """
         self.m.setObjective(gp.quicksum(self.theta[name]*self.manager.slots_needed_for_exposure_dict[name] for name in self.schedulable_requests), GRB.MINIMIZE)
+
+    def set_objective_minimize_theta_prog_norm(self):
+        """
+        According to Eq X in Lubin et al. 2025.
+        """
+        self.m.setObjective(gp.quicksum(self.theta[name]/self.manager.requests_frame.loc[self.manager.requests_frame['Starname'] == name, '# of Nights Per Semester'] for name in self.schedulable_requests), GRB.MINIMIZE)
 
 
     def solve_model(self):

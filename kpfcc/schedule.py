@@ -67,9 +67,9 @@ def run_kpfcc(manager):
     Aframe, Aset, schedulable_requests = cf.define_slot_index_frame(manager, available_indices_for_request)
     model = cf.GorubiModel(manager, Aset, Aframe, schedulable_requests)
 
-    # model.constraint_build_theta()
+    model.constraint_build_theta()
     # model.constraint_build_theta_time_normalized()
-    model.constraint_build_theta_program_normalized()
+    # model.constraint_build_theta_program_normalized()
 
     model.constraint_one_request_per_slot()
     model.constraint_reserve_multislot_exposures()
@@ -94,6 +94,7 @@ def run_kpfcc(manager):
     print("Total Time to build constraints: ", np.round(time.time()-start_the_clock,3))
     model.set_objective_minimize_theta()
     # model.set_objective_minimize_theta_time_norm()
+    # model.set_objective_minimize_theta_prog_norm()
 
     model.solve_model()
     print("Total Time to finish solver: ", np.round(time.time()-start_the_clock,3))
