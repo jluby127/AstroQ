@@ -109,6 +109,8 @@ if args.run_scheduler:
     sc.run_kpfcc(manager)
 
 if args.run_plots:
+    forecast_frame = pd.read_csv(os.path.join(args.folder, "outputs/" + str(args.schedule_dates[0]) + "/raw_combined_semester_schedule_Round2.txt"))
+    manager.combined_semester_schedule_stars = forecast_frame.values
     star_tracker = tk.StarTracker(manager)
     pl.write_cadence_plot_files(manager)
     pl.run_plot_suite(star_tracker, manager)

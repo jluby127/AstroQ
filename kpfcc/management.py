@@ -15,6 +15,8 @@ from astropy.time import TimeDelta
 
 from kpfcc import DATADIR
 import kpfcc.history as hs
+import kpfcc.access as ac
+import kpfcc.maps as mp
 
 class data_admin(object):
     """A Data Admin object, from which we can easily pass around information.
@@ -209,6 +211,29 @@ class data_admin(object):
         self.semester_grid = np.arange(0, self.n_nights_in_semester, 1)
         self.quarters_grid = np.arange(0, self.n_quarters_in_night, 1)
 
+        twilight_map_remaining_2D, available_slots_in_each_night = ac.construct_twilight_map(self)
+        self.twilight_map_remaining_2D = twilight_map_remaining_2D
+        self.available_slots_in_each_night = available_slots_in_each_night
+        # When running a normal schedule, include the observatory's allocation map
+        if self.run_optimal_allocation == False:
+                weather_diff_remaining, allocation_map_1D, allocation_map_2D, weathered_map = \
+                                    mp.prepare_allocation_map(self)
+        else:
+            # When running the optimal allocation, all dates are possible except for those specifically blacked out
+            # Weather arrays are zeros since no weather losses are modeled
+            weather_diff_remaining = np.zeros(self.n_nights_in_semester, dtype='int')
+            weathered_map = np.zeros((self.n_nights_in_semester, self.n_slots_in_night), dtype='int')
+
+            # allocation maps are ones because all nights are possible to be allocated
+            allocation_map_1D = np.ones(self.n_slots_in_semester, dtype='int')
+            allocation_map_2D = np.ones((self.n_nights_in_semester, self.n_slots_in_night), dtype='int')
+
+        self.available_slots_in_each_night = available_slots_in_each_night
+        self.weather_diff_remaining = weather_diff_remaining
+        self.allocation_map_1D = allocation_map_1D
+        self.allocation_map_2D = allocation_map_2D
+        self.weathered_map = weathered_map
+
     def build_slots_required_dictionary(self, always_round_up_flag=False):
         """
         Computes the slots needed for a given exposure for all requests.
@@ -227,7 +252,7 @@ class data_admin(object):
         for n,row in self.requests_frame.iterrows():
             name = row['Starname']
             exposure_time = row['Nominal Exposure Time [s]']*row['# of Exposures per Visit'] + \
-                45*(row['# Visits per Night'] - 1)
+                45*(row['Desired Visits per Night'] - 1)
             slots_needed_for_exposure_dict[name] = compute_slots_required_for_exposure(exposure_time, self.slot_size, always_round_up_flag)
         return slots_needed_for_exposure_dict
 

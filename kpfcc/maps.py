@@ -70,7 +70,7 @@ def produce_ultimate_map(manager, allocation_map_1D, twilight_map_remaining_flat
         accessibility_r = default_access_maps[name]
         access = accessibility_r[manager.today_starting_slot:]
         # temporarily make all stars always accessible
-        # access = [1]*len(access)
+        access = [1]*len(access)
 
         if name in list(custom_access_maps.keys()):
             custom_map = custom_access_maps[name][manager.today_starting_slot:]
@@ -98,7 +98,7 @@ def produce_ultimate_map(manager, allocation_map_1D, twilight_map_remaining_flat
         # we require a 90 minute window within which to allow for scheduling the next visit.
         # We then assume the next visit is scheduled at the very end of this 90 minute window,
         # which then restarts the clock for any additional visits.
-        minimum_time_required = ((int(row['# Visits per Night']) - 1)* \
+        minimum_time_required = ((int(row['Desired Visits per Night']) - 1)* \
             (int(row['Minimum Intra-Night Cadence']) + 1.5))*3600 #convert hours to seconds
         minimum_slots_required = manager.slots_needed_for_exposure_dict[name]
         no_multi_visit_observations = []
@@ -208,7 +208,7 @@ def construct_nonqueue_arr(manager):
         print("No non-queue observations are scheduled.")
     return nonqueue_map_file_slots_ints
 
-def prepare_allocation_map(manager, available_slots_in_each_night):
+def prepare_allocation_map(manager):
     """
     When not in optimal allocation mode, prepare and construct the allocation map, as well as
     perform the weather loss modeling.
@@ -238,7 +238,6 @@ def prepare_allocation_map(manager, available_slots_in_each_night):
                                     n_slots_in_night where 1's are nights that were
                                     allocated but weathered out (for plotting purposes)
     """
-    print("Preparing allocation map.")
     # Convert allocation info from human to computer-readable
     allocation_raw = np.loadtxt(manager.allocation_file, dtype=str)
     allocation_remaining = []
@@ -249,18 +248,20 @@ def prepare_allocation_map(manager, available_slots_in_each_night):
         if a >= manager.all_dates_dict[manager.current_day]:
             allocation_remaining.append(convert)
     manager.allocation_all = allocation_all
+    manager.allocation_remaining = allocation_remaining
 
     # Sample out future allocated nights to simulate weather loss based on empirical weather data.
     print("Sampling out weather losses")
     loss_stats_remaining = wh.get_loss_stats(manager)
     allocation_remaining_post_weather_loss, weather_diff_remaining, weather_diff_remaining_1D, \
-        days_lost = wh.simulate_weather_losses(allocation_remaining, loss_stats_remaining, \
+        days_lost = wh.simulate_weather_losses(manager.allocation_remaining, loss_stats_remaining, \
         covariance=0.14, dont_lose_nights=manager.run_weather_loss, plot=True, outputdir=manager.output_directory)
     allocation_map_1D, allocation_map_2D, weathered_map = \
         build_allocation_map(allocation_remaining_post_weather_loss, weather_diff_remaining,
-        available_slots_in_each_night[manager.today_starting_night:], manager.n_slots_in_night)
+        manager.available_slots_in_each_night[manager.today_starting_night:], manager.n_slots_in_night)
 
-    wh.write_out_weather_stats(manager, days_lost, allocation_remaining)
+    manager.weather_diff_remaining = weather_diff_remaining
+    wh.write_out_weather_stats(manager, days_lost, manager.allocation_remaining)
     return weather_diff_remaining, allocation_map_1D, allocation_map_2D, weathered_map
 
 def build_allocation_map(allocation_schedule, weather_diff, available_slots_in_night,

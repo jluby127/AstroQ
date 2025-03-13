@@ -219,7 +219,7 @@ def build_past_history(past_observations_file, requests_frame, twilight_frame):
             star_past_obs.sort_values(by='utctime', inplace=True)
             star_past_obs.reset_index(inplace=True)
             total_past_observations = int(len(star_past_obs)/
-                                    (requests_frame['# Visits per Night'][i]*
+                                    (requests_frame['Desired Visits per Night'][i]*
                                     requests_frame['# of Exposures per Visit'][i]))
             star_past_obs, unique_hst_dates_observed, quarter_observed = \
                 rf.get_unique_nights(star_past_obs, twilight_frame)
