@@ -104,14 +104,17 @@ class StarTracker:
         exposure_time = int(self.manager.requests_frame['Nominal Exposure Time [s]'][index].values[0])
         slots_per_night = mn.compute_slots_required_for_exposure(
                         self.manager.requests_frame['Nominal Exposure Time [s]'][index].values[0], \
-                        self.slot_size, False)*self.manager.requests_frame['# Visits per Night'][index].values[0]
+                        self.slot_size, False)*self.manager.requests_frame['Desired Visits per Night'][index].values[0]
+        slots_per_visit = mn.compute_slots_required_for_exposure(
+                        self.manager.requests_frame['Nominal Exposure Time [s]'][index].values[0], \
+                        self.slot_size, False)
         expected_nobs_per_night = int(self.manager.requests_frame['# of Exposures per Visit'][index]) * \
-                        int(self.manager.requests_frame['# Visits per Night'][index])
+                        int(self.manager.requests_frame['Desired Visits per Night'][index])
         total_observations_requested = expected_nobs_per_night * \
                         int(self.manager.requests_frame['# of Nights Per Semester'][index])
 
         return expected_nobs_per_night, total_observations_requested, exposure_time, \
-                slots_per_night, program
+                slots_per_night, program, slots_per_visit
 
     def get_star_past(self, starname):
         """
@@ -149,11 +152,12 @@ class StarTracker:
         """
         index = self.manager.requests_frame.loc[self.manager.requests_frame['Starname'] == starname].index
         requested_nobs_per_night, total_observations_requested, exposure_time, slots_per_night, \
-                    program = self.get_star_stats(starname)
+                    program, slots_per_visit = self.get_star_stats(starname)
         observations_future = {}
         for i in range(len(self.forecast)):
             if starname in self.forecast[i]:
-                observations_future[self.manager.all_dates_array[i]] = requested_nobs_per_night
+                # observations_future[self.manager.all_dates_array[i]] = requested_nobs_per_night
+                observations_future[self.manager.all_dates_array[i]] = list(self.forecast[i]).count(starname)/slots_per_visit
         return observations_future
 
     def write_star_first_forecast(self, program, starname):

@@ -14,7 +14,7 @@ from astropy.time import TimeDelta
 import numpy as np
 import pandas as pd
 
-def build_fullness_report(combined_semester_schedule, allocation_map_2D, manager, round_info):
+def build_fullness_report(combined_semester_schedule, manager, round_info):
     """
     Determine how full the schedule is: slots available, slots scheduled, and slots required
 
@@ -47,7 +47,7 @@ def build_fullness_report(combined_semester_schedule, allocation_map_2D, manager
             if combined_semester_schedule[b][c] in listnames or "RM___" in combined_semester_schedule[b][c]:
                 used += 1
     available = unused + used
-    allocated = np.sum(allocation_map_2D.flatten())
+    allocated = np.sum(manager.allocation_map_2D.flatten())
     file.write("N slots in semester:" + str(np.prod(combined_semester_schedule.shape)) + "\n")
     file.write("N available slots:" + str(allocated) + "\n")
     file.write("N slots scheduled: " + str(used) + "\n")
@@ -62,7 +62,7 @@ def build_fullness_report(combined_semester_schedule, allocation_map_2D, manager
     file.write("Percent full: " + str(percentage) + "%." + "\n")
     file.close()
 
-def report_allocation_stats(manager, allocation_map_2D):
+def report_allocation_stats(manager):
     """
     Return the number of Q1, Q2, Q3, and Q4 nights, as well as single, half, three quarter
     and full nights. Further produce a plot showing the allocation.
@@ -88,29 +88,29 @@ def report_allocation_stats(manager, allocation_map_2D):
     count2 = 0
     count3 = 0
     count4 = 0
-    for j, item in enumerate(allocation_map_2D):
+    for j, item in enumerate(manager.allocation_map_2D):
         holder = [0, 0, 0, 0]
-        if allocation_map_2D[j][0] == 1.:
+        if manager.allocation_map_2D[j][0] == 1.:
             q1s += 1
             date_info = manager.all_dates_array[manager.current_day_number + j] + " - q0"
             ff.write(date_info + "\n")
             holder[0] = 1
-        if allocation_map_2D[j][1] == 1.:
+        if manager.allocation_map_2D[j][1] == 1.:
             q2s += 1
             date_info = manager.all_dates_array[manager.current_day_number + j] + " - q1"
             ff.write(date_info + "\n")
             holder[1] = 1
-        if allocation_map_2D[j][2] == 1.:
+        if manager.allocation_map_2D[j][2] == 1.:
             q3s += 1
             date_info = manager.all_dates_array[manager.current_day_number + j] + " - q2"
             ff.write(date_info + "\n")
             holder[2] = 1
-        if allocation_map_2D[j][3] == 1.:
+        if manager.allocation_map_2D[j][3] == 1.:
             q4s += 1
             date_info = manager.all_dates_array[manager.current_day_number + j] + " - q3"
             ff.write(date_info + "\n")
             holder[3] = 1
-        allocated_quarters = np.sum(allocation_map_2D[j])
+        allocated_quarters = np.sum(manager.allocation_map_2D[j])
         if allocated_quarters == 0:
             count0 += 1
         if allocated_quarters == 1:
@@ -317,7 +317,7 @@ def write_stars_schedule_human_readable(combined_semester_schedule, Yrds, manage
         combined_semester_schedule, delimiter=',', fmt="%s")
     return combined_semester_schedule
 
-def write_available_human_readable(manager, twilight_map, allocation_map_2D, weathered_map):
+def write_available_human_readable(manager):
     """
     Fill in the human readable solution with the non-observation information: non-allocated slots,
     weather loss slots, non-queue slots, twilight slots.
@@ -357,11 +357,11 @@ def write_available_human_readable(manager, twilight_map, allocation_map_2D, wea
             slotallocated = ''
             # remember that twilight map is "inverted": the 1's are time where it is night and the
             # 0's are time where it is day/twilight.
-            if twilight_map[n][s] == 0:
+            if manager.twilight_map_remaining_2D[n][s] == 0:
                 slotallocated += '*'
-            if allocation_map_2D[n][s] == 0:
+            if manager.allocation_map_2D[n][s] == 0:
                 slotallocated += 'X'
-            if weathered_map[n][s] == 1:# and slotallocated == '':
+            if manager.weathered_map[n][s] == 1:# and slotallocated == '':
                 slotallocated += 'W'
             if os.path.exists(manager.nonqueue_map_file):
                 slotallocated += str(nonqueuemap_slots_strs[n + manager.all_dates_dict[manager.current_day], ][s])

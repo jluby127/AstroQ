@@ -202,7 +202,7 @@ def single_request_cof(star_tracker, star):
         first_forecast (dataframe): contains information on the first forecast of the target
     """
     requested_nobs_per_night, total_observations_requested, exposure_time, slots_per_night, \
-                 program = star_tracker.get_star_stats(star)
+                 program, slots_per_visit = star_tracker.get_star_stats(star)
 
     # to add an absolute time accounting COF, need:
     # parse past open shutter time + overhead per night
@@ -553,7 +553,7 @@ def create_single_program_birds_eye(star_tracker, program, color):
             starname = star_tracker.manager.requests_frame['Starname'][i]
             stars_in_program.append(starname)
             requested_nobs_per_night, total_observations_requested, exposure_time, slots_per_night,\
-                program = star_tracker.get_star_stats(starname)
+                program, slots_per_visit = star_tracker.get_star_stats(starname)
             starmap, nobs = process_single_target_for_birds_eye(star_tracker, starname)
             all_star_maps.append(starmap)
             all_star_cols.append(color)

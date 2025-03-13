@@ -23,13 +23,19 @@ import kpfcc.access as ac
 class GorubiModel(object):
     """A Gorubi Model object, from which we can add constraints and share variables easily."""
 
-    def __init__(self, manager, Aset, Aframe, schedulable_requests):
+    def __init__(self, manager, Aset, Aframe, schedulable_requests, Wset):
 
         print("Defining model.")
         self.manager = manager
         self.Aset = Aset
         self.Aframe = Aframe
         self.schedulable_requests = schedulable_requests
+
+        run_direct_multi_visit = True
+        if run_direct_multi_visit:
+            self.Wset = Wset
+        else:
+            self.Wset = []
 
         if manager.run_optimal_allocation:
             if self.manager.semester_grid == [] or self.manager.quarters_grid == []:
@@ -57,6 +63,41 @@ class GorubiModel(object):
             self.Un = self.m.addVars(self.manager.semester_grid, vtype = GRB.BINARY, name = 'On-Sky')
             self.m.update()
 
+        if self.Wset != []:
+            # Wrd is technically a 1D matrix indexed by tuples.
+            # But in practice best think of it as a 2D square matrix of requests r and nights d, with gaps.
+            # Night d for request r will be 1 to indicate at least one exposure is scheduled for this night.
+            # Note that Wrd is only valid for requests r which have at least 2 visits requested in the night.
+            self.Wrd = self.m.addVars(Wset, vtype = GRB.BINARY, name = 'Nightly_Observation_Tracker')
+
+        desired_max_obs_allowed_dict = {}
+        absolute_max_obs_allowed_dict = {}
+        past_nights_observed_dict = {}
+        for name in self.schedulable_requests:
+            idx = self.manager.requests_frame.index[self.manager.requests_frame['Starname']==name][0]
+            if self.manager.database_info_dict == {}:
+                past_nights_observed = 0
+            else:
+                past_nights_observed = len(self.manager.database_info_dict[name][1])
+
+            # Safety valve for if the target is over-observed for any reason
+            if past_nights_observed > self.manager.requests_frame['# of Nights Per Semester'][idx] + \
+                        int(self.manager.requests_frame['# of Nights Per Semester'][idx]*self.manager.max_bonus):
+                desired_max_obs = past_nights_observed
+            else:
+                desired_max_obs = (self.manager.requests_frame['# of Nights Per Semester'][idx] - past_nights_observed)
+                absolute_max_obs = (self.manager.requests_frame['# of Nights Per Semester'][idx] - past_nights_observed) \
+                        + int(self.manager.requests_frame['# of Nights Per Semester'][idx]*self.manager.max_bonus)
+                # second safety valve
+                if past_nights_observed > absolute_max_obs:
+                    absolute_max_obs = past_nights_observed
+            past_nights_observed_dict[name] = past_nights_observed
+            desired_max_obs_allowed_dict[name] = desired_max_obs
+            absolute_max_obs_allowed_dict[name] = absolute_max_obs
+            self.desired_max_obs_allowed_dict = desired_max_obs_allowed_dict
+            self.absolute_max_obs_allowed_dict = absolute_max_obs_allowed_dict
+            self.past_nights_observed_dict = past_nights_observed_dict
+
     def constraint_build_theta(self):
         """
         According to Eq X in Lubin et al. 2025.
@@ -65,33 +106,12 @@ class GorubiModel(object):
         aframe_slots_for_request = self.Aframe.groupby(['r'])[['d', 's']].agg(list)
         for name in self.schedulable_requests:
             idx = self.manager.requests_frame.index[self.manager.requests_frame['Starname']==name][0]
-
-            if self.manager.database_info_dict == {}:
-                past_nights_observed = 0
-            else:
-                past_nights_observed = len(self.manager.database_info_dict[name][1])
-
-            # Safety valve for if the target is over-observed for any reason
-            # Example: a cadence target that is also an RM target will have many more past
-            # observations than is requested.
-            # When we move over to parsing the Keck database for a unique request ID, instead of
-            # parsing the Jump database on non-unique star name, this can be removed.
-            if past_nights_observed > self.manager.requests_frame['# of Nights Per Semester'][idx] + \
-                        int(self.manager.requests_frame['# of Nights Per Semester'][idx]*self.manager.max_bonus):
-                true_max_obs = past_nights_observed
-            else:
-                true_max_obs = (self.manager.requests_frame['# of Nights Per Semester'][idx] - past_nights_observed)\
-                        + int(self.manager.requests_frame['# of Nights Per Semester'][idx]*self.manager.max_bonus)
-
             self.m.addConstr(self.theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
             # Get all (d,s) pairs for which this request is valid.
-            available = list(zip(list(aframe_slots_for_request.loc[name].d), \
-                                                            list(aframe_slots_for_request.loc[name].s)))
+            available = list(zip(list(aframe_slots_for_request.loc[name].d), list(aframe_slots_for_request.loc[name].s)))
             self.m.addConstr(self.theta[name] >= ((self.manager.requests_frame['# of Nights Per Semester'][idx] - \
-                        past_nights_observed) - gp.quicksum(self.Yrds[name, d, s] for d,s in available)), \
+                        self.past_nights_observed_dict[name]) - gp.quicksum(self.Yrds[name, d, s] for d,s in available)), \
                         'greater_than_nobs_shortfall_' + str(name))
-            self.m.addConstr(gp.quicksum(self.Yrds[name, d, s] for d,s in available) <=
-                        true_max_obs, 'max_unique_nights_for_request_' + str(name))
 
     def constraint_build_theta_time_normalized(self):
         """
@@ -101,33 +121,12 @@ class GorubiModel(object):
         aframe_slots_for_request = self.Aframe.groupby(['r'])[['d', 's']].agg(list)
         for name in self.schedulable_requests:
             idx = self.manager.requests_frame.index[self.manager.requests_frame['Starname']==name][0]
-
-            if self.manager.database_info_dict == {}:
-                past_nights_observed = 0
-            else:
-                past_nights_observed = len(self.manager.database_info_dict[name][1])
-
-            # Safety valve for if the target is over-observed for any reason
-            # Example: a cadence target that is also an RM target will have many more past
-            # observations than is requested.
-            # When we move over to parsing the Keck database for a unique request ID, instead of
-            # parsing the Jump database on non-unique star name, this can be removed.
-            if past_nights_observed > self.manager.requests_frame['# of Nights Per Semester'][idx] + \
-                        int(self.manager.requests_frame['# of Nights Per Semester'][idx]*self.manager.max_bonus):
-                true_max_obs = past_nights_observed
-            else:
-                true_max_obs = (self.manager.requests_frame['# of Nights Per Semester'][idx] - past_nights_observed)\
-                       + int(self.manager.requests_frame['# of Nights Per Semester'][idx]*self.manager.max_bonus)
-
             self.m.addConstr(self.theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
             # Get all (d,s) pairs for which this request is valid.
-            available = list(zip(list(aframe_slots_for_request.loc[name].d), \
-                                                            list(aframe_slots_for_request.loc[name].s)))
+            available = list(zip(list(aframe_slots_for_request.loc[name].d), list(aframe_slots_for_request.loc[name].s)))
             self.m.addConstr(self.theta[name] >= ((self.manager.requests_frame['# of Nights Per Semester'][idx] - \
-                        past_nights_observed) - gp.quicksum(self.Yrds[name, d, s] for d,s in available))*self.manager.slots_needed_for_exposure_dict[name], \
+                        self.past_nights_observed_dict[name]) - gp.quicksum(self.Yrds[name, d, s] for d,s in available))*self.manager.slots_needed_for_exposure_dict[name], \
                         'greater_than_nobs_shortfall_' + str(name))
-            self.m.addConstr(gp.quicksum(self.Yrds[name, d, s] for d,s in available) <=
-                        true_max_obs, 'max_unique_nights_for_request_' + str(name))
 
     def constraint_build_theta_program_normalized(self):
         """
@@ -137,33 +136,12 @@ class GorubiModel(object):
         aframe_slots_for_request = self.Aframe.groupby(['r'])[['d', 's']].agg(list)
         for name in self.schedulable_requests:
             idx = self.manager.requests_frame.index[self.manager.requests_frame['Starname']==name][0]
-
-            if self.manager.database_info_dict == {}:
-                past_nights_observed = 0
-            else:
-                past_nights_observed = len(self.manager.database_info_dict[name][1])
-
-            # Safety valve for if the target is over-observed for any reason
-            # Example: a cadence target that is also an RM target will have many more past
-            # observations than is requested.
-            # When we move over to parsing the Keck database for a unique request ID, instead of
-            # parsing the Jump database on non-unique star name, this can be removed.
-            if past_nights_observed > self.manager.requests_frame['# of Nights Per Semester'][idx] + \
-                        int(self.manager.requests_frame['# of Nights Per Semester'][idx]*self.manager.max_bonus):
-                true_max_obs = past_nights_observed
-            else:
-                true_max_obs = (self.manager.requests_frame['# of Nights Per Semester'][idx] - past_nights_observed)\
-                       + int(self.manager.requests_frame['# of Nights Per Semester'][idx]*self.manager.max_bonus)
-
             self.m.addConstr(self.theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
             # Get all (d,s) pairs for which this request is valid.
-            available = list(zip(list(aframe_slots_for_request.loc[name].d), \
-                                                            list(aframe_slots_for_request.loc[name].s)))
+            available = list(zip(list(aframe_slots_for_request.loc[name].d), list(aframe_slots_for_request.loc[name].s)))
             self.m.addConstr(self.theta[name] >= ((self.manager.requests_frame['# of Nights Per Semester'][idx] - \
-                        past_nights_observed) - gp.quicksum(self.Yrds[name, d, s] for d,s in available))/self.manager.requests_frame['# of Nights Per Semester'][idx], \
+                        self.past_nights_observed_dict[name]) - gp.quicksum(self.Yrds[name, d, s] for d,s in available))/self.manager.requests_frame['# of Nights Per Semester'][idx], \
                         'greater_than_nobs_shortfall_' + str(name))
-            self.m.addConstr(gp.quicksum(self.Yrds[name, d, s] for d,s in available) <=
-                        true_max_obs, 'max_unique_nights_for_request_' + str(name))
 
     def constraint_one_request_per_slot(self):
         """
@@ -225,7 +203,7 @@ class GorubiModel(object):
         # Build the constraint
         for i, row in unique_request_day_pairs.iterrows():
             constrained_slots_tonight = np.array(slots_on_day.loc[(row.r, row.d)][0])
-            self.m.addConstr((gp.quicksum(self.Yrds[row.r,row.d,ss] for ss in constrained_slots_tonight) <= 1),#row.v),
+            self.m.addConstr((gp.quicksum(self.Yrds[row.r,row.d,ss] for ss in constrained_slots_tonight) <= row.maxv),
                     'max_observations_per_night_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
 
     def constraint_enforce_internight_cadence(self):
@@ -435,7 +413,6 @@ class GorubiModel(object):
         """
         self.m.setObjective(gp.quicksum(self.theta[name]/self.manager.requests_frame.loc[self.manager.requests_frame['Starname'] == name, '# of Nights Per Semester'] for name in self.schedulable_requests), GRB.MINIMIZE)
 
-
     def solve_model(self):
         print("Begin model solve.")
 
@@ -461,6 +438,156 @@ class GorubiModel(object):
         else:
             print("Model Successfully Solved.")
 
+    def constraint_connect_Wrd_and_Yrds(self):
+        """
+        According to Eq X in Lubin et al. 2025.
+        """
+        print("Constraint -1: Connect W and Y for all requests.")
+        # Get all slots s that are valid for a given r and d
+        grouped_s = self.Aframe.groupby(['r', 'd'])['s'].unique().reset_index()
+        grouped_s.set_index(['r', 'd'], inplace=True)
+        for i, row in self.Aframe.iterrows():
+            all_valid_slots_tonight = list(grouped_s.loc[(row.r, row.d)]['s'])
+            self.m.addConstr(gp.quicksum(self.Yrds[row.r,row.d,s3] for s3 in all_valid_slots_tonight) <= \
+                row.maxv*self.Wrd[row.r, row.d],
+                'connect_W_and_Y' + row.r + "_" + str(row.d) + "d")
+
+    def constraint_build_theta_direct_multivisit_v1(self):
+        """
+        According to Eq X in Lubin et al. 2025.
+        """
+        print("Constraint 0: Build theta variable")
+        aframe_slots_for_request = self.Aframe.groupby(['r'])[['d', 's']].agg(list)
+        for name in self.schedulable_requests:
+            idx = self.manager.requests_frame.index[self.manager.requests_frame['Starname']==name][0]
+
+            self.m.addConstr(self.theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
+            # Get all (d,s) pairs for which this request is valid.
+            all_d = list(set(list(aframe_slots_for_request.loc[name].d)))
+            available = list(zip(list(aframe_slots_for_request.loc[name].d), list(aframe_slots_for_request.loc[name].s)))
+            self.m.addConstr(self.theta[name] >= ((self.manager.requests_frame['# of Nights Per Semester'][idx] - \
+                        self.past_nights_observed_dict[name]) - (gp.quicksum(self.Wrd[name, d] for d in all_d))), \
+                        'greater_than_nobs_shortfall_' + str(name))
+
+    def constraint_build_theta_direct_multivisit_v2(self):
+        """
+        According to Eq X in Lubin et al. 2025.
+        """
+        print("Constraint 0: Build theta variable")
+        aframe_slots_for_request = self.Aframe.groupby(['r'])[['d', 's']].agg(list)
+        for name in self.schedulable_requests:
+            idx = self.manager.requests_frame.index[self.manager.requests_frame['Starname']==name][0]
+            self.m.addConstr(self.theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
+            # Get all (d,s) pairs for which this request is valid.
+            all_d = list(set(list(aframe_slots_for_request.loc[name].d)))
+            available = list(zip(list(aframe_slots_for_request.loc[name].d), list(aframe_slots_for_request.loc[name].s)))
+            self.m.addConstr(self.theta[name] >= ((self.manager.requests_frame['# of Nights Per Semester'][idx] - \
+                        self.past_nights_observed_dict[name]) - (gp.quicksum(self.Yrds[name, d, s] for d, s in available))/self.manager.requests_frame['Desired Visits per Night'][idx]), \
+                        'greater_than_nobs_shortfall_' + str(name))
+
+    def constraint_set_max_desired_unique_nights_Wrd(self):
+        """
+        According to Eq X in Lubin et al. 2025.
+        """
+        print("Constraining desired maximum observations.")
+        aframe_slots_for_request = self.Aframe.groupby(['r'])[['d', 's']].agg(list)
+        for name in self.schedulable_requests:
+            all_d = list(set(list(aframe_slots_for_request.loc[name].d)))
+            self.m.addConstr(gp.quicksum(self.Wrd[name, d] for d in all_d) <=
+                        self.desired_max_obs_allowed_dict[name],
+                        'max_desired_unique_nights_for_request_' + str(name))
+
+    def remove_constraint_set_max_desired_unique_nights_Wrd(self):
+        """
+        According to Eq X in Lubin et al. 2025.
+        """
+        print("Removing previous maximum observations.")
+        for name in self.schedulable_requests:
+            rm_const = self.m.getConstrByName("max_desired_unique_nights_for_request_" + str(name))
+            self.m.remove(rm_const)
+
+    def constraint_set_max_absolute_unique_nights_Wrd(self):
+        """
+        According to Eq X in Lubin et al. 2025.
+        """
+        print("Constraining absolute maximum observations.")
+        aframe_slots_for_request = self.Aframe.groupby(['r'])[['d', 's']].agg(list)
+        for name in self.schedulable_requests:
+            all_d = list(set(list(aframe_slots_for_request.loc[name].d)))
+            self.m.addConstr(gp.quicksum(self.Wrd[name, d] for d in all_d) <=
+                    self.absolute_max_obs_allowed_dict[name],
+                    'max_absolute_unique_nights_for_request_' + str(name))
+
+    def constraint_set_max_desired_unique_nights_Yrds(self):
+        """
+        According to Eq X in Lubin et al. 2025.
+        """
+        aframe_slots_for_request = self.Aframe.groupby(['r'])[['d', 's']].agg(list)
+        for name in self.schedulable_requests:
+            available = list(zip(list(aframe_slots_for_request.loc[name].d), list(aframe_slots_for_request.loc[name].s)))
+            self.m.addConstr(gp.quicksum(self.Yrds[name, d, s] for d,s in available) <=
+                    self.desired_max_obs_allowed_dict[name],
+                    'max_desired_unique_nights_for_request_' + str(name))
+
+    def constraint_set_max_absolute_unique_nights_Yrds(self):
+        """
+        According to Eq X in Lubin et al. 2025.
+        """
+        aframe_slots_for_request = self.Aframe.groupby(['r'])[['d', 's']].agg(list)
+        for name in self.schedulable_requests:
+            available = list(zip(list(aframe_slots_for_request.loc[name].d), list(aframe_slots_for_request.loc[name].s)))
+            self.m.addConstr(gp.quicksum(self.Yrds[name, d, s] for d,s in available) <=
+                    self.absolute_max_obs_allowed_dict[name],
+                    'max_absolute_unique_nights_for_request_' + str(name))
+
+    def constraint_build_enforce_intranight_cadence(self):
+        """
+        According to Eq X in Lubin et al. 2025.
+        """
+        # # When intra-night cadence is 0, there will be no keys to constrain so skip
+        mask_intra_1 = self.Aframe['tra'] >= 1
+        aframe_intra = self.Aframe[mask_intra_1]
+        print("Constraint 6: Enforce intra-night cadence.")
+        # get all combos of slots that must be constrained if given slot is scheduled
+        aframe_intracadence = pd.merge(
+            aframe_intra.drop_duplicates(['r','d','s']),
+            aframe_intra[['r','d','s']],
+            suffixes=['','2'],on=['r', 'd']
+            ).query('s + 0 < s2 <= s + tra')
+        intracadence = aframe_intracadence.groupby(['r','d','s'])[['s2']].agg(list)
+        count8 = 0
+        for i, row in aframe_intra.iterrows():
+            if (row.r, row.d, row.s) in intracadence.index:
+                # Get all slots tonight which are too soon after given slot for another visit
+                slots_to_constrain_tonight_intra = list(intracadence.loc[(row.r, row.d, row.s)][0])
+                self.m.addConstr((self.Yrds[row.r,row.d,row.s] <= (self.Wrd[row.r, row.d] - (gp.quicksum(self.Yrds[row.r,row.d,s3] \
+                    for s3 in slots_to_constrain_tonight_intra)))), \
+                    'enforce_intranight_cadence_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
+
+    def constraint_set_min_max_visits_per_night(self):
+        """
+        According to Eq X in Lubin et al. 2025.
+        """
+        print("Constraint 7: Allow minimum and maximum visits.")
+        grouped_s = self.Aframe.groupby(['r', 'd'])['s'].unique().reset_index()
+        grouped_s.set_index(['r', 'd'], inplace=True)
+        mask_intra_1 = self.Aframe['tra'] >= 1
+        aframe_intra = self.Aframe[mask_intra_1]
+        aframe_intra_no_duplicates = aframe_intra.drop_duplicates(subset=['r', 'd'])
+        aframe_intracadence = pd.merge(
+            aframe_intra.drop_duplicates(['r','d','s']),
+            aframe_intra[['r','d','s']],
+            suffixes=['','2'],on=['r', 'd']
+            ).query('s + 0 < s2 <= s + tra')
+        intracadence = aframe_intracadence.groupby(['r','d','s'])[['s2']].agg(list)
+        for i, row in aframe_intra_no_duplicates.iterrows():
+            if (row.r, row.d, row.s) in intracadence.index:
+                all_valid_slots_tonight = list(grouped_s.loc[(row.r, row.d)]['s'])
+                self.m.addConstr((((gp.quicksum(self.Yrds[row.r,row.d,s3] for s3 in all_valid_slots_tonight)))) <= \
+                    row.maxv*self.Wrd[row.r, row.d], 'enforce_max_visits1_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
+                self.m.addConstr((((gp.quicksum(self.Yrds[row.r,row.d,s3] for s3 in all_valid_slots_tonight)))) >= \
+                    row.minv*self.Wrd[row.r, row.d], 'enforce_min_visits_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
+
 
 def define_slot_index_frame(manager, available_indices_for_request):
     """
@@ -483,19 +610,22 @@ def define_slot_index_frame(manager, available_indices_for_request):
     # This becomes the grid over which the Gurobi variables are defined.
     # Now, slots that were never possible for scheduling are not included in the model.
     Aset = []
+    Wset = []
     Aframe_keys = []
     for n,row in manager.requests_frame.iterrows():
         name = row['Starname']
-        n_visits = int(row['# Visits per Night'])
+        max_n_visits = int(row['Desired Visits per Night'])
+        min_n_visits = int(row['Accepted Visits per Night'])
         intra = int(row['Minimum Intra-Night Cadence'])
         inter = int(row['Minimum Inter-Night Cadence'])
         slots_needed = manager.slots_needed_for_exposure_dict[name]
         for d in range(len(available_indices_for_request[name])):
+            Wset.append((name, d))
             for s in available_indices_for_request[name][d]:
                 Aset.append((name, d, s))
-                Aframe_keys.append([name, d, s, slots_needed, n_visits, intra, inter])
+                Aframe_keys.append([name, d, s, slots_needed, max_n_visits, min_n_visits, intra, inter])
 
-    Aframe = pd.DataFrame(Aframe_keys, columns =['r', 'd', 's', 'e', 'v', 'tra', 'ter'])
+    Aframe = pd.DataFrame(Aframe_keys, columns =['r', 'd', 's', 'e', 'maxv', 'minv', 'tra', 'ter'])
     schedulable_requests = list(Aframe['r'].unique())
     for name in list(manager.requests_frame['Starname']):
         if name not in schedulable_requests:
@@ -505,4 +635,4 @@ def define_slot_index_frame(manager, available_indices_for_request):
     Aframe['dd'] = Aframe['d']
     Aframe['ss'] = Aframe['s']
 
-    return Aframe, Aset, schedulable_requests
+    return Aframe, Aset, schedulable_requests, Wset
