@@ -252,7 +252,7 @@ class data_admin(object):
         for n,row in self.requests_frame.iterrows():
             name = row['Starname']
             exposure_time = row['Nominal Exposure Time [s]']*row['# of Exposures per Visit'] + \
-                45*(row['Desired Visits per Night'] - 1)
+                45*(row['# of Exposures per Visit'] - 1)
             slots_needed_for_exposure_dict[name] = compute_slots_required_for_exposure(exposure_time, self.slot_size, always_round_up_flag)
         return slots_needed_for_exposure_dict
 
