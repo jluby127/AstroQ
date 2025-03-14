@@ -56,13 +56,12 @@ def run_kpfcc(manager):
     model.constraint_enforce_internight_cadence()
 
     if Wset != []: # note later set this as an argument in the command line to run or ignore
-        print("Entering!")
         model.constraint_set_max_desired_unique_nights_Wrd()
         model.constraint_connect_Wrd_and_Yrds()
         model.constraint_build_enforce_intranight_cadence()
         model.constraint_set_min_max_visits_per_night()
-        # model.constraint_build_theta_direct_multivisit_v1()
-        model.constraint_build_theta_direct_multivisit_v2()
+        model.constraint_build_theta_direct_multivisit_v1()
+        # model.constraint_build_theta_direct_multivisit_v2()
     else:
         model.constraint_set_max_desired_unique_nights_Yrds()
         model.constraint_build_theta()
