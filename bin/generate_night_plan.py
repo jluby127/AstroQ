@@ -11,6 +11,7 @@ sys.path.append(path2modules)
 import kpfcc.management as mn
 import kpfcc.schedule as sc
 import kpfcc.plot as pl
+import kpfcc.io as io
 # import kpfcc.onsky as sk
 import kpfcc.tracking as tk
 from kpfcc import DATADIR
@@ -112,6 +113,7 @@ if args.run_plots:
     forecast_frame = pd.read_csv(os.path.join(args.folder, "outputs/" + str(args.schedule_dates[0]) + "/raw_combined_semester_schedule_Round2.txt"))
     manager.combined_semester_schedule_stars = forecast_frame.values
     star_tracker = tk.StarTracker(manager)
+    io.report_allocation_stats(manager)
     pl.write_cadence_plot_files(manager)
     pl.run_plot_suite(star_tracker, manager)
 

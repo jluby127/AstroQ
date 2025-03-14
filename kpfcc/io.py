@@ -13,6 +13,7 @@ from astropy.time import TimeDelta
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as pt
 
 def build_fullness_report(combined_semester_schedule, manager, round_info):
     """
@@ -77,7 +78,9 @@ def report_allocation_stats(manager):
         None
     """
     current_day_number = manager.all_dates_dict[manager.current_day]
-    ff = open(outputdir + "allocation_stats.txt", "w")
+    ff = open(manager.output_directory + "allocation_stats.txt", "w")
+
+    fig = pt.figure(figsize=(10,6))
 
     q1s = 0
     q2s = 0
@@ -88,29 +91,33 @@ def report_allocation_stats(manager):
     count2 = 0
     count3 = 0
     count4 = 0
-    for j, item in enumerate(manager.allocation_map_2D):
+    for j, item in enumerate(manager.allocation_all):
         holder = [0, 0, 0, 0]
-        if manager.allocation_map_2D[j][0] == 1.:
+        if manager.allocation_all[j][0] == 1:
             q1s += 1
-            date_info = manager.all_dates_array[manager.current_day_number + j] + " - q0"
-            ff.write(date_info + "\n")
+            date_info = manager.all_dates_array[current_day_number + j] + " - q0"
+            #ff.write(date_info + "\n")
             holder[0] = 1
-        if manager.allocation_map_2D[j][1] == 1.:
+            pt.axvline(current_day_number + j, ymin=0, ymax=0.25, color='b')
+        if manager.allocation_all[j][1] == 1:
             q2s += 1
-            date_info = manager.all_dates_array[manager.current_day_number + j] + " - q1"
-            ff.write(date_info + "\n")
+            date_info = manager.all_dates_array[current_day_number + j] + " - q1"
+            #ff.write(date_info + "\n")
             holder[1] = 1
-        if manager.allocation_map_2D[j][2] == 1.:
+            pt.axvline(current_day_number + j, ymin=0.25, ymax=0.5, color='b')
+        if manager.allocation_all[j][2] == 1:
             q3s += 1
-            date_info = manager.all_dates_array[manager.current_day_number + j] + " - q2"
-            ff.write(date_info + "\n")
+            date_info = manager.all_dates_array[current_day_number + j] + " - q2"
+            #ff.write(date_info + "\n")
             holder[2] = 1
-        if manager.allocation_map_2D[j][3] == 1.:
+            pt.axvline(current_day_number + j, ymin=0.5, ymax=0.75, color='b')
+        if manager.allocation_all[j][3] == 1:
             q4s += 1
-            date_info = manager.all_dates_array[manager.current_day_number + j] + " - q3"
-            ff.write(date_info + "\n")
+            date_info = manager.all_dates_array[current_day_number + j] + " - q3"
+            #ff.write(date_info + "\n")
             holder[3] = 1
-        allocated_quarters = np.sum(manager.allocation_map_2D[j])
+            pt.axvline(current_day_number + j, ymin=0.75, ymax=1.0, color='b')
+        allocated_quarters = np.sum(manager.allocation_all[j])
         if allocated_quarters == 0:
             count0 += 1
         if allocated_quarters == 1:
@@ -121,6 +128,13 @@ def report_allocation_stats(manager):
             count3 += 1
         if allocated_quarters == 4:
             count4 += 1
+
+    size=20
+    pt.ylim(0,1)
+    pt.ylabel('Quarter of Night', fontsize=size)
+    pt.xlabel('Day in Semester', fontsize=size)
+    pt.tick_params(axis='both', labelsize=size)
+    pt.savefig(manager.output_directory + "allocation_visualization.png", dpi=200, bbox_inches='tight', facecolor='w')
 
     ff.write("\n")
     ff.write("There are " + str(q1s) + " first quarters." + "\n")
