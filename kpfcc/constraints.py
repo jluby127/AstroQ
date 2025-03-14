@@ -168,23 +168,28 @@ class GorubiModel(object):
         According to Eq X in Lubin et al. 2025.
         """
         print("Constraint 2: Reserve slots for for multi-slot exposures.")
-        # Get all requests that are  valid in (d,s+e) pair for a given (d,s,1..e)
-        requests_valid_in_reserved_slots = pd.merge(self.Aframe.query('e > 1 ')['r d s e'.split()] \
-            ,self.Aframe['r d s'.split()],on=['d'],suffixes=['','2']) \
-            .query('s < s2 < s + e').groupby('r d s'.split()).agg(list)
-        # If request requires only 1 slot to complete, then no constraint on reserving additional slots
-        Aframe_multislots = self.Aframe[self.Aframe.e > 1]
-        for i, row in Aframe_multislots.iterrows():
-            # construct list of (r,d,s) indices to be constrained. These are all requests that are
-            # valid in slots (d, s+1) through (d, s + e)
-            # Ensuring slot (d, s) is not double filled already taken care of in Constraint 1.
-            if (row.r, row.d, row.s) in requests_valid_in_reserved_slots.index:
-                allr = list(requests_valid_in_reserved_slots.loc[row.r, row.d, row.s]['r2'])
-                alls = list(requests_valid_in_reserved_slots.loc[row.r, row.d, row.s]['s2'])
-                all_reserved_slots = list(zip(allr, [row.d]*len(allr), alls))
-                self.m.addConstr((row.e*(1 - self.Yrds[row.r,row.d,row.s])) >= gp.quicksum(self.Yrds[c]
-                                                                for c in all_reserved_slots),
-                                'reserve_multislot_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
+        n_multi_slot_requests = np.sum(self.Aframe.e > 1)
+        if n_multi_slot_requests > 0:
+            # Get all requests that are  valid in (d,s+e) pair for a given (d,s,1..e)
+            requests_valid_in_reserved_slots = pd.merge(self.Aframe.query('e > 1 ')['r d s e'.split()] \
+                ,self.Aframe['r d s'.split()],on=['d'],suffixes=['','2']) \
+                .query('s < s2 < s + e').groupby('r d s'.split()).agg(list)
+            # If request requires only 1 slot to complete, then no constraint on reserving additional slots
+            Aframe_multislots = self.Aframe[self.Aframe.e > 1]
+            print('LENGTH OF AFRAME_MULTISLOTS: ', len(Aframe_multislots))
+            for i, row in Aframe_multislots.iterrows():
+                # construct list of (r,d,s) indices to be constrained. These are all requests that are
+                # valid in slots (d, s+1) through (d, s + e)
+                # Ensuring slot (d, s) is not double filled already taken care of in Constraint 1.
+                if (row.r, row.d, row.s) in requests_valid_in_reserved_slots.index:
+                    allr = list(requests_valid_in_reserved_slots.loc[row.r, row.d, row.s]['r2'])
+                    alls = list(requests_valid_in_reserved_slots.loc[row.r, row.d, row.s]['s2'])
+                    all_reserved_slots = list(zip(allr, [row.d]*len(allr), alls))
+                    self.m.addConstr((row.e*(1 - self.Yrds[row.r,row.d,row.s])) >= gp.quicksum(self.Yrds[c]
+                                                                    for c in all_reserved_slots),
+                                    'reserve_multislot_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
+        else:
+            print("No multi slot exposures!")
 
     def constraint_max_visits_per_night(self):
         """
