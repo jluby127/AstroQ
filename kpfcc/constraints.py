@@ -167,13 +167,12 @@ class GorubiModel(object):
         print("Constraint 2: Reserve slots for for multi-slot exposures.")
         n_multi_slot_requests = np.sum(self.Aframe.e > 1)
         if n_multi_slot_requests > 0:
-            # Get all requests that are  valid in (d,s+e) pair for a given (d,s,1..e)
+            # Get all requests that are valid in (d,s+e) pair for a given (d,s,1..e)
             requests_valid_in_reserved_slots = pd.merge(self.Aframe.query('e > 1 ')['r d s e'.split()] \
                 ,self.Aframe['r d s'.split()],on=['d'],suffixes=['','2']) \
                 .query('s < s2 < s + e').groupby('r d s'.split()).agg(list)
             # If request requires only 1 slot to complete, then no constraint on reserving additional slots
             Aframe_multislots = self.Aframe[self.Aframe.e > 1]
-            print('LENGTH OF AFRAME_MULTISLOTS: ', len(Aframe_multislots))
             for i, row in Aframe_multislots.iterrows():
                 # construct list of (r,d,s) indices to be constrained. These are all requests that are
                 # valid in slots (d, s+1) through (d, s + e)
