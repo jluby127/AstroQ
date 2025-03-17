@@ -23,7 +23,7 @@ def construct_access_dict(manager):
     Returns:
         default_access_maps (dictionary): keys are the starnames and values are the 1D access maps
     """
-    print("Reading pre-comupted accessibility maps.")
+    print("Reading pre-computed accessibility maps.")
     rewrite_flag = False
     default_access_maps = read_accessibilty_map_dict(manager.accessibilities_file)
     for n,row in manager.requests_frame.iterrows():
