@@ -56,6 +56,7 @@ def run_plot_suite(star_tracker, manager):
 
     prog_colors = {}
     for p, item in enumerate(star_tracker.programs):
+        print("Generating plots for Program ", p)
         prog_colors[p] = palette[p%len(palette)]
 
         program_COF, program_total_obs_request, program_first_forecast, stars_in_program, \
@@ -86,6 +87,7 @@ def run_plot_suite(star_tracker, manager):
     flat_all_star_nObs_all_programs = np.concatenate(all_star_nObs_all_programs)
     flat_all_stars_in_program = np.concatenate(all_stars_in_program)
 
+    print("Generating admin view plot suite.")
     generate_admin_view_plot_suite(star_tracker, all_program_cofs, all_program_info,
                                        all_program_first_forecast, flat_all_star_maps_all_programs,
                                        all_star_colors_all_programs,
@@ -131,7 +133,6 @@ def write_cadence_plot_files(manager):
                                     future_unique_days_forecasted,
                                     past_unique_dates_for_star,
                                     manager.current_day, manager.output_directory)
-
 
 def write_one_cadence_plot_file(starname, starmap, turn_frame, requests_frame, future_obs,
                             unique_hst_dates_observed, current_day, outputdir):
