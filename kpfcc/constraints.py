@@ -31,11 +31,8 @@ class GorubiModel(object):
         self.Aframe = Aframe
         self.schedulable_requests = schedulable_requests
 
-        run_direct_multi_visit = True
-        if run_direct_multi_visit:
-            self.Wset = Wset
-        else:
-            self.Wset = []
+        #run_direct_multi_visit = False
+        self.Wset = Wset
 
         if manager.run_optimal_allocation:
             if self.manager.semester_grid == [] or self.manager.quarters_grid == []:

@@ -47,7 +47,7 @@ def run_kpfcc(manager):
 
     print("Building Gorubi model.")
     Aframe, Aset, schedulable_requests, Wset = cf.define_slot_index_frame(manager, available_indices_for_request)
-    
+
     Wset = []
     model = cf.GorubiModel(manager, Aset, Aframe, schedulable_requests, Wset)
 
