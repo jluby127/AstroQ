@@ -341,6 +341,7 @@ def build_date_dictionary(semester_start_date, semester_length):
     # manager.all_dates_array = list(all_dates.keys())
 
 def compute_slots_required_for_exposure(exposure_time, slot_size, always_round_up_flag):
+
     slot_size = slot_size * 60 # converting to seconds
     if always_round_up_flag:
         slots_needed_for_exposure = math.ceil(exposure_time/slot_size)

@@ -26,8 +26,6 @@ import kpfcc.management as mn
 import kpfcc.maps as mp
 import kpfcc.constraints as cf
 
-# import line_profiler
-# @profile
 def run_kpfcc(manager):
     """
     Run the core kpfcc algorithm
@@ -48,12 +46,11 @@ def run_kpfcc(manager):
     print("Building Gorubi model.")
     Aframe, Aset, schedulable_requests, Wset = cf.define_slot_index_frame(manager, available_indices_for_request)
 
-    Wset = []
+    # Wset = [] # when commented out, we run the min/max visit logic. Later will change to be a command line flag.
     model = cf.GorubiModel(manager, Aset, Aframe, schedulable_requests, Wset)
 
     model.constraint_one_request_per_slot()
     model.constraint_reserve_multislot_exposures()
-    model.constraint_max_visits_per_night()
     model.constraint_enforce_internight_cadence()
 
     if Wset != []: # note later set this as an argument in the command line to run or ignore
@@ -61,13 +58,11 @@ def run_kpfcc(manager):
         model.constraint_connect_Wrd_and_Yrds()
         model.constraint_build_enforce_intranight_cadence()
         model.constraint_set_min_max_visits_per_night()
-        model.constraint_build_theta_direct_multivisit_v1()
-        # model.constraint_build_theta_direct_multivisit_v2()
+        model.constraint_build_theta_multivisit()
     else:
         model.constraint_set_max_desired_unique_nights_Yrds()
+        model.constraint_max_visits_per_night()
         model.constraint_build_theta()
-        # model.constraint_build_theta_time_normalized()
-        # model.constraint_build_theta_program_normalized()
 
     if manager.run_optimal_allocation:
         model.constraint_set_max_quarters_allocated()
@@ -75,7 +70,7 @@ def run_kpfcc(manager):
         model.constraint_relate_allocation_and_onsky()
         model.constraint_all_portions_of_night_represented()
         model.constraint_forbidden_quarter_patterns()
-        model.constraint_cannot_observe_if_not_allocated(twilight_map_remaining_2D)
+        model.constraint_cannot_observe_if_not_allocated(manager.twilight_map_remaining_2D)
         if os.path.exists(manager.blackout_file):
             constraint_enforce_restricted_nights(limit=0)
         if os.path.exists(manager.whiteout_file):
@@ -86,10 +81,7 @@ def run_kpfcc(manager):
             model.constraint_maximize_baseline()
 
     print("Total Time to build constraints: ", np.round(time.time()-start_the_clock,3))
-    model.set_objective_minimize_theta()
-    # model.set_objective_minimize_theta_time_norm()
-    # model.set_objective_minimize_theta_prog_norm()
-
+    model.set_objective_minimize_theta_time_normalized()
     model.solve_model()
     print("Total Time to finish solver: ", np.round(time.time()-start_the_clock,3))
 

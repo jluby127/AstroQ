@@ -18,6 +18,7 @@ import pandas as pd
 
 import kpfcc.io as io
 
+labelsize = 25
 palette = sns.color_palette("colorblind")
 named_colors = ['blue', 'red', 'green', 'gold', 'maroon', 'gray', 'orange', 'magenta', 'purple']
 color_scales = {'blue':[[0, 'rgba(0,0,0,0)'],[1, 'rgb(0,0,255)']],
@@ -101,38 +102,39 @@ def run_plot_suite(star_tracker, manager):
     print("All plots generated. Saved to " + manager.semester_directory + "reports/")
 
 def write_cadence_plot_files(manager):
-    print("Writing cadence plot files.")
-    with open(os.path.join(manager.output_directory, "raw_combined_semester_schedule_Round2.txt"), 'r', encoding='utf-8') as file:
-        lines = file.readlines()
-        combined_semester_schedule_stars = [line.strip().split(',') for line in lines]
+    if manager.build_starmaps:
+        print("Writing cadence plot files.")
+        with open(os.path.join(manager.output_directory, "raw_combined_semester_schedule_Round2.txt"), 'r', encoding='utf-8') as file:
+            lines = file.readlines()
+            combined_semester_schedule_stars = [line.strip().split(',') for line in lines]
 
-    turn_on_off_frame = pd.read_csv(manager.turn_on_off_file)
-    all_starmaps = {}
-    for i in range(len(manager.requests_frame)):
-        if manager.database_info_dict != {}:
-            starmap = io.build_observed_map_past( \
-                manager.database_info_dict[manager.requests_frame['Starname'][i]], manager.starmap_template_filename)
-        else:
-            starmap = io.build_observed_map_past([[],[],[],[]], manager.starmap_template_filename)
+        turn_on_off_frame = pd.read_csv(manager.turn_on_off_file)
+        all_starmaps = {}
+        for i in range(len(manager.requests_frame)):
+            if manager.database_info_dict != {}:
+                starmap = io.build_observed_map_past( \
+                    manager.database_info_dict[manager.requests_frame['Starname'][i]], manager.starmap_template_filename)
+            else:
+                starmap = io.build_observed_map_past([[],[],[],[]], manager.starmap_template_filename)
 
-        starmap_updated = io.build_observed_map_future(manager, combined_semester_schedule_stars,
-                            manager.requests_frame['Starname'][i], starmap)
+            starmap_updated = io.build_observed_map_future(manager, combined_semester_schedule_stars,
+                                manager.requests_frame['Starname'][i], starmap)
 
-        all_starmaps[manager.requests_frame['Starname'][i]] = starmap_updated
-        future_unique_days_forecasted = 0
-        for k, item in enumerate(manager.combined_semester_schedule_stars):
-            if manager.requests_frame['Starname'][i] in manager.combined_semester_schedule_stars[k]:
-                future_unique_days_forecasted += 1
+            all_starmaps[manager.requests_frame['Starname'][i]] = starmap_updated
+            future_unique_days_forecasted = 0
+            for k, item in enumerate(manager.combined_semester_schedule_stars):
+                if manager.requests_frame['Starname'][i] in manager.combined_semester_schedule_stars[k]:
+                    future_unique_days_forecasted += 1
 
-        try:
-            past_unique_dates_for_star = manager.database_info_dict[manager.requests_frame['Starname'][i]][1]
-        except:
-            past_unique_dates_for_star = []
-        write_one_cadence_plot_file(manager.requests_frame['Starname'][i], starmap_updated,
-                                    turn_on_off_frame, manager.requests_frame,
-                                    future_unique_days_forecasted,
-                                    past_unique_dates_for_star,
-                                    manager.current_day, manager.output_directory)
+            try:
+                past_unique_dates_for_star = manager.database_info_dict[manager.requests_frame['Starname'][i]][1]
+            except:
+                past_unique_dates_for_star = []
+            write_one_cadence_plot_file(manager.requests_frame['Starname'][i], starmap_updated,
+                                        turn_on_off_frame, manager.requests_frame,
+                                        future_unique_days_forecasted,
+                                        past_unique_dates_for_star,
+                                        manager.current_day, manager.output_directory)
 
 def write_one_cadence_plot_file(starname, starmap, turn_frame, requests_frame, future_obs,
                             unique_hst_dates_observed, current_day, outputdir):
@@ -331,7 +333,15 @@ def build_multi_request_cof(star_tracker, all_cofs_array, star_info, all_first_f
         title="Cumulative Observation Function (COF)",
         xaxis_title="Calendar Date",
         yaxis_title="Request % Complete",
-        showlegend=True
+        showlegend=True,
+        xaxis=dict(
+            title_font=dict(size=labelsize),
+            tickfont=dict(size=labelsize-4)
+        ),
+        yaxis=dict(
+            title_font=dict(size=labelsize),
+            tickfont=dict(size=labelsize-4)
+        ),
     )
     admin_path = star_tracker.manager.reports_directory + "admin/" + star_tracker.manager.current_day + "/cofs/"
     if flag:
@@ -621,12 +631,23 @@ def generate_birds_eye(star_tracker, all_star_maps, all_star_cols, all_star_nobs
                     str(starttime) + " to " + str(stoptime) + '<extra></extra>',
                 showlegend=True,
             ))
+    labelsize2 = 28
     fig.update_layout(
         title="Birds Eye View Semester Schedule",
         yaxis_title="Slot in Night",
         xaxis_title="Night in Semester",
-        yaxis=dict(tickvals=np.arange(0, np.shape(all_star_maps)[2], 10)),
-        xaxis=dict(tickvals=np.arange(0, np.shape(all_star_maps)[1], 7)),
+        xaxis=dict(
+            title_font=dict(size=labelsize2),
+            tickfont=dict(size=labelsize2-4),
+            tickvals=np.arange(0, np.shape(all_star_maps)[1]+1, 14),
+        ),
+        yaxis=dict(
+            title_font=dict(size=labelsize2),
+            tickfont=dict(size=labelsize2-4),
+            tickvals=np.arange(0, np.shape(all_star_maps)[2]+1, 12),
+        ),
+        # yaxis=dict(),
+        # xaxis=dict(),
         template="plotly",
         showlegend=True,
     )

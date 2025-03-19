@@ -110,6 +110,7 @@ class GorubiModel(object):
                         self.past_nights_observed_dict[name]) - gp.quicksum(self.Yrds[name, d, s] for d,s in available)), \
                         'greater_than_nobs_shortfall_' + str(name))
 
+    # Note: Likely can delete this constraint
     def constraint_build_theta_time_normalized(self):
         """
         According to Eq X in Lubin et al. 2025.
@@ -125,6 +126,7 @@ class GorubiModel(object):
                         self.past_nights_observed_dict[name]) - gp.quicksum(self.Yrds[name, d, s] for d,s in available))*self.manager.slots_needed_for_exposure_dict[name], \
                         'greater_than_nobs_shortfall_' + str(name))
 
+    # Note: Likely can delete this constraint
     def constraint_build_theta_program_normalized(self):
         """
         According to Eq X in Lubin et al. 2025.
@@ -165,27 +167,31 @@ class GorubiModel(object):
         According to Eq X in Lubin et al. 2025.
         """
         print("Constraint 2: Reserve slots for for multi-slot exposures.")
-        n_multi_slot_requests = np.sum(self.Aframe.e > 1)
-        if n_multi_slot_requests > 0:
-            # Get all requests that are valid in (d,s+e) pair for a given (d,s,1..e)
-            requests_valid_in_reserved_slots = pd.merge(self.Aframe.query('e > 1 ')['r d s e'.split()] \
+        # Get all requests that are valid in (d,s+e) pair for a given (d,s,1..e)
+        requires_multislot = self.Aframe.e > 1
+        # Note: earlier we had a full query and merge of an outer join via pandas but found that this quickly
+        # ballooned in size in terms of memory required to complete the merge. This is an equal shortcut.
+        frame_holder = []
+        for day in range(self.manager.n_nights_in_semester):
+            print(day)
+            today_mask = self.Aframe.d==day
+            frame_holder.append(pd.merge(self.Aframe[today_mask&requires_multislot]['r d s e'.split()] \
                 ,self.Aframe['r d s'.split()],on=['d'],suffixes=['','2']) \
-                .query('s < s2 < s + e').groupby('r d s'.split()).agg(list)
-            # If request requires only 1 slot to complete, then no constraint on reserving additional slots
-            Aframe_multislots = self.Aframe[self.Aframe.e > 1]
-            for i, row in Aframe_multislots.iterrows():
-                # construct list of (r,d,s) indices to be constrained. These are all requests that are
-                # valid in slots (d, s+1) through (d, s + e)
-                # Ensuring slot (d, s) is not double filled already taken care of in Constraint 1.
-                if (row.r, row.d, row.s) in requests_valid_in_reserved_slots.index:
-                    allr = list(requests_valid_in_reserved_slots.loc[row.r, row.d, row.s]['r2'])
-                    alls = list(requests_valid_in_reserved_slots.loc[row.r, row.d, row.s]['s2'])
-                    all_reserved_slots = list(zip(allr, [row.d]*len(allr), alls))
-                    self.m.addConstr((row.e*(1 - self.Yrds[row.r,row.d,row.s])) >= gp.quicksum(self.Yrds[c]
-                                                                    for c in all_reserved_slots),
-                                    'reserve_multislot_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
-        else:
-            print("No multi slot exposures!")
+                .query('s < s2 < s + e').groupby('r d s'.split()).agg(list))
+        requests_valid_in_reserved_slots = pd.concat(frame_holder)
+        # If request requires only 1 slot to complete, then no constraint on reserving additional slots
+        Aframe_multislots = self.Aframe[requires_multislot]
+        for i, row in Aframe_multislots.iterrows():
+            # construct list of (r,d,s) indices to be constrained. These are all requests that are
+            # valid in slots (d, s+1) through (d, s + e)
+            # Ensuring slot (d, s) is not double filled already taken care of in Constraint 1.
+            if (row.r, row.d, row.s) in requests_valid_in_reserved_slots.index:
+                allr = list(requests_valid_in_reserved_slots.loc[row.r, row.d, row.s]['r2'])
+                alls = list(requests_valid_in_reserved_slots.loc[row.r, row.d, row.s]['s2'])
+                all_reserved_slots = list(zip(allr, [row.d]*len(allr), alls))
+                self.m.addConstr((row.e*(1 - self.Yrds[row.r,row.d,row.s])) >= gp.quicksum(self.Yrds[c]
+                                                                for c in all_reserved_slots),
+                                'reserve_multislot_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
 
     def constraint_max_visits_per_night(self):
         """
@@ -201,7 +207,6 @@ class GorubiModel(object):
         slots_on_day = aframe_slots_on_day.groupby(['r','d'])[['s2']].agg(list)
         self.slots_on_day = slots_on_day
         unique_request_day_pairs = self.Aframe.drop_duplicates(['r','d'])
-        # Build the constraint
         for i, row in unique_request_day_pairs.iterrows():
             constrained_slots_tonight = np.array(slots_on_day.loc[(row.r, row.d)][0])
             self.m.addConstr((gp.quicksum(self.Yrds[row.r,row.d,ss] for ss in constrained_slots_tonight) <= row.maxv),
@@ -212,6 +217,13 @@ class GorubiModel(object):
         According to Eq X in Lubin et al. 2025.
         """
         print("Constraint 4: Enforce inter-night cadence.")
+        aframe_slots_on_day = pd.merge(
+            self.Aframe.drop_duplicates(['r','d',]),
+            self.Aframe[['r','d','s']],
+            suffixes=['','2'],on=['r']
+        ).query('d == d2')
+        slots_on_day = aframe_slots_on_day.groupby(['r','d'])[['s2']].agg(list)
+        self.slots_on_day = slots_on_day
         aframe_intercadence = pd.merge(
             self.Aframe.drop_duplicates(['r','d',]),
             self.Aframe[['r','d','s']], #
@@ -234,21 +246,20 @@ class GorubiModel(object):
             if (row.r, row.d) in intercadence.index:
                 slots_to_constrain_future = intercadence.loc[(row.r, row.d)]
                 ds_pairs = list(zip(slots_to_constrain_future.d2, slots_to_constrain_future.s2))
-                self.m.addConstr((gp.quicksum(self.Yrds[row.r,row.d,s2] for s2 in constrained_slots_tonight)/row.v \
+                self.m.addConstr((gp.quicksum(self.Yrds[row.r,row.d,s2] for s2 in constrained_slots_tonight)/row.maxv \
                      <= (1 - (gp.quicksum(self.Yrds[row.r,d3,s3] for d3, s3 in ds_pairs)))), \
                     'enforce_internight_cadence_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
-            else:
-                # For request r, there are no (d,s) pairs that are within "inter cadence" days of the
-                # given day d, therefore nothing to constrain. If I can find a way to filter out these
-                # rows as a "mask_inter_2", then the if/else won't be needed
-                continue
+            # else:
+            #     # For request r, there are no (d,s) pairs that are within "inter cadence" days of the
+            #     # given day d, therefore nothing to constrain. If I can find a way to filter out these
+            #     # rows as a "mask_inter_2", then the if/else won't be needed
+            #     continue
 
     def constraint_set_max_quarters_allocated(self):
         """
         According to Eq X in Lubin et al. 2025.
         """
-        print("Constraint: setting max number of quarters allocated.")
-        # No more than a maximum number of quarters can be allocated
+        print("Constraint: setting max number of quarters that can be allocated.")
         self.m.addConstr(gp.quicksum(self.Anq[d,q] for d in range(self.manager.n_nights_in_semester) \
                         for q in range(self.manager.n_quarters_in_night))
                         <= self.manager.max_quarters, "maximumQuartersAllocated")
@@ -257,8 +268,7 @@ class GorubiModel(object):
         """
         According to Eq X in Lubin et al. 2025.
         """
-        print("Constraint: setting max number of unique nights allocated.")
-        # No more than a maximum number of unique nights can be allocated
+        print("Constraint: setting max number of unique nights that can be allocated.")
         self.m.addConstr(gp.quicksum(self.Un[d] for d in range(self.manager.n_nights_in_semester))
                             <= self.manager.max_unique_nights, "maximumNightsAllocated")
 
@@ -267,8 +277,6 @@ class GorubiModel(object):
         According to Eq X in Lubin et al. 2025.
         """
         print("Constraint: relating allocation map and unique night allocation map.")
-        # relate unique_allocation and allocation
-        # if any one of the q in allocation[given date, q] is 1, then unique_allocation[given date] must be 1, zero otherwise
         for d in range(self.manager.n_nights_in_semester):
             for q in range(self.manager.n_quarters_in_night):
                 self.m.addConstr(self.Un[d] >= self.Anq[d,q], "relatedUnique_andNonUnique_lowerbound_" + str(d) + "d_" + str(q) + "q")
@@ -278,8 +286,7 @@ class GorubiModel(object):
         """
         According to Eq X in Lubin et al. 2025.
         """
-        print("Constraint: setting min number each quarter to be allocated.")
-        # Minimum number of each quarter must be allocated
+        print("Constraint: setting minimum number of times each quarter to be allocated.")
         self.m.addConstr(gp.quicksum(self.Anq[d,0] for d in range(self.manager.n_nights_in_semester)) >= self.manager.min_represented, "minQuarterSelection_0q")
         self.m.addConstr(gp.quicksum(self.Anq[d,1] for d in range(self.manager.n_nights_in_semester)) >= self.manager.min_represented, "minQuarterSelection_1q")
         self.m.addConstr(gp.quicksum(self.Anq[d,2] for d in range(self.manager.n_nights_in_semester)) >= self.manager.min_represented, "minQuarterSelection_2q")
@@ -290,7 +297,6 @@ class GorubiModel(object):
         According to Eq X in Lubin et al. 2025.
         """
         print("Constraint: forbid certain patterns of quarter night allocations within night.")
-        # Disallow certain patterns of quarters selected within same night
         for d in range(self.manager.n_nights_in_semester):
             # Cannot have 1st and 3rd quarter allocated without also allocating 2nd quarter (no gap), regardless of if 4th quarter is allocated or not
             self.m.addConstr(self.Anq[d,0] + (self.Un[d]-self.Anq[d,1]) + self.Anq[d,2] <= 2*self.Un[d], "NoGap2_" + str(d) + "d")
@@ -336,8 +342,7 @@ class GorubiModel(object):
         """
         According to Eq X in Lubin et al. 2025.
         """
-        print("Constraint: setting max number of consecutive unique nights allocated.")
-        # Don't allocate more than X consecutive nights
+        print("Constraint: setting maximum number of consecutive unique nights allocated.")
         for d in range(self.manager.n_nights_in_semester - self.manager.max_consecutive):
             self.m.addConstr(gp.quicksum(self.Un[d + t] for t in range(self.manager.max_consecutive)) <= self.manager.max_consecutive - 1, "consecutiveNightsMax_" + str(d) + "d")
 
@@ -345,7 +350,7 @@ class GorubiModel(object):
         """
         According to Eq X in Lubin et al. 2025.
         """
-        print("Constraint: setting min gap in days between allocated unique nights.")
+        print("Constraint: setting minimum gap in days between allocated unique nights.")
         # Enforce at least one day allocated every X days (no large gaps)
         # Note you cannot run this when observatory/instrument has an extended shutdown
         for d in range(self.manager.n_nights_in_semester - self.manager.min_consecutive):
@@ -376,7 +381,6 @@ class GorubiModel(object):
         According to Eq X in Lubin et al. 2025.
         """
         print("Constraint: maximize the baseline of unique nights allocated.")
-        # Enforce a night to be allocated within the first X nights and the last X nights of the semester (max baseline)
         self.m.addConstr(gp.quicksum(self.Un[0 + t] for t in range(self.manager.max_baseline)) >= 1, "maxBase_early")
         self.m.addConstr(gp.quicksum(self.Un[self.manager.n_nights_in_semester - self.manager.max_baseline + t] for t in range(self.manager.max_baseline)) >= 1, "maxBase_late")
 
@@ -396,48 +400,25 @@ class GorubiModel(object):
         self.m.setObjective(gp.quicksum(self.manager.slots_needed_for_exposure_dict[r]*self.Yrds[r,d,s]
                             for r, d, s in self.Aset), GRB.MAXIMIZE)
 
+    # This objective can likely be deleted.
     def set_objective_minimize_theta(self):
         """
         According to Eq X in Lubin et al. 2025.
         """
         self.m.setObjective(gp.quicksum(self.theta[name] for name in self.schedulable_requests), GRB.MINIMIZE)
 
-    def set_objective_minimize_theta_time_norm(self):
+    def set_objective_minimize_theta_time_normalized(self):
         """
         According to Eq X in Lubin et al. 2025.
         """
         self.m.setObjective(gp.quicksum(self.theta[name]*self.manager.slots_needed_for_exposure_dict[name] for name in self.schedulable_requests), GRB.MINIMIZE)
 
+    # This objective can likely be deleted.
     def set_objective_minimize_theta_prog_norm(self):
         """
         According to Eq X in Lubin et al. 2025.
         """
         self.m.setObjective(gp.quicksum(self.theta[name]/self.manager.requests_frame.loc[self.manager.requests_frame['Starname'] == name, '# of Nights Per Semester'] for name in self.schedulable_requests), GRB.MINIMIZE)
-
-    def solve_model(self):
-        print("Begin model solve.")
-
-        self.m.params.TimeLimit = self.manager.solve_time_limit
-        self.m.Params.OutputFlag = self.manager.gurobi_output
-        # Allow stop at 5% gap to prevent from spending lots of time on marginally better solution
-        self.m.params.MIPGap = self.manager.solve_max_gap
-        # More aggressive presolve gives better solution in shorter time
-        self.m.params.Presolve = 2
-        self.m.update()
-        self.m.optimize()
-
-        if self.m.Status == GRB.INFEASIBLE:
-            print('Model remains infeasible. Searching for invalid constraints')
-            search = self.m.computeIIS()
-            print("Printing bad constraints:")
-            for c in self.m.getConstrs():
-                if c.IISConstr:
-                    print('%s' % c.ConstrName)
-            for c in m.getGenConstrs():
-                if c.IISGenConstr:
-                    print('%s' % c.GenConstrName)
-        else:
-            print("Model Successfully Solved.")
 
     def constraint_connect_Wrd_and_Yrds(self):
         """
@@ -453,24 +434,7 @@ class GorubiModel(object):
                 row.maxv*self.Wrd[row.r, row.d],
                 'connect_W_and_Y' + row.r + "_" + str(row.d) + "d")
 
-    def constraint_build_theta_direct_multivisit_v1(self):
-        """
-        According to Eq X in Lubin et al. 2025.
-        """
-        print("Constraint 0: Build theta variable")
-        aframe_slots_for_request = self.Aframe.groupby(['r'])[['d', 's']].agg(list)
-        for name in self.schedulable_requests:
-            idx = self.manager.requests_frame.index[self.manager.requests_frame['Starname']==name][0]
-
-            self.m.addConstr(self.theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
-            # Get all (d,s) pairs for which this request is valid.
-            all_d = list(set(list(aframe_slots_for_request.loc[name].d)))
-            available = list(zip(list(aframe_slots_for_request.loc[name].d), list(aframe_slots_for_request.loc[name].s)))
-            self.m.addConstr(self.theta[name] >= ((self.manager.requests_frame['# of Nights Per Semester'][idx] - \
-                        self.past_nights_observed_dict[name]) - (gp.quicksum(self.Wrd[name, d] for d in all_d))), \
-                        'greater_than_nobs_shortfall_' + str(name))
-
-    def constraint_build_theta_direct_multivisit_v2(self):
+    def constraint_build_theta_multivisit(self):
         """
         According to Eq X in Lubin et al. 2025.
         """
@@ -519,6 +483,7 @@ class GorubiModel(object):
                     self.absolute_max_obs_allowed_dict[name],
                     'max_absolute_unique_nights_for_request_' + str(name))
 
+    # This constraint can likely be deleted.
     def constraint_set_max_desired_unique_nights_Yrds(self):
         """
         According to Eq X in Lubin et al. 2025.
@@ -530,6 +495,7 @@ class GorubiModel(object):
                     self.desired_max_obs_allowed_dict[name],
                     'max_desired_unique_nights_for_request_' + str(name))
 
+    # This constraint can likely be deleted.
     def constraint_set_max_absolute_unique_nights_Yrds(self):
         """
         According to Eq X in Lubin et al. 2025.
@@ -556,7 +522,6 @@ class GorubiModel(object):
             suffixes=['','2'],on=['r', 'd']
             ).query('s + 0 < s2 <= s + tra')
         intracadence = aframe_intracadence.groupby(['r','d','s'])[['s2']].agg(list)
-        count8 = 0
         for i, row in aframe_intra.iterrows():
             if (row.r, row.d, row.s) in intracadence.index:
                 # Get all slots tonight which are too soon after given slot for another visit
@@ -570,25 +535,41 @@ class GorubiModel(object):
         According to Eq X in Lubin et al. 2025.
         """
         print("Constraint 7: Allow minimum and maximum visits.")
+        aframe_intra = self.Aframe.copy()
+        aframe_intra_no_duplicates = aframe_intra.drop_duplicates(subset=['r', 'd'])
         grouped_s = self.Aframe.groupby(['r', 'd'])['s'].unique().reset_index()
         grouped_s.set_index(['r', 'd'], inplace=True)
-        mask_intra_1 = self.Aframe['tra'] >= 1
-        aframe_intra = self.Aframe[mask_intra_1]
-        aframe_intra_no_duplicates = aframe_intra.drop_duplicates(subset=['r', 'd'])
-        aframe_intracadence = pd.merge(
-            aframe_intra.drop_duplicates(['r','d','s']),
-            aframe_intra[['r','d','s']],
-            suffixes=['','2'],on=['r', 'd']
-            ).query('s + 0 < s2 <= s + tra')
-        intracadence = aframe_intracadence.groupby(['r','d','s'])[['s2']].agg(list)
         for i, row in aframe_intra_no_duplicates.iterrows():
-            if (row.r, row.d, row.s) in intracadence.index:
-                all_valid_slots_tonight = list(grouped_s.loc[(row.r, row.d)]['s'])
-                self.m.addConstr((((gp.quicksum(self.Yrds[row.r,row.d,s3] for s3 in all_valid_slots_tonight)))) <= \
-                    row.maxv*self.Wrd[row.r, row.d], 'enforce_max_visits1_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
-                self.m.addConstr((((gp.quicksum(self.Yrds[row.r,row.d,s3] for s3 in all_valid_slots_tonight)))) >= \
-                    row.minv*self.Wrd[row.r, row.d], 'enforce_min_visits_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
+            all_valid_slots_tonight = list(grouped_s.loc[(row.r, row.d)]['s'])
+            self.m.addConstr((((gp.quicksum(self.Yrds[row.r,row.d,s3] for s3 in all_valid_slots_tonight)))) <= \
+                row.maxv*self.Wrd[row.r, row.d], 'enforce_max_visits1_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
+            self.m.addConstr((((gp.quicksum(self.Yrds[row.r,row.d,s3] for s3 in all_valid_slots_tonight)))) >= \
+                row.minv*self.Wrd[row.r, row.d], 'enforce_min_visits_' + row.r + "_" + str(row.d) + "d_" + str(row.s) + "s")
 
+    def solve_model(self):
+        print("Begin model solve.")
+
+        self.m.params.TimeLimit = self.manager.solve_time_limit
+        self.m.Params.OutputFlag = self.manager.gurobi_output
+        # Allow stop at 5% gap to prevent from spending lots of time on marginally better solution
+        self.m.params.MIPGap = self.manager.solve_max_gap
+        # More aggressive presolve gives better solution in shorter time
+        self.m.params.Presolve = 2
+        self.m.update()
+        self.m.optimize()
+
+        if self.m.Status == GRB.INFEASIBLE:
+            print('Model remains infeasible. Searching for invalid constraints')
+            search = self.m.computeIIS()
+            print("Printing bad constraints:")
+            for c in self.m.getConstrs():
+                if c.IISConstr:
+                    print('%s' % c.ConstrName)
+            for c in m.getGenConstrs():
+                if c.IISGenConstr:
+                    print('%s' % c.GenConstrName)
+        else:
+            print("Model Successfully Solved.")
 
 def define_slot_index_frame(manager, available_indices_for_request):
     """
