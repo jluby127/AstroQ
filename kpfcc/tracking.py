@@ -34,7 +34,7 @@ class StarTracker:
             None
         """
         self.manager = manager
-        self.slot_size = manager.slot_size*60 # convert to seconds
+        self.slot_size = manager.slot_size#*60 # convert to seconds
         self.forecast = manager.future_forecast
         self.first_forecast_dir = manager.folder_forecasts
         self.cadence_files_dir = manager.folder_cadences
@@ -103,11 +103,9 @@ class StarTracker:
         program = str(self.manager.requests_frame['Program_Code'][index].values[0])
         exposure_time = int(self.manager.requests_frame['Nominal Exposure Time [s]'][index].values[0])
         slots_per_night = mn.compute_slots_required_for_exposure(
-                        self.manager.requests_frame['Nominal Exposure Time [s]'][index].values[0], \
-                        self.slot_size, False)*self.manager.requests_frame['Desired Visits per Night'][index].values[0]
+                        exposure_time, self.slot_size, False)*self.manager.requests_frame['Desired Visits per Night'][index].values[0]
         slots_per_visit = mn.compute_slots_required_for_exposure(
-                        self.manager.requests_frame['Nominal Exposure Time [s]'][index].values[0], \
-                        self.slot_size, False)
+                        exposure_time, self.slot_size, False)
         expected_nobs_per_night = int(self.manager.requests_frame['# of Exposures per Visit'][index]) * \
                         int(self.manager.requests_frame['Desired Visits per Night'][index])
         total_observations_requested = expected_nobs_per_night * \

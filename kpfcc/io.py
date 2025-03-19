@@ -95,25 +95,26 @@ def report_allocation_stats(manager):
         holder = [0, 0, 0, 0]
         if manager.allocation_all[j][0] == 1:
             q1s += 1
-            date_info = manager.all_dates_array[current_day_number + j] + " - q0"
+            # Note: I recently had to add the "-1" to each of these lines. Not sure why, but it broke when doing optimal allocation.
+            date_info = manager.all_dates_array[current_day_number + j - 1] + " - q0"
             #ff.write(date_info + "\n")
             holder[0] = 1
             pt.axvline(current_day_number + j, ymin=0, ymax=0.25, color='b')
         if manager.allocation_all[j][1] == 1:
             q2s += 1
-            date_info = manager.all_dates_array[current_day_number + j] + " - q1"
+            date_info = manager.all_dates_array[current_day_number + j - 1] + " - q1"
             #ff.write(date_info + "\n")
             holder[1] = 1
             pt.axvline(current_day_number + j, ymin=0.25, ymax=0.5, color='b')
         if manager.allocation_all[j][2] == 1:
             q3s += 1
-            date_info = manager.all_dates_array[current_day_number + j] + " - q2"
+            date_info = manager.all_dates_array[current_day_number + j - 1] + " - q2"
             #ff.write(date_info + "\n")
             holder[2] = 1
             pt.axvline(current_day_number + j, ymin=0.5, ymax=0.75, color='b')
         if manager.allocation_all[j][3] == 1:
             q4s += 1
-            date_info = manager.all_dates_array[current_day_number + j] + " - q3"
+            date_info = manager.all_dates_array[current_day_number + j - 1] + " - q3"
             #ff.write(date_info + "\n")
             holder[3] = 1
             pt.axvline(current_day_number + j, ymin=0.75, ymax=1.0, color='b')

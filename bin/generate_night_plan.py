@@ -55,6 +55,7 @@ args = parser.parse_args()
 allowed_observatories = ['Keck Observatory']
 if args.observatory not in allowed_observatories:
     print("WARNING: chosen observatory is not supported.")
+
 manager = mn.data_admin(
                         # basic parameters
                         args.folder,

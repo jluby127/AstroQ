@@ -69,8 +69,6 @@ def produce_ultimate_map(manager, allocation_map_1D, twilight_map_remaining_flat
         name = row['Starname']
         accessibility_r = default_access_maps[name]
         access = accessibility_r[manager.today_starting_slot:]
-        # temporarily make all stars always accessible
-        # access = [1]*len(access)
 
         if name in list(custom_access_maps.keys()):
             custom_map = custom_access_maps[name][manager.today_starting_slot:]
