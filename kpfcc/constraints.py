@@ -596,16 +596,17 @@ def define_slot_index_frame(manager, available_indices_for_request):
     Aframe_keys = []
     for n,row in manager.requests_frame.iterrows():
         name = row['Starname']
-        max_n_visits = int(row['Desired Visits per Night'])
-        min_n_visits = int(row['Accepted Visits per Night'])
-        intra = int(row['Minimum Intra-Night Cadence'])
-        inter = int(row['Minimum Inter-Night Cadence'])
-        slots_needed = manager.slots_needed_for_exposure_dict[name]
-        for d in range(len(available_indices_for_request[name])):
-            Wset.append((name, d))
-            for s in available_indices_for_request[name][d]:
-                Aset.append((name, d, s))
-                Aframe_keys.append([name, d, s, slots_needed, max_n_visits, min_n_visits, intra, inter])
+        if name in list(available_indices_for_request.keys()):
+            max_n_visits = int(row['Desired Visits per Night'])
+            min_n_visits = int(row['Accepted Visits per Night'])
+            intra = int(row['Minimum Intra-Night Cadence'])
+            inter = int(row['Minimum Inter-Night Cadence'])
+            slots_needed = manager.slots_needed_for_exposure_dict[name]
+            for d in range(len(available_indices_for_request[name])):
+                Wset.append((name, d))
+                for s in available_indices_for_request[name][d]:
+                    Aset.append((name, d, s))
+                    Aframe_keys.append([name, d, s, slots_needed, max_n_visits, min_n_visits, intra, inter])
 
     Aframe = pd.DataFrame(Aframe_keys, columns =['r', 'd', 's', 'e', 'maxv', 'minv', 'tra', 'ter'])
     schedulable_requests = list(Aframe['r'].unique())
