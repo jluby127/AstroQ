@@ -94,9 +94,10 @@ def run_kpfcc(manager):
             else:
                 allocation_schedule_1d.append(0)
         allocation_schedule = np.reshape(allocation_schedule_1d, (manager.n_nights_in_semester, manager.n_quarters_in_night))
+        manager.allocation_map_2D_NQ = allocation_schedule
         holder = np.zeros(np.shape(allocation_schedule))
-        allocation_map_1D, allocation_map_2D, weathered_map = mp.build_allocation_map(allocation_schedule, holder, manager.available_slots_in_each_night, manager.n_slots_in_night)
-        mp.convert_allocation_array_to_binary(allocation_schedule, manager.all_dates_array, manager.output_directory + "optimal_allocation_binary_schedule.txt")
+        allocation_map_1D, allocation_map_2D, weathered_map = mp.build_allocation_map(manager, allocation_schedule, holder)
+        mp.convert_allocation_array_to_binary(manager)
         manager.allocation_all = allocation_map_1D
         manager.allocation_1D = allocation_map_1D
         manager.allocation_map_2D = allocation_map_2D

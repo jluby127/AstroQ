@@ -265,8 +265,7 @@ def prepare_allocation_map(manager):
     wh.write_out_weather_stats(manager, days_lost, manager.allocation_remaining)
     return weather_diff_remaining, allocation_map_1D, allocation_map_2D, weathered_map
 
-def build_allocation_map(allocation_schedule, weather_diff, available_slots_in_night,
-                        n_slots_in_night):
+def build_allocation_map(manager, allocation_schedule, weather_diff):
     """
     Create the 1D allocation map where allocated slots are designated with a 1
     and non-allocated slots designated with a 0.
@@ -293,27 +292,25 @@ def build_allocation_map(allocation_schedule, weather_diff, available_slots_in_n
     """
     allocation_map_1D = []
     allocation_map_weathered = []
-    print("shape available_slots_in_night: ", np.shape(available_slots_in_night))
-    print("shape allocation_schedule: ", np.shape(allocation_schedule))
-    print("shape weather_diff: ", np.shape(weather_diff))
+    manager.available_slots_in_each_night_short = manager.available_slots_in_each_night[manager.today_starting_night:]
 
-    for n, item in enumerate(available_slots_in_night):
+    for n in range(len(manager.available_slots_in_each_night_short)):
         allo_night_map = ac.single_night_allocated_slots(allocation_schedule[n],
-                                                available_slots_in_night[n], n_slots_in_night)
+                                                manager.available_slots_in_each_night_short[n], manager.n_slots_in_night)
         allocation_map_1D.append(allo_night_map)
         weather_night_map = ac.single_night_allocated_slots(weather_diff[n],
-                                                available_slots_in_night[n], n_slots_in_night)
+                                                manager.available_slots_in_each_night_short[n], manager.n_slots_in_night)
         allocation_map_weathered.append(weather_night_map)
 
     allocation_map_2D = np.reshape(allocation_map_1D,
-                                                (len(available_slots_in_night), n_slots_in_night))
+                                                (len(manager.available_slots_in_each_night_short), manager.n_slots_in_night))
     allocation_map_weather_diff_2D = np.reshape(allocation_map_weathered,
-                                                (len(available_slots_in_night), n_slots_in_night))
+                                                (len(manager.available_slots_in_each_night_short), manager.n_slots_in_night))
     allocation_map_1D = np.array(allocation_map_1D).flatten()
 
     return allocation_map_1D, allocation_map_2D, allocation_map_weather_diff_2D
 
-def convert_allocation_array_to_binary(allocation_map_2D, all_dates_array, filename):
+def convert_allocation_array_to_binary(manager):
     """
     Used in optimal allocation, write out the results of the calendar to human readable format.
 
@@ -325,9 +322,9 @@ def convert_allocation_array_to_binary(allocation_map_2D, all_dates_array, filen
     Returns:
         None
     """
-    file = open(filename, 'w')
-    for i in range(len(all_dates_array)):
-        line = all_dates_array[i] + " : " + str(" ".join(map(str, allocation_map_2D[i])))
+    file = open(manager.output_directory + "optimal_allocation_binary_schedule.txt", 'w')
+    for i in range(len(manager.all_dates_array)):
+        line = manager.all_dates_array[i] + " : " + str(" ".join(map(str, manager.allocation_map_2D_NQ[i-manager.today_starting_night])))
         file.write(str(line) + "\n")
     file.close()
 
