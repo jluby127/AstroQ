@@ -13,6 +13,7 @@ dependencies:
   - plotly==5.24.1
   - python==3.9
   - requests==2.32.3
+  - seaborn==0.13.2
   - pip:
      - gurobipy==11.0
      - kaleido==0.2.1
