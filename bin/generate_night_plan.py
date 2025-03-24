@@ -28,7 +28,7 @@ parser.add_argument('-obs','--observatory', help='Astropy query-able name for ob
 parser.add_argument('-a','--run_scheduler', help='Turn off the autoscheduler', action='store_false')
 parser.add_argument('-p','--run_plots', help='Turn off the plotting', action='store_false')
 parser.add_argument('-r','--run_round_two', help='Run the bonus round', action='store_true')
-parser.add_argument('-mB','--max_bonus', help='For round 2, the maximum bonus observations as a percentage of total request', type=int, default=0.5)
+parser.add_argument('-mB','--max_bonus', help='For round 2, the maximum bonus observations as a                  percentage of total request', type=int, default=0.5)
 parser.add_argument('-ttp','--run_ttp', help='Turn off the TTP.', action='store_false')
 parser.add_argument('-w','--run_weather_loss', help='If False, do not simulate weather', action='store_false')
 
