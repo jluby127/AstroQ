@@ -258,8 +258,7 @@ def prepare_allocation_map(manager):
         days_lost = wh.simulate_weather_losses(manager.allocation_remaining, loss_stats_remaining, \
         covariance=0.14, dont_lose_nights=manager.run_weather_loss, plot=True, outputdir=manager.output_directory)
     allocation_map_1D, allocation_map_2D, weathered_map = \
-        build_allocation_map(allocation_remaining_post_weather_loss, weather_diff_remaining,
-        manager.available_slots_in_each_night[manager.today_starting_night:], manager.n_slots_in_night)
+        build_allocation_map(manager, allocation_remaining_post_weather_loss, weather_diff_remaining)
 
     manager.weather_diff_remaining = weather_diff_remaining
     wh.write_out_weather_stats(manager, days_lost, manager.allocation_remaining)
