@@ -304,9 +304,10 @@ def write_stars_schedule_human_readable(combined_semester_schedule, Yrds, manage
     for s in range(manager.n_slots_in_semester):
         slotallocated = ''
         for name in list(manager.requests_frame['Starname']):
-            if all_star_schedules[name][s] == 1:
+            if all_star_schedules[name][manager.today_starting_slot+s] == 1:
                 slotallocated += str(name)
-        combined_semester_schedule[s] += str(slotallocated)
+                print(s, combined_semester_schedule[s], "update: " + str(combined_semester_schedule[manager.today_starting_slot+s]), slotallocated)
+        combined_semester_schedule[manager.today_starting_slot+s] += str(slotallocated)
     combined_semester_schedule = np.reshape(combined_semester_schedule,
             (manager.semester_length, manager.n_slots_in_night))
 
