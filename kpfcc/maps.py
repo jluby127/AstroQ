@@ -249,8 +249,8 @@ def prepare_allocation_map(manager):
         if a >= manager.all_dates_dict[manager.current_day]:
             allocation_remaining.append(convert)
     manager.allocation_all = allocation_all
-    allocation_schedule = np.reshape(allocation_all, (manager.n_nights_in_semester, manager.n_quarters_in_night))
-    manager.allocation_map_2D_NQ = allocation_schedule
+    allocation_schedule_all = np.reshape(allocation_all, (manager.semester_length, manager.n_quarters_in_night))
+    manager.allocation_map_2D_NQ = allocation_schedule_all
     manager.allocation_remaining = allocation_remaining
 
     # Sample out future allocated nights to simulate weather loss based on empirical weather data.
