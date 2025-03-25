@@ -606,7 +606,7 @@ def generate_birds_eye(star_tracker, all_star_maps, all_star_cols, all_star_nobs
             name=stars_in_program[i],
             text=nobscounter,
             hovertemplate='<b>' + str(stars_in_program[i]) +
-                '</b><br><b>Date: %{y}</b><br><b>Slot: %{x}</b><br>Forecasted N_Obs: ' + \
+                '</b><br><b>Date: %{x}</b><br><b>Slot: %{y}</b><br>Forecasted N_Obs: ' + \
                 nobscounter[0] + '<extra></extra>',
             showlegend=True,
         ))
@@ -627,7 +627,7 @@ def generate_birds_eye(star_tracker, all_star_maps, all_star_cols, all_star_nobs
                 name=star_tracker.nonqueue['Starname'][i],
                 text=[str(nobs)],
                 hovertemplate='<b>' + str(star_tracker.nonqueue['Starname'][i]) +
-                    '</b><br><b>Date: %{y}</b><br><b>Slot: %{x}</b><br>Window: ' + \
+                    '</b><br><b>Date: %{x}</b><br><b>Slot: %{y}</b><br>Window: ' + \
                     str(starttime) + " to " + str(stoptime) + '<extra></extra>',
                 showlegend=True,
             ))
