@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 from astropy.time import Time
 from astropy.time import TimeDelta
+from configparser import ConfigParser
 
 from kpfcc import DATADIR
 import kpfcc.history as hs
@@ -22,160 +23,87 @@ class data_admin(object):
     """A Data Admin object, from which we can easily pass around information.
 
     Args:
-        - current_day (str) = the calendar date of the night to produce a script.
-                              Sets the "first" day of the semester from which to compute the
-                            semester schedule solution from this day forward. Format: YYYY-MM-DD.
-        - requests_file (str) = the path and file name to the CSV with all the PI requests.
-                                Confirm that column names are correct.
-        - allocation_file (str) = the path and file name to the binary map of allocated nights.
-        - accessibilities_file (str) = the path and file name to the pickle file containing a
-                                       dictionary of target names and associated pre-computed 1D
-                                       accessibility maps of length equal to n_slots_in_semester.
-        - twilight_file (str) = the path and file name to the CSV with precomputed twilight times.
-        - output_directory (str) = the path where all outputs of this function should be saved.
-                                    It is recommended that the path be outside the git repo.
-        - slot_size (int) = the time, in minutes, for a single slot.
-        - run_round_two (boolean) = when True, run the bonus round.
-                                    When False, do not run the bonus round.
-        - past_observations_file (str) = the path and file name of the CSV containing information
-                                         on all previous observations in the semester. If file
-                                         does not exist, then we are ignoring prior observations.
-        - semester_template_file (str) = the path and file name of the CSV containing the visual
-                                         template of the semester. For plotting purposes only.
-        - turn_off_on_file (str) = the path and file name of the CSV containing the pre-computed
-                                   first and last day of accessiblity for each target.
-                                   For plotting purposes only.
-        - nonqueue_map_file (str) = the path and file name of the CSV containining a grid of
-                                    n_nights_in_semester by n_slots_in_night elements where slots
-                                    reserved for non-queue observations are filled with target name.
-        - special_map_file (str) = the path and file name of the CSV containining a grid of
-                                    n_nights_in_semester by n_slots_in_night elements which contains
-                                    information on the custom set of slots a request can be
-                                    scheduled into for various reasons of the PI
-        - zero_out_file (str) = the path and file name of list of stars that cannot be scheduled
-                                tonight for any reason. Often this is empty.
-        - run_weather_loss (boolean) = if False, then no nights are lost to weather.
-        - run_optimal_allocation (boolean) = if True, then run in optimal allocation mode.
-        - include_aesthetic (boolean) = if True, then run optimal allocation with aesthetic constraints.
-        - max_quarters (int) = the maximum number of quarters that can be allocated in optimal allocation
-        - max_nights (int) = the maximum number of nights on sky that can be allocated in optimal allocation
-        - whiteout_file (str) = the path and filename to the list of whiteout dates.
-        - blackout_file (str) = the path and filename to the list of blackout dates.
-        - gurobi_output (boolean) = a flag to turn off or on the feature of Gurobi printing
-                                    to the terminal as it solves the model.
-        - plot_results (boolean) = a flag to turn off or on the plotting outputs.
-        - solve_time_limit (int) = the maximum time, in seconds, to allow Gurobi to solve the model.
+        - config_path (str) = the path and file name to the config.ini file.
+        - current_day (str) = the calendar date of the night to produce a script. Format: YYYY-MM-DD.
     Returns:
         None
     """
 
-    def __init__(self,
-                output_directory,
-                current_day,
-                observatory,
-                slot_size,
-                requests_file,
-                twilight_file,
-                past_observations_file,
-                allocation_file,
-                accessibilities_file,
-                special_map_file,
-                zero_out_file,
-                nonqueue_map_file,
-                nonqueue_file,
-                run_weather_loss,
-                run_optimal_allocation,
-                include_aesthetic,
-                max_quarters,
-                max_nights,
-                min_represented,
-                allow_single_quarters,
-                max_consecutive,
-                min_consecutive,
-                max_baseline,
-                whiteout_file,
-                blackout_file,
-                gurobi_output,
-                plot_results,
-                solve_time_limit,
-                solve_max_gap,
-                run_round_two,
-                max_bonus,
-                folder_forecasts,
-                folder_cadences,
-                turn_on_off_file,
-                starmap_template_filename,
-                future_forecast,
-                build_starmaps,
-                nightly_start_stop_times,
-                backup_file,
-                backup_observability_file,
-                ):
+    def __init__(self, config_path, current_day):
 
-        self.observatory = observatory
+        config = ConfigParser()
+        config.read(config_path + "config.ini")
+        upstream_path = eval(config.get('required', 'folder'), {"os": os})
+
         self.current_day = current_day
-        self.semester_directory = output_directory
-        self.output_directory = output_directory  + "outputs/" + str(self.current_day) + "/"
-        self.reports_directory = output_directory + 'reports/'
+        self.semester_directory = upstream_path
+        self.output_directory = upstream_path  + "outputs/" + str(self.current_day) + "/"
+        self.reports_directory = upstream_path + 'reports/'
+        self.observatory = config.get('required', 'observatory')
 
         # Suggest your output directory be something so that it doesn't autosave
         # to the same directory as the run files and crowds up the GitHub repo.
+        print("OUTPUTDIR: ", self.output_directory)
         check = os.path.isdir(self.output_directory)
         if not check:
             os.makedirs(self.output_directory)
         file = open(self.output_directory + "runReport.txt", "w") # later append to this file
         file.close()
 
-        self.slot_size = slot_size
+        self.slot_size = int(config.get('other', 'slot_size'))
         self.n_quarters_in_night = 4
         self.n_hours_in_night = 14
 
-        self.requests_frame = pd.read_csv(requests_file)
-        self.twilight_frame = pd.read_csv(twilight_file, parse_dates=True)
-        self.database_info_dict = hs.build_past_history(past_observations_file, self.requests_frame, self.twilight_frame)
+        self.requests_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/requests.csv"))
+        self.twilight_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/twilight_times.csv"), parse_dates=True)
+        self.past_database_file = os.path.join(self.semester_directory, "inputs/queryJumpDatabase.csv")
+        self.allocation_file = os.path.join(self.semester_directory, "inputs/allocation_schedule.txt")
+        self.accessibilities_file = os.path.join(self.semester_directory, "inputs/AccessMaps_" + str(self.slot_size) + "minSlots.txt")
+        self.special_map_file = os.path.join(self.semester_directory, "inputs/specialMaps_" + str(self.slot_size) + "minSlots.txt")
+        self.zero_out_file = os.path.join(self.semester_directory, "inputs/zero_out.csv")
+        self.nonqueue_map_file = os.path.join(self.semester_directory, "inputs//NonQueueMap"  + str(self.slot_size) + ".txt")
+        self.nonqueue_file = os.path.join(self.semester_directory, "inputs/NonQueueMap.csv")
+
+        self.database_info_dict = hs.build_past_history(self.past_database_file, self.requests_frame, self.twilight_frame)
         self.slots_needed_for_exposure_dict = self.build_slots_required_dictionary()
 
-        self.past_database_file = past_observations_file
-        self.allocation_file = allocation_file
-        self.accessibilities_file = accessibilities_file
-        self.special_map_file = special_map_file
-        self.zero_out_file = zero_out_file
-        self.nonqueue_map_file = nonqueue_map_file
-        self.nonqueue_file = nonqueue_file
+        self.run_weather_loss = bool(config.get('options', 'run_weather_loss'))
 
-        self.run_weather_loss = run_weather_loss
-
-        self.run_optimal_allocation = run_optimal_allocation
-        self.include_aesthetic = include_aesthetic
-        self.max_quarters = max_quarters
-        self.max_unique_nights = max_nights
-        self.min_represented = min_represented
-        self.whiteout_file = whiteout_file
-        self.blackout_file = blackout_file
-        self.allow_single_quarters = allow_single_quarters
-        self.max_consecutive = max_consecutive
-        self.min_consecutive = min_consecutive
-        self.max_baseline = max_baseline
+        self.run_optimal_allocation = bool(config.get('oia', 'run_optimal_allocation'))
+        self.include_aesthetic = config.get('oia', 'run_with_aesthetics')
+        self.max_quarters = int(config.get('oia', 'maximum_allocated_quarters'))
+        self.max_unique_nights = int(config.get('oia', 'maximum_allocated_nights'))
+        self.min_represented = 1
+        self.whiteout_file = os.path.join(self.semester_directory, "inputs/whiteout_dates.txt")
+        self.blackout_file = os.path.join(self.semester_directory, "inputs/blackout_dates.txt")
+        self.allow_single_quarters = config.get('oia', 'allow_single_quarter_allocations')
+        self.max_consecutive = int(config.get('oia', 'maximum_consecutive_onsky'))
+        self.min_consecutive = int(config.get('oia', 'minimum_consecutive_offsky'))
+        self.max_baseline = int(config.get('oia', 'maximum_baseline'))
 
         self.DATADIR = DATADIR
-        self.gurobi_output = gurobi_output
-        self.plot_results = plot_results
-        self.solve_time_limit = solve_time_limit
-        self.solve_max_gap = solve_max_gap
+        self.gurobi_output = bool(config.get('gurobi', 'show_gurobi_output'))
+        self.plot_results = bool(config.get('options', 'run_plots'))
+        self.run_plots = bool(config.get('options', 'run_plots'))
+        self.solve_time_limit = int(config.get('gurobi', 'max_solve_time'))
+        self.solve_max_gap = float(config.get('gurobi', 'max_solve_gap'))
 
-        self.run_round_two = run_round_two
-        self.max_bonus = max_bonus
+        self.run_scheduler = bool(config.get('options', 'run_scheduler'))
+        self.run_ttp = bool(config.get('options', 'run_ttp'))
+        self.run_round_two = config.get('options', 'run_bonus_round')
+        self.max_bonus = float(config.get('other', 'maximum_bonus_size'))
 
-        self.folder_forecasts = folder_forecasts
-        self.folder_cadences = folder_cadences
-        self.turn_on_off_file = turn_on_off_file
-        self.starmap_template_filename = starmap_template_filename
-        self.future_forecast = future_forecast
-        self.build_starmaps = build_starmaps
+        self.folder_forecasts = os.path.join(self.semester_directory, "/data/first_forecasts/")
+        self.folder_cadences = os.path.join(self.semester_directory, "/outputs/" + str(self.current_day) + "/cadences/")
+        self.turn_on_off_file = os.path.join(self.semester_directory, "inputs/turnOnOffDates.csv")
+        self.starmap_template_filename = os.path.join(self.semester_directory, "inputs/cadenceTemplateFile.csv")
+        self.future_forecast = os.path.join(self.semester_directory, "outputs/" + str(self.current_day) + "/raw_combined_semester_schedule_Round2.txt")
+        self.build_starmaps = bool(config.get('other', 'build_starmaps'))
 
-        self.nightly_start_stop_times = nightly_start_stop_times
-        self.backup_file = backup_file
-        self.backup_observability_file = backup_observability_file
+        self.nightly_start_stop_times = os.path.join(self.semester_directory, "inputs/NightlyStartStopTimes.csv")
+        self.run_backup_scripts = bool(config.get('other', 'generate_backup_script'))
+        self.backup_file = os.path.join(DATADIR,"bright_backups_frame.csv")
+        self.backup_observability_file = os.path.join(DATADIR,"bright_backup_observability.csv")
 
     def run_admin(self):
         """
