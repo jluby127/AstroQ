@@ -46,7 +46,7 @@ def run_kpfcc(manager):
     print("Building Gorubi model.")
     Aframe, Aset, schedulable_requests, Wset = cf.define_slot_index_frame(manager, available_indices_for_request)
 
-    Wset = [] # when commented out, we run the min/max visit logic. Later will change to be a command line flag.
+    #Wset = [] # when commented out, we run the min/max visit logic. Later will change to be a command line flag.
     model = cf.GorubiModel(manager, Aset, Aframe, schedulable_requests, Wset)
 
     model.constraint_one_request_per_slot()
@@ -55,7 +55,7 @@ def run_kpfcc(manager):
 
     if Wset != []: # note later set this as an argument in the command line to run or ignore
         model.constraint_set_max_desired_unique_nights_Wrd()
-        model.constraint_connect_Wrd_and_Yrds()
+        # model.constraint_connect_Wrd_and_Yrds()
         model.constraint_build_enforce_intranight_cadence()
         model.constraint_set_min_max_visits_per_night()
         model.constraint_build_theta_multivisit()

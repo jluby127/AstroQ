@@ -324,7 +324,7 @@ def convert_allocation_array_to_binary(manager):
         None
     """
     file = open(manager.output_directory + "optimal_allocation_binary_schedule.txt", 'w')
-    for i in range(len(manager.all_dates_array)):
+    for i in range(manager.today_starting_night, len(manager.all_dates_array)):
         line = manager.all_dates_array[i] + " : " + str(" ".join(map(str, manager.allocation_map_2D_NQ[i-manager.today_starting_night])))
         file.write(str(line) + "\n")
     file.close()
