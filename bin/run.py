@@ -21,11 +21,6 @@ parser.add_argument('-d','--today', help="Today's date, in format YYYY-MM-DD.", 
 parser.add_argument('-c','--config', help="Path to config.py file.", default = '/Users/jack/Desktop/')
 args = parser.parse_args()
 
-from configparser import ConfigParser
-config = ConfigParser()
-config.read(args.config + "config.ini")
-upstream_path = eval(config.get('required', 'folder'), {"os": os})
-
 manager = mn.data_admin(args.config, args.today)
 manager.run_admin()
 
@@ -33,7 +28,7 @@ if manager.run_scheduler:
     sc.run_kpfcc(manager)
 
 if manager.run_plots:
-    forecast_frame = pd.read_csv(os.path.join(upstream_path, "outputs/" + str(args.schedule_dates[0]) + "/raw_combined_semester_schedule_Round2.txt"))
+    forecast_frame = pd.read_csv(self.future_forecast)
     manager.combined_semester_schedule_stars = forecast_frame.values
     star_tracker = tk.StarTracker(manager)
 #    io.report_allocation_stats(manager)
