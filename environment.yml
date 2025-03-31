@@ -1,4 +1,4 @@
-name: kpfccenv
+# name: kpfccenv
 channels:
   - conda-forge
   - defaults
