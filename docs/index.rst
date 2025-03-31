@@ -2,7 +2,7 @@
 
    <br />
 
-AstroQ: |br| A Cool Subtitle 2
+AstroQ: |br| A New Subtitle 3
 ================================================
 
 Welcome to the documentation for ``AstroQ``, a Python package for
