@@ -1,0 +1,45 @@
+[
+  {
+    "calibration": {},
+    "schedule": {
+      "SchedulingMode": "Cadence",
+      "VisitsPerNight": 1,
+      "NightsPerSemester": 1,
+      "intraNightCadenceMin": 1,
+      "MinimumElevation": 30,
+      "MinimumMoonSeparation": 30,
+      "WeatherBand": 7
+    },
+    "target": {
+      "TargetName": "TBD",
+      "Epoch": 2000
+    },
+    "observation": {
+      "nExp": 1,
+      "ExpTime": 1,
+      "TriggerCaHK": true,
+      "TriggerGreen": true,
+      "TriggerRed": true,
+      "ExpMeterMode": "monitor",
+      "AutoExpMeter": true,
+      "ExpMeterExpTime": 1,
+      "ExpMeterThreshold": 50000,
+      "TakeSimulCal": true,
+      "AutoNDFilters": true,
+      "CalND1": "OD 0.1",
+      "CalND2": "OD 0.1",
+      "GuideHere": true
+    },
+    "metadata": {
+      "ObserverID": 0,
+      "ObserverName": "blank",
+      "Semid": "blank",
+      "Semester": "blank",
+      "Progid": "blank",
+      "Tags": [],
+      "Submitter": "blank",
+      "status": "SAVED",
+      "state": "OBSERVING_BLOCK_SAVED"
+    }
+  }
+]
