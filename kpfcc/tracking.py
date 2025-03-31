@@ -49,7 +49,10 @@ class StarTracker:
             self.past = pd.read_csv(self.manager.past_database_file)
         except:
             self.past = pd.DataFrame(columns=['star_id', 'utctime'])
-        self.nonqueue = pd.read_csv(self.manager.nonqueue_file)
+        try:
+            self.nonqueue = pd.read_csv(self.manager.nonqueue_file)
+        except:
+            self.nonqueue = pd.DataFrame(columns=['Starname','Start','Stop','ProgramID','Comment'])
         forecast_by_day = []
         with open(self.forecast, 'r') as file:
             for line in file:

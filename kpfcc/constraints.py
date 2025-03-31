@@ -173,7 +173,6 @@ class GorubiModel(object):
         # ballooned in size in terms of memory required to complete the merge. This is an equal shortcut.
         frame_holder = []
         for day in range(self.manager.n_nights_in_semester):
-            print(day)
             today_mask = self.Aframe.d==day
             frame_holder.append(pd.merge(self.Aframe[today_mask&requires_multislot]['r d s e'.split()] \
                 ,self.Aframe['r d s'.split()],on=['d'],suffixes=['','2']) \

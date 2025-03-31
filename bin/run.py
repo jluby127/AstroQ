@@ -8,7 +8,7 @@ import pandas as pd
 # The -3 cuts of the "bin/" of the path to this current file
 path2modules = os.path.dirname(os.path.abspath(__file__))[:-3]
 sys.path.append(path2modules)
-import kpfcc.management2 as mn
+import kpfcc.management as mn
 import kpfcc.schedule as sc
 import kpfcc.plot as pl
 import kpfcc.io as io
@@ -17,8 +17,8 @@ import kpfcc.tracking as tk
 from kpfcc import DATADIR
 
 parser = argparse.ArgumentParser(description='Generate schedules with KPF-CC')
-parser.add_argument('-d','--today', help="Today's date, in format YYYY-MM-DD.", default='2025-01-02')
-parser.add_argument('-c','--config', help="Path to config.py file.", default = '/Users/jack/Desktop/')
+parser.add_argument('-d','--today', help="Today's date, in format YYYY-MM-DD.")
+parser.add_argument('-c','--config', help="Path and filename of to config file.")
 args = parser.parse_args()
 
 manager = mn.data_admin(args.config, args.today)
@@ -28,7 +28,7 @@ if manager.run_scheduler:
     sc.run_kpfcc(manager)
 
 if manager.run_plots:
-    forecast_frame = pd.read_csv(self.future_forecast)
+    forecast_frame = pd.read_csv(manager.future_forecast)
     manager.combined_semester_schedule_stars = forecast_frame.values
     star_tracker = tk.StarTracker(manager)
 #    io.report_allocation_stats(manager)

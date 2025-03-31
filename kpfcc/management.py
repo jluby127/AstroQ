@@ -32,7 +32,7 @@ class data_admin(object):
     def __init__(self, config_path, current_day):
 
         config = ConfigParser()
-        config.read(config_path + "config.ini")
+        config.read(config_path)
         upstream_path = eval(config.get('required', 'folder'), {"os": os})
 
         self.current_day = current_day
@@ -43,7 +43,6 @@ class data_admin(object):
 
         # Suggest your output directory be something so that it doesn't autosave
         # to the same directory as the run files and crowds up the GitHub repo.
-        print("OUTPUTDIR: ", self.output_directory)
         check = os.path.isdir(self.output_directory)
         if not check:
             os.makedirs(self.output_directory)
@@ -54,7 +53,7 @@ class data_admin(object):
         self.n_quarters_in_night = 4
         self.n_hours_in_night = 14
 
-        self.requests_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/requests.csv"))
+        self.requests_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/Requests.csv"))
         self.twilight_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/twilight_times.csv"), parse_dates=True)
         self.past_database_file = os.path.join(self.semester_directory, "inputs/queryJumpDatabase.csv")
         self.allocation_file = os.path.join(self.semester_directory, "inputs/allocation_schedule.txt")
@@ -67,9 +66,9 @@ class data_admin(object):
         self.database_info_dict = hs.build_past_history(self.past_database_file, self.requests_frame, self.twilight_frame)
         self.slots_needed_for_exposure_dict = self.build_slots_required_dictionary()
 
-        self.run_weather_loss = bool(config.get('options', 'run_weather_loss'))
+        self.run_weather_loss = eval(config.get('options', 'run_weather_loss'))
 
-        self.run_optimal_allocation = bool(config.get('oia', 'run_optimal_allocation'))
+        self.run_optimal_allocation = eval(config.get('oia', 'run_optimal_allocation'))
         self.include_aesthetic = config.get('oia', 'run_with_aesthetics')
         self.max_quarters = int(config.get('oia', 'maximum_allocated_quarters'))
         self.max_unique_nights = int(config.get('oia', 'maximum_allocated_nights'))
@@ -82,14 +81,14 @@ class data_admin(object):
         self.max_baseline = int(config.get('oia', 'maximum_baseline'))
 
         self.DATADIR = DATADIR
-        self.gurobi_output = bool(config.get('gurobi', 'show_gurobi_output'))
-        self.plot_results = bool(config.get('options', 'run_plots'))
-        self.run_plots = bool(config.get('options', 'run_plots'))
+        self.gurobi_output = eval(config.get('gurobi', 'show_gurobi_output'))
+        self.plot_results = eval(config.get('options', 'run_plots'))
+        self.run_plots = eval(config.get('options', 'run_plots'))
         self.solve_time_limit = int(config.get('gurobi', 'max_solve_time'))
         self.solve_max_gap = float(config.get('gurobi', 'max_solve_gap'))
 
-        self.run_scheduler = bool(config.get('options', 'run_scheduler'))
-        self.run_ttp = bool(config.get('options', 'run_ttp'))
+        self.run_scheduler = eval(config.get('options', 'run_scheduler'))
+        self.run_ttp = eval(config.get('options', 'run_ttp'))
         self.run_round_two = config.get('options', 'run_bonus_round')
         self.max_bonus = float(config.get('other', 'maximum_bonus_size'))
 
@@ -98,10 +97,10 @@ class data_admin(object):
         self.turn_on_off_file = os.path.join(self.semester_directory, "inputs/turnOnOffDates.csv")
         self.starmap_template_filename = os.path.join(self.semester_directory, "inputs/cadenceTemplateFile.csv")
         self.future_forecast = os.path.join(self.semester_directory, "outputs/" + str(self.current_day) + "/raw_combined_semester_schedule_Round2.txt")
-        self.build_starmaps = bool(config.get('other', 'build_starmaps'))
+        self.build_starmaps = eval(config.get('other', 'build_starmaps'))
 
         self.nightly_start_stop_times = os.path.join(self.semester_directory, "inputs/NightlyStartStopTimes.csv")
-        self.run_backup_scripts = bool(config.get('other', 'generate_backup_script'))
+        self.run_backup_scripts = eval(config.get('other', 'generate_backup_script'))
         self.backup_file = os.path.join(DATADIR,"bright_backups_frame.csv")
         self.backup_observability_file = os.path.join(DATADIR,"bright_backup_observability.csv")
 
