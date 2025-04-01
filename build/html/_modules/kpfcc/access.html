@@ -1,0 +1,651 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>kpfcc.access &mdash; AstroQ_docs 1.0.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=92fd9be5" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=8d563738"></script>
+      <script src="../../_static/doctools.js?v=9a2dae69"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            AstroQ_docs
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../kpfcc.html">kpfcc package</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">AstroQ_docs</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">kpfcc.access</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for kpfcc.access</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Module for computing acccessibility of requests, including from telescope pointing and twilight</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">json</span>
+<span class="kn">import</span> <span class="nn">os</span>
+
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
+<span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="k">as</span> <span class="nn">pt</span>
+
+<span class="kn">from</span> <span class="nn">astropy.time</span> <span class="kn">import</span> <span class="n">Time</span>
+<span class="kn">from</span> <span class="nn">astropy.time</span> <span class="kn">import</span> <span class="n">TimeDelta</span>
+<span class="kn">import</span> <span class="nn">astropy</span> <span class="k">as</span> <span class="nn">apy</span>
+<span class="kn">import</span> <span class="nn">astropy.units</span> <span class="k">as</span> <span class="nn">u</span>
+<span class="kn">import</span> <span class="nn">astroplan</span> <span class="k">as</span> <span class="nn">apl</span>
+
+<div class="viewcode-block" id="construct_access_dict">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.construct_access_dict">[docs]</a>
+<span class="k">def</span> <span class="nf">construct_access_dict</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Define the dictionary of accessibility maps</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        manager (obj): a data_admin object</span>
+<span class="sd">    Returns:</span>
+<span class="sd">        default_access_maps (dictionary): keys are the starnames and values are the 1D access maps</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Reading pre-computed accessibility maps.&quot;</span><span class="p">)</span>
+    <span class="n">rewrite_flag</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">default_access_maps</span> <span class="o">=</span> <span class="n">read_accessibilty_map_dict</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">accessibilities_file</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">n</span><span class="p">,</span><span class="n">row</span> <span class="ow">in</span> <span class="n">manager</span><span class="o">.</span><span class="n">requests_frame</span><span class="o">.</span><span class="n">iterrows</span><span class="p">():</span>
+        <span class="n">name</span> <span class="o">=</span> <span class="n">row</span><span class="p">[</span><span class="s1">&#39;Starname&#39;</span><span class="p">]</span>
+        <span class="c1"># check that this target has a pre-computed accessibility map,</span>
+        <span class="c1"># if not, make one and add it to the file</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">try_read</span> <span class="o">=</span> <span class="n">default_access_maps</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="nb">print</span><span class="p">(</span><span class="n">name</span> <span class="o">+</span> <span class="s2">&quot; not found in precomputed accessibilty maps. Running now.&quot;</span><span class="p">)</span>
+            <span class="c1"># Note: the -1 is to account for python indexing</span>
+            <span class="n">new_written_access_map</span> <span class="o">=</span> <span class="n">build_single_target_accessibility</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">row</span><span class="p">[</span><span class="s1">&#39;RA&#39;</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s1">&#39;Dec&#39;</span><span class="p">],</span>
+                                               <span class="n">manager</span><span class="o">.</span><span class="n">semester_start_date</span><span class="p">,</span> <span class="n">manager</span><span class="o">.</span><span class="n">semester_length</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span>
+                                               <span class="n">manager</span><span class="o">.</span><span class="n">slot_size</span><span class="p">,</span> <span class="n">manager</span><span class="o">.</span><span class="n">observatory</span><span class="p">)</span>
+            <span class="n">default_access_maps</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">new_written_access_map</span><span class="p">)</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
+            <span class="n">rewrite_flag</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="k">if</span> <span class="n">rewrite_flag</span><span class="p">:</span>
+        <span class="c1"># overwrite with the updated file</span>
+        <span class="n">write_accessibilty_map_dict</span><span class="p">(</span><span class="n">default_access_maps</span><span class="p">,</span> <span class="n">manager</span><span class="o">.</span><span class="n">accessibilities_file</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">default_access_maps</span></div>
+
+
+<div class="viewcode-block" id="single_night_allocated_slots">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.single_night_allocated_slots">[docs]</a>
+<span class="k">def</span> <span class="nf">single_night_allocated_slots</span><span class="p">(</span><span class="n">allocated_quarters_tonight</span><span class="p">,</span> <span class="n">available_slots_in_night</span><span class="p">,</span>
+                                <span class="n">n_slots_in_night</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Determine the slots of a single night that are allocated.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        allocated_quarters_tonight (array): a 1D array of length n_quarters_in_night,</span>
+<span class="sd">                                [Q1, Q2, Q3, Q4] where binary elements indicate allocation.</span>
+<span class="sd">        available_slots_in_night (array): a 1D array of length n_nights_in_semester where each</span>
+<span class="sd">                              element is an integer representing the number of slots within that</span>
+<span class="sd">                              night that during night time</span>
+<span class="sd">        n_slots_in_night (int): the number of slots in a single night</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        allocated_slots_tonight (array): a 1D array of length n_slots_in_night</span>
+<span class="sd">                        where 1&#39;s are the allocated slots that on night n and 0&#39;s are not allocated</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">available_slots_in_tonights_quarter</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">available_slots_in_night</span><span class="o">/</span><span class="mi">4</span><span class="p">)</span>
+    <span class="n">edge</span> <span class="o">=</span> <span class="nb">int</span><span class="p">((</span><span class="n">n_slots_in_night</span> <span class="o">-</span> <span class="n">available_slots_in_night</span><span class="p">)</span><span class="o">/</span><span class="mi">2</span><span class="p">)</span>
+
+    <span class="n">allocated_slots_tonight</span> <span class="o">=</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">*</span><span class="n">n_slots_in_night</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">item</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">allocated_quarters_tonight</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">allocated_quarters_tonight</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">start</span> <span class="o">=</span> <span class="n">edge</span> <span class="o">+</span> <span class="n">i</span><span class="o">*</span><span class="nb">int</span><span class="p">(</span><span class="n">available_slots_in_tonights_quarter</span><span class="p">)</span>
+            <span class="n">stop</span> <span class="o">=</span> <span class="n">start</span> <span class="o">+</span> <span class="nb">int</span><span class="p">(</span><span class="n">available_slots_in_tonights_quarter</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">i</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span> <span class="c1"># ensure allocation goes to up to twilight time at the end of the night.</span>
+                <span class="n">stop</span> <span class="o">=</span> <span class="n">n_slots_in_night</span> <span class="o">-</span> <span class="n">edge</span>
+            <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">start</span><span class="p">,</span> <span class="n">stop</span><span class="p">):</span>
+                <span class="n">allocated_slots_tonight</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">start</span> <span class="o">=</span> <span class="n">edge</span> <span class="o">+</span> <span class="n">i</span><span class="o">*</span><span class="n">available_slots_in_tonights_quarter</span>
+            <span class="n">stop</span> <span class="o">=</span> <span class="n">start</span> <span class="o">+</span> <span class="n">available_slots_in_tonights_quarter</span>
+            <span class="k">if</span> <span class="n">i</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span> <span class="c1"># prevent the last slot from being scheduled (one too many)</span>
+                <span class="n">stop</span> <span class="o">-=</span> <span class="mi">1</span>
+            <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">start</span><span class="p">,</span> <span class="n">stop</span><span class="p">):</span>
+                <span class="n">allocated_slots_tonight</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">return</span> <span class="n">allocated_slots_tonight</span></div>
+
+
+<div class="viewcode-block" id="write_accessibilty_map_dict">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.write_accessibilty_map_dict">[docs]</a>
+<span class="k">def</span> <span class="nf">write_accessibilty_map_dict</span><span class="p">(</span><span class="n">access_dict</span><span class="p">,</span> <span class="n">filename</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Write entries to the accessbility map dictionary</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        access_dict (dict): the pre-generated accessibility map dictionary. Keys are target names,</span>
+<span class="sd">                            values are 1D arrays of length n_slots_in_semester indicating if a</span>
+<span class="sd">                            target is accessible (1) or inaccessible (0) due to default telescope</span>
+<span class="sd">                            pointing limits, seasonal rise/set, and moon-safe distance.</span>
+<span class="sd">        filename (str): the name of the file to re-save the updated dicationary.</span>
+<span class="sd">                        Best to match the original name and overwrite.</span>
+<span class="sd">    Returns:</span>
+<span class="sd">        None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">starnames</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">access_dict</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+    <span class="n">string_access_dict</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">s</span><span class="p">,</span> <span class="n">item</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">starnames</span><span class="p">):</span>
+        <span class="n">flat_access_map</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">access_dict</span><span class="p">[</span><span class="n">starnames</span><span class="p">[</span><span class="n">s</span><span class="p">]])</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
+        <span class="c1"># because you can&#39;t json serialize an array/list or integers</span>
+        <span class="c1"># must create a string &quot;list&quot;. Later decode it back to a real array</span>
+        <span class="n">stringmap</span> <span class="o">=</span> <span class="s1">&#39;[&#39;</span>
+        <span class="k">for</span> <span class="n">e</span><span class="p">,</span> <span class="n">itme</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">flat_access_map</span><span class="p">):</span>
+            <span class="n">stringmap</span> <span class="o">+=</span> <span class="nb">str</span><span class="p">(</span><span class="n">flat_access_map</span><span class="p">[</span><span class="n">e</span><span class="p">])</span> <span class="o">+</span> <span class="s1">&#39;,&#39;</span>
+        <span class="n">stringmap</span> <span class="o">+=</span> <span class="s1">&#39;]&#39;</span>
+        <span class="n">string_access_dict</span><span class="p">[</span><span class="n">starnames</span><span class="p">[</span><span class="n">s</span><span class="p">]]</span> <span class="o">=</span> <span class="n">stringmap</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">filename</span><span class="p">,</span> <span class="s1">&#39;w&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">convert_file</span><span class="p">:</span>
+        <span class="n">convert_file</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">string_access_dict</span><span class="p">))</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;All star accessibility maps written to txt file: &quot;</span><span class="p">,</span> <span class="n">filename</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="read_accessibilty_map_dict">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.read_accessibilty_map_dict">[docs]</a>
+<span class="k">def</span> <span class="nf">read_accessibilty_map_dict</span><span class="p">(</span><span class="n">filename</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Read the accessibilty maps for each target from pre-written file. Must reformat the data to</span>
+<span class="sd">    array because the array is technically saved as a string.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        filename (str): filename where the saved dictionary is stored.</span>
+<span class="sd">    Returns:</span>
+<span class="sd">        access_dict (dict): A dictionary where keys are target names, values are 1D arrays of</span>
+<span class="sd">                            length n_slots_in_semester indicating if a target is accessible (1)</span>
+<span class="sd">                            or inaccessible (0) due to default telescope pointing limits, seasonal</span>
+<span class="sd">                            rise/set, and moon-safe distance.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">filename</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">f</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+    <span class="c1"># reconstruct the data as a dictionary</span>
+    <span class="n">js</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">data</span><span class="p">)</span>
+    <span class="n">access_dict</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="n">starnames</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">js</span><span class="o">.</span><span class="n">keys</span><span class="p">())</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">item</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">starnames</span><span class="p">):</span>
+        <span class="n">reformat</span> <span class="o">=</span> <span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">js</span><span class="p">[</span><span class="n">starnames</span><span class="p">[</span><span class="n">i</span><span class="p">]][</span><span class="mi">1</span><span class="p">:</span><span class="o">-</span><span class="mi">2</span><span class="p">]</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;,&#39;</span><span class="p">)]</span>
+        <span class="n">access_dict</span><span class="p">[</span><span class="n">starnames</span><span class="p">[</span><span class="n">i</span><span class="p">]]</span> <span class="o">=</span> <span class="n">reformat</span>
+    <span class="k">return</span> <span class="n">access_dict</span></div>
+
+
+
+<div class="viewcode-block" id="build_single_target_accessibility">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.build_single_target_accessibility">[docs]</a>
+<span class="k">def</span> <span class="nf">build_single_target_accessibility</span><span class="p">(</span><span class="n">starname</span><span class="p">,</span> <span class="n">ra</span><span class="p">,</span> <span class="n">dec</span><span class="p">,</span> <span class="n">start_date</span><span class="p">,</span> <span class="n">n_nights_in_semester</span><span class="p">,</span>
+                                      <span class="n">slot_size</span><span class="p">,</span> <span class="n">observatory</span><span class="p">,</span> <span class="n">compute_turn_on_off</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Compute a target&#39;s accessibility map for the entire semester</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        starname (str): the name of the star (simbad resolvable)</span>
+<span class="sd">        ra (str): the right ascension in hour angle degrees (ie. 14.33)</span>
+<span class="sd">        dec (str): the declination in degrees (ie. +75.2)</span>
+<span class="sd">        start_date (str): the calendar date to begin the calculation from (format is Astropy isot)</span>
+<span class="sd">        n_nights_in_semester (str): the number of calendar nights remaining in the current semester</span>
+<span class="sd">        slot_size (int): the size of the slots in minutes</span>
+<span class="sd">        observatory (str): the Astropy and Astroplan resolvable name for an observatory</span>
+<span class="sd">        compute_turn_on_off (boolean): a flag to determine whether or not to compute</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        target_accessibility (array): a 1D array of length n_slots_in_semester where 1 indicates</span>
+<span class="sd">                                     the target is accessible in that slot and 0 otherwise.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">coords</span> <span class="o">=</span> <span class="n">apy</span><span class="o">.</span><span class="n">coordinates</span><span class="o">.</span><span class="n">SkyCoord</span><span class="p">(</span><span class="n">ra</span> <span class="o">*</span> <span class="n">u</span><span class="o">.</span><span class="n">deg</span><span class="p">,</span> <span class="n">dec</span> <span class="o">*</span> <span class="n">u</span><span class="o">.</span><span class="n">deg</span><span class="p">,</span> <span class="n">frame</span><span class="o">=</span><span class="s1">&#39;icrs&#39;</span><span class="p">)</span>
+    <span class="n">target</span> <span class="o">=</span> <span class="n">apl</span><span class="o">.</span><span class="n">FixedTarget</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">starname</span><span class="p">,</span> <span class="n">coord</span><span class="o">=</span><span class="n">coords</span><span class="p">)</span>
+
+    <span class="n">date_formal</span> <span class="o">=</span> <span class="n">Time</span><span class="p">(</span><span class="n">start_date</span><span class="p">,</span><span class="nb">format</span><span class="o">=</span><span class="s1">&#39;iso&#39;</span><span class="p">,</span><span class="n">scale</span><span class="o">=</span><span class="s1">&#39;utc&#39;</span><span class="p">)</span>
+    <span class="n">date</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">date_formal</span><span class="p">)[:</span><span class="mi">10</span><span class="p">]</span>
+    <span class="n">target_accessibility</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">quarter_map</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_nights_in_semester</span><span class="p">):</span>
+        <span class="n">tonights_access</span> <span class="o">=</span> <span class="n">is_observable</span><span class="p">(</span><span class="n">observatory</span><span class="p">,</span> <span class="n">date</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">slot_size</span><span class="p">)</span>
+        <span class="n">target_accessibility</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">tonights_access</span><span class="p">)</span>
+        <span class="n">date_formal</span> <span class="o">+=</span> <span class="n">TimeDelta</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="nb">format</span><span class="o">=</span><span class="s1">&#39;jd&#39;</span><span class="p">)</span>
+        <span class="n">date</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">date_formal</span><span class="p">)[:</span><span class="mi">10</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">compute_turn_on_off</span><span class="p">:</span>
+            <span class="n">quarter_map</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">quarters_observable</span><span class="p">(</span><span class="n">tonights_access</span><span class="p">))</span>
+
+    <span class="k">if</span> <span class="n">compute_turn_on_off</span><span class="p">:</span>
+        <span class="c1"># compute the first and last calendar date that the target is at all accessibile.</span>
+        <span class="c1"># do so for each quarter of the night independently.</span>
+        <span class="n">turns</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">q</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">4</span><span class="p">):</span>
+            <span class="n">on_off</span> <span class="o">=</span> <span class="n">compute_on_off_for_quarter</span><span class="p">(</span><span class="n">quarter_map</span><span class="p">,</span> <span class="n">q</span><span class="p">)</span>
+            <span class="n">turns</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">on_off</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">target_accessibility</span><span class="p">,</span> <span class="n">turns</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">target_accessibility</span></div>
+
+
+<div class="viewcode-block" id="is_observable">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.is_observable">[docs]</a>
+<span class="k">def</span> <span class="nf">is_observable</span><span class="p">(</span><span class="n">observatory</span><span class="p">,</span> <span class="n">date</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">slot_size</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Compute a target&#39;s accessibility map on a given date, taking into account the</span>
+<span class="sd">    telescope pointing limits and moon-safe distance at the beginning of every slot.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        observatory (str): the Astropy and Astroplan resolvable name for an observatory</span>
+<span class="sd">        date (str): the calendar date to compute accessibilty in format &#39;YYYY-MM-DD&#39;</span>
+<span class="sd">        target (str): an astroplan FixedTarget object</span>
+<span class="sd">        slot_size (int): the size of the slots in minutes</span>
+<span class="sd">    Returns:</span>
+<span class="sd">        observability_matrix (array): a 1D array of length n_slots_in_night where 1 indicates the</span>
+<span class="sd">                                      target is accessible in that slot and 0 otherwise.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># Can&#39;t observe too close to zenith</span>
+    <span class="n">max_alt</span> <span class="o">=</span> <span class="n">pointing_limits</span><span class="p">[</span><span class="n">observatory</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+    <span class="c1"># Naysmith deck azimuth direction limits</span>
+    <span class="n">min_az</span> <span class="o">=</span> <span class="n">pointing_limits</span><span class="p">[</span><span class="n">observatory</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span>
+    <span class="n">max_az</span> <span class="o">=</span> <span class="n">pointing_limits</span><span class="p">[</span><span class="n">observatory</span><span class="p">][</span><span class="mi">2</span><span class="p">]</span>
+    <span class="c1"># Naysmith deck</span>
+    <span class="n">min_alt</span> <span class="o">=</span> <span class="n">pointing_limits</span><span class="p">[</span><span class="n">observatory</span><span class="p">][</span><span class="mi">3</span><span class="p">]</span>
+    <span class="c1">#non-Naysmith deck minimum elevation</span>
+    <span class="n">else_min_alt</span> <span class="o">=</span> <span class="n">pointing_limits</span><span class="p">[</span><span class="n">observatory</span><span class="p">][</span><span class="mi">4</span><span class="p">]</span>
+    <span class="c1"># Prefer to observe at least 30 degree altitude if they are not too far north/south</span>
+    <span class="n">else_min_alt_alt</span> <span class="o">=</span> <span class="n">pointing_limits</span><span class="p">[</span><span class="n">observatory</span><span class="p">][</span><span class="mi">5</span><span class="p">]</span>
+    <span class="n">max_north</span> <span class="o">=</span> <span class="n">pointing_limits</span><span class="p">[</span><span class="n">observatory</span><span class="p">][</span><span class="mi">6</span><span class="p">]</span>
+    <span class="n">max_south</span> <span class="o">=</span> <span class="n">pointing_limits</span><span class="p">[</span><span class="n">observatory</span><span class="p">][</span><span class="mi">7</span><span class="p">]</span>
+
+    <span class="c1"># This is ~20 min before earliest sunset of the year in Hawaii</span>
+    <span class="c1"># And ~20 min after the latest sunrise of the year in Hawaii</span>
+    <span class="c1"># Both are UTC time zone.</span>
+    <span class="n">start</span> <span class="o">=</span> <span class="n">date</span> <span class="o">+</span> <span class="n">pre_sunset</span><span class="p">[</span><span class="n">locations</span><span class="p">[</span><span class="n">observatory</span><span class="p">]]</span><span class="c1"># &quot;T03:30:00&quot;</span>
+    <span class="n">daily_start</span> <span class="o">=</span> <span class="n">Time</span><span class="p">(</span><span class="n">start</span><span class="p">)</span>
+    <span class="n">end</span> <span class="o">=</span> <span class="n">date</span> <span class="o">+</span> <span class="n">post_sunrise</span><span class="p">[</span><span class="n">locations</span><span class="p">[</span><span class="n">observatory</span><span class="p">]]</span> <span class="c1">#&quot;T17:30:00&quot;</span>
+    <span class="n">daily_end</span> <span class="o">=</span> <span class="n">Time</span><span class="p">(</span><span class="n">end</span><span class="p">)</span>
+    <span class="n">slot_size</span> <span class="o">=</span> <span class="n">TimeDelta</span><span class="p">(</span><span class="n">slot_size</span><span class="o">*</span><span class="mf">60.</span><span class="p">,</span><span class="nb">format</span><span class="o">=</span><span class="s1">&#39;sec&#39;</span><span class="p">)</span>
+    <span class="n">t</span> <span class="o">=</span> <span class="n">Time</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">daily_start</span><span class="o">.</span><span class="n">jd</span><span class="p">,</span> <span class="n">daily_end</span><span class="o">.</span><span class="n">jd</span><span class="p">,</span> <span class="n">slot_size</span><span class="o">.</span><span class="n">jd</span><span class="p">),</span><span class="nb">format</span><span class="o">=</span><span class="s1">&#39;jd&#39;</span><span class="p">)</span>
+
+    <span class="n">keck</span> <span class="o">=</span> <span class="n">apl</span><span class="o">.</span><span class="n">Observer</span><span class="o">.</span><span class="n">at_site</span><span class="p">(</span><span class="n">observatory</span><span class="p">)</span>
+    <span class="n">altaz_coordinates</span> <span class="o">=</span> <span class="n">keck</span><span class="o">.</span><span class="n">altaz</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">grid_times_targets</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="n">keckapy</span> <span class="o">=</span> <span class="n">apy</span><span class="o">.</span><span class="n">coordinates</span><span class="o">.</span><span class="n">EarthLocation</span><span class="o">.</span><span class="n">of_site</span><span class="p">(</span><span class="n">observatory</span><span class="p">)</span>
+    <span class="n">moon</span> <span class="o">=</span> <span class="n">apy</span><span class="o">.</span><span class="n">coordinates</span><span class="o">.</span><span class="n">get_moon</span><span class="p">(</span><span class="n">Time</span><span class="p">(</span><span class="n">t</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">t</span><span class="p">)</span><span class="o">/</span><span class="mi">2</span><span class="p">)],</span><span class="nb">format</span><span class="o">=</span><span class="s1">&#39;jd&#39;</span><span class="p">),</span> <span class="n">keckapy</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">moon_safe</span><span class="p">(</span><span class="n">moon</span><span class="p">,</span> <span class="p">(</span><span class="n">target</span><span class="o">.</span><span class="n">ra</span><span class="o">.</span><span class="n">rad</span><span class="p">,</span> <span class="n">target</span><span class="o">.</span><span class="n">dec</span><span class="o">.</span><span class="n">rad</span><span class="p">)):</span>
+        <span class="n">observability_matrix</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">item</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">altaz_coordinates</span><span class="p">):</span>
+            <span class="n">alt</span><span class="o">=</span><span class="n">altaz_coordinates</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">alt</span><span class="o">.</span><span class="n">deg</span>
+            <span class="n">az</span><span class="o">=</span><span class="n">altaz_coordinates</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">az</span><span class="o">.</span><span class="n">deg</span>
+            <span class="n">deck</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">((</span><span class="n">az</span> <span class="o">&gt;=</span> <span class="n">min_az</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">az</span> <span class="o">&lt;=</span> <span class="n">max_az</span><span class="p">))</span>
+            <span class="n">deck_height</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">((</span><span class="n">alt</span> <span class="o">&lt;=</span> <span class="n">max_alt</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">alt</span> <span class="o">&gt;=</span> <span class="n">min_alt</span><span class="p">))</span>
+            <span class="n">first</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">intersect1d</span><span class="p">(</span><span class="n">deck</span><span class="p">,</span><span class="n">deck_height</span><span class="p">)</span>
+
+            <span class="n">not_deck_1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">((</span><span class="n">az</span> <span class="o">&lt;</span> <span class="n">min_az</span><span class="p">))</span>
+            <span class="n">not_deck_2</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">((</span><span class="n">az</span> <span class="o">&gt;</span> <span class="n">max_az</span><span class="p">))</span>
+
+            <span class="c1"># for targets sufficiently north or south in declination, allow access map to compute</span>
+            <span class="c1"># any time they are above telescope pointing limits as OK. For more equitorial targets,</span>
+            <span class="c1"># require that they be above the preferred minimum elevation.</span>
+            <span class="k">if</span> <span class="n">target</span><span class="o">.</span><span class="n">dec</span><span class="o">.</span><span class="n">deg</span> <span class="o">&gt;</span> <span class="n">max_north</span> <span class="ow">or</span> <span class="n">target</span><span class="o">.</span><span class="n">dec</span><span class="o">.</span><span class="n">deg</span> <span class="o">&lt;</span> <span class="n">max_south</span><span class="p">:</span>
+                <span class="n">not_deck_height</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">((</span><span class="n">alt</span> <span class="o">&lt;=</span> <span class="n">max_alt</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">alt</span> <span class="o">&gt;=</span> <span class="n">else_min_alt</span><span class="p">))</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">not_deck_height</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">((</span><span class="n">alt</span> <span class="o">&lt;=</span> <span class="n">max_alt</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">alt</span> <span class="o">&gt;=</span> <span class="n">else_min_alt_alt</span><span class="p">))</span>
+
+            <span class="n">second</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">intersect1d</span><span class="p">(</span><span class="n">not_deck_1</span><span class="p">,</span><span class="n">not_deck_height</span><span class="p">)</span>
+            <span class="n">third</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">intersect1d</span><span class="p">(</span><span class="n">not_deck_2</span><span class="p">,</span><span class="n">not_deck_height</span><span class="p">)</span>
+
+            <span class="n">good</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">((</span><span class="n">first</span><span class="p">,</span><span class="n">second</span><span class="p">,</span><span class="n">third</span><span class="p">))</span>
+
+            <span class="n">observability_matrix</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">t</span><span class="p">),</span><span class="n">dtype</span><span class="o">=</span><span class="nb">int</span><span class="p">)</span>
+            <span class="n">observability_matrix</span><span class="p">[</span><span class="n">good</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">observability_matrix</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">t</span><span class="p">),</span><span class="n">dtype</span><span class="o">=</span><span class="nb">int</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">observability_matrix</span></div>
+
+
+<div class="viewcode-block" id="moon_safe">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.moon_safe">[docs]</a>
+<span class="k">def</span> <span class="nf">moon_safe</span><span class="p">(</span><span class="n">moon</span><span class="p">,</span> <span class="n">target_tuple</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Check that a coordinate is not too close to the moon.</span>
+<span class="sd">    Returns true if target is sufficiently far from the moon to allow for observations.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        moon (str): a &quot;moon object&quot; from Astropy</span>
+<span class="sd">        target_tuple (tuple): the RA and Dec of a target star in hourangle and degrees format</span>
+<span class="sd">    Returns:</span>
+<span class="sd">        Unnamed boolean</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">ang_dist</span> <span class="o">=</span> <span class="n">apy</span><span class="o">.</span><span class="n">coordinates</span><span class="o">.</span><span class="n">angular_separation</span><span class="p">(</span><span class="n">moon</span><span class="o">.</span><span class="n">ra</span><span class="o">.</span><span class="n">rad</span><span class="p">,</span> <span class="n">moon</span><span class="o">.</span><span class="n">dec</span><span class="o">.</span><span class="n">rad</span><span class="p">,</span>
+                                                    <span class="n">target_tuple</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">target_tuple</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
+    <span class="k">if</span> <span class="n">ang_dist</span><span class="o">*</span><span class="mi">180</span><span class="o">/</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">30</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">True</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span></div>
+
+
+<div class="viewcode-block" id="get_accessibility_stats">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.get_accessibility_stats">[docs]</a>
+<span class="k">def</span> <span class="nf">get_accessibility_stats</span><span class="p">(</span><span class="n">access_map</span><span class="p">,</span> <span class="n">time_up</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span> <span class="n">slot_size</span><span class="o">=</span><span class="mi">5</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Compute stats useful for checking feasibilty and for generating the cadence plot of a target</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        access_map (array): a 2D array of shape n_nights_in_semester by n_slots_in_night where 1&#39;s</span>
+<span class="sd">                            indicate the target is accessible</span>
+<span class="sd">        time_up (int): the minimum number of minutes a target must be accessible in the night to be</span>
+<span class="sd">                       considered observable in that night</span>
+<span class="sd">        slot_size (int): the size of the slots in minutes</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        days_observable (int): the number of days in the semester where the target achieves a</span>
+<span class="sd">                               minimum level of observablility</span>
+<span class="sd">        rise_day (int): the number of days from semester start where the target is first available</span>
+<span class="sd">        set_day (int): the number of days from semester start where the target is last available</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">sum_along_days</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">access_map</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">gridpoints</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">time_up</span><span class="o">/</span><span class="n">slot_size</span><span class="p">)</span>
+    <span class="n">observable_mask</span> <span class="o">=</span> <span class="n">sum_along_days</span> <span class="o">&gt;</span> <span class="n">gridpoints</span>
+    <span class="n">days_observable</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">observable_mask</span><span class="p">)</span>
+
+    <span class="n">rise_day</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+    <span class="n">i</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">while</span> <span class="n">rise_day</span> <span class="o">&lt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="n">sum_along_days</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">sum_along_days</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">gridpoints</span><span class="p">:</span>
+            <span class="n">rise_day</span> <span class="o">=</span> <span class="n">i</span>
+        <span class="n">i</span> <span class="o">+=</span> <span class="mi">1</span>
+    <span class="k">if</span> <span class="n">i</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">sum_along_days</span><span class="p">):</span>
+        <span class="n">rise_day</span> <span class="o">=</span> <span class="n">i</span>
+
+    <span class="n">set_day</span> <span class="o">=</span> <span class="o">-</span><span class="mi">1</span>
+    <span class="n">j</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">sum_along_days</span><span class="p">)</span><span class="o">-</span><span class="mi">1</span>
+    <span class="k">while</span> <span class="n">set_day</span> <span class="o">&lt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">j</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">sum_along_days</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">&gt;</span> <span class="n">gridpoints</span><span class="p">:</span>
+            <span class="n">set_day</span> <span class="o">=</span> <span class="n">j</span>
+        <span class="n">j</span> <span class="o">-=</span> <span class="mi">1</span>
+    <span class="k">if</span> <span class="n">j</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="n">sum_along_days</span><span class="p">):</span>
+        <span class="n">set_day</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">sum_along_days</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">days_observable</span><span class="p">,</span> <span class="n">rise_day</span><span class="p">,</span> <span class="n">set_day</span></div>
+
+
+
+<div class="viewcode-block" id="construct_twilight_map">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.construct_twilight_map">[docs]</a>
+<span class="k">def</span> <span class="nf">construct_twilight_map</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Compute the number of slots per night available, based on strictly twilight times</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        current_day (str): today&#39;s date, format YYYY-MM-DD</span>
+<span class="sd">        twilight_frame (dataframe): the pandas dataframe containing twilight information</span>
+<span class="sd">        slot_size (int): the size of a single slot, in minutes</span>
+<span class="sd">        all_dates_dict (dictionary): keys are calendar days, values are day of the semester</span>
+<span class="sd">        n_slots_in_night (int): the number of slots in single night, regardless of twilight</span>
+<span class="sd">        n_nights_in_semester (int): the number of nigths remaining in the semester</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        twilight_map_remaining_flat (array): a 1D array where elements are 1 or 0 based if outside or inside of twilight time</span>
+<span class="sd">        twilight_map_remaining_2D (array): a 2D version of the same information</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Determine available slots in each night.&quot;</span><span class="p">)</span>
+    <span class="c1"># available_slots_in_each_night is a 1D matrix of length nights n</span>
+    <span class="c1"># This is not a gorubi variable, but a regular python variable</span>
+    <span class="c1"># Each element will hold an integer which represents the number of slots are available in each</span>
+    <span class="c1"># quarter of a given night, after accounting for non-observable times due to day/twilight.</span>
+    <span class="n">available_slots_in_each_night</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">date</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">all_dates_array</span><span class="p">):</span>
+        <span class="n">slots_tonight</span> <span class="o">=</span> <span class="n">determine_twilight_edge</span><span class="p">(</span><span class="n">date</span><span class="p">,</span> <span class="n">manager</span><span class="o">.</span><span class="n">twilight_frame</span><span class="p">,</span> <span class="n">manager</span><span class="o">.</span><span class="n">slot_size</span><span class="p">)</span>
+        <span class="n">available_slots_in_each_night</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">slots_tonight</span><span class="p">)</span>
+    <span class="n">twilight_map_all</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">build_twilight_map</span><span class="p">(</span><span class="n">available_slots_in_each_night</span><span class="p">,</span>
+                                <span class="n">manager</span><span class="o">.</span><span class="n">n_slots_in_night</span><span class="p">,</span> <span class="n">invert</span><span class="o">=</span><span class="kc">False</span><span class="p">))</span>
+    <span class="n">twilight_map_remaining</span> <span class="o">=</span> <span class="n">twilight_map_all</span><span class="p">[</span><span class="n">manager</span><span class="o">.</span><span class="n">all_dates_dict</span><span class="p">[</span><span class="n">manager</span><span class="o">.</span><span class="n">current_day</span><span class="p">]:]</span>
+    <span class="n">twilight_map_remaining_1D</span> <span class="o">=</span> <span class="n">twilight_map_remaining</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
+    <span class="n">twilight_map_remaining_2D</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">twilight_map_remaining_1D</span><span class="p">,</span> <span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">n_nights_in_semester</span><span class="p">,</span> <span class="n">manager</span><span class="o">.</span><span class="n">n_slots_in_night</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">twilight_map_remaining_2D</span><span class="p">,</span> <span class="n">available_slots_in_each_night</span></div>
+
+
+<div class="viewcode-block" id="convert_slot_to_quarter">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.convert_slot_to_quarter">[docs]</a>
+<span class="k">def</span> <span class="nf">convert_slot_to_quarter</span><span class="p">(</span><span class="n">twilight_map_remaining_2D_d</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&#39;&#39;&#39;</span>
+<span class="sd">    Determine the slot numbers within the night that breaks the night into &quot;equal&quot; length quarters</span>
+<span class="sd">    Take extra precaution when the total number of slots between twilight times is not easily</span>
+<span class="sd">    divisable by 4.</span>
+<span class="sd">    &#39;&#39;&#39;</span>
+
+    <span class="n">n_available_slots_in_quarter_tonight</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">twilight_map_remaining_2D_d</span><span class="p">)</span><span class="o">/</span><span class="mi">4</span><span class="p">)</span>
+    <span class="n">extra_slots</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">twilight_map_remaining_2D_d</span><span class="p">)</span><span class="o">%</span><span class="mi">4</span>
+    <span class="n">first_slot</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">twilight_map_remaining_2D_d</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">extra_slots</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="c1"># when night is naturally divided into 4, accept as is</span>
+        <span class="n">split_1st2nd</span> <span class="o">=</span> <span class="n">first_slot</span> <span class="o">+</span> <span class="n">n_available_slots_in_quarter_tonight</span>
+        <span class="n">split_2nd3rd</span> <span class="o">=</span> <span class="n">split_1st2nd</span> <span class="o">+</span> <span class="n">n_available_slots_in_quarter_tonight</span>
+        <span class="n">split_3rd4th</span> <span class="o">=</span> <span class="n">split_2nd3rd</span> <span class="o">+</span> <span class="n">n_available_slots_in_quarter_tonight</span>
+    <span class="k">elif</span> <span class="n">extra_slots</span> <span class="o">==</span> <span class="mi">1</span> <span class="ow">or</span> <span class="n">extra_slots</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+        <span class="c1"># when night has 1 extra slot, we place it into the 1st quarter</span>
+        <span class="c1"># when night has 2 extra slots, we place one into 1st, and one into 4th</span>
+        <span class="n">split_1st2nd</span> <span class="o">=</span> <span class="n">first_slot</span> <span class="o">+</span> <span class="n">n_available_slots_in_quarter_tonight</span> <span class="o">+</span> <span class="mi">1</span>
+        <span class="n">split_2nd3rd</span> <span class="o">=</span> <span class="n">split_1st2nd</span> <span class="o">+</span> <span class="n">n_available_slots_in_quarter_tonight</span>
+        <span class="n">split_3rd4th</span> <span class="o">=</span> <span class="n">split_2nd3rd</span> <span class="o">+</span> <span class="n">n_available_slots_in_quarter_tonight</span>
+    <span class="k">elif</span> <span class="n">extra_slots</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+        <span class="c1"># when night has 3 extra slots, we place one into 1st, one into 3rd, and one into 4th</span>
+        <span class="n">split_1st2nd</span> <span class="o">=</span> <span class="n">first_slot</span> <span class="o">+</span> <span class="n">n_available_slots_in_quarter_tonight</span> <span class="o">+</span> <span class="mi">1</span>
+        <span class="n">split_2nd3rd</span> <span class="o">=</span> <span class="n">split_1st2nd</span> <span class="o">+</span> <span class="n">n_available_slots_in_quarter_tonight</span>
+        <span class="n">split_3rd4th</span> <span class="o">=</span> <span class="n">split_2nd3rd</span> <span class="o">+</span> <span class="n">n_available_slots_in_quarter_tonight</span> <span class="o">+</span> <span class="mi">1</span>
+    <span class="k">return</span> <span class="n">split_1st2nd</span><span class="p">,</span> <span class="n">split_2nd3rd</span><span class="p">,</span> <span class="n">split_3rd4th</span></div>
+
+
+<div class="viewcode-block" id="generate_twilight_times">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.generate_twilight_times">[docs]</a>
+<span class="k">def</span> <span class="nf">generate_twilight_times</span><span class="p">(</span><span class="n">all_dates_array</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;generate_twilight_times</span>
+
+<span class="sd">    Precompute a dataframe of the morning/evening twilight times for each day in the semester</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        all_dates_array (list): the calendar dates of the semester.</span>
+<span class="sd">                                Format: YYYY-MM-DD.</span>
+<span class="sd">    Returns:</span>
+<span class="sd">        twilight_frame (dataframe): the precomputed twilight times</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">keck</span> <span class="o">=</span> <span class="n">apl</span><span class="o">.</span><span class="n">Observer</span><span class="o">.</span><span class="n">at_site</span><span class="p">(</span><span class="s1">&#39;W. M. Keck Observatory&#39;</span><span class="p">)</span>
+
+    <span class="n">twilight_frame</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">({</span><span class="s1">&#39;time_utc&#39;</span><span class="p">:</span><span class="n">all_dates_array</span><span class="p">})</span>
+    <span class="n">eighteen_deg_evening</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">twelve_deg_evening</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">six_deg_evening</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">eighteen_deg_morning</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">twelve_deg_morning</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">six_deg_morning</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">day</span> <span class="ow">in</span> <span class="n">twilight_frame</span><span class="o">.</span><span class="n">index</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="n">date_format</span><span class="o">=</span><span class="s1">&#39;%Y-%m-</span><span class="si">%d</span><span class="s1">&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">tolist</span><span class="p">():</span>
+        <span class="n">as_day</span> <span class="o">=</span> <span class="n">Time</span><span class="p">(</span><span class="n">day</span><span class="p">,</span><span class="nb">format</span><span class="o">=</span><span class="s1">&#39;iso&#39;</span><span class="p">,</span><span class="n">scale</span><span class="o">=</span><span class="s1">&#39;utc&#39;</span><span class="p">)</span>
+        <span class="n">eighteen_deg_evening</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">keck</span><span class="o">.</span><span class="n">twilight_evening_astronomical</span><span class="p">(</span><span class="n">as_day</span><span class="p">,</span><span class="n">which</span><span class="o">=</span><span class="s1">&#39;next&#39;</span><span class="p">))</span>
+        <span class="n">twelve_deg_evening</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">keck</span><span class="o">.</span><span class="n">twilight_evening_nautical</span><span class="p">(</span><span class="n">as_day</span><span class="p">,</span><span class="n">which</span><span class="o">=</span><span class="s1">&#39;next&#39;</span><span class="p">))</span>
+        <span class="n">six_deg_evening</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">keck</span><span class="o">.</span><span class="n">twilight_evening_civil</span><span class="p">(</span><span class="n">as_day</span><span class="p">,</span><span class="n">which</span><span class="o">=</span><span class="s1">&#39;next&#39;</span><span class="p">))</span>
+        <span class="n">eighteen_deg_morning</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">keck</span><span class="o">.</span><span class="n">twilight_morning_astronomical</span><span class="p">(</span><span class="n">as_day</span><span class="p">,</span><span class="n">which</span><span class="o">=</span><span class="s1">&#39;next&#39;</span><span class="p">))</span>
+        <span class="n">twelve_deg_morning</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">keck</span><span class="o">.</span><span class="n">twilight_morning_nautical</span><span class="p">(</span><span class="n">as_day</span><span class="p">,</span><span class="n">which</span><span class="o">=</span><span class="s1">&#39;next&#39;</span><span class="p">))</span>
+        <span class="n">six_deg_morning</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">keck</span><span class="o">.</span><span class="n">twilight_morning_civil</span><span class="p">(</span><span class="n">as_day</span><span class="p">,</span><span class="n">which</span><span class="o">=</span><span class="s1">&#39;next&#39;</span><span class="p">))</span>
+
+    <span class="n">twilight_frame</span><span class="p">[</span><span class="s1">&#39;18_evening&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">eighteen_deg_evening</span>
+    <span class="n">twilight_frame</span><span class="p">[</span><span class="s1">&#39;12_evening&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">twelve_deg_evening</span>
+    <span class="n">twilight_frame</span><span class="p">[</span><span class="s1">&#39;6_evening&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">six_deg_evening</span>
+    <span class="n">twilight_frame</span><span class="p">[</span><span class="s1">&#39;18_morning&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">eighteen_deg_morning</span>
+    <span class="n">twilight_frame</span><span class="p">[</span><span class="s1">&#39;12_morning&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">twelve_deg_morning</span>
+    <span class="n">twilight_frame</span><span class="p">[</span><span class="s1">&#39;6_morning&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">six_deg_morning</span>
+
+    <span class="k">return</span> <span class="n">twilight_frame</span></div>
+
+
+<div class="viewcode-block" id="get_available_slots_per_night">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.get_available_slots_per_night">[docs]</a>
+<span class="k">def</span> <span class="nf">get_available_slots_per_night</span><span class="p">(</span><span class="n">all_dates_array</span><span class="p">,</span> <span class="n">twilight_frame</span><span class="p">,</span> <span class="n">slot_size</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">start_time</span><span class="o">=</span><span class="s1">&#39;03:30&#39;</span><span class="p">,</span>
+                                  <span class="n">n_hours_in_night</span><span class="o">=</span><span class="mi">14</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;get_available_slots_per_night</span>
+
+<span class="sd">    Generates a 1D list of length equal to the number of nights in the semester where each element</span>
+<span class="sd">    is the integer number of slots that are available to the scheduler in that night</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        all_dates_array (list): the calendar dates of the semester.</span>
+<span class="sd">                            Format: YYYY-MM-DD.</span>
+<span class="sd">        twilight_frame (dataframe): the precomputed twilight times</span>
+<span class="sd">    Returns:</span>
+<span class="sd">        None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">available_slots_per_night</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">date</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">all_dates_array</span><span class="p">):</span>
+        <span class="n">edge</span> <span class="o">=</span> <span class="n">determine_twilight_edge</span><span class="p">(</span><span class="n">date</span><span class="p">,</span> <span class="n">twilight_frame</span><span class="p">,</span> <span class="n">slot_size</span><span class="p">,</span> <span class="n">start_time</span><span class="p">,</span>
+                                       <span class="n">n_hours_in_night</span><span class="p">)</span>
+        <span class="n">available_slots_per_night</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">edge</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">available_slots_per_night</span></div>
+
+
+<div class="viewcode-block" id="determine_twilight_edge">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.determine_twilight_edge">[docs]</a>
+<span class="k">def</span> <span class="nf">determine_twilight_edge</span><span class="p">(</span><span class="n">date</span><span class="p">,</span> <span class="n">twilight_frame</span><span class="p">,</span> <span class="n">slot_size</span><span class="p">,</span> <span class="n">start_time</span><span class="o">=</span><span class="s1">&#39;03:30&#39;</span><span class="p">,</span>
+                            <span class="n">n_hours_in_night</span><span class="o">=</span><span class="mi">14</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;determine_twilight_edge</span>
+
+<span class="sd">    Determine how many slots within each night actually take place during night time.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        - date (string): the calendar date of the semester. Format: YYYY-MM-DD.</span>
+<span class="sd">        - twilight_frame (dataframe): the dataframe containing pre-computed</span>
+<span class="sd">        - slot_size (int): the size of the a slot in minutes</span>
+<span class="sd">        - start_time (str): the time representing the first slot of the night, format HH:MM</span>
+<span class="sd">        - n_hours_in_night (int): number of hours in a night</span>
+<span class="sd">    Returns:</span>
+<span class="sd">        available_slots_in_night (int): the number of slots in night that are night time</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">ind</span> <span class="o">=</span> <span class="n">twilight_frame</span><span class="o">.</span><span class="n">index</span><span class="p">[</span><span class="n">twilight_frame</span><span class="p">[</span><span class="s1">&#39;time_utc&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">date</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span>
+    <span class="n">twilight_evening_time_isot</span> <span class="o">=</span> <span class="n">twilight_frame</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">ind</span><span class="p">,</span><span class="s1">&#39;12_evening&#39;</span><span class="p">]</span><span class="o">.</span><span class="n">values</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+    <span class="n">twilight_evening_time_bjd</span> <span class="o">=</span> <span class="n">Time</span><span class="p">(</span><span class="n">twilight_evening_time_isot</span><span class="p">,</span><span class="nb">format</span><span class="o">=</span><span class="s1">&#39;jd&#39;</span><span class="p">)</span>
+    <span class="n">start_timestamp</span> <span class="o">=</span> <span class="n">date</span> <span class="o">+</span> <span class="s2">&quot;T&quot;</span> <span class="o">+</span> <span class="n">start_time</span>
+    <span class="n">start_timestamp_time</span> <span class="o">=</span> <span class="n">Time</span><span class="p">(</span><span class="n">start_timestamp</span><span class="p">)</span>
+    <span class="n">n_slots</span> <span class="o">=</span> <span class="nb">int</span><span class="p">((</span><span class="n">n_hours_in_night</span><span class="o">*</span><span class="mi">60</span><span class="p">)</span><span class="o">/</span><span class="n">slot_size</span><span class="p">)</span>
+
+    <span class="n">bin_edges</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">bin_edges</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">start_timestamp_time</span><span class="p">))</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_slots</span><span class="p">):</span>
+        <span class="n">start_timestamp_time</span> <span class="o">+=</span> <span class="n">TimeDelta</span><span class="p">(</span><span class="n">slot_size</span><span class="o">/</span><span class="p">(</span><span class="mi">24</span><span class="o">*</span><span class="mi">60</span><span class="p">),</span><span class="nb">format</span><span class="o">=</span><span class="s1">&#39;jd&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">twilight_evening_time_bjd</span> <span class="o">&lt;</span> <span class="nb">str</span><span class="p">(</span><span class="n">start_timestamp_time</span><span class="p">):</span>
+            <span class="n">edge</span> <span class="o">=</span> <span class="n">i</span>
+            <span class="k">break</span>
+
+    <span class="n">available_slots_in_night</span> <span class="o">=</span> <span class="n">n_slots</span> <span class="o">-</span> <span class="mi">2</span><span class="o">*</span><span class="n">edge</span>
+    <span class="k">return</span> <span class="n">available_slots_in_night</span></div>
+
+
+<div class="viewcode-block" id="build_twilight_map">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.build_twilight_map">[docs]</a>
+<span class="k">def</span> <span class="nf">build_twilight_map</span><span class="p">(</span><span class="n">available_slots_in_night</span><span class="p">,</span> <span class="n">n_slots_in_night</span><span class="p">,</span> <span class="n">invert</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Create the 1D twilight times map for all slots in the semester</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        available_slots_in_night (array): a 1D array of length n_nights_in_semester where each</span>
+<span class="sd">                                        element has an integer representing the number of slots</span>
+<span class="sd">                                        within that night that are between twilight times</span>
+<span class="sd">        n_slots_in_night (int): the number of slots in a single night</span>
+<span class="sd">        invert (boolean): if true, flip the 1&#39;s and 0&#39;s designation. Useful because by default 0&#39;s</span>
+<span class="sd">                          mean we are not in day/twilight and 1&#39;s mean we are in night time but for</span>
+<span class="sd">                          adding purposes it is useful to invert this schema and then np.sum</span>
+<span class="sd">    Returns:</span>
+<span class="sd">        nightly_twilight_map (array): 1D array of length n_slots_in_semester where 1&#39;s indicate the</span>
+<span class="sd">                                    slots during night time and 0&#39;s during the day time/twilight</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">nightly_twilight_map</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">item</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">available_slots_in_night</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">invert</span><span class="p">:</span>
+            <span class="n">quarterslots</span> <span class="o">=</span> <span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="o">*</span><span class="n">n_slots_in_night</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">quarterslots</span> <span class="o">=</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">*</span><span class="n">n_slots_in_night</span>
+        <span class="n">edge</span> <span class="o">=</span> <span class="nb">int</span><span class="p">((</span><span class="n">n_slots_in_night</span> <span class="o">-</span> <span class="n">available_slots_in_night</span><span class="p">[</span><span class="n">i</span><span class="p">])</span><span class="o">/</span><span class="mi">2</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_slots_in_night</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">j</span> <span class="o">&gt;=</span> <span class="n">edge</span> <span class="ow">and</span> <span class="n">j</span> <span class="o">&lt;</span> <span class="n">n_slots_in_night</span> <span class="o">-</span> <span class="n">edge</span><span class="p">:</span>
+                <span class="k">if</span> <span class="n">invert</span><span class="p">:</span>
+                    <span class="n">quarterslots</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="mi">0</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="n">quarterslots</span><span class="p">[</span><span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="n">nightly_twilight_map</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">quarterslots</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">nightly_twilight_map</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, JLubinAstroQ.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

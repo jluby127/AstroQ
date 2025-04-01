@@ -1,0 +1,697 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>kpfcc.io &mdash; AstroQ_docs 1.0.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=92fd9be5" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=8d563738"></script>
+      <script src="../../_static/doctools.js?v=9a2dae69"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            AstroQ_docs
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../kpfcc.html">kpfcc package</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">AstroQ_docs</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">kpfcc.io</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for kpfcc.io</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Module for building reports after the solution is found. Designed to be only run as a function</span>
+<span class="sd">call from the generateScript.py script.</span>
+
+<span class="sd">Example usage:</span>
+<span class="sd">    import reporting_functions as rf</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">math</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">from</span> <span class="nn">astropy.time</span> <span class="kn">import</span> <span class="n">Time</span>
+<span class="kn">from</span> <span class="nn">astropy.time</span> <span class="kn">import</span> <span class="n">TimeDelta</span>
+
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
+<span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="k">as</span> <span class="nn">pt</span>
+
+<div class="viewcode-block" id="build_fullness_report">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.io.build_fullness_report">[docs]</a>
+<span class="k">def</span> <span class="nf">build_fullness_report</span><span class="p">(</span><span class="n">combined_semester_schedule</span><span class="p">,</span> <span class="n">manager</span><span class="p">,</span> <span class="n">round_info</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Determine how full the schedule is: slots available, slots scheduled, and slots required</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        combined_semester_schedule (array): a 2D array of dimensions n_nights_in_semester by</span>
+<span class="sd">                                            n_slots_in_night where elements denote how the slot is</span>
+<span class="sd">                                            used: target, twilight, weather, not scheduled.</span>
+<span class="sd">        allocation_map_2D (array): a 2D array where rows represent a night and columns represent</span>
+<span class="sd">                                   the quarter within that night. Values are 1 if that</span>
+<span class="sd">                                   night/quarter is allocated and 0 if not.</span>
+<span class="sd">        manager (obj): a data_admin object</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">file</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">output_directory</span> <span class="o">+</span> <span class="s2">&quot;runReport.txt&quot;</span><span class="p">,</span> <span class="s2">&quot;a&quot;</span><span class="p">)</span>
+    <span class="n">file</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;Stats for &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">round_info</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">file</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;------------------------------------------------------&quot;</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">listnames</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">requests_frame</span><span class="p">[</span><span class="s1">&#39;Starname&#39;</span><span class="p">])</span>
+    <span class="n">unavailable</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">unused</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">used</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">for</span> <span class="n">b</span><span class="p">,</span> <span class="n">item1</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">combined_semester_schedule</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">c</span><span class="p">,</span> <span class="n">item2</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">combined_semester_schedule</span><span class="p">[</span><span class="n">b</span><span class="p">]):</span>
+            <span class="k">if</span> <span class="s2">&quot;X&quot;</span> <span class="ow">in</span> <span class="n">combined_semester_schedule</span><span class="p">[</span><span class="n">b</span><span class="p">][</span><span class="n">c</span><span class="p">]</span> <span class="ow">or</span> <span class="s2">&quot;*&quot;</span> <span class="ow">in</span> <span class="n">combined_semester_schedule</span><span class="p">[</span><span class="n">b</span><span class="p">][</span><span class="n">c</span><span class="p">]</span> \
+                    <span class="ow">or</span> <span class="s2">&quot;W&quot;</span> <span class="ow">in</span> <span class="n">combined_semester_schedule</span><span class="p">[</span><span class="n">b</span><span class="p">][</span><span class="n">c</span><span class="p">]:</span>
+                <span class="n">unavailable</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="k">if</span> <span class="n">combined_semester_schedule</span><span class="p">[</span><span class="n">b</span><span class="p">][</span><span class="n">c</span><span class="p">]</span> <span class="o">==</span> <span class="s2">&quot;&quot;</span><span class="p">:</span>
+                <span class="n">unused</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="k">if</span> <span class="n">combined_semester_schedule</span><span class="p">[</span><span class="n">b</span><span class="p">][</span><span class="n">c</span><span class="p">]</span> <span class="ow">in</span> <span class="n">listnames</span> <span class="ow">or</span> <span class="s2">&quot;RM___&quot;</span> <span class="ow">in</span> <span class="n">combined_semester_schedule</span><span class="p">[</span><span class="n">b</span><span class="p">][</span><span class="n">c</span><span class="p">]:</span>
+                <span class="n">used</span> <span class="o">+=</span> <span class="mi">1</span>
+    <span class="n">available</span> <span class="o">=</span> <span class="n">unused</span> <span class="o">+</span> <span class="n">used</span>
+    <span class="n">allocated</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">allocation_map_2D</span><span class="o">.</span><span class="n">flatten</span><span class="p">())</span>
+    <span class="n">file</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;N slots in semester:&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">prod</span><span class="p">(</span><span class="n">combined_semester_schedule</span><span class="o">.</span><span class="n">shape</span><span class="p">))</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">file</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;N available slots:&quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">allocated</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">file</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;N slots scheduled: &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">used</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">file</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;N slots left empty: &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">allocated</span><span class="o">-</span><span class="n">used</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="n">total_slots_requested</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">requests_frame</span><span class="p">)):</span>
+        <span class="n">total_slots_requested</span> <span class="o">+=</span> <span class="n">manager</span><span class="o">.</span><span class="n">requests_frame</span><span class="p">[</span><span class="s1">&#39;# of Nights Per Semester&#39;</span><span class="p">][</span><span class="n">i</span><span class="p">]</span><span class="o">*</span> \
+            <span class="n">math</span><span class="o">.</span><span class="n">ceil</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">requests_frame</span><span class="p">[</span><span class="s1">&#39;Nominal Exposure Time [s]&#39;</span><span class="p">][</span><span class="n">i</span><span class="p">]</span><span class="o">/</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">slot_size</span><span class="o">*</span><span class="mf">60.</span><span class="p">))</span>
+    <span class="n">file</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;N slots requested (total): &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">total_slots_requested</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">percentage</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">((</span><span class="n">used</span><span class="o">*</span><span class="mi">100</span><span class="p">)</span><span class="o">/</span><span class="n">allocated</span><span class="p">,</span><span class="mi">3</span><span class="p">)</span>
+    <span class="n">file</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;Percent full: &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">percentage</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;%.&quot;</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">file</span><span class="o">.</span><span class="n">close</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="report_allocation_stats">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.io.report_allocation_stats">[docs]</a>
+<span class="k">def</span> <span class="nf">report_allocation_stats</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Return the number of Q1, Q2, Q3, and Q4 nights, as well as single, half, three quarter</span>
+<span class="sd">    and full nights. Further produce a plot showing the allocation.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        manager (obj): a data_admin object</span>
+<span class="sd">        allocation_map_2D (array): a 2D array where rows represent a night and columns represent</span>
+<span class="sd">                                   the quarter within that night. Values are 1 if that</span>
+<span class="sd">                                   night/quarter is allocated and 0 if not.</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">current_day_number</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">all_dates_dict</span><span class="p">[</span><span class="n">manager</span><span class="o">.</span><span class="n">current_day</span><span class="p">]</span>
+    <span class="n">ff</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">output_directory</span> <span class="o">+</span> <span class="s2">&quot;allocation_stats.txt&quot;</span><span class="p">,</span> <span class="s2">&quot;w&quot;</span><span class="p">)</span>
+
+    <span class="n">fig</span> <span class="o">=</span> <span class="n">pt</span><span class="o">.</span><span class="n">figure</span><span class="p">(</span><span class="n">figsize</span><span class="o">=</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span><span class="mi">6</span><span class="p">))</span>
+
+    <span class="n">q1s</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">q2s</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">q3s</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">q4s</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">count0</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">count1</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">count2</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">count3</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">count4</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">for</span> <span class="n">j</span><span class="p">,</span> <span class="n">item</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">allocation_map_2D_NQ</span><span class="p">):</span>
+        <span class="n">holder</span> <span class="o">=</span> <span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">]</span>
+        <span class="k">if</span> <span class="n">manager</span><span class="o">.</span><span class="n">allocation_map_2D_NQ</span><span class="p">[</span><span class="n">j</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">q1s</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="c1"># Note: I recently had to add the &quot;-1&quot; to each of these lines. Not sure why, but it broke when doing optimal allocation.</span>
+            <span class="n">date_info</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">all_dates_array</span><span class="p">[</span><span class="n">current_day_number</span> <span class="o">+</span> <span class="n">j</span> <span class="o">-</span> <span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="s2">&quot; - q0&quot;</span>
+            <span class="c1">#ff.write(date_info + &quot;\n&quot;)</span>
+            <span class="n">holder</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+            <span class="n">pt</span><span class="o">.</span><span class="n">axvline</span><span class="p">(</span><span class="n">current_day_number</span> <span class="o">+</span> <span class="n">j</span><span class="p">,</span> <span class="n">ymin</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span> <span class="n">ymax</span><span class="o">=</span><span class="mf">0.25</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s1">&#39;b&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">manager</span><span class="o">.</span><span class="n">allocation_map_2D_NQ</span><span class="p">[</span><span class="n">j</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">q2s</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="n">date_info</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">all_dates_array</span><span class="p">[</span><span class="n">current_day_number</span> <span class="o">+</span> <span class="n">j</span> <span class="o">-</span> <span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="s2">&quot; - q1&quot;</span>
+            <span class="c1">#ff.write(date_info + &quot;\n&quot;)</span>
+            <span class="n">holder</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+            <span class="n">pt</span><span class="o">.</span><span class="n">axvline</span><span class="p">(</span><span class="n">current_day_number</span> <span class="o">+</span> <span class="n">j</span><span class="p">,</span> <span class="n">ymin</span><span class="o">=</span><span class="mf">0.25</span><span class="p">,</span> <span class="n">ymax</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s1">&#39;b&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">manager</span><span class="o">.</span><span class="n">allocation_map_2D_NQ</span><span class="p">[</span><span class="n">j</span><span class="p">][</span><span class="mi">2</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">q3s</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="n">date_info</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">all_dates_array</span><span class="p">[</span><span class="n">current_day_number</span> <span class="o">+</span> <span class="n">j</span> <span class="o">-</span> <span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="s2">&quot; - q2&quot;</span>
+            <span class="c1">#ff.write(date_info + &quot;\n&quot;)</span>
+            <span class="n">holder</span><span class="p">[</span><span class="mi">2</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+            <span class="n">pt</span><span class="o">.</span><span class="n">axvline</span><span class="p">(</span><span class="n">current_day_number</span> <span class="o">+</span> <span class="n">j</span><span class="p">,</span> <span class="n">ymin</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span> <span class="n">ymax</span><span class="o">=</span><span class="mf">0.75</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s1">&#39;b&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">manager</span><span class="o">.</span><span class="n">allocation_map_2D_NQ</span><span class="p">[</span><span class="n">j</span><span class="p">][</span><span class="mi">3</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">q4s</span> <span class="o">+=</span> <span class="mi">1</span>
+            <span class="n">date_info</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">all_dates_array</span><span class="p">[</span><span class="n">current_day_number</span> <span class="o">+</span> <span class="n">j</span> <span class="o">-</span> <span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="s2">&quot; - q3&quot;</span>
+            <span class="c1">#ff.write(date_info + &quot;\n&quot;)</span>
+            <span class="n">holder</span><span class="p">[</span><span class="mi">3</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
+            <span class="n">pt</span><span class="o">.</span><span class="n">axvline</span><span class="p">(</span><span class="n">current_day_number</span> <span class="o">+</span> <span class="n">j</span><span class="p">,</span> <span class="n">ymin</span><span class="o">=</span><span class="mf">0.75</span><span class="p">,</span> <span class="n">ymax</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span> <span class="n">color</span><span class="o">=</span><span class="s1">&#39;b&#39;</span><span class="p">)</span>
+        <span class="n">allocated_quarters</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">allocation_map_2D_NQ</span><span class="p">[</span><span class="n">j</span><span class="p">])</span>
+        <span class="k">if</span> <span class="n">allocated_quarters</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">count0</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">if</span> <span class="n">allocated_quarters</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">count1</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">if</span> <span class="n">allocated_quarters</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="n">count2</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">if</span> <span class="n">allocated_quarters</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
+            <span class="n">count3</span> <span class="o">+=</span> <span class="mi">1</span>
+        <span class="k">if</span> <span class="n">allocated_quarters</span> <span class="o">==</span> <span class="mi">4</span><span class="p">:</span>
+            <span class="n">count4</span> <span class="o">+=</span> <span class="mi">1</span>
+
+    <span class="n">size</span><span class="o">=</span><span class="mi">20</span>
+    <span class="n">pt</span><span class="o">.</span><span class="n">ylim</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">pt</span><span class="o">.</span><span class="n">ylabel</span><span class="p">(</span><span class="s1">&#39;Quarter of Night&#39;</span><span class="p">,</span> <span class="n">fontsize</span><span class="o">=</span><span class="n">size</span><span class="p">)</span>
+    <span class="n">pt</span><span class="o">.</span><span class="n">xlabel</span><span class="p">(</span><span class="s1">&#39;Day in Semester&#39;</span><span class="p">,</span> <span class="n">fontsize</span><span class="o">=</span><span class="n">size</span><span class="p">)</span>
+    <span class="n">pt</span><span class="o">.</span><span class="n">tick_params</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="s1">&#39;both&#39;</span><span class="p">,</span> <span class="n">labelsize</span><span class="o">=</span><span class="n">size</span><span class="p">)</span>
+    <span class="n">pt</span><span class="o">.</span><span class="n">savefig</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">output_directory</span> <span class="o">+</span> <span class="s2">&quot;allocation_visualization.png&quot;</span><span class="p">,</span> <span class="n">dpi</span><span class="o">=</span><span class="mi">200</span><span class="p">,</span> <span class="n">bbox_inches</span><span class="o">=</span><span class="s1">&#39;tight&#39;</span><span class="p">,</span> <span class="n">facecolor</span><span class="o">=</span><span class="s1">&#39;w&#39;</span><span class="p">)</span>
+
+    <span class="n">ff</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">ff</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;There are &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">q1s</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot; first quarters.&quot;</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">ff</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;There are &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">q2s</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot; second quarters.&quot;</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">ff</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;There are &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">q3s</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot; third quarters.&quot;</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">ff</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;There are &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">q4s</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot; fourth quarters.&quot;</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">ff</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">ff</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;There are &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">count0</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot; no quarter nights.&quot;</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">ff</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;There are &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">count1</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot; 1 quarter nights.&quot;</span><span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">ff</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;There are &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">count2</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot; 2 quarter nights.&quot;</span><span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">ff</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;There are &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">count3</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot; 3 quarter nights.&quot;</span><span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">ff</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;There are &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">count4</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot; 4 quarter nights.&quot;</span><span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">ff</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">total_quarters</span> <span class="o">=</span> <span class="n">count1</span> <span class="o">+</span> <span class="mi">2</span><span class="o">*</span><span class="n">count2</span> <span class="o">+</span> <span class="mi">3</span><span class="o">*</span><span class="n">count3</span> <span class="o">+</span> <span class="mi">4</span><span class="o">*</span><span class="n">count4</span>
+    <span class="n">total_nights</span> <span class="o">=</span> <span class="n">count1</span> <span class="o">+</span> <span class="n">count2</span> <span class="o">+</span> <span class="n">count3</span> <span class="o">+</span> <span class="n">count4</span>
+    <span class="n">ff</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;Total quarters allocated: &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">total_quarters</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">ff</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;Total unique nights allocated: &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">total_nights</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">ff</span><span class="o">.</span><span class="n">close</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="write_out_results">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.io.write_out_results">[docs]</a>
+<span class="k">def</span> <span class="nf">write_out_results</span><span class="p">(</span><span class="n">manager</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="nb">round</span><span class="p">,</span> <span class="n">start_the_clock</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Write the Run Report</span>
+<span class="sd">    Args:</span>
+<span class="sd">        manager (obj): a data_admin object</span>
+<span class="sd">        model (obj): a GurobiModel object</span>
+<span class="sd">        rount (str): &quot;Round1&quot; or &quot;Round2&quot;</span>
+<span class="sd">        start_the_clock (obj): time object of when the scheduler code began</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Writing Report.&quot;</span><span class="p">)</span>
+    <span class="n">filename</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">output_directory</span> <span class="o">+</span> <span class="s2">&quot;runReport.txt&quot;</span><span class="p">,</span> <span class="s2">&quot;a&quot;</span><span class="p">)</span>
+    <span class="n">theta_n_var</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">counter</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">theta</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+        <span class="n">varname</span> <span class="o">=</span> <span class="n">v</span><span class="o">.</span><span class="n">VarName</span>
+        <span class="n">varval</span> <span class="o">=</span> <span class="n">v</span><span class="o">.</span><span class="n">X</span>
+        <span class="n">counter</span> <span class="o">+=</span> <span class="n">varval</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Sum of Theta: &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">counter</span><span class="p">))</span>
+    <span class="n">filename</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;Sum of Theta: &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">counter</span><span class="p">)</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Total Time to complete &quot;</span> <span class="o">+</span> <span class="nb">round</span> <span class="o">+</span> <span class="s2">&quot;: &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="o">-</span><span class="n">start_the_clock</span><span class="p">,</span><span class="mi">3</span><span class="p">)))</span>
+    <span class="n">filename</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;Total Time to complete &quot;</span> <span class="o">+</span> <span class="nb">round</span> <span class="o">+</span>  <span class="s2">&quot;: &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="o">-</span><span class="n">start_the_clock</span><span class="p">,</span><span class="mi">3</span><span class="p">))</span> <span class="o">+</span> <span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">filename</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">filename</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s2">&quot;</span><span class="se">\n</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="n">filename</span><span class="o">.</span><span class="n">close</span><span class="p">()</span></div>
+
+
+<div class="viewcode-block" id="build_observed_map_past">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.io.build_observed_map_past">[docs]</a>
+<span class="k">def</span> <span class="nf">build_observed_map_past</span><span class="p">(</span><span class="n">past_info</span><span class="p">,</span> <span class="n">starmap_template_filename</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Construct stage one (past) of the starmap which is then used to build the cadence plot.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        past_info (array): 2D array following schema of the values for the database_info_dict</span>
+<span class="sd">        starmap_template_filename (str): the path and filename of the starmap template</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        starmap (dataframe): an updated starmap which includes the past history of the target</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">starmap</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">starmap_template_filename</span><span class="p">)</span>
+    <span class="n">observed</span> <span class="o">=</span> <span class="p">[</span><span class="kc">False</span><span class="p">]</span><span class="o">*</span><span class="nb">len</span><span class="p">(</span><span class="n">starmap</span><span class="p">)</span>
+    <span class="n">n_observed</span> <span class="o">=</span> <span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">*</span><span class="nb">len</span><span class="p">(</span><span class="n">starmap</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">item</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">past_info</span><span class="p">[</span><span class="mi">1</span><span class="p">]):</span>
+        <span class="n">ind</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">starmap</span><span class="p">[</span><span class="s1">&#39;Date&#39;</span><span class="p">])</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">past_info</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="n">i</span><span class="p">])</span>
+        <span class="n">observed</span><span class="p">[</span><span class="n">ind</span> <span class="o">+</span> <span class="nb">int</span><span class="p">(</span><span class="n">past_info</span><span class="p">[</span><span class="mi">2</span><span class="p">][</span><span class="n">i</span><span class="p">]</span><span class="o">-</span><span class="mf">0.5</span><span class="p">)]</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="n">n_observed</span><span class="p">[</span><span class="n">ind</span> <span class="o">+</span> <span class="nb">int</span><span class="p">(</span><span class="n">past_info</span><span class="p">[</span><span class="mi">2</span><span class="p">][</span><span class="n">i</span><span class="p">]</span><span class="o">-</span><span class="mf">0.5</span><span class="p">)]</span> <span class="o">=</span> <span class="n">past_info</span><span class="p">[</span><span class="mi">3</span><span class="p">][</span><span class="n">i</span><span class="p">]</span>
+    <span class="n">starmap</span><span class="p">[</span><span class="s1">&#39;Observed&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">observed</span>
+    <span class="n">starmap</span><span class="p">[</span><span class="s1">&#39;N_obs&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">n_observed</span>
+    <span class="k">return</span> <span class="n">starmap</span></div>
+
+
+<div class="viewcode-block" id="build_observed_map_future">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.io.build_observed_map_future">[docs]</a>
+<span class="k">def</span> <span class="nf">build_observed_map_future</span><span class="p">(</span><span class="n">manager</span><span class="p">,</span> <span class="n">combined_semester_schedule</span><span class="p">,</span> <span class="n">starname</span><span class="p">,</span> <span class="n">starmap</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Construct stage two (future) of the starmap which is then used to build the cadence plot.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        manager (obj): a data_admin object</span>
+<span class="sd">        combined_semester_schedule (array): a 2D array of dimensions n_nights_in_semester by</span>
+<span class="sd">                                            n_slots_in_night where elements denote how the slot is</span>
+<span class="sd">                                            used: target, twilight, weather, not scheduled.</span>
+<span class="sd">        starname (str): the request in question</span>
+<span class="sd">        starmap (dataframe): an updated starmap which includes the past history of the target</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        starmap (dataframe): an updated starmap which includes the past history of the target</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">starmap</span><span class="p">[</span><span class="s1">&#39;Allocated&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="kc">False</span><span class="p">]</span><span class="o">*</span><span class="nb">len</span><span class="p">(</span><span class="n">starmap</span><span class="p">)</span>
+    <span class="n">starmap</span><span class="p">[</span><span class="s1">&#39;Weathered&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="kc">False</span><span class="p">]</span><span class="o">*</span><span class="nb">len</span><span class="p">(</span><span class="n">starmap</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">item</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">combined_semester_schedule</span><span class="p">):</span>
+        <span class="k">if</span> <span class="n">starname</span> <span class="ow">in</span> <span class="n">combined_semester_schedule</span><span class="p">[</span><span class="n">i</span><span class="p">]:</span>
+            <span class="n">ind</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">combined_semester_schedule</span><span class="p">[</span><span class="n">i</span><span class="p">])</span><span class="o">.</span><span class="n">index</span><span class="p">(</span><span class="n">starname</span><span class="p">)</span>
+            <span class="n">quarter</span> <span class="o">=</span> <span class="n">determine_quarter</span><span class="p">(</span><span class="n">ind</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">shape</span><span class="p">(</span><span class="n">combined_semester_schedule</span><span class="p">)[</span><span class="mi">1</span><span class="p">])</span>
+            <span class="n">starmap</span><span class="p">[</span><span class="s1">&#39;Observed&#39;</span><span class="p">][</span><span class="n">i</span><span class="o">*</span><span class="mi">4</span> <span class="o">+</span> <span class="n">quarter</span><span class="p">]</span> <span class="o">=</span> <span class="kc">True</span>
+            <span class="n">starmap</span><span class="p">[</span><span class="s1">&#39;N_obs&#39;</span><span class="p">][</span><span class="n">i</span><span class="o">*</span><span class="mi">4</span> <span class="o">+</span> <span class="n">quarter</span><span class="p">]</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">combined_semester_schedule</span><span class="p">[</span><span class="n">i</span><span class="p">])</span><span class="o">.</span><span class="n">count</span><span class="p">(</span>
+                    <span class="n">starname</span><span class="p">)</span><span class="o">/</span><span class="n">manager</span><span class="o">.</span><span class="n">slots_needed_for_exposure_dict</span><span class="p">[</span><span class="n">starname</span><span class="p">]</span>
+
+    <span class="k">for</span> <span class="n">a</span><span class="p">,</span> <span class="n">item</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">allocation_all</span><span class="p">):</span>
+        <span class="c1"># mulitply by 4 because each element of allocation_all represents one quarter</span>
+        <span class="c1"># starmap[&#39;Allocated&#39;][days_into_semester*4 + a] = bool(allocation_all[a])</span>
+        <span class="n">starmap</span><span class="p">[</span><span class="s1">&#39;Allocated&#39;</span><span class="p">][</span><span class="n">a</span><span class="p">]</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">allocation_all</span><span class="p">[</span><span class="n">a</span><span class="p">])</span>
+    <span class="k">for</span> <span class="n">w</span><span class="p">,</span> <span class="n">item</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">weather_diff_remaining</span><span class="o">.</span><span class="n">flatten</span><span class="p">()):</span>
+        <span class="n">starmap</span><span class="p">[</span><span class="s1">&#39;Weathered&#39;</span><span class="p">][</span><span class="n">manager</span><span class="o">.</span><span class="n">all_dates_dict</span><span class="p">[</span><span class="n">manager</span><span class="o">.</span><span class="n">current_day</span><span class="p">]</span><span class="o">*</span><span class="mi">4</span><span class="o">+</span> <span class="n">w</span><span class="p">]</span> <span class="o">=</span> <span class="nb">bool</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">weather_diff_remaining</span><span class="o">.</span><span class="n">flatten</span><span class="p">()[</span><span class="n">w</span><span class="p">])</span>
+
+    <span class="k">return</span> <span class="n">starmap</span></div>
+
+
+<div class="viewcode-block" id="determine_quarter">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.io.determine_quarter">[docs]</a>
+<span class="k">def</span> <span class="nf">determine_quarter</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">n_slots_in_night</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Given a slot number, determine what quarter it is to be observed in.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        value (int): the slot number to be observed</span>
+<span class="sd">        n_slots_in_night (int): the number of slots in the night</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        quarter (int): the corresponding quarter (1, 2, 3, 4) of the night</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">value</span> <span class="o">&lt;=</span> <span class="nb">int</span><span class="p">(</span><span class="n">n_slots_in_night</span><span class="o">*</span><span class="p">(</span><span class="mi">1</span><span class="o">/</span><span class="mf">4.</span><span class="p">)):</span>
+        <span class="n">quarter</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">elif</span> <span class="n">value</span> <span class="o">&lt;=</span> <span class="nb">int</span><span class="p">(</span><span class="n">n_slots_in_night</span><span class="o">*</span><span class="p">(</span><span class="mi">2</span><span class="o">/</span><span class="mf">4.</span><span class="p">))</span> <span class="ow">and</span> <span class="n">value</span> <span class="o">&gt;</span> <span class="nb">int</span><span class="p">(</span><span class="n">n_slots_in_night</span><span class="o">*</span><span class="p">(</span><span class="mi">1</span><span class="o">/</span><span class="mf">4.</span><span class="p">)):</span>
+        <span class="n">quarter</span> <span class="o">=</span> <span class="mi">1</span>
+    <span class="k">elif</span> <span class="n">value</span> <span class="o">&lt;=</span> <span class="nb">int</span><span class="p">(</span><span class="n">n_slots_in_night</span><span class="o">*</span><span class="p">(</span><span class="mi">3</span><span class="o">/</span><span class="mf">4.</span><span class="p">))</span> <span class="ow">and</span> <span class="n">value</span> <span class="o">&gt;</span> <span class="nb">int</span><span class="p">(</span><span class="n">n_slots_in_night</span><span class="o">*</span><span class="p">(</span><span class="mi">2</span><span class="o">/</span><span class="mf">4.</span><span class="p">)):</span>
+        <span class="n">quarter</span> <span class="o">=</span> <span class="mi">2</span>
+    <span class="k">elif</span> <span class="n">value</span> <span class="o">&lt;=</span> <span class="n">n_slots_in_night</span> <span class="ow">and</span> <span class="n">value</span> <span class="o">&gt;</span> <span class="nb">int</span><span class="p">(</span><span class="n">n_slots_in_night</span><span class="o">*</span><span class="p">(</span><span class="mi">3</span><span class="o">/</span><span class="mf">4.</span><span class="p">)):</span>
+        <span class="n">quarter</span> <span class="o">=</span> <span class="mi">3</span>
+    <span class="k">elif</span> <span class="n">value</span> <span class="o">&lt;=</span> <span class="nb">int</span><span class="p">(</span><span class="n">n_slots_in_night</span><span class="o">*</span><span class="p">(</span><span class="mi">5</span><span class="o">/</span><span class="mf">4.</span><span class="p">))</span> <span class="ow">and</span> <span class="n">value</span> <span class="o">&gt;</span> <span class="n">n_slots_in_night</span><span class="p">:</span>
+        <span class="n">quarter</span> <span class="o">=</span> <span class="mi">3</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">quarter</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Houston, we&#39;ve had a problem. No valid quarter: &quot;</span><span class="p">,</span> <span class="n">value</span><span class="p">,</span> <span class="n">n_slots_in_night</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">quarter</span></div>
+
+
+<div class="viewcode-block" id="write_stars_schedule_human_readable">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.io.write_stars_schedule_human_readable">[docs]</a>
+<span class="k">def</span> <span class="nf">write_stars_schedule_human_readable</span><span class="p">(</span><span class="n">combined_semester_schedule</span><span class="p">,</span> <span class="n">Yrds</span><span class="p">,</span> <span class="n">manager</span><span class="p">,</span> <span class="n">round_info</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Turns the non-square matrix of the solution into a square matrix and starts the human readable</span>
+<span class="sd">    solution by filling in the slots where a star&#39;s exposre is started.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        combined_semester_schedule (array): the human readable solution</span>
+<span class="sd">        Yns (array): the Gurobi solution with keys of (starname, slot_number) and values 1 or 0.</span>
+<span class="sd">        manager (obj): a data_admin object</span>
+<span class="sd">        round_info (str): the solution round, ie &quot;Round1&quot;</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        combined_semester_schedule (array): the updated human readable solution</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">end_past</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">all_dates_dict</span><span class="p">[</span><span class="n">manager</span><span class="o">.</span><span class="n">current_day</span><span class="p">]</span><span class="o">*</span><span class="n">manager</span><span class="o">.</span><span class="n">n_slots_in_night</span>
+    <span class="n">all_star_schedules</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">requests_frame</span><span class="p">[</span><span class="s1">&#39;Starname&#39;</span><span class="p">]):</span>
+        <span class="n">star_schedule</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="c1"># buffer the past with zeros</span>
+        <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">end_past</span><span class="p">):</span>
+            <span class="n">star_schedule</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">n_nights_in_semester</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">n_slots_in_night</span><span class="p">):</span>
+                <span class="k">try</span><span class="p">:</span>
+                    <span class="n">value</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">Yrds</span><span class="p">[</span><span class="n">name</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">s</span><span class="p">]</span><span class="o">.</span><span class="n">x</span><span class="p">))</span>
+                <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+                    <span class="n">value</span> <span class="o">=</span> <span class="mf">0.0</span>
+                <span class="k">except</span><span class="p">:</span>
+                    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Error: helper_functions.py line 224: &quot;</span><span class="p">,</span> <span class="n">name</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">s</span><span class="p">)</span>
+                <span class="n">star_schedule</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">value</span><span class="p">)</span>
+        <span class="n">all_star_schedules</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">star_schedule</span>
+
+    <span class="n">combined_semester_schedule</span> <span class="o">=</span> <span class="n">combined_semester_schedule</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">n_slots_in_semester</span><span class="p">):</span>
+        <span class="n">slotallocated</span> <span class="o">=</span> <span class="s1">&#39;&#39;</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">requests_frame</span><span class="p">[</span><span class="s1">&#39;Starname&#39;</span><span class="p">]):</span>
+            <span class="k">if</span> <span class="n">all_star_schedules</span><span class="p">[</span><span class="n">name</span><span class="p">][</span><span class="n">s</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">slotallocated</span> <span class="o">+=</span> <span class="nb">str</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="n">combined_semester_schedule</span><span class="p">[</span><span class="n">s</span><span class="p">]</span> <span class="o">+=</span> <span class="nb">str</span><span class="p">(</span><span class="n">slotallocated</span><span class="p">)</span>
+    <span class="n">combined_semester_schedule</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">combined_semester_schedule</span><span class="p">,</span>
+            <span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">semester_length</span><span class="p">,</span> <span class="n">manager</span><span class="o">.</span><span class="n">n_slots_in_night</span><span class="p">))</span>
+
+    <span class="c1"># The semester solver puts a 1 only in the slot that starts the exposure for a target.</span>
+    <span class="c1"># Therefore, many slots are empty because they are part of a multi-slot visit.</span>
+    <span class="c1"># Here fill in the multi-slot exposures appropriately for ease of human reading and accounting.</span>
+    <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">n_nights_in_semester</span><span class="o">-</span><span class="mi">1</span><span class="o">-</span><span class="n">manager</span><span class="o">.</span><span class="n">all_dates_dict</span><span class="p">[</span><span class="n">manager</span><span class="o">.</span><span class="n">current_day</span><span class="p">],</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">):</span>
+        <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">n_slots_in_night</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">combined_semester_schedule</span><span class="p">[</span><span class="n">n</span><span class="o">+</span><span class="n">manager</span><span class="o">.</span><span class="n">all_dates_dict</span><span class="p">[</span><span class="n">manager</span><span class="o">.</span><span class="n">current_day</span><span class="p">]][</span><span class="n">s</span><span class="p">]</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">requests_frame</span><span class="p">[</span><span class="s1">&#39;Starname&#39;</span><span class="p">]):</span>
+                <span class="n">target_name</span> <span class="o">=</span> <span class="n">combined_semester_schedule</span><span class="p">[</span><span class="n">n</span><span class="o">+</span><span class="n">manager</span><span class="o">.</span><span class="n">all_dates_dict</span><span class="p">[</span><span class="n">manager</span><span class="o">.</span><span class="n">current_day</span><span class="p">]][</span><span class="n">s</span><span class="p">]</span>
+                <span class="n">slots_needed_for_exposure</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">slots_needed_for_exposure_dict</span><span class="p">[</span><span class="n">target_name</span><span class="p">]</span>
+                <span class="k">if</span> <span class="n">slots_needed_for_exposure</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                    <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="n">slots_needed_for_exposure</span><span class="p">):</span>
+                        <span class="n">combined_semester_schedule</span><span class="p">[</span><span class="n">n</span><span class="o">+</span><span class="n">manager</span><span class="o">.</span><span class="n">all_dates_dict</span><span class="p">[</span><span class="n">manager</span><span class="o">.</span><span class="n">current_day</span><span class="p">]][</span><span class="n">s</span><span class="o">+</span><span class="n">e</span><span class="p">]</span> <span class="o">+=</span> \
+                                <span class="n">target_name</span>
+    <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">combined_semester_schedule</span><span class="p">)):</span>
+        <span class="c1"># convert the holder string to meaningful string</span>
+        <span class="k">if</span> <span class="n">combined_semester_schedule</span><span class="p">[</span><span class="n">m</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="s1">&#39;supercalifragilisticexpialidocious&#39;</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">l</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">combined_semester_schedule</span><span class="p">[</span><span class="n">m</span><span class="p">])):</span>
+                <span class="n">combined_semester_schedule</span><span class="p">[</span><span class="n">m</span><span class="p">][</span><span class="n">l</span><span class="p">]</span> <span class="o">=</span> <span class="s1">&#39;Past&#39;</span>
+
+    <span class="n">np</span><span class="o">.</span><span class="n">savetxt</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">output_directory</span> <span class="o">+</span> <span class="s1">&#39;raw_combined_semester_schedule_&#39;</span> <span class="o">+</span> <span class="n">round_info</span> <span class="o">+</span> <span class="s1">&#39;.txt&#39;</span><span class="p">,</span>
+        <span class="n">combined_semester_schedule</span><span class="p">,</span> <span class="n">delimiter</span><span class="o">=</span><span class="s1">&#39;,&#39;</span><span class="p">,</span> <span class="n">fmt</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">combined_semester_schedule</span></div>
+
+
+<div class="viewcode-block" id="write_available_human_readable">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.io.write_available_human_readable">[docs]</a>
+<span class="k">def</span> <span class="nf">write_available_human_readable</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Fill in the human readable solution with the non-observation information: non-allocated slots,</span>
+<span class="sd">    weather loss slots, non-queue slots, twilight slots.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        manager (obj): a data_admin object</span>
+<span class="sd">        twilight_map (array): the 1D array of length n_slots_in_semester where 1&#39;s represent slots</span>
+<span class="sd">                            not in night time and 0&#39;s represent slots that are during day/twilight</span>
+<span class="sd">        allocation_map_2D (array): a 2D array where rows represent a night and columns represent</span>
+<span class="sd">                                   the quarter within that night. Values are 1 if that</span>
+<span class="sd">                                   night/quarter is allocated and 0 if not.</span>
+<span class="sd">        weathered_map (array): a 1D array of length s slots in semester where elements are 1 if</span>
+<span class="sd">                                that slot has been modeled as lost to weather and 0 if not</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        combined_semester_schedule (array): a 2D array of dimensions n_nights_in_semester by</span>
+<span class="sd">                                            n_slots_in_night where elements denote how the slot is</span>
+<span class="sd">                                            used: target, twilight, weather, not scheduled.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">nonqueue_map_file</span><span class="p">):</span>
+        <span class="n">nonqueuemap_slots_strs</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">loadtxt</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">nonqueue_map_file</span><span class="p">,</span> <span class="n">delimiter</span><span class="o">=</span><span class="s1">&#39;,&#39;</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">str</span><span class="p">)</span>
+
+    <span class="c1"># The past does not matter to us here, so specify the days/slots that are to be ignored.</span>
+    <span class="n">end_past</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">all_dates_dict</span><span class="p">[</span><span class="n">manager</span><span class="o">.</span><span class="n">current_day</span><span class="p">]</span><span class="o">*</span><span class="n">manager</span><span class="o">.</span><span class="n">n_slots_in_night</span>
+    <span class="n">combined_semester_schedule</span> <span class="o">=</span> <span class="p">[</span><span class="s1">&#39;&#39;</span><span class="p">]</span><span class="o">*</span><span class="n">manager</span><span class="o">.</span><span class="n">semester_length</span><span class="o">*</span><span class="n">manager</span><span class="o">.</span><span class="n">n_slots_in_night</span>
+    <span class="n">combined_semester_schedule</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="s1">&#39;longwordhereformakingspace&#39;</span>
+    <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">end_past</span><span class="p">):</span>
+        <span class="c1"># for some reason when adding strings within an array, the max length of new string is the</span>
+        <span class="c1"># length of the longest string in the whole array. So choosing an arbitrary long word</span>
+        <span class="c1"># as a placeholder. Later I post-process this out.</span>
+        <span class="n">combined_semester_schedule</span><span class="p">[</span><span class="n">c</span><span class="p">]</span> <span class="o">+=</span> <span class="s1">&#39;supercalifragilisticexpialidocious&#39;</span>
+    <span class="n">combined_semester_schedule</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">combined_semester_schedule</span><span class="p">,</span>
+            <span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">semester_length</span><span class="p">,</span> <span class="n">manager</span><span class="o">.</span><span class="n">n_slots_in_night</span><span class="p">))</span>
+
+    <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">semester_length</span> <span class="o">-</span> <span class="n">manager</span><span class="o">.</span><span class="n">all_dates_dict</span><span class="p">[</span><span class="n">manager</span><span class="o">.</span><span class="n">current_day</span><span class="p">]):</span>
+        <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">n_slots_in_night</span><span class="p">):</span>
+            <span class="n">slotallocated</span> <span class="o">=</span> <span class="s1">&#39;&#39;</span>
+            <span class="c1"># remember that twilight map is &quot;inverted&quot;: the 1&#39;s are time where it is night and the</span>
+            <span class="c1"># 0&#39;s are time where it is day/twilight.</span>
+            <span class="k">if</span> <span class="n">manager</span><span class="o">.</span><span class="n">twilight_map_remaining_2D</span><span class="p">[</span><span class="n">n</span><span class="p">][</span><span class="n">s</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">slotallocated</span> <span class="o">+=</span> <span class="s1">&#39;*&#39;</span>
+            <span class="k">if</span> <span class="n">manager</span><span class="o">.</span><span class="n">allocation_map_2D</span><span class="p">[</span><span class="n">n</span><span class="p">][</span><span class="n">s</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">slotallocated</span> <span class="o">+=</span> <span class="s1">&#39;X&#39;</span>
+            <span class="k">if</span> <span class="n">manager</span><span class="o">.</span><span class="n">weathered_map</span><span class="p">[</span><span class="n">n</span><span class="p">][</span><span class="n">s</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span><span class="c1"># and slotallocated == &#39;&#39;:</span>
+                <span class="n">slotallocated</span> <span class="o">+=</span> <span class="s1">&#39;W&#39;</span>
+            <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">nonqueue_map_file</span><span class="p">):</span>
+                <span class="n">slotallocated</span> <span class="o">+=</span> <span class="nb">str</span><span class="p">(</span><span class="n">nonqueuemap_slots_strs</span><span class="p">[</span><span class="n">n</span> <span class="o">+</span> <span class="n">manager</span><span class="o">.</span><span class="n">all_dates_dict</span><span class="p">[</span><span class="n">manager</span><span class="o">.</span><span class="n">current_day</span><span class="p">],</span> <span class="p">][</span><span class="n">s</span><span class="p">])</span>
+            <span class="n">combined_semester_schedule</span><span class="p">[</span><span class="n">n</span> <span class="o">+</span> <span class="n">manager</span><span class="o">.</span><span class="n">all_dates_dict</span><span class="p">[</span><span class="n">manager</span><span class="o">.</span><span class="n">current_day</span><span class="p">],</span> <span class="p">][</span><span class="n">s</span><span class="p">]</span> <span class="o">+=</span> <span class="nb">str</span><span class="p">(</span><span class="n">slotallocated</span><span class="p">)</span>
+
+    <span class="n">np</span><span class="o">.</span><span class="n">savetxt</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">output_directory</span> <span class="o">+</span> <span class="s1">&#39;raw_combined_semester_schedule_available.txt&#39;</span><span class="p">,</span>
+        <span class="n">combined_semester_schedule</span><span class="p">,</span> <span class="n">delimiter</span><span class="o">=</span><span class="s1">&#39;,&#39;</span><span class="p">,</span> <span class="n">fmt</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">combined_semester_schedule</span></div>
+
+
+<div class="viewcode-block" id="write_starlist">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.io.write_starlist">[docs]</a>
+<span class="k">def</span> <span class="nf">write_starlist</span><span class="p">(</span><span class="n">frame</span><span class="p">,</span> <span class="n">solution_frame</span><span class="p">,</span> <span class="n">night_start_time</span><span class="p">,</span> <span class="n">extras</span><span class="p">,</span> <span class="n">filler_stars</span><span class="p">,</span> <span class="n">current_day</span><span class="p">,</span>
+                    <span class="n">outputdir</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Generate the nightly script in the correct format.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        frame (dataframe): the csv of PI requests for just the targets that were selected</span>
+<span class="sd">                            to be observed tonight</span>
+<span class="sd">        solution_frame (dataframe): the solution to the TTP model.plotly</span>
+<span class="sd">        night_start_time (astropy time object): Beginning of observing interval</span>
+<span class="sd">        extras (array): starnames of &quot;extra&quot; stars (those not fit into the script)</span>
+<span class="sd">        filler_stars (array): star names of the stars added in the bonus round</span>
+<span class="sd">        current_day (str): today&#39;s date in format YYYY-MM-DD</span>
+<span class="sd">        outputdir (str): the directory to save the script file</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">total_exptime</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">isdir</span><span class="p">(</span><span class="n">outputdir</span><span class="p">):</span>
+        <span class="n">os</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">outputdir</span><span class="p">)</span>
+    <span class="n">script_file</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">outputdir</span><span class="p">,</span><span class="s1">&#39;script_</span><span class="si">{}</span><span class="s1">_</span><span class="si">{}</span><span class="s1">.txt&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">current_day</span><span class="p">,</span><span class="s1">&#39;nominal&#39;</span><span class="p">))</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s1">&#39;Writing starlist to &#39;</span> <span class="o">+</span> <span class="n">script_file</span><span class="p">)</span>
+
+    <span class="n">lines</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">item</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">solution_frame</span><span class="p">[</span><span class="s1">&#39;Starname&#39;</span><span class="p">]):</span>
+        <span class="n">filler_flag</span> <span class="o">=</span> <span class="n">solution_frame</span><span class="p">[</span><span class="s1">&#39;Starname&#39;</span><span class="p">][</span><span class="n">i</span><span class="p">]</span> <span class="ow">in</span> <span class="n">filler_stars</span>
+        <span class="n">row</span> <span class="o">=</span> <span class="n">frame</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">frame</span><span class="p">[</span><span class="s1">&#39;Starname&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">solution_frame</span><span class="p">[</span><span class="s1">&#39;Starname&#39;</span><span class="p">][</span><span class="n">i</span><span class="p">]]</span>
+        <span class="n">row</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">inplace</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">total_exptime</span> <span class="o">+=</span> <span class="nb">float</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;Nominal Exposure Time [s]&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">])</span>
+
+        <span class="n">start_exposure_hst</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">TimeDelta</span><span class="p">(</span><span class="n">solution_frame</span><span class="p">[</span><span class="s1">&#39;Start Exposure&#39;</span><span class="p">][</span><span class="n">i</span><span class="p">]</span><span class="o">*</span><span class="mi">60</span><span class="p">,</span><span class="nb">format</span><span class="o">=</span><span class="s1">&#39;sec&#39;</span><span class="p">)</span> <span class="o">+</span> \
+                                                <span class="n">night_start_time</span><span class="p">)[</span><span class="mi">11</span><span class="p">:</span><span class="mi">16</span><span class="p">]</span>
+        <span class="n">first_available_hst</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">TimeDelta</span><span class="p">(</span><span class="n">solution_frame</span><span class="p">[</span><span class="s1">&#39;First Available&#39;</span><span class="p">][</span><span class="n">i</span><span class="p">]</span><span class="o">*</span><span class="mi">60</span><span class="p">,</span><span class="nb">format</span><span class="o">=</span><span class="s1">&#39;sec&#39;</span><span class="p">)</span><span class="o">+</span> \
+                                                <span class="n">night_start_time</span><span class="p">)[</span><span class="mi">11</span><span class="p">:</span><span class="mi">16</span><span class="p">]</span>
+        <span class="n">last_available_hst</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">TimeDelta</span><span class="p">(</span><span class="n">solution_frame</span><span class="p">[</span><span class="s1">&#39;Last Available&#39;</span><span class="p">][</span><span class="n">i</span><span class="p">]</span><span class="o">*</span><span class="mi">60</span><span class="p">,</span><span class="nb">format</span><span class="o">=</span><span class="s1">&#39;sec&#39;</span><span class="p">)</span> <span class="o">+</span> \
+                                                <span class="n">night_start_time</span><span class="p">)[</span><span class="mi">11</span><span class="p">:</span><span class="mi">16</span><span class="p">]</span>
+
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">format_kpf_row</span><span class="p">(</span><span class="n">row</span><span class="p">,</span> <span class="n">start_exposure_hst</span><span class="p">,</span> <span class="n">first_available_hst</span><span class="p">,</span><span class="n">last_available_hst</span><span class="p">,</span>
+                                    <span class="n">current_day</span><span class="p">,</span> <span class="n">filler_flag</span> <span class="o">=</span> <span class="n">filler_flag</span><span class="p">))</span>
+
+    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s1">&#39;&#39;</span><span class="p">)</span>
+    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s1">&#39;X&#39;</span> <span class="o">*</span> <span class="mi">45</span> <span class="o">+</span> <span class="s1">&#39;EXTRAS&#39;</span> <span class="o">+</span> <span class="s1">&#39;X&#39;</span> <span class="o">*</span> <span class="mi">45</span><span class="p">)</span>
+    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s1">&#39;&#39;</span><span class="p">)</span>
+
+    <span class="k">for</span> <span class="n">j</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">extras</span><span class="p">[</span><span class="s1">&#39;Starname&#39;</span><span class="p">])):</span>
+        <span class="k">if</span> <span class="n">extras</span><span class="p">[</span><span class="s1">&#39;Starname&#39;</span><span class="p">][</span><span class="n">j</span><span class="p">]</span> <span class="ow">in</span> <span class="n">filler_stars</span><span class="p">:</span>
+            <span class="n">filler_flag</span> <span class="o">=</span> <span class="kc">True</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">filler_flag</span> <span class="o">=</span> <span class="kc">False</span>
+        <span class="n">row</span> <span class="o">=</span> <span class="n">frame</span><span class="o">.</span><span class="n">loc</span><span class="p">[</span><span class="n">frame</span><span class="p">[</span><span class="s1">&#39;Starname&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">extras</span><span class="p">[</span><span class="s1">&#39;Starname&#39;</span><span class="p">][</span><span class="n">j</span><span class="p">]]</span>
+        <span class="n">row</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">inplace</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">format_kpf_row</span><span class="p">(</span><span class="n">row</span><span class="p">,</span> <span class="s1">&#39;56:78&#39;</span><span class="p">,</span> <span class="n">extras</span><span class="p">[</span><span class="s1">&#39;First Available&#39;</span><span class="p">][</span><span class="n">j</span><span class="p">],</span>
+                    <span class="n">extras</span><span class="p">[</span><span class="s1">&#39;Last Available&#39;</span><span class="p">][</span><span class="n">j</span><span class="p">],</span> <span class="n">current_day</span><span class="p">,</span> <span class="n">filler_flag</span><span class="p">,</span> <span class="kc">True</span><span class="p">))</span>
+
+    <span class="c1"># add buffer lines to end of file</span>
+    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+    <span class="n">lines</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">script_file</span><span class="p">,</span> <span class="s1">&#39;w&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">f</span><span class="p">:</span>
+        <span class="n">f</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s1">&#39;</span><span class="se">\n</span><span class="s1">&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">lines</span><span class="p">))</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Total Open Shutter Time Scheduled: &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">((</span><span class="n">total_exptime</span><span class="o">/</span><span class="mi">3600</span><span class="p">),</span><span class="mi">2</span><span class="p">))</span> <span class="o">+</span> <span class="s2">&quot; hours&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="format_kpf_row">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.io.format_kpf_row">[docs]</a>
+<span class="k">def</span> <span class="nf">format_kpf_row</span><span class="p">(</span><span class="n">row</span><span class="p">,</span> <span class="n">obs_time</span><span class="p">,</span> <span class="n">first_available</span><span class="p">,</span> <span class="n">last_available</span><span class="p">,</span> <span class="n">current_day</span><span class="p">,</span>
+                    <span class="n">filler_flag</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">extra</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Format request data in the specific way needed for the script (relates to the Keck &quot;Magiq&quot;</span>
+<span class="sd">    software&#39;s data ingestion requirements).</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        row (dataframe): a single row from the requests sheet dataframe</span>
+<span class="sd">        obs_time (str): the timestamp of the night to begin the exposure according to the TTP.</span>
+<span class="sd">                        In format HH:MM in HST timezone</span>
+<span class="sd">        first_available (str): the timestamp of the night where the star is first accessible.</span>
+<span class="sd">                                In format HH:MM in HST timezone.</span>
+<span class="sd">        last_available (str): the timestamp of the night where the star is last accessible.</span>
+<span class="sd">                                In format HH:MM in HST timezone.</span>
+<span class="sd">        filler_flag (boolean): True of the target was added in the bonus round</span>
+<span class="sd">        extra (boolean): is this an &quot;extra&quot; target</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        line (str): the properly formatted string to be included in the script file</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">epochstr</span> <span class="o">=</span> <span class="s1">&#39;2024&#39;</span>
+    <span class="n">updated_ra</span><span class="p">,</span> <span class="n">updated_dec</span> <span class="o">=</span> <span class="n">pm_correcter</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;RA&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s1">&#39;Dec&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span>
+                                <span class="n">row</span><span class="p">[</span><span class="s1">&#39;Proper Motion in RA [miliarcseconds/year]&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span>
+                                <span class="n">row</span><span class="p">[</span><span class="s1">&#39;Proper Motion in Dec [miliarcseconds/year]&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span>
+                                <span class="n">epochstr</span><span class="p">,</span> <span class="n">current_day</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">updated_dec</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">!=</span> <span class="s2">&quot;-&quot;</span><span class="p">:</span>
+        <span class="n">updated_dec</span> <span class="o">=</span> <span class="s2">&quot;+&quot;</span> <span class="o">+</span> <span class="n">updated_dec</span>
+
+    <span class="n">namestring</span> <span class="o">=</span> <span class="s1">&#39; &#39;</span><span class="o">*</span><span class="p">(</span><span class="mi">16</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;Starname&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">][:</span><span class="mi">16</span><span class="p">]))</span> <span class="o">+</span> <span class="n">row</span><span class="p">[</span><span class="s1">&#39;Starname&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">][:</span><span class="mi">16</span><span class="p">]</span>
+
+    <span class="n">jmagstring</span> <span class="o">=</span> <span class="p">(</span><span class="s1">&#39;jmag=&#39;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;J Magnitude&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]),</span><span class="mi">1</span><span class="p">))</span> <span class="o">+</span> <span class="s1">&#39; &#39;</span><span class="o">*</span> \
+        <span class="p">(</span><span class="mi">4</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;J Magnitude&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span><span class="mi">1</span><span class="p">)))))</span>
+    <span class="n">exposurestring</span> <span class="o">=</span> <span class="p">(</span><span class="s1">&#39; &#39;</span><span class="o">*</span><span class="p">(</span><span class="mi">4</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;Nominal Exposure Time [s]&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]))))</span> <span class="o">+</span> \
+        <span class="nb">str</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;Nominal Exposure Time [s]&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]))</span> <span class="o">+</span> <span class="s1">&#39;/&#39;</span> <span class="o">+</span> \
+        <span class="nb">str</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;Maximum Exposure Time [s]&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]))</span> <span class="o">+</span> <span class="s1">&#39; &#39;</span><span class="o">*</span> \
+        <span class="p">(</span><span class="mi">4</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;Maximum Exposure Time [s]&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">])))))</span>
+
+    <span class="n">ofstring</span> <span class="o">=</span> <span class="p">(</span><span class="s1">&#39;1of&#39;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;# Visits per Night&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">])))</span>
+
+    <span class="k">if</span> <span class="n">row</span><span class="p">[</span><span class="s1">&#39;Simucal&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]:</span>
+        <span class="n">scval</span> <span class="o">=</span> <span class="s1">&#39;T&#39;</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">scval</span> <span class="o">=</span> <span class="s1">&#39;F&#39;</span>
+    <span class="n">scstring</span> <span class="o">=</span> <span class="s1">&#39;sc=&#39;</span> <span class="o">+</span> <span class="n">scval</span>
+
+    <span class="n">numstring</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;# of Exposures per Visit&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]))</span> <span class="o">+</span> <span class="s2">&quot;x&quot;</span>
+    <span class="n">gmagstring</span> <span class="o">=</span> <span class="s1">&#39;gmag=&#39;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="nb">float</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;G Magnitude&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]),</span><span class="mi">1</span><span class="p">))</span> <span class="o">+</span> \
+                                                <span class="s1">&#39; &#39;</span><span class="o">*</span><span class="p">(</span><span class="mi">4</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;G Magnitude&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span><span class="mi">1</span><span class="p">))))</span>
+    <span class="n">teffstr</span> <span class="o">=</span> <span class="s1">&#39;Teff=&#39;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;Effective Temperature [Kelvin]&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]))</span> <span class="o">+</span> \
+                                    <span class="s1">&#39; &#39;</span><span class="o">*</span><span class="p">(</span><span class="mi">4</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;Effective Temperature [Kelvin]&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]))))</span>
+
+    <span class="n">gaiastring</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;GAIA Identifier&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">])</span> <span class="o">+</span> <span class="s1">&#39; &#39;</span><span class="o">*</span><span class="p">(</span><span class="mi">25</span><span class="o">-</span><span class="nb">len</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;GAIA Identifier&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">])))</span>
+    <span class="n">programstring</span> <span class="o">=</span> <span class="n">row</span><span class="p">[</span><span class="s1">&#39;Program_Code&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span>
+
+    <span class="k">if</span> <span class="n">filler_flag</span><span class="p">:</span>
+        <span class="c1"># All targets added in round 2 bonus round are lower priority</span>
+        <span class="n">priostring</span> <span class="o">=</span> <span class="s2">&quot;p3&quot;</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">priostring</span> <span class="o">=</span> <span class="s2">&quot;p1&quot;</span>
+
+    <span class="k">if</span> <span class="n">extra</span> <span class="o">==</span> <span class="kc">False</span><span class="p">:</span>
+        <span class="n">timestring2</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">obs_time</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="c1"># designate a nonsense time</span>
+        <span class="n">timestring2</span> <span class="o">=</span> <span class="s2">&quot;56:78&quot;</span>
+
+    <span class="n">line</span> <span class="o">=</span> <span class="p">(</span><span class="n">namestring</span> <span class="o">+</span> <span class="s1">&#39; &#39;</span> <span class="o">+</span> <span class="n">updated_ra</span> <span class="o">+</span> <span class="s1">&#39; &#39;</span> <span class="o">+</span> <span class="n">updated_dec</span> <span class="o">+</span> <span class="s1">&#39; &#39;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">epochstr</span><span class="p">)</span> <span class="o">+</span> <span class="s1">&#39; &#39;</span>
+                <span class="o">+</span> <span class="n">jmagstring</span> <span class="o">+</span> <span class="s1">&#39; &#39;</span> <span class="o">+</span> <span class="n">exposurestring</span> <span class="o">+</span> <span class="s1">&#39; &#39;</span> <span class="o">+</span> <span class="n">ofstring</span> <span class="o">+</span> <span class="s1">&#39; &#39;</span> <span class="o">+</span> <span class="n">scstring</span> <span class="o">+</span>  <span class="s1">&#39; &#39;</span>
+                <span class="o">+</span> <span class="n">numstring</span> <span class="o">+</span> <span class="s1">&#39; &#39;</span><span class="o">+</span> <span class="n">gmagstring</span> <span class="o">+</span> <span class="s1">&#39; &#39;</span> <span class="o">+</span> <span class="n">teffstr</span> <span class="o">+</span> <span class="s1">&#39; &#39;</span> <span class="o">+</span> <span class="n">gaiastring</span> <span class="o">+</span> <span class="s1">&#39; CC &#39;</span>
+                        <span class="o">+</span> <span class="n">priostring</span> <span class="o">+</span> <span class="s1">&#39; &#39;</span> <span class="o">+</span> <span class="n">programstring</span> <span class="o">+</span> <span class="s1">&#39; &#39;</span> <span class="o">+</span> <span class="n">timestring2</span> <span class="o">+</span>
+                         <span class="s1">&#39; &#39;</span> <span class="o">+</span> <span class="n">first_available</span>  <span class="o">+</span> <span class="s1">&#39; &#39;</span> <span class="o">+</span> <span class="n">last_available</span> <span class="p">)</span>
+
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">pd</span><span class="o">.</span><span class="n">isnull</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;Observing Notes&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]):</span>
+        <span class="n">line</span> <span class="o">+=</span> <span class="p">(</span><span class="s1">&#39; &#39;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">row</span><span class="p">[</span><span class="s1">&#39;Observing Notes&#39;</span><span class="p">][</span><span class="mi">0</span><span class="p">]))</span>
+
+    <span class="k">return</span> <span class="n">line</span></div>
+
+
+<div class="viewcode-block" id="pm_correcter">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.io.pm_correcter">[docs]</a>
+<span class="k">def</span> <span class="nf">pm_correcter</span><span class="p">(</span><span class="n">ra</span><span class="p">,</span> <span class="n">dec</span><span class="p">,</span> <span class="n">pmra</span><span class="p">,</span> <span class="n">pmdec</span><span class="p">,</span> <span class="n">epochstr</span><span class="p">,</span> <span class="n">current_day</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Update a star&#39;s coordinates due to proper motion</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        ra (str): star&#39;s old coordinate RA in units of degrees</span>
+<span class="sd">        dec (str): star&#39;s old coordinate Dec in units of degrees</span>
+<span class="sd">        pmra (str): star&#39;s proper motion in the RA dimension, units of millearcseconds per year</span>
+<span class="sd">        pmdec (str): star&#39;s proper motion in the Dec dimension, units of millearcseconds per year</span>
+<span class="sd">        epochstr (str): a string of the year those coordinates are updated to</span>
+<span class="sd">        verbose (boolean): True to print out to command line</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        formatted_ra (str): the updated RA position in units of degrees</span>
+<span class="sd">        formatted_dec (str):  the updated Dec position in units of degrees</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="c1"># requires giving RA and Dec in degrees</span>
+    <span class="c1"># example: RA = 321.5 and Dec = 15.6</span>
+    <span class="c1"># note that degrees are not hour angles!</span>
+    <span class="c1"># this code converts RA from degrees to hourangle at the end</span>
+
+    <span class="n">current_time</span> <span class="o">=</span> <span class="n">Time</span><span class="p">(</span><span class="n">current_day</span><span class="p">)</span>  <span class="c1"># You can adjust the date as needed</span>
+    <span class="n">ra_deg</span> <span class="o">=</span> <span class="n">Angle</span><span class="p">(</span><span class="n">ra</span><span class="p">,</span> <span class="n">unit</span><span class="o">=</span><span class="n">u</span><span class="o">.</span><span class="n">deg</span><span class="p">)</span>  <span class="c1"># RA in degrees</span>
+    <span class="n">dec_deg</span> <span class="o">=</span> <span class="n">Angle</span><span class="p">(</span><span class="n">dec</span><span class="p">,</span> <span class="n">unit</span><span class="o">=</span><span class="n">u</span><span class="o">.</span><span class="n">deg</span><span class="p">)</span>  <span class="c1"># Dec in degrees</span>
+    <span class="n">pm_ra</span> <span class="o">=</span> <span class="n">pmra</span> <span class="o">*</span> <span class="n">u</span><span class="o">.</span><span class="n">mas</span><span class="o">/</span><span class="n">u</span><span class="o">.</span><span class="n">yr</span>
+    <span class="n">pm_dec</span> <span class="o">=</span> <span class="n">pmdec</span> <span class="o">*</span> <span class="n">u</span><span class="o">.</span><span class="n">mas</span><span class="o">/</span><span class="n">u</span><span class="o">.</span><span class="n">yr</span>
+    <span class="n">epochtime</span> <span class="o">=</span> <span class="n">Time</span><span class="p">(</span><span class="s1">&#39;J&#39;</span> <span class="o">+</span> <span class="n">epochstr</span><span class="p">)</span>
+    <span class="n">ra_advanced_deg</span> <span class="o">=</span> <span class="p">(</span><span class="n">ra_deg</span> <span class="o">+</span> <span class="p">(</span><span class="n">pm_ra</span> <span class="o">*</span> <span class="p">(</span><span class="n">current_time</span> <span class="o">-</span> <span class="n">epochtime</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">u</span><span class="o">.</span><span class="n">yr</span><span class="p">))</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">u</span><span class="o">.</span><span class="n">deg</span><span class="p">))</span><span class="o">/</span><span class="mi">15</span>
+    <span class="n">dec_advanced_deg</span> <span class="o">=</span> <span class="n">dec_deg</span> <span class="o">+</span> <span class="p">(</span><span class="n">pm_dec</span> <span class="o">*</span> <span class="p">(</span><span class="n">current_time</span> <span class="o">-</span> <span class="n">epochtime</span><span class="p">)</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">u</span><span class="o">.</span><span class="n">yr</span><span class="p">))</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">u</span><span class="o">.</span><span class="n">deg</span><span class="p">)</span>
+
+    <span class="n">formatted_ra</span> <span class="o">=</span> <span class="n">ra_advanced_deg</span><span class="o">.</span><span class="n">to_string</span><span class="p">(</span><span class="n">unit</span><span class="o">=</span><span class="n">u</span><span class="o">.</span><span class="n">deg</span><span class="p">,</span> <span class="n">sep</span><span class="o">=</span><span class="s1">&#39; &#39;</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">precision</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">formatted_dec</span> <span class="o">=</span> <span class="n">dec_advanced_deg</span><span class="o">.</span><span class="n">to_string</span><span class="p">(</span><span class="n">unit</span><span class="o">=</span><span class="n">u</span><span class="o">.</span><span class="n">deg</span><span class="p">,</span> <span class="n">sep</span><span class="o">=</span><span class="s1">&#39; &#39;</span><span class="p">,</span> <span class="n">pad</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">precision</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">formatted_ra</span><span class="p">,</span> <span class="n">formatted_dec</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, JLubinAstroQ.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
