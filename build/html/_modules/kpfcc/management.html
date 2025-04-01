@@ -6,7 +6,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>kpfcc.management &mdash; AstroQ_docs 1.0.0 documentation</title>
-      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=92fd9be5" />
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
 
   
@@ -76,22 +76,22 @@
 <span class="sd">Example usage:</span>
 <span class="sd">    import admin_functions as af</span>
 <span class="sd">&quot;&quot;&quot;</span>
-<span class="kn">import</span> <span class="nn">os</span>
-<span class="kn">import</span> <span class="nn">math</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
 
-<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
-<span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
-<span class="kn">from</span> <span class="nn">astropy.time</span> <span class="kn">import</span> <span class="n">Time</span>
-<span class="kn">from</span> <span class="nn">astropy.time</span> <span class="kn">import</span> <span class="n">TimeDelta</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astropy.time</span><span class="w"> </span><span class="kn">import</span> <span class="n">Time</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astropy.time</span><span class="w"> </span><span class="kn">import</span> <span class="n">TimeDelta</span>
 
-<span class="kn">from</span> <span class="nn">kpfcc</span> <span class="kn">import</span> <span class="n">DATADIR</span>
-<span class="kn">import</span> <span class="nn">kpfcc.history</span> <span class="k">as</span> <span class="nn">hs</span>
-<span class="kn">import</span> <span class="nn">kpfcc.access</span> <span class="k">as</span> <span class="nn">ac</span>
-<span class="kn">import</span> <span class="nn">kpfcc.maps</span> <span class="k">as</span> <span class="nn">mp</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">kpfcc</span><span class="w"> </span><span class="kn">import</span> <span class="n">DATADIR</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">kpfcc.history</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">hs</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">kpfcc.access</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ac</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">kpfcc.maps</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">mp</span>
 
 <div class="viewcode-block" id="data_admin">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.management.data_admin">[docs]</a>
-<span class="k">class</span> <span class="nc">data_admin</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">data_admin</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;A Data Admin object, from which we can easily pass around information.</span>
 
 <span class="sd">    Args:</span>
@@ -142,7 +142,7 @@
 <span class="sd">        None</span>
 <span class="sd">    &quot;&quot;&quot;</span>
 
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span>
                 <span class="n">output_directory</span><span class="p">,</span>
                 <span class="n">current_day</span><span class="p">,</span>
                 <span class="n">observatory</span><span class="p">,</span>
@@ -252,7 +252,7 @@
 
 <div class="viewcode-block" id="data_admin.run_admin">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.management.data_admin.run_admin">[docs]</a>
-    <span class="k">def</span> <span class="nf">run_admin</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">run_admin</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Given today&#39;s date, collate all important information about the semester.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -312,7 +312,7 @@
 
 <div class="viewcode-block" id="data_admin.build_slots_required_dictionary">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.management.data_admin.build_slots_required_dictionary">[docs]</a>
-    <span class="k">def</span> <span class="nf">build_slots_required_dictionary</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">always_round_up_flag</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">build_slots_required_dictionary</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">always_round_up_flag</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Computes the slots needed for a given exposure for all requests.</span>
 <span class="sd">        When always_round_up_flag is false, we can round up or down.</span>
@@ -338,7 +338,7 @@
 
 <div class="viewcode-block" id="get_semester_info">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.management.get_semester_info">[docs]</a>
-<span class="k">def</span> <span class="nf">get_semester_info</span><span class="p">(</span><span class="n">current_day</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_semester_info</span><span class="p">(</span><span class="n">current_day</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Given today&#39;s date, return information about the semester we are currently in.</span>
 
@@ -404,7 +404,7 @@
 
 <div class="viewcode-block" id="build_date_dictionary">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.management.build_date_dictionary">[docs]</a>
-<span class="k">def</span> <span class="nf">build_date_dictionary</span><span class="p">(</span><span class="n">semester_start_date</span><span class="p">,</span> <span class="n">semester_length</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">build_date_dictionary</span><span class="p">(</span><span class="n">semester_start_date</span><span class="p">,</span> <span class="n">semester_length</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Builds a dictionary where keys are the calendar dates within the semester and values are the</span>
 <span class="sd">    corresponding day numbers of the semester.</span>
@@ -428,7 +428,7 @@
 
 <div class="viewcode-block" id="compute_slots_required_for_exposure">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.management.compute_slots_required_for_exposure">[docs]</a>
-<span class="k">def</span> <span class="nf">compute_slots_required_for_exposure</span><span class="p">(</span><span class="n">exposure_time</span><span class="p">,</span> <span class="n">slot_size</span><span class="p">,</span> <span class="n">always_round_up_flag</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">compute_slots_required_for_exposure</span><span class="p">(</span><span class="n">exposure_time</span><span class="p">,</span> <span class="n">slot_size</span><span class="p">,</span> <span class="n">always_round_up_flag</span><span class="p">):</span>
 
     <span class="n">slot_size</span> <span class="o">=</span> <span class="n">slot_size</span> <span class="o">*</span> <span class="mi">60</span> <span class="c1"># converting to seconds</span>
     <span class="k">if</span> <span class="n">always_round_up_flag</span><span class="p">:</span>
@@ -443,7 +443,7 @@
 
 <div class="viewcode-block" id="get_gap_filler_targets">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.management.get_gap_filler_targets">[docs]</a>
-<span class="k">def</span> <span class="nf">get_gap_filler_targets</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_gap_filler_targets</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Using the results of the two rounds of scheduling, determine what is different between them,</span>
 <span class="sd">    i.e. which targets were added in Round 2</span>

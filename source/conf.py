@@ -6,6 +6,12 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
+import os
+import sys
+
+sys.path.insert(0, os.path.abspath('..')) # Make sure that the root directory is in the system path
+
+
 project = 'AstroQ_docs'
 copyright = '2025, JLubinAstroQ'
 author = 'JLubinAstroQ'
