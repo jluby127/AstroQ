@@ -6,7 +6,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>kpfcc.maps &mdash; AstroQ_docs 1.0.0 documentation</title>
-      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=92fd9be5" />
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
 
   
@@ -79,21 +79,21 @@
 <span class="sd">Example usage:</span>
 <span class="sd">    import mapping_functions as mf</span>
 <span class="sd">&quot;&quot;&quot;</span>
-<span class="kn">import</span> <span class="nn">json</span>
-<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 
-<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
-<span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
-<span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="k">as</span> <span class="nn">pt</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pt</span>
 
-<span class="kn">from</span> <span class="nn">astropy.time</span> <span class="kn">import</span> <span class="n">Time</span>
-<span class="kn">from</span> <span class="nn">astropy.time</span> <span class="kn">import</span> <span class="n">TimeDelta</span>
-<span class="kn">import</span> <span class="nn">astropy</span> <span class="k">as</span> <span class="nn">apy</span>
-<span class="kn">import</span> <span class="nn">astropy.units</span> <span class="k">as</span> <span class="nn">u</span>
-<span class="kn">import</span> <span class="nn">astroplan</span> <span class="k">as</span> <span class="nn">apl</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astropy.time</span><span class="w"> </span><span class="kn">import</span> <span class="n">Time</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astropy.time</span><span class="w"> </span><span class="kn">import</span> <span class="n">TimeDelta</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">astropy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">apy</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">astropy.units</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">u</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">astroplan</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">apl</span>
 
-<span class="kn">import</span> <span class="nn">kpfcc.access</span> <span class="k">as</span> <span class="nn">ac</span>
-<span class="kn">import</span> <span class="nn">kpfcc.weather</span> <span class="k">as</span> <span class="nn">wh</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">kpfcc.access</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ac</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">kpfcc.weather</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">wh</span>
 
 <span class="c1"># Define list of observatories which are currently supported.</span>
 <span class="c1"># To add an obseratory/telescope, add the Astroplan resolvable name to the list in generate_night_plan</span>
@@ -117,7 +117,7 @@
 
 <div class="viewcode-block" id="produce_ultimate_map">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.maps.produce_ultimate_map">[docs]</a>
-<span class="k">def</span> <span class="nf">produce_ultimate_map</span><span class="p">(</span><span class="n">manager</span><span class="p">,</span> <span class="n">allocation_map_1D</span><span class="p">,</span> <span class="n">twilight_map_remaining_flat</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">produce_ultimate_map</span><span class="p">(</span><span class="n">manager</span><span class="p">,</span> <span class="n">allocation_map_1D</span><span class="p">,</span> <span class="n">twilight_map_remaining_flat</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Combine all maps for a target to produce the final map</span>
 
@@ -222,7 +222,7 @@
 
 <div class="viewcode-block" id="construct_custom_map_dict">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.maps.construct_custom_map_dict">[docs]</a>
-<span class="k">def</span> <span class="nf">construct_custom_map_dict</span><span class="p">(</span><span class="n">special_map_file</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">construct_custom_map_dict</span><span class="p">(</span><span class="n">special_map_file</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Read in the customize acccessibility maps for unique targets, if exists.</span>
 
@@ -241,7 +241,7 @@
 
 <div class="viewcode-block" id="construct_zero_out_arr">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.maps.construct_zero_out_arr">[docs]</a>
-<span class="k">def</span> <span class="nf">construct_zero_out_arr</span><span class="p">(</span><span class="n">zero_out_file</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">construct_zero_out_arr</span><span class="p">(</span><span class="n">zero_out_file</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Read in the list of targets to &quot;zero out&quot;, i.e. not allowed to be scheduled only tonight.</span>
 
@@ -261,7 +261,7 @@
 
 <div class="viewcode-block" id="construct_nonqueue_arr">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.maps.construct_nonqueue_arr">[docs]</a>
-<span class="k">def</span> <span class="nf">construct_nonqueue_arr</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">construct_nonqueue_arr</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Build the 1D non-queue map</span>
 
@@ -294,7 +294,7 @@
 
 <div class="viewcode-block" id="prepare_allocation_map">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.maps.prepare_allocation_map">[docs]</a>
-<span class="k">def</span> <span class="nf">prepare_allocation_map</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">prepare_allocation_map</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    When not in optimal allocation mode, prepare and construct the allocation map, as well as</span>
 <span class="sd">    perform the weather loss modeling.</span>
@@ -354,7 +354,7 @@
 
 <div class="viewcode-block" id="build_allocation_map">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.maps.build_allocation_map">[docs]</a>
-<span class="k">def</span> <span class="nf">build_allocation_map</span><span class="p">(</span><span class="n">manager</span><span class="p">,</span> <span class="n">allocation_schedule</span><span class="p">,</span> <span class="n">weather_diff</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">build_allocation_map</span><span class="p">(</span><span class="n">manager</span><span class="p">,</span> <span class="n">allocation_schedule</span><span class="p">,</span> <span class="n">weather_diff</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Create the 1D allocation map where allocated slots are designated with a 1</span>
 <span class="sd">    and non-allocated slots designated with a 0.</span>
@@ -402,7 +402,7 @@
 
 <div class="viewcode-block" id="convert_allocation_array_to_binary">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.maps.convert_allocation_array_to_binary">[docs]</a>
-<span class="k">def</span> <span class="nf">convert_allocation_array_to_binary</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">convert_allocation_array_to_binary</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Used in optimal allocation, write out the results of the calendar to human readable format.</span>
 
@@ -423,7 +423,7 @@
 
 <div class="viewcode-block" id="format_keck_allocation_info">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.maps.format_keck_allocation_info">[docs]</a>
-<span class="k">def</span> <span class="nf">format_keck_allocation_info</span><span class="p">(</span><span class="n">allocation_file</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">format_keck_allocation_info</span><span class="p">(</span><span class="n">allocation_file</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 
 <span class="sd">    Read in allocation file, as downloaded from this site, filter by KPF and the relevant semester:</span>
@@ -516,7 +516,7 @@
 
 <div class="viewcode-block" id="quarter_translator">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.maps.quarter_translator">[docs]</a>
-<span class="k">def</span> <span class="nf">quarter_translator</span><span class="p">(</span><span class="n">start</span><span class="p">,</span> <span class="n">stop</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">quarter_translator</span><span class="p">(</span><span class="n">start</span><span class="p">,</span> <span class="n">stop</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Map the start/stop fractions to binary map.</span>
 <span class="sd">    I can&#39;t think of a better/automated way to do this other than brute force, sorry.</span>
@@ -562,7 +562,7 @@
 
 <div class="viewcode-block" id="quarters_observable">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.maps.quarters_observable">[docs]</a>
-<span class="k">def</span> <span class="nf">quarters_observable</span><span class="p">(</span><span class="n">observability_matrix</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">quarters_observable</span><span class="p">(</span><span class="n">observability_matrix</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    For a single night, using the full night&#39;s slots accessibility map,</span>
 <span class="sd">    determine which of the quarters the given target is observable.</span>
@@ -612,7 +612,7 @@
 
 <div class="viewcode-block" id="compute_on_off_for_quarter">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.maps.compute_on_off_for_quarter">[docs]</a>
-<span class="k">def</span> <span class="nf">compute_on_off_for_quarter</span><span class="p">(</span><span class="n">quarter_map</span><span class="p">,</span> <span class="n">quarter</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">compute_on_off_for_quarter</span><span class="p">(</span><span class="n">quarter_map</span><span class="p">,</span> <span class="n">quarter</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Determine the first and last day a target is accessible in a given quarter of the night.</span>
 <span class="sd">    Primarily for easy lookup plotting purposes later.</span>
@@ -641,7 +641,7 @@
 
 <div class="viewcode-block" id="round_time_to_slot">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.maps.round_time_to_slot">[docs]</a>
-<span class="k">def</span> <span class="nf">round_time_to_slot</span><span class="p">(</span><span class="n">input_time</span><span class="p">,</span> <span class="n">slot_size</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">round_time_to_slot</span><span class="p">(</span><span class="n">input_time</span><span class="p">,</span> <span class="n">slot_size</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    From a given timestamp, determine the timestamp of the nearest slot&#39;s start.</span>
 
@@ -674,7 +674,7 @@
 
 <div class="viewcode-block" id="convert_utc_to_hst">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.maps.convert_utc_to_hst">[docs]</a>
-<span class="k">def</span> <span class="nf">convert_utc_to_hst</span><span class="p">(</span><span class="n">timestring</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">convert_utc_to_hst</span><span class="p">(</span><span class="n">timestring</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Convert between the UTC time and the HST time. Note Hawaii does not change clocks with</span>
 <span class="sd">    daylight savings so this is always a straight-forward transformation.</span>

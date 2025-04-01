@@ -6,7 +6,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>kpfcc.weather &mdash; AstroQ_docs 1.0.0 documentation</title>
-      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=92fd9be5" />
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
 
   
@@ -75,27 +75,27 @@
 <span class="sd">Example usage:</span>
 <span class="sd">    import weather as wh</span>
 <span class="sd">&quot;&quot;&quot;</span>
-<span class="kn">import</span> <span class="nn">os</span>
-<span class="kn">import</span> <span class="nn">math</span>
-<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
-<span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
-<span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="k">as</span> <span class="nn">pt</span>
-<span class="kn">import</span> <span class="nn">warnings</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">math</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pt</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
 <span class="n">warnings</span><span class="o">.</span><span class="n">filterwarnings</span><span class="p">(</span><span class="s1">&#39;ignore&#39;</span><span class="p">)</span>
 
-<span class="kn">from</span> <span class="nn">astropy.time</span> <span class="kn">import</span> <span class="n">Time</span>
-<span class="kn">from</span> <span class="nn">astropy.time</span> <span class="kn">import</span> <span class="n">TimeDelta</span>
-<span class="kn">import</span> <span class="nn">astropy</span> <span class="k">as</span> <span class="nn">apy</span>
-<span class="kn">from</span> <span class="nn">astropy.coordinates</span> <span class="kn">import</span> <span class="n">SkyCoord</span>
-<span class="kn">from</span> <span class="nn">astropy.coordinates</span> <span class="kn">import</span> <span class="n">Angle</span>
-<span class="kn">import</span> <span class="nn">astroplan</span> <span class="k">as</span> <span class="nn">apl</span>
-<span class="kn">import</span> <span class="nn">astropy.units</span> <span class="k">as</span> <span class="nn">u</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astropy.time</span><span class="w"> </span><span class="kn">import</span> <span class="n">Time</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astropy.time</span><span class="w"> </span><span class="kn">import</span> <span class="n">TimeDelta</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">astropy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">apy</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astropy.coordinates</span><span class="w"> </span><span class="kn">import</span> <span class="n">SkyCoord</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astropy.coordinates</span><span class="w"> </span><span class="kn">import</span> <span class="n">Angle</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">astroplan</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">apl</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">astropy.units</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">u</span>
 
-<span class="kn">import</span> <span class="nn">kpfcc.access</span> <span class="k">as</span> <span class="nn">ac</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">kpfcc.access</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ac</span>
 
 <div class="viewcode-block" id="get_loss_stats">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.weather.get_loss_stats">[docs]</a>
-<span class="k">def</span> <span class="nf">get_loss_stats</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_loss_stats</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Simulate nights totally lost to weather usine historical data</span>
 
@@ -118,7 +118,7 @@
 
 <div class="viewcode-block" id="simulate_weather_losses">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.weather.simulate_weather_losses">[docs]</a>
-<span class="k">def</span> <span class="nf">simulate_weather_losses</span><span class="p">(</span><span class="n">allocation_remaining</span><span class="p">,</span> <span class="n">loss_stats</span><span class="p">,</span> <span class="n">covariance</span><span class="o">=</span><span class="mf">0.14</span><span class="p">,</span> \
+<span class="k">def</span><span class="w"> </span><span class="nf">simulate_weather_losses</span><span class="p">(</span><span class="n">allocation_remaining</span><span class="p">,</span> <span class="n">loss_stats</span><span class="p">,</span> <span class="n">covariance</span><span class="o">=</span><span class="mf">0.14</span><span class="p">,</span> \
                             <span class="n">dont_lose_nights</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">plot</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">outputdir</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Simulate nights totally lost to weather usine historical data</span>
@@ -184,7 +184,7 @@
 
 <div class="viewcode-block" id="write_out_weather_stats">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.weather.write_out_weather_stats">[docs]</a>
-<span class="k">def</span> <span class="nf">write_out_weather_stats</span><span class="p">(</span><span class="n">manager</span><span class="p">,</span> <span class="n">days_lost</span><span class="p">,</span> <span class="n">allocation_remaining</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">write_out_weather_stats</span><span class="p">(</span><span class="n">manager</span><span class="p">,</span> <span class="n">days_lost</span><span class="p">,</span> <span class="n">allocation_remaining</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Write out data on the results of the weather simulation. For comparing acrossing MCMC simulations</span>
 
@@ -244,7 +244,7 @@
 
 <div class="viewcode-block" id="compute_hours_observable_tonight">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.weather.compute_hours_observable_tonight">[docs]</a>
-<span class="k">def</span> <span class="nf">compute_hours_observable_tonight</span><span class="p">(</span><span class="n">date</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">slot_size</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">compute_hours_observable_tonight</span><span class="p">(</span><span class="n">date</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">slot_size</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Determine how many hours a star is up on a given date</span>
 
@@ -262,7 +262,7 @@
 
 <div class="viewcode-block" id="compute_yearly_accessibility">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.weather.compute_yearly_accessibility">[docs]</a>
-<span class="k">def</span> <span class="nf">compute_yearly_accessibility</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">compute_yearly_accessibility</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Pre-compute how many hours a star is up each night of the year</span>
 
@@ -289,7 +289,7 @@
 
 <div class="viewcode-block" id="get_stars_for_tonight">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.weather.get_stars_for_tonight">[docs]</a>
-<span class="k">def</span> <span class="nf">get_stars_for_tonight</span><span class="p">(</span><span class="n">manager</span><span class="p">,</span> <span class="n">minimum_up_time</span><span class="o">=</span><span class="mi">4</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_stars_for_tonight</span><span class="p">(</span><span class="n">manager</span><span class="p">,</span> <span class="n">minimum_up_time</span><span class="o">=</span><span class="mi">4</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Get a list of stars for backup tonight</span>
 
@@ -346,7 +346,7 @@
 
 <div class="viewcode-block" id="get_times_worth">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.weather.get_times_worth">[docs]</a>
-<span class="k">def</span> <span class="nf">get_times_worth</span><span class="p">(</span><span class="n">backup_list_tonight</span><span class="p">,</span> <span class="n">n_hours_needed</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_times_worth</span><span class="p">(</span><span class="n">backup_list_tonight</span><span class="p">,</span> <span class="n">n_hours_needed</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Get a list of stars for backup tonight that fills a given amount of hours worth of time</span>
 

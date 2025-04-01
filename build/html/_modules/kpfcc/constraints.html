@@ -6,7 +6,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>kpfcc.constraints &mdash; AstroQ_docs 1.0.0 documentation</title>
-      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=92fd9be5" />
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
 
   
@@ -77,26 +77,26 @@
 <span class="sd">Example usage:</span>
 <span class="sd">    import constraints_functions as cf</span>
 <span class="sd">&quot;&quot;&quot;</span>
-<span class="kn">import</span> <span class="nn">sys</span>
-<span class="kn">import</span> <span class="nn">time</span>
-<span class="kn">import</span> <span class="nn">os</span>
-<span class="kn">import</span> <span class="nn">warnings</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">time</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">warnings</span>
 <span class="n">warnings</span><span class="o">.</span><span class="n">filterwarnings</span><span class="p">(</span><span class="s1">&#39;ignore&#39;</span><span class="p">)</span>
 
-<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
-<span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
-<span class="kn">import</span> <span class="nn">gurobipy</span> <span class="k">as</span> <span class="nn">gp</span>
-<span class="kn">from</span> <span class="nn">gurobipy</span> <span class="kn">import</span> <span class="n">GRB</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">gurobipy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">gp</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">gurobipy</span><span class="w"> </span><span class="kn">import</span> <span class="n">GRB</span>
 
-<span class="kn">from</span> <span class="nn">kpfcc</span> <span class="kn">import</span> <span class="n">DATADIR</span>
-<span class="kn">import</span> <span class="nn">kpfcc.access</span> <span class="k">as</span> <span class="nn">ac</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">kpfcc</span><span class="w"> </span><span class="kn">import</span> <span class="n">DATADIR</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">kpfcc.access</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ac</span>
 
 <div class="viewcode-block" id="GorubiModel">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel">[docs]</a>
-<span class="k">class</span> <span class="nc">GorubiModel</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">GorubiModel</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;A Gorubi Model object, from which we can add constraints and share variables easily.&quot;&quot;&quot;</span>
 
-    <span class="k">def</span> <span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">manager</span><span class="p">,</span> <span class="n">Aset</span><span class="p">,</span> <span class="n">Aframe</span><span class="p">,</span> <span class="n">schedulable_requests</span><span class="p">,</span> <span class="n">Wset</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">manager</span><span class="p">,</span> <span class="n">Aset</span><span class="p">,</span> <span class="n">Aframe</span><span class="p">,</span> <span class="n">schedulable_requests</span><span class="p">,</span> <span class="n">Wset</span><span class="p">):</span>
 
         <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Defining model.&quot;</span><span class="p">)</span>
         <span class="bp">self</span><span class="o">.</span><span class="n">manager</span> <span class="o">=</span> <span class="n">manager</span>
@@ -170,7 +170,7 @@
 
 <div class="viewcode-block" id="GorubiModel.constraint_build_theta">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.constraint_build_theta">[docs]</a>
-    <span class="k">def</span> <span class="nf">constraint_build_theta</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constraint_build_theta</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -189,7 +189,7 @@
     <span class="c1"># Note: Likely can delete this constraint</span>
 <div class="viewcode-block" id="GorubiModel.constraint_build_theta_time_normalized">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.constraint_build_theta_time_normalized">[docs]</a>
-    <span class="k">def</span> <span class="nf">constraint_build_theta_time_normalized</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constraint_build_theta_time_normalized</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -208,7 +208,7 @@
     <span class="c1"># Note: Likely can delete this constraint</span>
 <div class="viewcode-block" id="GorubiModel.constraint_build_theta_program_normalized">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.constraint_build_theta_program_normalized">[docs]</a>
-    <span class="k">def</span> <span class="nf">constraint_build_theta_program_normalized</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constraint_build_theta_program_normalized</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -226,7 +226,7 @@
 
 <div class="viewcode-block" id="GorubiModel.constraint_one_request_per_slot">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.constraint_one_request_per_slot">[docs]</a>
-    <span class="k">def</span> <span class="nf">constraint_one_request_per_slot</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constraint_one_request_per_slot</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -249,7 +249,7 @@
 
 <div class="viewcode-block" id="GorubiModel.constraint_reserve_multislot_exposures">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.constraint_reserve_multislot_exposures">[docs]</a>
-    <span class="k">def</span> <span class="nf">constraint_reserve_multislot_exposures</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constraint_reserve_multislot_exposures</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -283,7 +283,7 @@
 
 <div class="viewcode-block" id="GorubiModel.constraint_max_visits_per_night">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.constraint_max_visits_per_night">[docs]</a>
-    <span class="k">def</span> <span class="nf">constraint_max_visits_per_night</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constraint_max_visits_per_night</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -305,7 +305,7 @@
 
 <div class="viewcode-block" id="GorubiModel.constraint_enforce_internight_cadence">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.constraint_enforce_internight_cadence">[docs]</a>
-    <span class="k">def</span> <span class="nf">constraint_enforce_internight_cadence</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constraint_enforce_internight_cadence</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -351,7 +351,7 @@
 
 <div class="viewcode-block" id="GorubiModel.constraint_set_max_quarters_allocated">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.constraint_set_max_quarters_allocated">[docs]</a>
-    <span class="k">def</span> <span class="nf">constraint_set_max_quarters_allocated</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constraint_set_max_quarters_allocated</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -363,7 +363,7 @@
 
 <div class="viewcode-block" id="GorubiModel.constraint_set_max_onsky_allocated">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.constraint_set_max_onsky_allocated">[docs]</a>
-    <span class="k">def</span> <span class="nf">constraint_set_max_onsky_allocated</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constraint_set_max_onsky_allocated</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -374,7 +374,7 @@
 
 <div class="viewcode-block" id="GorubiModel.constraint_relate_allocation_and_onsky">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.constraint_relate_allocation_and_onsky">[docs]</a>
-    <span class="k">def</span> <span class="nf">constraint_relate_allocation_and_onsky</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constraint_relate_allocation_and_onsky</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -387,7 +387,7 @@
 
 <div class="viewcode-block" id="GorubiModel.constraint_all_portions_of_night_represented">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.constraint_all_portions_of_night_represented">[docs]</a>
-    <span class="k">def</span> <span class="nf">constraint_all_portions_of_night_represented</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constraint_all_portions_of_night_represented</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -400,7 +400,7 @@
 
 <div class="viewcode-block" id="GorubiModel.constraint_forbidden_quarter_patterns">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.constraint_forbidden_quarter_patterns">[docs]</a>
-    <span class="k">def</span> <span class="nf">constraint_forbidden_quarter_patterns</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constraint_forbidden_quarter_patterns</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -427,7 +427,7 @@
 
 <div class="viewcode-block" id="GorubiModel.constraint_cannot_observe_if_not_allocated">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.constraint_cannot_observe_if_not_allocated">[docs]</a>
-    <span class="k">def</span> <span class="nf">constraint_cannot_observe_if_not_allocated</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">twilight_map_remaining_2D</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constraint_cannot_observe_if_not_allocated</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">twilight_map_remaining_2D</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -452,7 +452,7 @@
 
 <div class="viewcode-block" id="GorubiModel.constraint_max_consecutive_onsky">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.constraint_max_consecutive_onsky">[docs]</a>
-    <span class="k">def</span> <span class="nf">constraint_max_consecutive_onsky</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constraint_max_consecutive_onsky</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -463,7 +463,7 @@
 
 <div class="viewcode-block" id="GorubiModel.constraint_minimum_consecutive_offsky">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.constraint_minimum_consecutive_offsky">[docs]</a>
-    <span class="k">def</span> <span class="nf">constraint_minimum_consecutive_offsky</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constraint_minimum_consecutive_offsky</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -476,7 +476,7 @@
 
 <div class="viewcode-block" id="GorubiModel.constraint_enforce_restricted_nights">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.constraint_enforce_restricted_nights">[docs]</a>
-    <span class="k">def</span> <span class="nf">constraint_enforce_restricted_nights</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">limit</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constraint_enforce_restricted_nights</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">limit</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 
@@ -499,7 +499,7 @@
 
 <div class="viewcode-block" id="GorubiModel.constraint_maximize_baseline">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.constraint_maximize_baseline">[docs]</a>
-    <span class="k">def</span> <span class="nf">constraint_maximize_baseline</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constraint_maximize_baseline</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -510,7 +510,7 @@
 
 <div class="viewcode-block" id="GorubiModel.constraint_fix_previous_objective">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.constraint_fix_previous_objective">[docs]</a>
-    <span class="k">def</span> <span class="nf">constraint_fix_previous_objective</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">epsilon</span><span class="o">=</span><span class="mi">5</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constraint_fix_previous_objective</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">epsilon</span><span class="o">=</span><span class="mi">5</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -521,7 +521,7 @@
 
 <div class="viewcode-block" id="GorubiModel.set_objective_maximize_slots_used">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.set_objective_maximize_slots_used">[docs]</a>
-    <span class="k">def</span> <span class="nf">set_objective_maximize_slots_used</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_objective_maximize_slots_used</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -533,7 +533,7 @@
     <span class="c1"># This objective can likely be deleted.</span>
 <div class="viewcode-block" id="GorubiModel.set_objective_minimize_theta">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.set_objective_minimize_theta">[docs]</a>
-    <span class="k">def</span> <span class="nf">set_objective_minimize_theta</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_objective_minimize_theta</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -542,7 +542,7 @@
 
 <div class="viewcode-block" id="GorubiModel.set_objective_minimize_theta_time_normalized">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.set_objective_minimize_theta_time_normalized">[docs]</a>
-    <span class="k">def</span> <span class="nf">set_objective_minimize_theta_time_normalized</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_objective_minimize_theta_time_normalized</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -552,7 +552,7 @@
     <span class="c1"># This objective can likely be deleted.</span>
 <div class="viewcode-block" id="GorubiModel.set_objective_minimize_theta_prog_norm">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.set_objective_minimize_theta_prog_norm">[docs]</a>
-    <span class="k">def</span> <span class="nf">set_objective_minimize_theta_prog_norm</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_objective_minimize_theta_prog_norm</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -561,7 +561,7 @@
 
 <div class="viewcode-block" id="GorubiModel.constraint_connect_Wrd_and_Yrds">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.constraint_connect_Wrd_and_Yrds">[docs]</a>
-    <span class="k">def</span> <span class="nf">constraint_connect_Wrd_and_Yrds</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constraint_connect_Wrd_and_Yrds</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -578,7 +578,7 @@
 
 <div class="viewcode-block" id="GorubiModel.constraint_build_theta_multivisit">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.constraint_build_theta_multivisit">[docs]</a>
-    <span class="k">def</span> <span class="nf">constraint_build_theta_multivisit</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constraint_build_theta_multivisit</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -597,7 +597,7 @@
 
 <div class="viewcode-block" id="GorubiModel.constraint_set_max_desired_unique_nights_Wrd">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.constraint_set_max_desired_unique_nights_Wrd">[docs]</a>
-    <span class="k">def</span> <span class="nf">constraint_set_max_desired_unique_nights_Wrd</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constraint_set_max_desired_unique_nights_Wrd</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -612,7 +612,7 @@
 
 <div class="viewcode-block" id="GorubiModel.remove_constraint_set_max_desired_unique_nights_Wrd">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.remove_constraint_set_max_desired_unique_nights_Wrd">[docs]</a>
-    <span class="k">def</span> <span class="nf">remove_constraint_set_max_desired_unique_nights_Wrd</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">remove_constraint_set_max_desired_unique_nights_Wrd</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -624,7 +624,7 @@
 
 <div class="viewcode-block" id="GorubiModel.constraint_set_max_absolute_unique_nights_Wrd">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.constraint_set_max_absolute_unique_nights_Wrd">[docs]</a>
-    <span class="k">def</span> <span class="nf">constraint_set_max_absolute_unique_nights_Wrd</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constraint_set_max_absolute_unique_nights_Wrd</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -640,7 +640,7 @@
     <span class="c1"># This constraint can likely be deleted.</span>
 <div class="viewcode-block" id="GorubiModel.constraint_set_max_desired_unique_nights_Yrds">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.constraint_set_max_desired_unique_nights_Yrds">[docs]</a>
-    <span class="k">def</span> <span class="nf">constraint_set_max_desired_unique_nights_Yrds</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constraint_set_max_desired_unique_nights_Yrds</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -655,7 +655,7 @@
     <span class="c1"># This constraint can likely be deleted.</span>
 <div class="viewcode-block" id="GorubiModel.constraint_set_max_absolute_unique_nights_Yrds">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.constraint_set_max_absolute_unique_nights_Yrds">[docs]</a>
-    <span class="k">def</span> <span class="nf">constraint_set_max_absolute_unique_nights_Yrds</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constraint_set_max_absolute_unique_nights_Yrds</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -669,7 +669,7 @@
 
 <div class="viewcode-block" id="GorubiModel.constraint_build_enforce_intranight_cadence">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.constraint_build_enforce_intranight_cadence">[docs]</a>
-    <span class="k">def</span> <span class="nf">constraint_build_enforce_intranight_cadence</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constraint_build_enforce_intranight_cadence</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -695,7 +695,7 @@
 
 <div class="viewcode-block" id="GorubiModel.constraint_set_min_max_visits_per_night">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.constraint_set_min_max_visits_per_night">[docs]</a>
-    <span class="k">def</span> <span class="nf">constraint_set_min_max_visits_per_night</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">constraint_set_min_max_visits_per_night</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        According to Eq X in Lubin et al. 2025.</span>
 <span class="sd">        &quot;&quot;&quot;</span>
@@ -714,7 +714,7 @@
 
 <div class="viewcode-block" id="GorubiModel.solve_model">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.GorubiModel.solve_model">[docs]</a>
-    <span class="k">def</span> <span class="nf">solve_model</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">solve_model</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
         <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Begin model solve.&quot;</span><span class="p">)</span>
 
         <span class="bp">self</span><span class="o">.</span><span class="n">m</span><span class="o">.</span><span class="n">params</span><span class="o">.</span><span class="n">TimeLimit</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">manager</span><span class="o">.</span><span class="n">solve_time_limit</span>
@@ -743,7 +743,7 @@
 
 <div class="viewcode-block" id="define_slot_index_frame">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.constraints.define_slot_index_frame">[docs]</a>
-<span class="k">def</span> <span class="nf">define_slot_index_frame</span><span class="p">(</span><span class="n">manager</span><span class="p">,</span> <span class="n">available_indices_for_request</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">define_slot_index_frame</span><span class="p">(</span><span class="n">manager</span><span class="p">,</span> <span class="n">available_indices_for_request</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Using the dictionary of indices where each request is available, define a dataframe for which</span>
 <span class="sd">    we will use to cut/filter/merge r,d,s tuples</span>

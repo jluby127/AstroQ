@@ -6,7 +6,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>kpfcc.access &mdash; AstroQ_docs 1.0.0 documentation</title>
-      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=92fd9be5" />
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
 
   
@@ -72,22 +72,22 @@
 <span></span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">Module for computing acccessibility of requests, including from telescope pointing and twilight</span>
 <span class="sd">&quot;&quot;&quot;</span>
-<span class="kn">import</span> <span class="nn">json</span>
-<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">os</span>
 
-<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
-<span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
-<span class="kn">import</span> <span class="nn">matplotlib.pyplot</span> <span class="k">as</span> <span class="nn">pt</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pt</span>
 
-<span class="kn">from</span> <span class="nn">astropy.time</span> <span class="kn">import</span> <span class="n">Time</span>
-<span class="kn">from</span> <span class="nn">astropy.time</span> <span class="kn">import</span> <span class="n">TimeDelta</span>
-<span class="kn">import</span> <span class="nn">astropy</span> <span class="k">as</span> <span class="nn">apy</span>
-<span class="kn">import</span> <span class="nn">astropy.units</span> <span class="k">as</span> <span class="nn">u</span>
-<span class="kn">import</span> <span class="nn">astroplan</span> <span class="k">as</span> <span class="nn">apl</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astropy.time</span><span class="w"> </span><span class="kn">import</span> <span class="n">Time</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">astropy.time</span><span class="w"> </span><span class="kn">import</span> <span class="n">TimeDelta</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">astropy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">apy</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">astropy.units</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">u</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">astroplan</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">apl</span>
 
 <div class="viewcode-block" id="construct_access_dict">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.construct_access_dict">[docs]</a>
-<span class="k">def</span> <span class="nf">construct_access_dict</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">construct_access_dict</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Define the dictionary of accessibility maps</span>
 
@@ -122,7 +122,7 @@
 
 <div class="viewcode-block" id="single_night_allocated_slots">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.single_night_allocated_slots">[docs]</a>
-<span class="k">def</span> <span class="nf">single_night_allocated_slots</span><span class="p">(</span><span class="n">allocated_quarters_tonight</span><span class="p">,</span> <span class="n">available_slots_in_night</span><span class="p">,</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">single_night_allocated_slots</span><span class="p">(</span><span class="n">allocated_quarters_tonight</span><span class="p">,</span> <span class="n">available_slots_in_night</span><span class="p">,</span>
                                 <span class="n">n_slots_in_night</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Determine the slots of a single night that are allocated.</span>
@@ -164,7 +164,7 @@
 
 <div class="viewcode-block" id="write_accessibilty_map_dict">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.write_accessibilty_map_dict">[docs]</a>
-<span class="k">def</span> <span class="nf">write_accessibilty_map_dict</span><span class="p">(</span><span class="n">access_dict</span><span class="p">,</span> <span class="n">filename</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">write_accessibilty_map_dict</span><span class="p">(</span><span class="n">access_dict</span><span class="p">,</span> <span class="n">filename</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Write entries to the accessbility map dictionary</span>
 
@@ -196,7 +196,7 @@
 
 <div class="viewcode-block" id="read_accessibilty_map_dict">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.read_accessibilty_map_dict">[docs]</a>
-<span class="k">def</span> <span class="nf">read_accessibilty_map_dict</span><span class="p">(</span><span class="n">filename</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">read_accessibilty_map_dict</span><span class="p">(</span><span class="n">filename</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Read the accessibilty maps for each target from pre-written file. Must reformat the data to</span>
 <span class="sd">    array because the array is technically saved as a string.</span>
@@ -224,7 +224,7 @@
 
 <div class="viewcode-block" id="build_single_target_accessibility">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.build_single_target_accessibility">[docs]</a>
-<span class="k">def</span> <span class="nf">build_single_target_accessibility</span><span class="p">(</span><span class="n">starname</span><span class="p">,</span> <span class="n">ra</span><span class="p">,</span> <span class="n">dec</span><span class="p">,</span> <span class="n">start_date</span><span class="p">,</span> <span class="n">n_nights_in_semester</span><span class="p">,</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">build_single_target_accessibility</span><span class="p">(</span><span class="n">starname</span><span class="p">,</span> <span class="n">ra</span><span class="p">,</span> <span class="n">dec</span><span class="p">,</span> <span class="n">start_date</span><span class="p">,</span> <span class="n">n_nights_in_semester</span><span class="p">,</span>
                                       <span class="n">slot_size</span><span class="p">,</span> <span class="n">observatory</span><span class="p">,</span> <span class="n">compute_turn_on_off</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Compute a target&#39;s accessibility map for the entire semester</span>
@@ -272,7 +272,7 @@
 
 <div class="viewcode-block" id="is_observable">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.is_observable">[docs]</a>
-<span class="k">def</span> <span class="nf">is_observable</span><span class="p">(</span><span class="n">observatory</span><span class="p">,</span> <span class="n">date</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">slot_size</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">is_observable</span><span class="p">(</span><span class="n">observatory</span><span class="p">,</span> <span class="n">date</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">slot_size</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Compute a target&#39;s accessibility map on a given date, taking into account the</span>
 <span class="sd">    telescope pointing limits and moon-safe distance at the beginning of every slot.</span>
@@ -351,7 +351,7 @@
 
 <div class="viewcode-block" id="moon_safe">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.moon_safe">[docs]</a>
-<span class="k">def</span> <span class="nf">moon_safe</span><span class="p">(</span><span class="n">moon</span><span class="p">,</span> <span class="n">target_tuple</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">moon_safe</span><span class="p">(</span><span class="n">moon</span><span class="p">,</span> <span class="n">target_tuple</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Check that a coordinate is not too close to the moon.</span>
 <span class="sd">    Returns true if target is sufficiently far from the moon to allow for observations.</span>
@@ -372,7 +372,7 @@
 
 <div class="viewcode-block" id="get_accessibility_stats">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.get_accessibility_stats">[docs]</a>
-<span class="k">def</span> <span class="nf">get_accessibility_stats</span><span class="p">(</span><span class="n">access_map</span><span class="p">,</span> <span class="n">time_up</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span> <span class="n">slot_size</span><span class="o">=</span><span class="mi">5</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_accessibility_stats</span><span class="p">(</span><span class="n">access_map</span><span class="p">,</span> <span class="n">time_up</span><span class="o">=</span><span class="mi">30</span><span class="p">,</span> <span class="n">slot_size</span><span class="o">=</span><span class="mi">5</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Compute stats useful for checking feasibilty and for generating the cadence plot of a target</span>
 
@@ -419,7 +419,7 @@
 
 <div class="viewcode-block" id="construct_twilight_map">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.construct_twilight_map">[docs]</a>
-<span class="k">def</span> <span class="nf">construct_twilight_map</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">construct_twilight_map</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Compute the number of slots per night available, based on strictly twilight times</span>
 
@@ -454,7 +454,7 @@
 
 <div class="viewcode-block" id="convert_slot_to_quarter">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.convert_slot_to_quarter">[docs]</a>
-<span class="k">def</span> <span class="nf">convert_slot_to_quarter</span><span class="p">(</span><span class="n">twilight_map_remaining_2D_d</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">convert_slot_to_quarter</span><span class="p">(</span><span class="n">twilight_map_remaining_2D_d</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&#39;&#39;&#39;</span>
 <span class="sd">    Determine the slot numbers within the night that breaks the night into &quot;equal&quot; length quarters</span>
 <span class="sd">    Take extra precaution when the total number of slots between twilight times is not easily</span>
@@ -486,7 +486,7 @@
 
 <div class="viewcode-block" id="generate_twilight_times">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.generate_twilight_times">[docs]</a>
-<span class="k">def</span> <span class="nf">generate_twilight_times</span><span class="p">(</span><span class="n">all_dates_array</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">generate_twilight_times</span><span class="p">(</span><span class="n">all_dates_array</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;generate_twilight_times</span>
 
 <span class="sd">    Precompute a dataframe of the morning/evening twilight times for each day in the semester</span>
@@ -527,7 +527,7 @@
 
 <div class="viewcode-block" id="get_available_slots_per_night">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.get_available_slots_per_night">[docs]</a>
-<span class="k">def</span> <span class="nf">get_available_slots_per_night</span><span class="p">(</span><span class="n">all_dates_array</span><span class="p">,</span> <span class="n">twilight_frame</span><span class="p">,</span> <span class="n">slot_size</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">start_time</span><span class="o">=</span><span class="s1">&#39;03:30&#39;</span><span class="p">,</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">get_available_slots_per_night</span><span class="p">(</span><span class="n">all_dates_array</span><span class="p">,</span> <span class="n">twilight_frame</span><span class="p">,</span> <span class="n">slot_size</span><span class="o">=</span><span class="mi">5</span><span class="p">,</span> <span class="n">start_time</span><span class="o">=</span><span class="s1">&#39;03:30&#39;</span><span class="p">,</span>
                                   <span class="n">n_hours_in_night</span><span class="o">=</span><span class="mi">14</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;get_available_slots_per_night</span>
 
@@ -551,7 +551,7 @@
 
 <div class="viewcode-block" id="determine_twilight_edge">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.determine_twilight_edge">[docs]</a>
-<span class="k">def</span> <span class="nf">determine_twilight_edge</span><span class="p">(</span><span class="n">date</span><span class="p">,</span> <span class="n">twilight_frame</span><span class="p">,</span> <span class="n">slot_size</span><span class="p">,</span> <span class="n">start_time</span><span class="o">=</span><span class="s1">&#39;03:30&#39;</span><span class="p">,</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">determine_twilight_edge</span><span class="p">(</span><span class="n">date</span><span class="p">,</span> <span class="n">twilight_frame</span><span class="p">,</span> <span class="n">slot_size</span><span class="p">,</span> <span class="n">start_time</span><span class="o">=</span><span class="s1">&#39;03:30&#39;</span><span class="p">,</span>
                             <span class="n">n_hours_in_night</span><span class="o">=</span><span class="mi">14</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;determine_twilight_edge</span>
 
@@ -587,7 +587,7 @@
 
 <div class="viewcode-block" id="build_twilight_map">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.build_twilight_map">[docs]</a>
-<span class="k">def</span> <span class="nf">build_twilight_map</span><span class="p">(</span><span class="n">available_slots_in_night</span><span class="p">,</span> <span class="n">n_slots_in_night</span><span class="p">,</span> <span class="n">invert</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">build_twilight_map</span><span class="p">(</span><span class="n">available_slots_in_night</span><span class="p">,</span> <span class="n">n_slots_in_night</span><span class="p">,</span> <span class="n">invert</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Create the 1D twilight times map for all slots in the semester</span>
 
