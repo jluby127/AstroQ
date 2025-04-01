@@ -1,0 +1,368 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>kpfcc.history &mdash; AstroQ_docs 1.0.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=92fd9be5" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=8d563738"></script>
+      <script src="../../_static/doctools.js?v=9a2dae69"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            AstroQ_docs
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../kpfcc.html">kpfcc package</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">AstroQ_docs</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">kpfcc.history</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for kpfcc.history</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Module for processin the inputs and outputs of the autoscheduler to/from various sources.</span>
+<span class="sd">Designed to be only run as a function call from the generateScript.py script.</span>
+
+<span class="sd">Example usage:</span>
+<span class="sd">    import processing_functions as pf</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">os</span>
+
+<span class="kn">from</span> <span class="nn">astropy.coordinates</span> <span class="kn">import</span> <span class="n">Angle</span><span class="p">,</span> <span class="n">SkyCoord</span>
+<span class="kn">import</span> <span class="nn">astropy.units</span> <span class="k">as</span> <span class="nn">u</span>
+<span class="kn">from</span> <span class="nn">astropy.time</span> <span class="kn">import</span> <span class="n">Time</span>
+<span class="kn">from</span> <span class="nn">astropy.time</span> <span class="kn">import</span> <span class="n">TimeDelta</span>
+
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
+<span class="n">JUMP_USERNAME</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s1">&#39;KPFCC_JUMP_USERNAME&#39;</span><span class="p">]</span>
+<span class="n">JUMP_PASSWORD</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s1">&#39;KPFCC_JUMP_PASSWORD&#39;</span><span class="p">]</span>
+
+<div class="viewcode-block" id="get_unique_nights">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.history.get_unique_nights">[docs]</a>
+<span class="k">def</span> <span class="nf">get_unique_nights</span><span class="p">(</span><span class="n">star_past_obs</span><span class="p">,</span> <span class="n">twilight_frame</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Parse the Jump database for the previous nights where a given star was observed</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        star_past_obs (dataframe): a subset of the Jump database dataframe, filtered to only</span>
+<span class="sd">                                    include observations for a specific target name</span>
+<span class="sd">        twilight_frame (dataframe): the dataframe of morning and evening twilight times for each</span>
+<span class="sd">                                    night of the semester</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        star_past_obs (dataframe): an updated version of the original variable which now includes</span>
+<span class="sd">                                   columns for UTC date and hst date</span>
+<span class="sd">        unique_hst_dates_observed (array): a 1D array length # of unique dates observed where each</span>
+<span class="sd">                                   element is the HST date when the star was observed at least once</span>
+<span class="sd">        quarter_observed (array): a 1D array length # of unique dates observed where each element</span>
+<span class="sd">                                 the quarter of the night when the first of the observations</span>
+<span class="sd">                                 for that night was taken.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">unique_hst_dates_observed</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">unique_utc_dates_observed</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">quarter_observed</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">all_hst_dates</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">star_past_obs</span><span class="p">)):</span>
+        <span class="n">timestamp</span> <span class="o">=</span> <span class="n">star_past_obs</span><span class="p">[</span><span class="s1">&#39;utctime&#39;</span><span class="p">][</span><span class="n">i</span><span class="p">][:</span><span class="o">-</span><span class="mi">6</span><span class="p">]</span>
+        <span class="n">timestamp</span> <span class="o">=</span> <span class="n">Time</span><span class="p">(</span><span class="n">timestamp</span><span class="p">,</span> <span class="nb">format</span> <span class="o">=</span> <span class="s1">&#39;iso&#39;</span><span class="p">)</span>
+        <span class="n">timestamp</span><span class="o">.</span><span class="n">format</span> <span class="o">=</span> <span class="s1">&#39;jd&#39;</span>
+        <span class="n">utc_date</span> <span class="o">=</span> <span class="n">star_past_obs</span><span class="p">[</span><span class="s1">&#39;utctime&#39;</span><span class="p">][</span><span class="n">i</span><span class="p">][:</span><span class="mi">10</span><span class="p">]</span>
+        <span class="n">unique_utc_dates_observed</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">utc_date</span><span class="p">)</span>
+
+        <span class="c1"># Note this is arbitrary 24hr subtraction to get from UT date to Hawaii date</span>
+        <span class="n">convert_to_hst_civil</span> <span class="o">=</span> <span class="n">TimeDelta</span><span class="p">(</span><span class="mi">60</span><span class="o">*</span><span class="mi">24</span><span class="o">*</span><span class="mi">60</span><span class="p">,</span><span class="nb">format</span><span class="o">=</span><span class="s1">&#39;sec&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">jd</span>
+        <span class="n">hsttimestamp</span> <span class="o">=</span> <span class="n">timestamp</span> <span class="o">-</span> <span class="n">convert_to_hst_civil</span>
+        <span class="n">hsttimestamp</span><span class="o">.</span><span class="n">format</span> <span class="o">=</span> <span class="s1">&#39;iso&#39;</span>
+        <span class="n">hstdate</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">hsttimestamp</span><span class="p">)[:</span><span class="mi">10</span><span class="p">]</span>
+        <span class="n">all_hst_dates</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">hstdate</span><span class="p">)</span>
+        <span class="n">hsttimestamp</span><span class="o">.</span><span class="n">format</span> <span class="o">=</span> <span class="s1">&#39;jd&#39;</span>
+        <span class="k">if</span> <span class="n">hstdate</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">unique_hst_dates_observed</span><span class="p">:</span>
+            <span class="n">unique_hst_dates_observed</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">hstdate</span><span class="p">)</span>
+            <span class="n">quarter_observed</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">get_quarter_observed</span><span class="p">(</span><span class="n">timestamp</span><span class="p">,</span> <span class="n">utc_date</span><span class="p">,</span> <span class="n">twilight_frame</span><span class="p">))</span>
+    <span class="n">star_past_obs</span><span class="p">[</span><span class="s1">&#39;utc_date&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">unique_utc_dates_observed</span>
+    <span class="n">star_past_obs</span><span class="p">[</span><span class="s1">&#39;hstDate&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">all_hst_dates</span>
+
+    <span class="k">return</span> <span class="n">star_past_obs</span><span class="p">,</span> <span class="n">unique_hst_dates_observed</span><span class="p">,</span> <span class="n">quarter_observed</span></div>
+
+
+<div class="viewcode-block" id="get_quarter_observed">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.history.get_quarter_observed">[docs]</a>
+<span class="k">def</span> <span class="nf">get_quarter_observed</span><span class="p">(</span><span class="n">timestamp</span><span class="p">,</span> <span class="n">utc_date</span><span class="p">,</span> <span class="n">twilight_frame</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Determine which quarter of the night an observation was taken in</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        timestamp (float): a BJD value indicating the time of the observation</span>
+<span class="sd">        utc_date (str): the calendar date of the observation in UTC, format &#39;YYYY-MM-DD&#39;</span>
+<span class="sd">        twilight_frame (dataframe): the dataframe of morning and evening twilight times</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        quarter (int): the quarter corresponding to the timestamp</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">date_index</span> <span class="o">=</span> <span class="n">twilight_frame</span><span class="o">.</span><span class="n">index</span><span class="o">.</span><span class="n">get_loc</span><span class="p">(</span><span class="n">twilight_frame</span><span class="p">[</span><span class="n">twilight_frame</span><span class="p">[</span><span class="s1">&#39;time_utc&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">utc_date</span><span class="p">]</span><span class="o">.</span><span class="n">index</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+    <span class="n">start_jd</span> <span class="o">=</span> <span class="n">twilight_frame</span><span class="p">[</span><span class="s1">&#39;12_evening&#39;</span><span class="p">][</span><span class="n">date_index</span><span class="p">]</span>
+    <span class="n">end_jd</span> <span class="o">=</span> <span class="n">twilight_frame</span><span class="p">[</span><span class="s1">&#39;12_morning&#39;</span><span class="p">][</span><span class="n">date_index</span><span class="p">]</span>
+    <span class="n">length_of_quarter</span> <span class="o">=</span> <span class="p">(</span><span class="n">end_jd</span> <span class="o">-</span> <span class="n">start_jd</span><span class="p">)</span><span class="o">/</span><span class="mf">4.</span>
+    <span class="n">rel_timestamp</span> <span class="o">=</span> <span class="nb">float</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">timestamp</span> <span class="o">-</span> <span class="n">start_jd</span><span class="p">))</span>
+
+    <span class="n">quarter</span> <span class="o">=</span> <span class="o">-</span><span class="mi">10</span>
+    <span class="k">if</span> <span class="n">rel_timestamp</span> <span class="o">&lt;</span> <span class="n">length_of_quarter</span><span class="p">:</span>
+        <span class="n">quarter</span> <span class="o">=</span> <span class="mf">0.5</span>
+    <span class="k">elif</span> <span class="n">rel_timestamp</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="o">*</span><span class="n">length_of_quarter</span> <span class="ow">and</span> <span class="n">rel_timestamp</span> <span class="o">&gt;</span> <span class="n">length_of_quarter</span><span class="p">:</span>
+        <span class="n">quarter</span> <span class="o">=</span> <span class="mf">1.5</span>
+    <span class="k">elif</span> <span class="n">rel_timestamp</span> <span class="o">&lt;</span> <span class="mi">3</span><span class="o">*</span><span class="n">length_of_quarter</span> <span class="ow">and</span> <span class="n">rel_timestamp</span> <span class="o">&gt;</span> <span class="mi">2</span><span class="o">*</span><span class="n">length_of_quarter</span><span class="p">:</span>
+        <span class="n">quarter</span> <span class="o">=</span> <span class="mf">2.5</span>
+    <span class="k">elif</span> <span class="n">rel_timestamp</span> <span class="o">&lt;</span> <span class="mi">4</span><span class="o">*</span><span class="n">length_of_quarter</span> <span class="ow">and</span> <span class="n">rel_timestamp</span> <span class="o">&gt;</span> <span class="mi">3</span><span class="o">*</span><span class="n">length_of_quarter</span><span class="p">:</span>
+        <span class="n">quarter</span> <span class="o">=</span> <span class="mf">3.5</span>
+    <span class="k">elif</span> <span class="n">rel_timestamp</span> <span class="o">&lt;</span> <span class="mi">5</span><span class="o">*</span><span class="n">length_of_quarter</span> <span class="ow">and</span> <span class="n">rel_timestamp</span> <span class="o">&gt;</span> <span class="mi">4</span><span class="o">*</span><span class="n">length_of_quarter</span><span class="p">:</span>
+        <span class="c1"># allow a little bit of leeway, even if this doesn&#39;t really make sense</span>
+        <span class="n">quarter</span> <span class="o">=</span> <span class="mf">3.5</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">quarter</span> <span class="o">=</span> <span class="mf">0.5</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Houston, we&#39;ve had a problem: target observed in an invalid quarter.&quot;</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">quarter</span></div>
+
+
+<div class="viewcode-block" id="get_nobs_on_night">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.history.get_nobs_on_night">[docs]</a>
+<span class="k">def</span> <span class="nf">get_nobs_on_night</span><span class="p">(</span><span class="n">star_past_obs</span><span class="p">,</span> <span class="n">unique_hst_dates_observed</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Determine how many exposures were taken of a target on a given night</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        star_past_obs (dataframe): the updated version of the original variable which now includes</span>
+<span class="sd">                                   columns for UTC date and hst date</span>
+<span class="sd">        unique_hst_dates_observed (array): a 1D array of HST dates where the star was observed</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        n_obs_on_date (array): a 1D array of length equal to length unique_hst_dates_observed where</span>
+<span class="sd">                             each element is an integer of the number of exposures taken that night</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">n_obs_on_date</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">unique_hst_dates_observed</span><span class="p">)):</span>
+        <span class="n">datemask</span> <span class="o">=</span> <span class="n">star_past_obs</span><span class="p">[</span><span class="s1">&#39;hstDate&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">unique_hst_dates_observed</span><span class="p">[</span><span class="n">i</span><span class="p">]</span>
+        <span class="n">n_obs_on_date</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">datemask</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">n_obs_on_date</span></div>
+
+
+<div class="viewcode-block" id="access_jump">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.history.access_jump">[docs]</a>
+<span class="k">def</span> <span class="nf">access_jump</span><span class="p">():</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Access the Jump database. You will need correct permissions to access this secured database</span>
+<span class="sd">    hosted by Caltech Cadence servers. Eventually we will pull from the Keck Observatory Archive</span>
+<span class="sd">    (KOA) directly.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        None</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        s (object): a session request</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="kn">import</span> <span class="nn">requests</span>
+    <span class="kn">import</span> <span class="nn">re</span>
+    <span class="kn">from</span> <span class="nn">bs4</span> <span class="kn">import</span> <span class="n">BeautifulSoup</span>
+    <span class="n">login_url</span> <span class="o">=</span> <span class="s1">&#39;https://jump.caltech.edu/user/login/&#39;</span>
+    <span class="n">s</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">session</span><span class="p">()</span>
+    <span class="n">s</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">login_url</span><span class="p">)</span>
+    <span class="n">csrftoken</span> <span class="o">=</span> <span class="n">s</span><span class="o">.</span><span class="n">cookies</span><span class="p">[</span><span class="s1">&#39;csrftoken&#39;</span><span class="p">]</span>
+    <span class="c1"># you&#39;ll need to add your credentials for username and password</span>
+    <span class="n">payload</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;action&#39;</span><span class="p">:</span><span class="s1">&#39;login&#39;</span><span class="p">,</span> <span class="s1">&#39;username&#39;</span><span class="p">:</span><span class="n">JUMP_USERNAME</span><span class="p">,</span><span class="s1">&#39;password&#39;</span><span class="p">:</span><span class="n">JUMP_PASSWORD</span><span class="p">,</span>
+               <span class="s1">&#39;csrfmiddlewaretoken&#39;</span><span class="p">:</span> <span class="n">csrftoken</span><span class="p">}</span>
+    <span class="n">new_login</span> <span class="o">=</span> <span class="n">s</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="n">login_url</span><span class="p">,</span> <span class="n">data</span> <span class="o">=</span> <span class="n">payload</span><span class="p">,</span> <span class="n">headers</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">(</span><span class="n">Referer</span> <span class="o">=</span> <span class="n">login_url</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">s</span></div>
+
+
+<div class="viewcode-block" id="get_database_explorer">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.history.get_database_explorer">[docs]</a>
+<span class="k">def</span> <span class="nf">get_database_explorer</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">path_for_csv</span><span class="p">,</span> <span class="n">url</span><span class="o">=</span><span class="s1">&#39;https://jump.caltech.edu/explorer/&#39;</span><span class="p">,</span> <span class="n">links</span><span class="o">=</span><span class="p">[]):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Pull the relevant query from the Jump database.</span>
+<span class="sd">    Eventually we will pull from the Keck Observatory Archive (KOA) directly.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        name (str): the name of the pre-built query in the Jump database</span>
+<span class="sd">        path_for_csv (str): the link to the Jump database</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">session</span> <span class="o">=</span> <span class="n">access_jump</span><span class="p">()</span>
+    <span class="n">response</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">url</span><span class="p">)</span>
+    <span class="n">soup</span> <span class="o">=</span> <span class="n">BeautifulSoup</span><span class="p">(</span><span class="n">response</span><span class="o">.</span><span class="n">text</span><span class="p">,</span> <span class="s1">&#39;html.parser&#39;</span><span class="p">)</span>
+    <span class="n">table</span> <span class="o">=</span> <span class="n">soup</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="s2">&quot;tbody&quot;</span><span class="p">,</span> <span class="n">attrs</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;class&quot;</span><span class="p">:</span><span class="s2">&quot;list&quot;</span><span class="p">})</span>
+    <span class="k">for</span> <span class="n">row</span> <span class="ow">in</span> <span class="n">table</span><span class="o">.</span><span class="n">find_all</span><span class="p">(</span><span class="s2">&quot;tr&quot;</span><span class="p">):</span>
+        <span class="n">tab</span> <span class="o">=</span> <span class="n">row</span><span class="o">.</span><span class="n">find</span><span class="p">(</span><span class="s2">&quot;td&quot;</span><span class="p">,</span> <span class="n">attrs</span><span class="o">=</span><span class="p">{</span><span class="s2">&quot;class&quot;</span><span class="p">:</span><span class="s2">&quot;name&quot;</span><span class="p">})</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">x</span> <span class="o">=</span> <span class="n">tab</span><span class="o">.</span><span class="n">a</span><span class="o">.</span><span class="n">string</span>
+        <span class="k">except</span><span class="p">:</span>
+            <span class="k">pass</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">x</span> <span class="o">==</span> <span class="n">name</span><span class="p">:</span>
+                <span class="k">for</span> <span class="n">l</span> <span class="ow">in</span> <span class="n">row</span><span class="o">.</span><span class="n">find_all</span><span class="p">(</span><span class="s2">&quot;a&quot;</span><span class="p">,</span> <span class="n">href</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s1">&#39;download&#39;</span><span class="p">)):</span>
+                    <span class="n">links</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s1">&#39;/&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">url</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s1">&#39;/&#39;</span><span class="p">)[:</span><span class="mi">3</span><span class="p">])</span><span class="o">+</span><span class="n">l</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">&#39;href&#39;</span><span class="p">))</span>
+    <span class="k">if</span> <span class="n">links</span> <span class="o">!=</span> <span class="p">[]:</span>
+        <span class="n">response</span> <span class="o">=</span> <span class="n">session</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">links</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="nb">open</span><span class="p">(</span><span class="n">path_for_csv</span><span class="p">,</span> <span class="s1">&#39;wb&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">response</span><span class="o">.</span><span class="n">content</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Can&#39;t find that query name, try again. (needs to be exact)&quot;</span><span class="p">)</span>
+    <span class="n">session</span><span class="o">.</span><span class="n">keep_alive</span> <span class="o">=</span> <span class="kc">False</span></div>
+
+
+<div class="viewcode-block" id="get_kpf_past_database">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.history.get_kpf_past_database">[docs]</a>
+<span class="k">def</span> <span class="nf">get_kpf_past_database</span><span class="p">(</span><span class="n">path_to_csv</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    A user-friendly front facing function to pull past observations from the Jump database.</span>
+<span class="sd">    Note that each semester, you will have to log into Jump, find this pre-built query,</span>
+<span class="sd">    and manually update the start and end date fields.</span>
+<span class="sd">    Eventually we will pull from the Keck Observatory Archive (KOA) directly.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        path_to_csv (str): the directory to save the data</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="s1">&#39;Get all KPF Observations in Semester&#39;</span>
+    <span class="n">get_database_explorer</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">path_to_csv</span><span class="p">)</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;This semester&#39;s past KPF observations pulled from Jump. Saved to csv: &quot;</span> <span class="o">+</span> <span class="n">path_to_csv</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="build_past_history">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.history.build_past_history">[docs]</a>
+<span class="k">def</span> <span class="nf">build_past_history</span><span class="p">(</span><span class="n">past_observations_file</span><span class="p">,</span> <span class="n">requests_frame</span><span class="p">,</span> <span class="n">twilight_frame</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Construct the past history dictionary having pulled a table of observations from Jump.</span>
+<span class="sd">    Later this function will be replaced by one which pulls history from Keck OB database.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        past_observations_file (str): the path and filename of the csv pulled from Jump</span>
+<span class="sd">        requests_frame (dataframe): the dataframe containing the request information</span>
+<span class="sd">        twilight_frame (dataframe): the dataframe containing the twilight information</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        database_info_dict (dictionary): contains keys of starnames and values are lists where</span>
+<span class="sd">                    elements follow order described below.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Compiling past observation history.&quot;</span><span class="p">)</span>
+    <span class="n">database_info_dict</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="c1"># pf.get_kpf_past_database(past_observations_file)</span>
+    <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">past_observations_file</span><span class="p">):</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Pulled database of past observations this semester.&quot;</span><span class="p">)</span>
+        <span class="n">database</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">past_observations_file</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">requests_frame</span><span class="p">[</span><span class="s1">&#39;Starname&#39;</span><span class="p">])):</span>
+            <span class="n">starmask</span> <span class="o">=</span> <span class="n">database</span><span class="p">[</span><span class="s1">&#39;star_id&#39;</span><span class="p">]</span> <span class="o">==</span> <span class="n">requests_frame</span><span class="p">[</span><span class="s1">&#39;Starname&#39;</span><span class="p">][</span><span class="n">i</span><span class="p">]</span>
+            <span class="n">star_past_obs</span> <span class="o">=</span> <span class="n">database</span><span class="p">[</span><span class="n">starmask</span><span class="p">]</span>
+            <span class="n">star_past_obs</span><span class="o">.</span><span class="n">sort_values</span><span class="p">(</span><span class="n">by</span><span class="o">=</span><span class="s1">&#39;utctime&#39;</span><span class="p">,</span> <span class="n">inplace</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="n">star_past_obs</span><span class="o">.</span><span class="n">reset_index</span><span class="p">(</span><span class="n">inplace</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+            <span class="n">total_past_observations</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">star_past_obs</span><span class="p">)</span><span class="o">/</span>
+                                    <span class="p">(</span><span class="n">requests_frame</span><span class="p">[</span><span class="s1">&#39;Desired Visits per Night&#39;</span><span class="p">][</span><span class="n">i</span><span class="p">]</span><span class="o">*</span>
+                                    <span class="n">requests_frame</span><span class="p">[</span><span class="s1">&#39;# of Exposures per Visit&#39;</span><span class="p">][</span><span class="n">i</span><span class="p">]))</span>
+            <span class="n">star_past_obs</span><span class="p">,</span> <span class="n">unique_hst_dates_observed</span><span class="p">,</span> <span class="n">quarter_observed</span> <span class="o">=</span> \
+                <span class="n">rf</span><span class="o">.</span><span class="n">get_unique_nights</span><span class="p">(</span><span class="n">star_past_obs</span><span class="p">,</span> <span class="n">twilight_frame</span><span class="p">)</span>
+            <span class="n">n_obs_on_date</span> <span class="o">=</span> <span class="n">rf</span><span class="o">.</span><span class="n">get_nobs_on_night</span><span class="p">(</span><span class="n">star_past_obs</span><span class="p">,</span> <span class="n">unique_hst_dates_observed</span><span class="p">)</span>
+
+            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">unique_hst_dates_observed</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">most_recent_observation_date</span> <span class="o">=</span> <span class="n">unique_hst_dates_observed</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c1"># If request has not been observed, set a dummy value.</span>
+                <span class="n">most_recent_observation_date</span> <span class="o">=</span> <span class="s1">&#39;0000-00-00&#39;</span>
+            <span class="c1"># Within the database_info_dict dictionary, each target&#39;s data is always in order:</span>
+            <span class="c1"># element 0 = the calendar date of the most recent observation (HST date)</span>
+            <span class="c1"># element 1 = a list of calendar dates with at least one observation</span>
+            <span class="c1"># element 2 = a list of the quarters where the observation took place on the</span>
+            <span class="c1">#             corresponding the nights in element 1.</span>
+            <span class="c1">#             If multiple visits in one night, then this is quarter of the first visit.</span>
+            <span class="c1"># element 3 = a list of the # of observations on each past night,</span>
+            <span class="c1">#             corresponding the nights in element 1.</span>
+            <span class="n">database_info_dict</span><span class="p">[</span><span class="n">requests_frame</span><span class="p">[</span><span class="s1">&#39;Starname&#39;</span><span class="p">][</span><span class="n">i</span><span class="p">]]</span> <span class="o">=</span> \
+                <span class="p">[</span><span class="n">most_recent_observation_date</span><span class="p">,</span> <span class="n">unique_hst_dates_observed</span><span class="p">,</span> <span class="n">quarter_observed</span><span class="p">,</span> \
+                <span class="n">n_obs_on_date</span><span class="p">]</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;No past observation history to parse.&quot;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">database_info_dict</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, JLubinAstroQ.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

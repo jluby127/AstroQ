@@ -6,14 +6,23 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'KPFCC_docs'
-copyright = '2025, JLubin_Docs'
-author = 'JLubin_Docs'
+project = 'AstroQ_docs'
+copyright = '2025, JLubinAstroQ'
+author = 'JLubinAstroQ'
+release = '1.0.0'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-extensions = []
+# extensions = ['sphinx.ext.todo', 'sphinx.ext.viewcode', 'sphinx.ext.autodoc']
+extensions = [
+    'sphinx.ext.autodoc',
+    'sphinx.ext.doctest',
+    'sphinx.ext.mathjax',
+    'sphinx.ext.napoleon',
+    'sphinx.ext.viewcode'
+]
+
 
 templates_path = ['_templates']
 exclude_patterns = []

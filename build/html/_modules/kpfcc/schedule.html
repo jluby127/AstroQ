@@ -1,0 +1,244 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>kpfcc.schedule &mdash; AstroQ_docs 1.0.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=92fd9be5" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=8d563738"></script>
+      <script src="../../_static/doctools.js?v=9a2dae69"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            AstroQ_docs
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../kpfcc.html">kpfcc package</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">AstroQ_docs</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">kpfcc.schedule</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for kpfcc.schedule</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Module for running the semester solver.</span>
+
+<span class="sd">This module organizes, builds, and solves the gurobi model. It also writes and organizes the</span>
+<span class="sd">outputs of the schedule into both machine human readable forms. It is designed to produce info</span>
+<span class="sd">that is in correct formatting for running the TTP. Further designed to be only run as a function</span>
+<span class="sd">call from the generateScript.py script.</span>
+
+<span class="sd">Example usage:</span>
+<span class="sd">    import solve_semester as ssm</span>
+<span class="sd">&quot;&quot;&quot;</span>
+<span class="kn">import</span> <span class="nn">sys</span>
+<span class="kn">import</span> <span class="nn">time</span>
+<span class="kn">import</span> <span class="nn">os</span>
+<span class="kn">import</span> <span class="nn">warnings</span>
+<span class="n">warnings</span><span class="o">.</span><span class="n">filterwarnings</span><span class="p">(</span><span class="s1">&#39;ignore&#39;</span><span class="p">)</span>
+
+<span class="kn">import</span> <span class="nn">numpy</span> <span class="k">as</span> <span class="nn">np</span>
+<span class="kn">import</span> <span class="nn">pandas</span> <span class="k">as</span> <span class="nn">pd</span>
+<span class="kn">import</span> <span class="nn">gurobipy</span> <span class="k">as</span> <span class="nn">gp</span>
+<span class="kn">from</span> <span class="nn">gurobipy</span> <span class="kn">import</span> <span class="n">GRB</span>
+
+<span class="kn">import</span> <span class="nn">kpfcc.io</span> <span class="k">as</span> <span class="nn">io</span>
+<span class="kn">import</span> <span class="nn">kpfcc.access</span> <span class="k">as</span> <span class="nn">ac</span>
+<span class="kn">import</span> <span class="nn">kpfcc.management</span> <span class="k">as</span> <span class="nn">mn</span>
+<span class="kn">import</span> <span class="nn">kpfcc.maps</span> <span class="k">as</span> <span class="nn">mp</span>
+<span class="kn">import</span> <span class="nn">kpfcc.constraints</span> <span class="k">as</span> <span class="nn">cf</span>
+
+<div class="viewcode-block" id="run_kpfcc">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.schedule.run_kpfcc">[docs]</a>
+<span class="k">def</span> <span class="nf">run_kpfcc</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Run the core kpfcc algorithm</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        manager (obj): a data_admin object that has already run the function &quot;run_admin()&quot;</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        None</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="n">start_the_clock</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span>
+    <span class="n">round_info</span> <span class="o">=</span> <span class="s1">&#39;Round1&#39;</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Computing intersection of all maps. &quot;</span><span class="p">)</span>
+    <span class="n">available_indices_for_request</span> <span class="o">=</span> <span class="n">mp</span><span class="o">.</span><span class="n">produce_ultimate_map</span><span class="p">(</span><span class="n">manager</span><span class="p">,</span> <span class="n">manager</span><span class="o">.</span><span class="n">allocation_map_1D</span><span class="o">.</span><span class="n">flatten</span><span class="p">(),</span>
+                                                            <span class="n">manager</span><span class="o">.</span><span class="n">twilight_map_remaining_2D</span><span class="o">.</span><span class="n">flatten</span><span class="p">())</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Building Gorubi model.&quot;</span><span class="p">)</span>
+    <span class="n">Aframe</span><span class="p">,</span> <span class="n">Aset</span><span class="p">,</span> <span class="n">schedulable_requests</span><span class="p">,</span> <span class="n">Wset</span> <span class="o">=</span> <span class="n">cf</span><span class="o">.</span><span class="n">define_slot_index_frame</span><span class="p">(</span><span class="n">manager</span><span class="p">,</span> <span class="n">available_indices_for_request</span><span class="p">)</span>
+
+    <span class="n">Wset</span> <span class="o">=</span> <span class="p">[]</span> <span class="c1"># when commented out, we run the min/max visit logic. Later will change to be a command line flag.</span>
+    <span class="n">model</span> <span class="o">=</span> <span class="n">cf</span><span class="o">.</span><span class="n">GorubiModel</span><span class="p">(</span><span class="n">manager</span><span class="p">,</span> <span class="n">Aset</span><span class="p">,</span> <span class="n">Aframe</span><span class="p">,</span> <span class="n">schedulable_requests</span><span class="p">,</span> <span class="n">Wset</span><span class="p">)</span>
+
+    <span class="n">model</span><span class="o">.</span><span class="n">constraint_one_request_per_slot</span><span class="p">()</span>
+    <span class="n">model</span><span class="o">.</span><span class="n">constraint_reserve_multislot_exposures</span><span class="p">()</span>
+    <span class="n">model</span><span class="o">.</span><span class="n">constraint_enforce_internight_cadence</span><span class="p">()</span>
+
+    <span class="k">if</span> <span class="n">Wset</span> <span class="o">!=</span> <span class="p">[]:</span> <span class="c1"># note later set this as an argument in the command line to run or ignore</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">constraint_set_max_desired_unique_nights_Wrd</span><span class="p">()</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">constraint_connect_Wrd_and_Yrds</span><span class="p">()</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">constraint_build_enforce_intranight_cadence</span><span class="p">()</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">constraint_set_min_max_visits_per_night</span><span class="p">()</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">constraint_build_theta_multivisit</span><span class="p">()</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">constraint_set_max_desired_unique_nights_Yrds</span><span class="p">()</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">constraint_max_visits_per_night</span><span class="p">()</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">constraint_build_theta</span><span class="p">()</span>
+
+    <span class="k">if</span> <span class="n">manager</span><span class="o">.</span><span class="n">run_optimal_allocation</span><span class="p">:</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">constraint_set_max_quarters_allocated</span><span class="p">()</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">constraint_set_max_onsky_allocated</span><span class="p">()</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">constraint_relate_allocation_and_onsky</span><span class="p">()</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">constraint_all_portions_of_night_represented</span><span class="p">()</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">constraint_forbidden_quarter_patterns</span><span class="p">()</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">constraint_cannot_observe_if_not_allocated</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">twilight_map_remaining_2D</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">blackout_file</span><span class="p">):</span>
+            <span class="n">constraint_enforce_restricted_nights</span><span class="p">(</span><span class="n">limit</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">whiteout_file</span><span class="p">):</span>
+            <span class="n">constraint_enforce_restricted_nights</span><span class="p">(</span><span class="n">limit</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">manager</span><span class="o">.</span><span class="n">include_aesthetic</span><span class="p">:</span>
+            <span class="n">model</span><span class="o">.</span><span class="n">constraint_max_consecutive_onsky</span><span class="p">()</span>
+            <span class="n">model</span><span class="o">.</span><span class="n">constraint_minimum_consecutive_offsky</span><span class="p">()</span>
+            <span class="n">model</span><span class="o">.</span><span class="n">constraint_maximize_baseline</span><span class="p">()</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Total Time to build constraints: &quot;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="o">-</span><span class="n">start_the_clock</span><span class="p">,</span><span class="mi">3</span><span class="p">))</span>
+    <span class="n">model</span><span class="o">.</span><span class="n">set_objective_minimize_theta_time_normalized</span><span class="p">()</span>
+    <span class="n">model</span><span class="o">.</span><span class="n">solve_model</span><span class="p">()</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Total Time to finish solver: &quot;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="o">-</span><span class="n">start_the_clock</span><span class="p">,</span><span class="mi">3</span><span class="p">))</span>
+
+    <span class="k">if</span> <span class="n">manager</span><span class="o">.</span><span class="n">run_optimal_allocation</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Reading results of optimal allocation map.&quot;</span><span class="p">)</span>
+        <span class="n">allocation_schedule_1d</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">Anq</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">X</span><span class="p">,</span><span class="mi">0</span><span class="p">)</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">allocation_schedule_1d</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">allocation_schedule_1d</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="mi">0</span><span class="p">)</span>
+        <span class="n">allocation_schedule</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">allocation_schedule_1d</span><span class="p">,</span> <span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">n_nights_in_semester</span><span class="p">,</span> <span class="n">manager</span><span class="o">.</span><span class="n">n_quarters_in_night</span><span class="p">))</span>
+        <span class="n">manager</span><span class="o">.</span><span class="n">allocation_map_2D_NQ</span> <span class="o">=</span> <span class="n">allocation_schedule</span>
+        <span class="n">holder</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">shape</span><span class="p">(</span><span class="n">allocation_schedule</span><span class="p">))</span>
+        <span class="n">allocation_map_1D</span><span class="p">,</span> <span class="n">allocation_map_2D</span><span class="p">,</span> <span class="n">weathered_map</span> <span class="o">=</span> <span class="n">mp</span><span class="o">.</span><span class="n">build_allocation_map</span><span class="p">(</span><span class="n">manager</span><span class="p">,</span> <span class="n">allocation_schedule</span><span class="p">,</span> <span class="n">holder</span><span class="p">)</span>
+        <span class="n">mp</span><span class="o">.</span><span class="n">convert_allocation_array_to_binary</span><span class="p">(</span><span class="n">manager</span><span class="p">)</span>
+        <span class="n">manager</span><span class="o">.</span><span class="n">allocation_all</span> <span class="o">=</span> <span class="n">allocation_map_1D</span>
+        <span class="n">manager</span><span class="o">.</span><span class="n">allocation_1D</span> <span class="o">=</span> <span class="n">allocation_map_1D</span>
+        <span class="n">manager</span><span class="o">.</span><span class="n">allocation_map_2D</span> <span class="o">=</span> <span class="n">allocation_map_2D</span>
+        <span class="n">manager</span><span class="o">.</span><span class="n">weathered_map</span> <span class="o">=</span> <span class="n">weathered_map</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Building human readable schedule.&quot;</span><span class="p">)</span>
+    <span class="n">combined_semester_schedule_available</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">write_available_human_readable</span><span class="p">(</span><span class="n">manager</span><span class="p">)</span>
+    <span class="n">combined_semester_schedule_stars</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">write_stars_schedule_human_readable</span><span class="p">(</span>
+                                                    <span class="n">combined_semester_schedule_available</span><span class="p">,</span> <span class="n">model</span><span class="o">.</span><span class="n">Yrds</span><span class="p">,</span>
+                                                    <span class="n">manager</span><span class="p">,</span> <span class="n">round_info</span><span class="p">)</span>
+    <span class="n">io</span><span class="o">.</span><span class="n">build_fullness_report</span><span class="p">(</span><span class="n">combined_semester_schedule_stars</span><span class="p">,</span> <span class="n">manager</span><span class="p">,</span> <span class="n">round_info</span><span class="p">)</span>
+    <span class="n">io</span><span class="o">.</span><span class="n">write_out_results</span><span class="p">(</span><span class="n">manager</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">round_info</span><span class="p">,</span> <span class="n">start_the_clock</span><span class="p">)</span>
+
+    <span class="k">if</span> <span class="n">manager</span><span class="o">.</span><span class="n">run_round_two</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Beginning Round 2 Scheduling.&quot;</span><span class="p">)</span>
+        <span class="n">round_info</span> <span class="o">=</span> <span class="s1">&#39;Round2&#39;</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">remove_constraint_set_max_desired_unique_nights_Wrd</span><span class="p">()</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">constraint_set_max_absolute_unique_nights_Wrd</span><span class="p">()</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">constraint_fix_previous_objective</span><span class="p">()</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">set_objective_maximize_slots_used</span><span class="p">()</span>
+        <span class="n">model</span><span class="o">.</span><span class="n">solve_model</span><span class="p">()</span>
+
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Total Time to finish Round 2 solver: &quot;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="o">-</span><span class="n">start_the_clock</span><span class="p">,</span><span class="mi">3</span><span class="p">))</span>
+
+        <span class="n">combined_semester_schedule_stars</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">write_stars_schedule_human_readable</span><span class="p">(</span>
+                <span class="n">combined_semester_schedule_available</span><span class="p">,</span> <span class="n">model</span><span class="o">.</span><span class="n">Yrds</span><span class="p">,</span> <span class="n">manager</span><span class="p">,</span> <span class="n">round_info</span><span class="p">)</span>
+        <span class="n">io</span><span class="o">.</span><span class="n">build_fullness_report</span><span class="p">(</span><span class="n">combined_semester_schedule_stars</span><span class="p">,</span> <span class="n">manager</span><span class="p">,</span> <span class="n">round_info</span><span class="p">)</span>
+        <span class="n">mn</span><span class="o">.</span><span class="n">get_gap_filler_targets</span><span class="p">(</span><span class="n">manager</span><span class="p">)</span>
+        <span class="n">io</span><span class="o">.</span><span class="n">write_out_results</span><span class="p">(</span><span class="n">manager</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">round_info</span><span class="p">,</span> <span class="n">start_the_clock</span><span class="p">)</span>
+
+    <span class="k">else</span><span class="p">:</span>
+        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Not running Round 2. Duplicating Raw Schedule as dummy file.&quot;</span><span class="p">)</span>
+        <span class="n">combined_semester_schedule_stars</span> <span class="o">=</span> <span class="n">io</span><span class="o">.</span><span class="n">write_stars_schedule_human_readable</span><span class="p">(</span>
+                <span class="n">combined_semester_schedule_available</span><span class="p">,</span> <span class="n">model</span><span class="o">.</span><span class="n">Yrds</span><span class="p">,</span> <span class="n">manager</span><span class="p">,</span> <span class="s2">&quot;Round2&quot;</span><span class="p">)</span>
+        <span class="n">np</span><span class="o">.</span><span class="n">savetxt</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">output_directory</span> <span class="o">+</span> <span class="s1">&#39;Round2_Requests.txt&#39;</span><span class="p">,</span> <span class="p">[],</span> <span class="n">delimiter</span><span class="o">=</span><span class="s1">&#39;,&#39;</span><span class="p">,</span> <span class="n">fmt</span><span class="o">=</span><span class="s2">&quot;</span><span class="si">%s</span><span class="s2">&quot;</span><span class="p">)</span>
+
+    <span class="n">manager</span><span class="o">.</span><span class="n">combined_semester_schedule_stars</span> <span class="o">=</span> <span class="n">combined_semester_schedule_stars</span>
+
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Total Time to complete autoscheduler: &quot;</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">time</span><span class="o">.</span><span class="n">time</span><span class="p">()</span><span class="o">-</span><span class="n">start_the_clock</span><span class="p">,</span><span class="mi">3</span><span class="p">))</span>
+    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;The optimal semester schedule is found, clear skies!&quot;</span><span class="p">)</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, JLubinAstroQ.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
