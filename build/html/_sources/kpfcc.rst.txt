@@ -4,7 +4,7 @@ kpfcc package
 Submodules
 ----------
 
-kpfcc.access module
+Access
 -------------------
 
 .. automodule:: kpfcc.access
@@ -12,7 +12,7 @@ kpfcc.access module
    :undoc-members:
    :show-inheritance:
 
-kpfcc.constraints module
+Constraints
 ------------------------
 
 .. automodule:: kpfcc.constraints
@@ -20,7 +20,7 @@ kpfcc.constraints module
    :undoc-members:
    :show-inheritance:
 
-kpfcc.history module
+History
 --------------------
 
 .. automodule:: kpfcc.history
@@ -28,7 +28,7 @@ kpfcc.history module
    :undoc-members:
    :show-inheritance:
 
-kpfcc.io module
+IO
 ---------------
 
 .. automodule:: kpfcc.io
@@ -36,7 +36,7 @@ kpfcc.io module
    :undoc-members:
    :show-inheritance:
 
-kpfcc.management module
+Management
 -----------------------
 
 .. automodule:: kpfcc.management
@@ -44,7 +44,7 @@ kpfcc.management module
    :undoc-members:
    :show-inheritance:
 
-kpfcc.maps module
+Maps
 -----------------
 
 .. automodule:: kpfcc.maps
@@ -52,7 +52,7 @@ kpfcc.maps module
    :undoc-members:
    :show-inheritance:
 
-kpfcc.onsky module
+Onsky
 ------------------
 
 .. automodule:: kpfcc.onsky
@@ -60,7 +60,7 @@ kpfcc.onsky module
    :undoc-members:
    :show-inheritance:
 
-kpfcc.plot module
+Plot
 -----------------
 
 .. automodule:: kpfcc.plot
@@ -68,7 +68,7 @@ kpfcc.plot module
    :undoc-members:
    :show-inheritance:
 
-kpfcc.schedule module
+Schedule
 ---------------------
 
 .. automodule:: kpfcc.schedule
@@ -76,7 +76,7 @@ kpfcc.schedule module
    :undoc-members:
    :show-inheritance:
 
-kpfcc.tracking module
+Tracking
 ---------------------
 
 .. automodule:: kpfcc.tracking
@@ -84,7 +84,7 @@ kpfcc.tracking module
    :undoc-members:
    :show-inheritance:
 
-kpfcc.weather module
+Weather
 --------------------
 
 .. automodule:: kpfcc.weather

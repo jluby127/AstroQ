@@ -1,0 +1,470 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>Plot &mdash; AstroQ 1.0.0 documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+  <script type="text/javascript" src="../_static/js/modernizr.min.js"></script>
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
+        <script src="../_static/jquery.js"></script>
+        <script src="../_static/underscore.js"></script>
+        <script src="../_static/doctools.js"></script>
+    
+    <script type="text/javascript" src="../_static/js/theme.js"></script>
+
+    
+
+  
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Maps" href="maps.html" />
+    <link rel="prev" title="Schedule" href="schedule.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="../index.html" class="icon icon-home"> AstroQ
+          
+
+          
+          </a>
+
+          
+            
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <p class="caption"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="../api.html">API</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="history.html">History</a></li>
+<li class="toctree-l2"><a class="reference internal" href="constraints.html">Constraints</a></li>
+<li class="toctree-l2"><a class="reference internal" href="access.html">Access</a></li>
+<li class="toctree-l2"><a class="reference internal" href="tracking.html">Tracking</a></li>
+<li class="toctree-l2"><a class="reference internal" href="schedule.html">Schedule</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Plot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="maps.html">Maps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="management.html">Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="io.html">IO</a></li>
+<li class="toctree-l2"><a class="reference internal" href="weather.html">Weather</a></li>
+<li class="toctree-l2"><a class="reference internal" href="onsky.html">Onsky</a></li>
+</ul>
+</li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">AstroQ</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="../index.html">Docs</a> &raquo;</li>
+        
+          <li><a href="../api.html">API</a> &raquo;</li>
+        
+      <li>Plot</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+            
+            <a href="../_sources/individual_rsts/plot.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="section" id="plot">
+<span id="id1"></span><h1>Plot<a class="headerlink" href="#plot" title="Permalink to this headline">¶</a></h1>
+<span class="target" id="module-kpfcc"></span><span class="target" id="module-kpfcc.plot"></span><p>Module for plotting.
+Designed to be only run as a function call from the generateScript.py script.</p>
+<dl class="simple">
+<dt>Example usage:</dt><dd><p>import plotting_functions as ptf</p>
+</dd>
+</dl>
+<dl class="py function">
+<dt id="kpfcc.plot.build_multi_request_cof">
+<code class="sig-prename descclassname"><span class="pre">kpfcc.plot.</span></code><code class="sig-name descname"><span class="pre">build_multi_request_cof</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">star_tracker</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">all_cofs_array</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">star_info</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">all_first_forecasts</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">even_burn_rate</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">flag</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">color_palette</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">{}</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/plot.html#build_multi_request_cof"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.plot.build_multi_request_cof" title="Permalink to this definition">¶</a></dt>
+<dd><p>Build the COF plot</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>star_tracker</strong> (<em>object</em>) – a object from the StarTracker class</p></li>
+<li><p><strong>all_cofs_array</strong> (<em>array</em>) – an array of COF arrays</p></li>
+<li><p><strong>star_info</strong> (<em>dict</em>) – keys are the star names, values are</p></li>
+<li><p><strong>all_first_forecasts</strong> (<em>array</em>) – array of the first forecast arrays for each star in set</p></li>
+<li><p><strong>even_burn_rate</strong> (<em>boolean</em>) – if True, show an even burn rate line</p></li>
+<li><p><strong>flag</strong> (<em>boolean</em>) – if True, the plot is only for the admin view</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="kpfcc.plot.create_single_program_birds_eye">
+<code class="sig-prename descclassname"><span class="pre">kpfcc.plot.</span></code><code class="sig-name descname"><span class="pre">create_single_program_birds_eye</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">star_tracker</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">program</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">color</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/plot.html#create_single_program_birds_eye"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.plot.create_single_program_birds_eye" title="Permalink to this definition">¶</a></dt>
+<dd><p>Prepare data for a birds eye view plot of one program’s requests</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>star_tracker</strong> (<em>object</em>) – a object from the StarTracker class</p></li>
+<li><p><strong>program</strong> (<em>str</em>) – the program code</p></li>
+<li><p><strong>color</strong> (<em>object</em>) – seaborn color palette value for this program</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>all of the starmaps of requests in the program
+all_star_cols (array): the colors to plot each request on the birds eye
+all_star_nobs (array): the number of observations in each scheduled window
+stars_in_program (array): the list of the stars within the program</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>all_star_maps (array)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="kpfcc.plot.generate_admin_view_plot_suite">
+<code class="sig-prename descclassname"><span class="pre">kpfcc.plot.</span></code><code class="sig-name descname"><span class="pre">generate_admin_view_plot_suite</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">star_tracker</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">set_of_program_cofs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">program_info</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">all_program_first_forecasts</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">all_star_maps_all_programs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">all_star_colors_all_programs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">all_star_nobs_all_programs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">all_stars_in_program</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">prog_colors</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/plot.html#generate_admin_view_plot_suite"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.plot.generate_admin_view_plot_suite" title="Permalink to this definition">¶</a></dt>
+<dd><p>Construct all plots for admin view</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>star_tracker</strong> (<em>object</em>) – a object from the StarTracker class</p></li>
+<li><p><strong>set_of_program_cofs</strong> (<em>array</em>) – each element is an array containing the cof of a program</p></li>
+<li><p><strong>program_info</strong> (<em>dict</em>) – keys are program codes and values are total obs for program</p></li>
+<li><p><strong>all_program_first_forecasts</strong> (<em>array</em>) – each element is an array containing the first forecast
+for the program, cof.</p></li>
+<li><p><strong>all_star_maps_all_programs</strong> (<em>array</em>) – all of the programmatic running total percentages</p></li>
+<li><p><strong>all_star_colors_all_programs</strong> (<em>array</em>) – the colors to plot each program on the birds eye</p></li>
+<li><p><strong>all_star_nobs_all_programs</strong> (<em>array</em>) – the number of observations in each scheduled window</p></li>
+<li><p><strong>all_stars_in_program</strong> (<em>array</em>) – the list of the stars within the program</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="kpfcc.plot.generate_birds_eye">
+<code class="sig-prename descclassname"><span class="pre">kpfcc.plot.</span></code><code class="sig-name descname"><span class="pre">generate_birds_eye</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">star_tracker</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">all_star_maps</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">all_star_cols</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">all_star_nobs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">program</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stars_in_program</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nonqueue</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/plot.html#generate_birds_eye"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.plot.generate_birds_eye" title="Permalink to this definition">¶</a></dt>
+<dd><p>Plot a birds eye view of one program’s requests</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>star_tracker</strong> (<em>object</em>) – a object from the StarTracker class</p></li>
+<li><p><strong>all_star_maps</strong> (<em>array</em>) – all of the starmaps of requests in the program</p></li>
+<li><p><strong>all_star_cols</strong> (<em>array</em>) – the colors to plot each request on the birds eye</p></li>
+<li><p><strong>all_star_nobs</strong> (<em>array</em>) – the number of observations in each scheduled window</p></li>
+<li><p><strong>program</strong> (<em>str</em>) – the program code</p></li>
+<li><p><strong>stars_in_program</strong> (<em>array</em>) – the list of the stars within the program</p></li>
+<li><p><strong>nonqueue</strong> (<em>boolean</em>) – if True, plot the non-queue times on the birds eye view</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="kpfcc.plot.generate_cadence_view_plot">
+<code class="sig-prename descclassname"><span class="pre">kpfcc.plot.</span></code><code class="sig-name descname"><span class="pre">generate_cadence_view_plot</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">star_tracker</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">program</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">star</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/plot.html#generate_cadence_view_plot"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.plot.generate_cadence_view_plot" title="Permalink to this definition">¶</a></dt>
+<dd><p>Build cadence overview plot</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>program</strong> (<em>str</em>) – the program code</p></li>
+<li><p><strong>starname</strong> (<em>str</em>) – the name of the star in question</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="kpfcc.plot.generate_single_program_plot_suite">
+<code class="sig-prename descclassname"><span class="pre">kpfcc.plot.</span></code><code class="sig-name descname"><span class="pre">generate_single_program_plot_suite</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">star_tracker</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">program_code</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">build_cadence_plots</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/plot.html#generate_single_program_plot_suite"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.plot.generate_single_program_plot_suite" title="Permalink to this definition">¶</a></dt>
+<dd><p>Plot the birds eye view for the single program PI view</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>star_tracker</strong> (<em>object</em>) – a object from the StarTracker class</p></li>
+<li><p><strong>program_code</strong> (<em>str</em>) – the program code</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>the calculated cof array for each star in program
+total_program_requested_nobs (int): the total requested observations within the program
+program_first_forecast (array): the first forecast for each star in program</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>program_cof_percent (array)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="kpfcc.plot.process_single_target_for_birds_eye">
+<code class="sig-prename descclassname"><span class="pre">kpfcc.plot.</span></code><code class="sig-name descname"><span class="pre">process_single_target_for_birds_eye</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">star_tracker</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">starname</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/plot.html#process_single_target_for_birds_eye"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.plot.process_single_target_for_birds_eye" title="Permalink to this definition">¶</a></dt>
+<dd><p>Collect the data for a birds eye view plot</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>star_tracker</strong> (<em>object</em>) – a object from the StarTracker class</p></li>
+<li><p><strong>starname</strong> (<em>str</em>) – the name of the star in question</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>n_nights_in_semester by n_slots_in_night, 1 when target is scheduled
+nobs (int): the sum of all future observations</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>starmap (array)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="kpfcc.plot.programmatic_cof">
+<code class="sig-prename descclassname"><span class="pre">kpfcc.plot.</span></code><code class="sig-name descname"><span class="pre">programmatic_cof</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">star_tracker</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">list_of_request_cofs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">total_program_observations</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/plot.html#programmatic_cof"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.plot.programmatic_cof" title="Permalink to this definition">¶</a></dt>
+<dd><p>Build the cumulative obesrvation function for a group of requests</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>star_tracker</strong> (<em>object</em>) – a object from the StarTracker class</p></li>
+<li><p><strong>list_of_request_cofs</strong> (<em>array</em>) – an array of COF arrays</p></li>
+<li><p><strong>total_program_observations</strong> (<em>int</em>) – sum of all exposures for the set of requests</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><dl class="simple">
+<dt>of length semester_length, the running number of</dt><dd><p>observations over the course of the semester</p>
+</dd>
+<dt>program_cof_percent (array): of length semester_length, the running percent of</dt><dd><p>request completion over the course of the semester</p>
+</dd>
+</dl>
+</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>program_cof_counter (array)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="kpfcc.plot.run_plot_suite">
+<code class="sig-prename descclassname"><span class="pre">kpfcc.plot.</span></code><code class="sig-name descname"><span class="pre">run_plot_suite</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">star_tracker</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">manager</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/plot.html#run_plot_suite"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.plot.run_plot_suite" title="Permalink to this definition">¶</a></dt>
+<dd><p>A one line call to kick off all the plotting/reporting routines</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>star_tracker</strong> (<em>object</em>) – a object from the StarTracker class</p></li>
+<li><p><strong>outputdir</strong> (<em>str</em>) – directory to save outputs</p></li>
+<li><p><strong>build_starmaps</strong> (<em>boolean</em>) – if true, spend the time to build the star maps</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="kpfcc.plot.single_request_cof">
+<code class="sig-prename descclassname"><span class="pre">kpfcc.plot.</span></code><code class="sig-name descname"><span class="pre">single_request_cof</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">star_tracker</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">star</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/plot.html#single_request_cof"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.plot.single_request_cof" title="Permalink to this definition">¶</a></dt>
+<dd><p>Compute cumulative observation function for a single request</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>star_tracker</strong> (<em>object</em>) – a object from the StarTracker class</p></li>
+<li><p><strong>star</strong> (<em>str</em>) – the name of the star in question</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><dl class="simple">
+<dt>of length semester_length, the running number of</dt><dd><p>observations over the course of the semester</p>
+</dd>
+<dt>running_total_obs_percent (array): of length semester_length, the running percent of</dt><dd><p>request completion over the course of the semester</p>
+</dd>
+</dl>
+<p>total_observations_requested (int): the number of exposure to complete the request
+first_forecast (dataframe): contains information on the first forecast of the target</p>
+</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>running_total_obs_counter (array)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt id="kpfcc.plot.write_one_cadence_plot_file">
+<code class="sig-prename descclassname"><span class="pre">kpfcc.plot.</span></code><code class="sig-name descname"><span class="pre">write_one_cadence_plot_file</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">starname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">starmap</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">turn_frame</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">requests_frame</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">future_obs</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">unique_hst_dates_observed</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">current_day</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">outputdir</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/plot.html#write_one_cadence_plot_file"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.plot.write_one_cadence_plot_file" title="Permalink to this definition">¶</a></dt>
+<dd><p>Write the file from which later we can produce the cadence plot</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>starname</strong> (<em>int</em>) – the string of the star’s name</p></li>
+<li><p><strong>starmap</strong> (<em>dataframe</em>) – contains information on observation history and forecast</p></li>
+<li><p><strong>turn_frame</strong> (<em>dataframe</em>) – contains information on the first and last day a target
+is observable in each quarter of the night. Pre-computed.</p></li>
+<li><p><strong>requests_frame</strong> (<em>dataframe</em>) – the information on the request strategies</p></li>
+<li><p><strong>unique_hst_dates_observed</strong> (<em>array</em>) – list of dates previously observed</p></li>
+<li><p><strong>current_day</strong> (<em>str</em>) – today’s date, format YYYY-MM-DD</p></li>
+<li><p><strong>outputdir</strong> (<em>str</em>) – the path to the save directory</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+</div>
+
+
+           </div>
+           
+          </div>
+          <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="maps.html" class="btn btn-neutral float-right" title="Maps" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right"></span></a>
+      
+      
+        <a href="schedule.html" class="btn btn-neutral float-left" title="Schedule" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
+      
+    </div>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2025, Jack Lubin
+
+    </p>
+  </div>
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>
