@@ -10,7 +10,7 @@ Welcome to AstroQ_docs's documentation!
    :maxdepth: 2
    :caption: Contents:
 
-   kpfcc
+   api
 
 Indices and tables
 ==================

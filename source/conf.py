@@ -12,9 +12,9 @@ import sys
 sys.path.insert(0, os.path.abspath('..')) # Make sure that the root directory is in the system path
 
 
-project = 'AstroQ_docs'
-copyright = '2025, JLubinAstroQ'
-author = 'JLubinAstroQ'
+project = 'AstroQ'
+copyright = '2025, Jack Lubin'
+author = 'Jack Lubin'
 release = '1.0.0'
 
 # -- General configuration ---------------------------------------------------

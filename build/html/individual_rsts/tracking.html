@@ -1,0 +1,348 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>Tracking &mdash; AstroQ 1.0.0 documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+  <script type="text/javascript" src="../_static/js/modernizr.min.js"></script>
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
+        <script src="../_static/jquery.js"></script>
+        <script src="../_static/underscore.js"></script>
+        <script src="../_static/doctools.js"></script>
+    
+    <script type="text/javascript" src="../_static/js/theme.js"></script>
+
+    
+
+  
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Schedule" href="schedule.html" />
+    <link rel="prev" title="Access" href="access.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="../index.html" class="icon icon-home"> AstroQ
+          
+
+          
+          </a>
+
+          
+            
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <p class="caption"><span class="caption-text">Contents:</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="reference internal" href="../api.html">API</a><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="history.html">History</a></li>
+<li class="toctree-l2"><a class="reference internal" href="constraints.html">Constraints</a></li>
+<li class="toctree-l2"><a class="reference internal" href="access.html">Access</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Tracking</a></li>
+<li class="toctree-l2"><a class="reference internal" href="schedule.html">Schedule</a></li>
+<li class="toctree-l2"><a class="reference internal" href="plot.html">Plot</a></li>
+<li class="toctree-l2"><a class="reference internal" href="maps.html">Maps</a></li>
+<li class="toctree-l2"><a class="reference internal" href="management.html">Management</a></li>
+<li class="toctree-l2"><a class="reference internal" href="io.html">IO</a></li>
+<li class="toctree-l2"><a class="reference internal" href="weather.html">Weather</a></li>
+<li class="toctree-l2"><a class="reference internal" href="onsky.html">Onsky</a></li>
+</ul>
+</li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">AstroQ</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="../index.html">Docs</a> &raquo;</li>
+        
+          <li><a href="../api.html">API</a> &raquo;</li>
+        
+      <li>Tracking</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+            
+            <a href="../_sources/individual_rsts/tracking.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="section" id="tracking">
+<span id="id1"></span><h1>Tracking<a class="headerlink" href="#tracking" title="Permalink to this headline">¶</a></h1>
+<span class="target" id="module-kpfcc"></span><span class="target" id="module-kpfcc.tracking"></span><p>Module for plotting.
+Designed to be only run as a function call from the generateScript.py script.</p>
+<dl class="simple">
+<dt>Example usage:</dt><dd><p>import plotting_functions as ptf</p>
+</dd>
+</dl>
+<dl class="py class">
+<dt id="kpfcc.tracking.StarTracker">
+<em class="property"><span class="pre">class</span> </em><code class="sig-prename descclassname"><span class="pre">kpfcc.tracking.</span></code><code class="sig-name descname"><span class="pre">StarTracker</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">manager</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/tracking.html#StarTracker"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.tracking.StarTracker" title="Permalink to this definition">¶</a></dt>
+<dd><p>An object to easily pass around compute and pass around information on the past/future scheduling of stars.</p>
+<dl class="py method">
+<dt id="kpfcc.tracking.StarTracker.create_folders">
+<code class="sig-name descname"><span class="pre">create_folders</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">main_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">account_types</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dates</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">styles</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/tracking.html#StarTracker.create_folders"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.tracking.StarTracker.create_folders" title="Permalink to this definition">¶</a></dt>
+<dd><p>Check if folders exist, if not, create them</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>main_path</strong> (<em>str</em>) – primary root path to save to</p></li>
+<li><p><strong>account_types</strong> (<em>str</em>) – the user acount types (admin, PI, etc)</p></li>
+<li><p><strong>dates</strong> (<em>str</em>) – the dates in question</p></li>
+<li><p><strong>styles</strong> (<em>str</em>) – the names of the plots to be generated, store them separately</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt id="kpfcc.tracking.StarTracker.get_star_first_forecast">
+<code class="sig-name descname"><span class="pre">get_star_first_forecast</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">program</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/tracking.html#StarTracker.get_star_first_forecast"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.tracking.StarTracker.get_star_first_forecast" title="Permalink to this definition">¶</a></dt>
+<dd><p>Retrieve the information for later comparison</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>program</strong> (<em>str</em>) – the program code</p></li>
+<li><p><strong>name</strong> (<em>str</em>) – the name of the star in question</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>contains information on the first forecast of the target</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>first_forecast (dataframe)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt id="kpfcc.tracking.StarTracker.get_star_forecast">
+<code class="sig-name descname"><span class="pre">get_star_forecast</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">starname</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/tracking.html#StarTracker.get_star_forecast"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.tracking.StarTracker.get_star_forecast" title="Permalink to this definition">¶</a></dt>
+<dd><p>Gather the information about a star’s future forecast this semester</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>starname</strong> (<em>str</em>) – the name of the star in question</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><dl class="simple">
+<dt>a dictionary where keys are the dates of an observation and</dt><dd><p>the values are number of observations to be taken that night</p>
+</dd>
+</dl>
+</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>observations_future (dict)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt id="kpfcc.tracking.StarTracker.get_star_past">
+<code class="sig-name descname"><span class="pre">get_star_past</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">starname</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/tracking.html#StarTracker.get_star_past"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.tracking.StarTracker.get_star_past" title="Permalink to this definition">¶</a></dt>
+<dd><p>Gather the information about a star’s past observation history this semester</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>starname</strong> (<em>str</em>) – the name of the star in question</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p><dl class="simple">
+<dt>a dictionary where keys are the dates of an observation</dt><dd><p>and the values are number of observations taken on that night</p>
+</dd>
+</dl>
+</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>observations_past (dict)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt id="kpfcc.tracking.StarTracker.get_star_stats">
+<code class="sig-name descname"><span class="pre">get_star_stats</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">starname</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/tracking.html#StarTracker.get_star_stats"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.tracking.StarTracker.get_star_stats" title="Permalink to this definition">¶</a></dt>
+<dd><p>Grab the observational stategy information for a given star</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>starname</strong> (<em>str</em>) – the name of the star in question</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>how many exposures we expect to take
+total_observations_requested (int): sum of observational strategie values
+exposure_time (int): exposure time of single shot
+slots_per_night (int): number of slots required to complete all exposures in a night
+program (str): the program code</p>
+</dd>
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>expected_nobs_per_night (int)</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt id="kpfcc.tracking.StarTracker.write_star_first_forecast">
+<code class="sig-name descname"><span class="pre">write_star_first_forecast</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">program</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">starname</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/tracking.html#StarTracker.write_star_first_forecast"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.tracking.StarTracker.write_star_first_forecast" title="Permalink to this definition">¶</a></dt>
+<dd><p>After the first time running a forecast, record the information for later comparison</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>program</strong> (<em>str</em>) – the program code</p></li>
+<li><p><strong>starname</strong> (<em>str</em>) – the name of the star in question</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+
+
+           </div>
+           
+          </div>
+          <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="schedule.html" class="btn btn-neutral float-right" title="Schedule" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right"></span></a>
+      
+      
+        <a href="access.html" class="btn btn-neutral float-left" title="Access" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
+      
+    </div>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2025, Jack Lubin
+
+    </p>
+  </div>
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>

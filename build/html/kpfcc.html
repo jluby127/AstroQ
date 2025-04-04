@@ -6,7 +6,7 @@
   <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>kpfcc package &mdash; AstroQ_docs 1.0.0 documentation</title>
+  <title>kpfcc package &mdash; AstroQ 1.0.0 documentation</title>
       <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
 
@@ -31,7 +31,7 @@
           
           
           <a href="index.html" class="icon icon-home">
-            AstroQ_docs
+            AstroQ
           </a>
 <div role="search">
   <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
@@ -45,7 +45,7 @@
 <ul class="current">
 <li class="toctree-l1 current"><a class="current reference internal" href="#">kpfcc package</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#submodules">Submodules</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#module-kpfcc.access">kpfcc.access module</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#module-kpfcc.access">Access</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.access.build_single_target_accessibility"><code class="docutils literal notranslate"><span class="pre">build_single_target_accessibility()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.access.build_twilight_map"><code class="docutils literal notranslate"><span class="pre">build_twilight_map()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.access.construct_access_dict"><code class="docutils literal notranslate"><span class="pre">construct_access_dict()</span></code></a></li>
@@ -62,7 +62,7 @@
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.access.write_accessibilty_map_dict"><code class="docutils literal notranslate"><span class="pre">write_accessibilty_map_dict()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#module-kpfcc.constraints">kpfcc.constraints module</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#module-kpfcc.constraints">Constraints</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.constraints.GorubiModel"><code class="docutils literal notranslate"><span class="pre">GorubiModel</span></code></a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#kpfcc.constraints.GorubiModel.constraint_all_portions_of_night_represented"><code class="docutils literal notranslate"><span class="pre">GorubiModel.constraint_all_portions_of_night_represented()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#kpfcc.constraints.GorubiModel.constraint_build_enforce_intranight_cadence"><code class="docutils literal notranslate"><span class="pre">GorubiModel.constraint_build_enforce_intranight_cadence()</span></code></a></li>
@@ -101,7 +101,7 @@
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.constraints.define_slot_index_frame"><code class="docutils literal notranslate"><span class="pre">define_slot_index_frame()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#module-kpfcc.history">kpfcc.history module</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#module-kpfcc.history">History</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.history.access_jump"><code class="docutils literal notranslate"><span class="pre">access_jump()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.history.build_past_history"><code class="docutils literal notranslate"><span class="pre">build_past_history()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.history.get_database_explorer"><code class="docutils literal notranslate"><span class="pre">get_database_explorer()</span></code></a></li>
@@ -111,7 +111,7 @@
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.history.get_unique_nights"><code class="docutils literal notranslate"><span class="pre">get_unique_nights()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#module-kpfcc.io">kpfcc.io module</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#module-kpfcc.io">IO</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.io.build_fullness_report"><code class="docutils literal notranslate"><span class="pre">build_fullness_report()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.io.build_observed_map_future"><code class="docutils literal notranslate"><span class="pre">build_observed_map_future()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.io.build_observed_map_past"><code class="docutils literal notranslate"><span class="pre">build_observed_map_past()</span></code></a></li>
@@ -125,7 +125,7 @@
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.io.write_stars_schedule_human_readable"><code class="docutils literal notranslate"><span class="pre">write_stars_schedule_human_readable()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#module-kpfcc.management">kpfcc.management module</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#module-kpfcc.management">Management</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.management.build_date_dictionary"><code class="docutils literal notranslate"><span class="pre">build_date_dictionary()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.management.compute_slots_required_for_exposure"><code class="docutils literal notranslate"><span class="pre">compute_slots_required_for_exposure()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.management.data_admin"><code class="docutils literal notranslate"><span class="pre">data_admin</span></code></a><ul>
@@ -137,7 +137,7 @@
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.management.get_semester_info"><code class="docutils literal notranslate"><span class="pre">get_semester_info()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#module-kpfcc.maps">kpfcc.maps module</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#module-kpfcc.maps">Maps</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.maps.build_allocation_map"><code class="docutils literal notranslate"><span class="pre">build_allocation_map()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.maps.compute_on_off_for_quarter"><code class="docutils literal notranslate"><span class="pre">compute_on_off_for_quarter()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.maps.construct_custom_map_dict"><code class="docutils literal notranslate"><span class="pre">construct_custom_map_dict()</span></code></a></li>
@@ -153,13 +153,13 @@
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.maps.round_time_to_slot"><code class="docutils literal notranslate"><span class="pre">round_time_to_slot()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#module-kpfcc.onsky">kpfcc.onsky module</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#module-kpfcc.onsky">Onsky</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.onsky.prepare_for_ttp"><code class="docutils literal notranslate"><span class="pre">prepare_for_ttp()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.onsky.produce_bright_backups"><code class="docutils literal notranslate"><span class="pre">produce_bright_backups()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.onsky.run_ttp"><code class="docutils literal notranslate"><span class="pre">run_ttp()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#module-kpfcc.plot">kpfcc.plot module</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#module-kpfcc.plot">Plot</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.plot.build_multi_request_cof"><code class="docutils literal notranslate"><span class="pre">build_multi_request_cof()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.plot.create_single_program_birds_eye"><code class="docutils literal notranslate"><span class="pre">create_single_program_birds_eye()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.plot.generate_admin_view_plot_suite"><code class="docutils literal notranslate"><span class="pre">generate_admin_view_plot_suite()</span></code></a></li>
@@ -174,11 +174,11 @@
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.plot.write_one_cadence_plot_file"><code class="docutils literal notranslate"><span class="pre">write_one_cadence_plot_file()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#module-kpfcc.schedule">kpfcc.schedule module</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#module-kpfcc.schedule">Schedule</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.schedule.run_kpfcc"><code class="docutils literal notranslate"><span class="pre">run_kpfcc()</span></code></a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#module-kpfcc.tracking">kpfcc.tracking module</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#module-kpfcc.tracking">Tracking</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.tracking.StarTracker"><code class="docutils literal notranslate"><span class="pre">StarTracker</span></code></a><ul>
 <li class="toctree-l4"><a class="reference internal" href="#kpfcc.tracking.StarTracker.create_folders"><code class="docutils literal notranslate"><span class="pre">StarTracker.create_folders()</span></code></a></li>
 <li class="toctree-l4"><a class="reference internal" href="#kpfcc.tracking.StarTracker.get_star_first_forecast"><code class="docutils literal notranslate"><span class="pre">StarTracker.get_star_first_forecast()</span></code></a></li>
@@ -190,7 +190,7 @@
 </li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#module-kpfcc.weather">kpfcc.weather module</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#module-kpfcc.weather">Weather</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.weather.compute_hours_observable_tonight"><code class="docutils literal notranslate"><span class="pre">compute_hours_observable_tonight()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.weather.compute_yearly_accessibility"><code class="docutils literal notranslate"><span class="pre">compute_yearly_accessibility()</span></code></a></li>
 <li class="toctree-l3"><a class="reference internal" href="#kpfcc.weather.get_loss_stats"><code class="docutils literal notranslate"><span class="pre">get_loss_stats()</span></code></a></li>
@@ -211,7 +211,7 @@
 
     <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
           <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
-          <a href="index.html">AstroQ_docs</a>
+          <a href="index.html">AstroQ</a>
       </nav>
 
       <div class="wy-nav-content">
@@ -235,7 +235,7 @@
 <h2>Submodules<a class="headerlink" href="#submodules" title="Link to this heading"></a></h2>
 </section>
 <section id="module-kpfcc.access">
-<span id="kpfcc-access-module"></span><h2>kpfcc.access module<a class="headerlink" href="#module-kpfcc.access" title="Link to this heading"></a></h2>
+<span id="access"></span><h2>Access<a class="headerlink" href="#module-kpfcc.access" title="Link to this heading"></a></h2>
 <p>Module for computing acccessibility of requests, including from telescope pointing and twilight</p>
 <dl class="py function">
 <dt class="sig sig-object py" id="kpfcc.access.build_single_target_accessibility">
@@ -555,7 +555,7 @@ Best to match the original name and overwrite.</p></li>
 
 </section>
 <section id="module-kpfcc.constraints">
-<span id="kpfcc-constraints-module"></span><h2>kpfcc.constraints module<a class="headerlink" href="#module-kpfcc.constraints" title="Link to this heading"></a></h2>
+<span id="constraints"></span><h2>Constraints<a class="headerlink" href="#module-kpfcc.constraints" title="Link to this heading"></a></h2>
 <p>Module for building constraints</p>
 <p>This module constructs constraints for the gurobi model.</p>
 <dl class="simple">
@@ -793,8 +793,8 @@ schedulable_requests (list): the requests that are valid for this schedule</p>
 
 </section>
 <section id="module-kpfcc.history">
-<span id="kpfcc-history-module"></span><h2>kpfcc.history module<a class="headerlink" href="#module-kpfcc.history" title="Link to this heading"></a></h2>
-<p>Module for processin the inputs and outputs of the autoscheduler to/from various sources.
+<span id="history"></span><h2>History<a class="headerlink" href="#module-kpfcc.history" title="Link to this heading"></a></h2>
+<p>Module for processing the inputs and outputs of the autoscheduler to/from various sources.
 Designed to be only run as a function call from the generateScript.py script.</p>
 <dl class="simple">
 <dt>Example usage:</dt><dd><p>import processing_functions as pf</p>
@@ -959,7 +959,7 @@ for that night was taken.</p>
 
 </section>
 <section id="module-kpfcc.io">
-<span id="kpfcc-io-module"></span><h2>kpfcc.io module<a class="headerlink" href="#module-kpfcc.io" title="Link to this heading"></a></h2>
+<span id="io"></span><h2>IO<a class="headerlink" href="#module-kpfcc.io" title="Link to this heading"></a></h2>
 <p>Module for building reports after the solution is found. Designed to be only run as a function
 call from the generateScript.py script.</p>
 <dl class="simple">
@@ -1224,7 +1224,7 @@ solution by filling in the slots where a star’s exposre is started.</p>
 
 </section>
 <section id="module-kpfcc.management">
-<span id="kpfcc-management-module"></span><h2>kpfcc.management module<a class="headerlink" href="#module-kpfcc.management" title="Link to this heading"></a></h2>
+<span id="management"></span><h2>Management<a class="headerlink" href="#module-kpfcc.management" title="Link to this heading"></a></h2>
 <p>Module defining the admin object, which stores, manipulates, and passes information across
 all requests easily.</p>
 <dl class="simple">
@@ -1351,7 +1351,7 @@ i.e. which targets were added in Round 2</p>
 
 </section>
 <section id="module-kpfcc.maps">
-<span id="kpfcc-maps-module"></span><h2>kpfcc.maps module<a class="headerlink" href="#module-kpfcc.maps" title="Link to this heading"></a></h2>
+<span id="maps"></span><h2>Maps<a class="headerlink" href="#module-kpfcc.maps" title="Link to this heading"></a></h2>
 <p>Module for working with the various maps</p>
 <p>This module organizes and builds the maps used by the semester solver to block out large portions
 of time for one of many reasons. Designed to be only run as a function call from
@@ -1672,7 +1672,7 @@ slot, 0 otherwise.</p>
 
 </section>
 <section id="module-kpfcc.onsky">
-<span id="kpfcc-onsky-module"></span><h2>kpfcc.onsky module<a class="headerlink" href="#module-kpfcc.onsky" title="Link to this heading"></a></h2>
+<span id="onsky"></span><h2>Onsky<a class="headerlink" href="#module-kpfcc.onsky" title="Link to this heading"></a></h2>
 <p>Module for running the TTP.
 Designed to be only run as a function call from the generateScript.py script.</p>
 <p>See <a class="reference external" href="https://github.com/lukehandley/ttp/tree/main">https://github.com/lukehandley/ttp/tree/main</a> for more info about the TTP</p>
@@ -1748,7 +1748,7 @@ Designed to be only run as a function call from the generateScript.py script.</p
 
 </section>
 <section id="module-kpfcc.plot">
-<span id="kpfcc-plot-module"></span><h2>kpfcc.plot module<a class="headerlink" href="#module-kpfcc.plot" title="Link to this heading"></a></h2>
+<span id="plot"></span><h2>Plot<a class="headerlink" href="#module-kpfcc.plot" title="Link to this heading"></a></h2>
 <p>Module for plotting.
 Designed to be only run as a function call from the generateScript.py script.</p>
 <dl class="simple">
@@ -2009,7 +2009,7 @@ is observable in each quarter of the night. Pre-computed.</p></li>
 
 </section>
 <section id="module-kpfcc.schedule">
-<span id="kpfcc-schedule-module"></span><h2>kpfcc.schedule module<a class="headerlink" href="#module-kpfcc.schedule" title="Link to this heading"></a></h2>
+<span id="schedule"></span><h2>Schedule<a class="headerlink" href="#module-kpfcc.schedule" title="Link to this heading"></a></h2>
 <p>Module for running the semester solver.</p>
 <p>This module organizes, builds, and solves the gurobi model. It also writes and organizes the
 outputs of the schedule into both machine human readable forms. It is designed to produce info
@@ -2035,7 +2035,7 @@ call from the generateScript.py script.</p>
 
 </section>
 <section id="module-kpfcc.tracking">
-<span id="kpfcc-tracking-module"></span><h2>kpfcc.tracking module<a class="headerlink" href="#module-kpfcc.tracking" title="Link to this heading"></a></h2>
+<span id="tracking"></span><h2>Tracking<a class="headerlink" href="#module-kpfcc.tracking" title="Link to this heading"></a></h2>
 <p>Module for plotting.
 Designed to be only run as a function call from the generateScript.py script.</p>
 <dl class="simple">
@@ -2170,7 +2170,7 @@ program (str): the program code</p>
 
 </section>
 <section id="module-kpfcc.weather">
-<span id="kpfcc-weather-module"></span><h2>kpfcc.weather module<a class="headerlink" href="#module-kpfcc.weather" title="Link to this heading"></a></h2>
+<span id="weather"></span><h2>Weather<a class="headerlink" href="#module-kpfcc.weather" title="Link to this heading"></a></h2>
 <p>Module defining functions to perform weather loss simulations</p>
 <dl class="simple">
 <dt>Example usage:</dt><dd><p>import weather as wh</p>
@@ -2352,7 +2352,7 @@ than len(all_dates_dict)</p></li>
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2025, JLubinAstroQ.</p>
+    <p>&#169; Copyright 2025, Jack Lubin.</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
