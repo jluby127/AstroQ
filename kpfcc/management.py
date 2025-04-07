@@ -19,11 +19,12 @@ import kpfcc.history as hs
 import kpfcc.access as ac
 import kpfcc.maps as mp
 
-class data_admin(object):
-    """A Data Admin object, from which we can easily pass around information.
+class Manager(object):
+    """A Manager object, from which we can easily pass around information.
 
     Args:
         - config_path (str) = the path and file name to the config.ini file.
+        - upstream_path (str) = the path to look for the inputs/ directory and to save to the outputs/ directory
         - current_day (str) = the calendar date of the night to produce a script. Format: YYYY-MM-DD.
     Returns:
         None
@@ -33,12 +34,13 @@ class data_admin(object):
 
         config = ConfigParser()
         config.read(config_path)
-        upstream_path = eval(config.get('required', 'folder'), {"os": os})
+        self.config = config
+        self.upstream = upstream_path
 
         self.current_day = current_day
-        self.semester_directory = upstream_path
-        self.output_directory = upstream_path  + "outputs/" + str(self.current_day) + "/"
-        self.reports_directory = upstream_path + 'reports/'
+        self.semester_directory = self.upstream
+        self.output_directory = self.upstream  + "outputs/" + str(self.current_day) + "/"
+        self.reports_directory = self.upstream + 'reports/'
         self.observatory = config.get('required', 'observatory')
 
         # Suggest your output directory be something so that it doesn't autosave
@@ -169,7 +171,7 @@ class data_admin(object):
                 (round down) as opposed to 2 slots (round up)
 
         Args:
-            manager (obj): a data_admin object
+            manager (obj): a Manager object
             always_round_up_flag (boolean): if true, slots needed is always larger than exposure_time
         """
         print("Determining slots needed for exposures.")
@@ -188,7 +190,7 @@ def get_semester_info(current_day):
     Given today's date, return information about the semester we are currently in.
 
     Args:
-        manager (obj): a data_admin object
+        manager (obj): a Manager object
     """
     year_flag = False
     # "A" semester runs from Feb 01 through July 31
@@ -285,7 +287,7 @@ def get_gap_filler_targets(manager):
     i.e. which targets were added in Round 2
 
     Args:
-        manager (obj): a data_admin object
+        manager (obj): a Manager object
 
     Returns:
         None
