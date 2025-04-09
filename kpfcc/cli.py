@@ -15,7 +15,7 @@ def main():
         prog='astroq'
     )
 
-    psr.add_argument('-V', '--version',
+    psr.add_argument('-v', '--version',
                      action='version',
                      version="%(prog)s {}".format(kpfcc.__version__),
                      help="Print version number and exit."
@@ -29,12 +29,12 @@ def main():
     psr_parent = ArgumentParser(add_help=False)
 
     ## Example arguments to add for all subcommands
-    # psr_parent.add_argument('-od', '--outdir',
-    #                         type=str,
-    #                         required=False,
-    #                         default='',
-    #                         help='Path to directory where output files will be saved'
-    #                         )
+    psr_parent.add_argument('-od', '--outdir',
+                            type=str,
+                            required=False,
+                            default='',
+                            help='Path to directory where output files will be saved'
+                            )
     # psr_parent.add_argument('-v', '--verbose',
     #                         action='store_true',
     #                         required=False,
@@ -57,6 +57,7 @@ def main():
                             )
 
     psr_bench.set_defaults(func=kpfcc.driver.bench)
+    
     ## subcommand of astroq: schedule-request -- Schedule observation requests
     #############################################################
     
@@ -76,7 +77,7 @@ def main():
                               help="Relative path of config file."
                                     )
                                     
-    psr_schedule.set_defaults(func=kpfcc.driver.kpfcc_schedule)
+    psr_schedule.set_defaults(func=kpfcc.driver.schedule)
     
     
     ## subcommand of astroq: kpfcc -- Do KPFCC stuff
@@ -116,26 +117,6 @@ def main():
 
     psr_kpfcc_build.set_defaults(func=kpfcc.driver.kpfcc_build)
 
-    ## subcommand of kpfcc: schedule-request: Schedule observation requests
-    #############################################################
-
-    psr_kpfcc_schedule = kpfcc_subpsr.add_parser('schedule-request', #parents=[psr_parent],
-                                                  description="Schedule observation requests",
-                                                  prefix_chars="-"
-                                                  )
-
-    psr_kpfcc_schedule.add_argument('-rf', '--request_file',
-                                    type=str,
-                                    required=True,
-                                    help="Relative path of request file."
-                                    )
-    psr_kpfcc_schedule.add_argument('-cf', '--config_file',
-                                    type=str,
-                                    required=True,
-                                    help="Relative path of config file."
-                                    )
-
-    psr_kpfcc_schedule.set_defaults(func=kpfcc.driver.kpfcc_schedule)
 
     ## subcommand of kpfcc: plot: Make plots of scheduling results
     #############################################################
