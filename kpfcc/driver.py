@@ -15,6 +15,18 @@ def bench(args):
 
     return
     
+# def test(args):
+#
+#     print("  test function in driver.py")
+#     print(f"    Conducting test {args.test}")
+#
+#
+#     if args.outdir is not None:
+#         print(f"    Provided outdir is {args.test}")
+#
+#
+#     return
+    
 def schedule(args):
 
     rf = args.request_file

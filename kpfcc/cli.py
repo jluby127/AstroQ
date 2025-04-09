@@ -58,6 +58,22 @@ def main():
 
     psr_bench.set_defaults(func=kpfcc.driver.bench)
     
+    
+    # ## subcommand of astroq: test -- conduct some test
+    # ############################################
+    # psr_bench = subpsr.add_parser('test', parents=[psr_parent],
+    #                               description='Conduct a test',
+    #                               prefix_chars='-'
+    #                               )
+    #
+    # psr_bench.add_argument('-tt', '--testtype',
+    #                         type=str,
+    #                         required=True,
+    #                         help="Conduct the specified test"
+    #                         )
+    #
+    # psr_bench.set_defaults(func=kpfcc.driver.test)
+    
     ## subcommand of astroq: schedule-request -- Schedule observation requests
     #############################################################
     
