@@ -11,7 +11,7 @@ setup(
     name="kpfcc",
     version=get_property('__version__', 'kpfcc'),
     packages=find_packages(),
-    install_requires=[], 
+    install_requires=[],
     description="The Keck Planet Finder Community Cadence (KPFCC) auto-scheduler software.",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
@@ -26,5 +26,5 @@ setup(
     entry_points = {
         "console_scripts": ['astroq=kpfcc.cli:main']
     },
-    python_requires="==3.9",
+    # python_requires="==3.9",
 )
