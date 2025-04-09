@@ -6,12 +6,12 @@ import kpfcc.management as mn
 def bench(args):
 
     print("  Benchmark function in driver.py")
+    print(f"    Conducting benchmark {args.benchmark}")
+    
 
-    if args.benchmark1:
-        print("    Conducting benchmark 1")
+    if args.outdir is not None:
+        print(f"    Provided outdir is {args.outdir}")
 
-    if args.benchmark2:
-        print("    Conducting benchmark 2")
 
     return
     
