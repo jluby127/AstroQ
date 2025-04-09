@@ -20,13 +20,7 @@ def main():
                      version="%(prog)s {}".format(kpfcc.__version__),
                      help="Print version number and exit."
                      )
-<<<<<<< HEAD
-
-    # Parsers spawned from this subparser will define subcommands of the astroq top-level command
-=======
-                     
     # Parsers spawned from this subparser generator will define subcommands of the astroq top-level command
->>>>>>> d467d827c6e6bad210706b5278830a9c98655720
     subpsr = psr.add_subparsers(title='subcommands', dest='subcommand')
 
 
@@ -56,36 +50,13 @@ def main():
                                   prefix_chars='-'
                                   )
 
-<<<<<<< HEAD
-    psr_bench.add_argument('-bm1', '--benchmark1',
-                            action='store_true',
-                            required=False,
-                            help="Conduct Benchmark 1"
-                            )
-
-    psr_bench.add_argument('-bm2', '--benchmark2',
-                            action='store_true',
-                            required=False,
-                            help="Conduct Benchmark 2"
-=======
     psr_bench.add_argument('-bm', '--benchmark',
                             type=str,
                             required=True,
                             help="Conduct the specified benchmark test"
->>>>>>> d467d827c6e6bad210706b5278830a9c98655720
                             )
 
-
     psr_bench.set_defaults(func=kpfcc.driver.bench)
-<<<<<<< HEAD
-
-
-
-
-=======
-    
-    
-    
     ## subcommand of astroq: schedule-request -- Schedule observation requests
     #############################################################
     
@@ -105,10 +76,9 @@ def main():
                               help="Relative path of config file."
                                     )
                                     
-    psr_schedule.set_defaults(func=kpfcc.driver.schedule)
+    psr_schedule.set_defaults(func=kpfcc.driver.kpfcc_schedule)
     
     
->>>>>>> d467d827c6e6bad210706b5278830a9c98655720
     ## subcommand of astroq: kpfcc -- Do KPFCC stuff
     ############################################
     # Note: this parser is spawned from subpsr (so it defines a subcommand) and has psr_parent as its parent (so it accepts any arguments of psr_parent in addition to its own)
@@ -146,8 +116,6 @@ def main():
 
     psr_kpfcc_build.set_defaults(func=kpfcc.driver.kpfcc_build)
 
-
-<<<<<<< HEAD
     ## subcommand of kpfcc: schedule-request: Schedule observation requests
     #############################################################
 
@@ -169,9 +137,6 @@ def main():
 
     psr_kpfcc_schedule.set_defaults(func=kpfcc.driver.kpfcc_schedule)
 
-=======
-    
->>>>>>> d467d827c6e6bad210706b5278830a9c98655720
     ## subcommand of kpfcc: plot: Make plots of scheduling results
     #############################################################
 
@@ -198,52 +163,6 @@ def main():
 
     args = psr.parse_args()
     args.func(args)
-<<<<<<< HEAD
-=======
-    
-
-    
-    
-    
-if __name__=="__main__":
-    main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
->>>>>>> d467d827c6e6bad210706b5278830a9c98655720
-
-
 
 if __name__=="__main__":
     main()
