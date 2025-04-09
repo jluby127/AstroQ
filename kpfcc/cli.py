@@ -32,7 +32,7 @@ def main():
     psr_parent.add_argument('-od', '--outdir',
                             type=str,
                             required=False,
-                            default='',
+                            default=None,
                             help='Path to directory where output files will be saved'
                             )
     # psr_parent.add_argument('-v', '--verbose',
