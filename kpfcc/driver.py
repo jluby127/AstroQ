@@ -14,6 +14,25 @@ def bench(args):
         print("    Conducting benchmark 2")
 
     return
+    
+def schedule(args):
+
+    rf = args.request_file
+    print(f'    kpfcc_schedule function: request_file is {rf}')
+
+    cf = args.config_file
+    print(f'    kpfcc_schedule function: config_file is {cf}')
+
+    manager = mn.data_admin(cf)
+    manager.run_admin()
+
+    request_set = rq.RequestSet(manager)
+    request_set.read_from_json(rf)
+
+    schedule = sch.Scheduler(request_set, manager)
+    schedule.run_model()
+    print("Done solving the schedule.")
+    return
 
 def kpfcc(args):
 
@@ -34,25 +53,6 @@ def kpfcc_build(args):
     print(f'    kpfcc_build function: boolarg is {args.boolean_argument}')
 
 
-    return
-
-def kpfcc_schedule(args):
-
-    rf = args.request_file
-    print(f'    kpfcc_schedule function: request_file is {rf}')
-
-    cf = args.config_file
-    print(f'    kpfcc_schedule function: config_file is {cf}')
-
-    manager = mn.data_admin(cf)
-    manager.run_admin()
-
-    request_set = rq.RequestSet(manager)
-    request_set.read_from_json(rf)
-
-    schedule = sch.Scheduler(request_set, manager)
-    schedule.run_model()
-    print("Done solving the schedule.")
     return
 
 def kpfcc_plot(args):
