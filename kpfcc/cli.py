@@ -2,6 +2,7 @@
 Command Line Interface
 """
 
+import sys
 from argparse import ArgumentParser
 import kpfcc
 
@@ -20,7 +21,7 @@ def main():
                      help="Print version number and exit."
                      )
                      
-    # Parsers spawned from this subparser will define subcommands of the astroq top-level command
+    # Parsers spawned from this subparser generator will define subcommands of the astroq top-level command
     subpsr = psr.add_subparsers(title='subcommands', dest='subcommand')
     
     
@@ -50,22 +51,37 @@ def main():
                                   prefix_chars='-'
                                   )
 
-    psr_bench.add_argument('-bm1', '--benchmark1',
-                            action='store_true',
-                            required=False,
-                            help="Conduct Benchmark 1"
-                            )
-                            
-    psr_bench.add_argument('-bm2', '--benchmark2',
-                            action='store_true',
-                            required=False,
-                            help="Conduct Benchmark 2"
+    psr_bench.add_argument('-bm', '--benchmark',
+                            type=str,
+                            required=True,
+                            help="Conduct the specified benchmark test"
                             )
 
     
     psr_bench.set_defaults(func=kpfcc.driver.bench)
     
     
+    
+    ## subcommand of astroq: schedule-request -- Schedule observation requests
+    #############################################################
+    
+    psr_schedule = subpsr.add_parser('schedule', parents=[psr_parent],
+                                      description="Schedule observation requests",
+                                      prefix_chars="-"
+                                                  )
+                                   
+    psr_schedule.add_argument('-rf', '--request_file',
+                              type=int,
+                              required=True,
+                              help="Relative path of request file."
+                                    )
+    psr_schedule.add_argument('-cf', '--config_file',
+                              type=int,
+                              required=True,
+                              help="Relative path of config file."
+                                    )
+                                    
+    psr_schedule.set_defaults(func=kpfcc.driver.schedule)
     
     
     ## subcommand of astroq: kpfcc -- Do KPFCC stuff
@@ -106,21 +122,6 @@ def main():
     psr_kpfcc_build.set_defaults(func=kpfcc.driver.kpfcc_build)
     
 
-    ## subcommand of kpfcc: schedule-request: Schedule observation requests
-    #############################################################
-    
-    psr_kpfcc_schedule = kpfcc_subpsr.add_parser('schedule-request', #parents=[psr_parent],
-                                                  description="Schedule observation requests",
-                                                  prefix_chars="-"
-                                                  )
-                                   
-    psr_kpfcc_schedule.add_argument('-rf', '--request_file',
-                                    type=int,
-                                    required=True,
-                                    help="Relative path of request file."
-                                    )
-                                    
-    psr_kpfcc_schedule.set_defaults(func=kpfcc.driver.kpfcc_schedule)
     
     ## subcommand of kpfcc: plot: Make plots of scheduling results
     #############################################################
@@ -140,10 +141,16 @@ def main():
     psr_kpfcc_plot.set_defaults(func=kpfcc.driver.kpfcc_plot)
 
 
+    # If no arguments are provided, print help message and exit
+    if len(sys.argv)==1:
+        psr.print_help(sys.stderr)
+        sys.exit(1)
 
 
     args = psr.parse_args()
     args.func(args)
+    
+
     
     
     
