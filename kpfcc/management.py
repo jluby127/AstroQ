@@ -34,25 +34,17 @@ class data_admin(object):
 
         config = ConfigParser()
         config.read(config_path)
-        upstream_path = eval(config.get('required', 'folder'), {"os": os})
+        self.upstream_path = eval(config.get('required', 'folder'), {"os": os})
 
         self.current_day = str(config.get('required', 'current_day'))
-        self.semester_directory = upstream_path
-        self.output_directory = upstream_path  + "outputs/" + str(self.current_day) + "/"
-        self.reports_directory = upstream_path + 'reports/'
+        self.semester_directory = self.upstream_path
+        self.reports_directory = self.upstream_path + 'reports/'
         self.observatory = config.get('required', 'observatory')
-
-        # Suggest your output directory be something so that it doesn't autosave
-        # to the same directory as the run files and crowds up the GitHub repo.
-        check = os.path.isdir(self.output_directory)
-        if not check:
-            os.makedirs(self.output_directory)
-        file = open(self.output_directory + "runReport.txt", "w") # later append to this file
-        file.close()
 
         self.slot_size = int(config.get('other', 'slot_size'))
         self.n_quarters_in_night = 4
         self.n_hours_in_night = 14
+        self.daily_starting_time = str(config.get('other', 'daily_starting_time'))
 
         self.requests_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/Requests.csv"))
         self.twilight_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/twilight_times.csv"), parse_dates=True)
@@ -64,12 +56,9 @@ class data_admin(object):
         self.nonqueue_map_file = os.path.join(self.semester_directory, "inputs//NonQueueMap"  + str(self.slot_size) + ".txt")
         self.nonqueue_file = os.path.join(self.semester_directory, "inputs/NonQueueMap.csv")
 
-        self.database_info_dict = hs.build_past_history(self.past_database_file, self.requests_frame, self.twilight_frame)
-        self.slots_needed_for_exposure_dict = self.build_slots_required_dictionary()
+        self.run_weather_loss = eval(config.get('options', 'run_weather_loss'))#.strip().lower() == "true"
 
-        self.run_weather_loss = eval(config.get('options', 'run_weather_loss'))
-
-        self.run_optimal_allocation = eval(config.get('oia', 'run_optimal_allocation'))
+        self.run_optimal_allocation = config.get('oia', 'run_optimal_allocation').strip().lower() == "true"
         self.include_aesthetic = config.get('oia', 'run_with_aesthetics')
         self.max_quarters = int(config.get('oia', 'maximum_allocated_quarters'))
         self.max_unique_nights = int(config.get('oia', 'maximum_allocated_nights'))
@@ -82,26 +71,24 @@ class data_admin(object):
         self.max_baseline = int(config.get('oia', 'maximum_baseline'))
 
         self.DATADIR = DATADIR
-        self.gurobi_output = eval(config.get('gurobi', 'show_gurobi_output'))
-        self.plot_results = eval(config.get('options', 'run_plots'))
-        self.run_plots = eval(config.get('options', 'run_plots'))
+        self.gurobi_output = config.get('gurobi', 'show_gurobi_output').strip().lower() == "true"
+        self.plot_results = config.get('options', 'run_plots').strip().lower() == "true"
+        self.run_plots = config.get('options', 'run_plots').strip().lower() == "true"
         self.solve_time_limit = int(config.get('gurobi', 'max_solve_time'))
         self.solve_max_gap = float(config.get('gurobi', 'max_solve_gap'))
 
-        self.run_scheduler = eval(config.get('options', 'run_scheduler'))
-        self.run_ttp = eval(config.get('options', 'run_ttp'))
-        self.run_round_two = config.get('options', 'run_bonus_round')
+        self.run_scheduler = config.get('options', 'run_scheduler').strip().lower() == "true"
+        self.run_ttp = config.get('options', 'run_ttp').strip().lower() == "true"
+        self.run_round_two = config.get('options', 'run_bonus_round').strip().lower() == "true"
         self.max_bonus = float(config.get('other', 'maximum_bonus_size'))
 
         self.folder_forecasts = os.path.join(self.semester_directory, "/data/first_forecasts/")
-        self.folder_cadences = os.path.join(self.semester_directory, "/outputs/" + str(self.current_day) + "/cadences/")
         self.turn_on_off_file = os.path.join(self.semester_directory, "inputs/turnOnOffDates.csv")
         self.starmap_template_filename = os.path.join(self.semester_directory, "inputs/cadenceTemplateFile.csv")
-        self.future_forecast = os.path.join(self.semester_directory, "outputs/" + str(self.current_day) + "/raw_combined_semester_schedule_Round2.txt")
-        self.build_starmaps = eval(config.get('other', 'build_starmaps'))
+        self.build_starmaps = config.get('other', 'build_starmaps').strip().lower() == "true"
 
         self.nightly_start_stop_times = os.path.join(self.semester_directory, "inputs/NightlyStartStopTimes.csv")
-        self.run_backup_scripts = eval(config.get('other', 'generate_backup_script'))
+        self.run_backup_scripts = config.get('other', 'generate_backup_script').strip().lower() == "true"
         self.backup_file = os.path.join(DATADIR,"bright_backups_frame.csv")
         self.backup_observability_file = os.path.join(DATADIR,"bright_backup_observability.csv")
 
@@ -109,7 +96,22 @@ class data_admin(object):
         """
         Given today's date, collate all important information about the semester.
         """
+        # build out some paths here, so that if current_day changes due to request_set.json file, it is reflected properly
+        self.output_directory = self.upstream_path  + "outputs/" + str(self.current_day) + "/"
+        self.folder_cadences = os.path.join(self.semester_directory, "/outputs/" + str(self.current_day) + "/cadences/")
+        self.future_forecast = os.path.join(self.semester_directory, "outputs/" + str(self.current_day) + "/raw_combined_semester_schedule_Round2.txt")
+        # Suggest your output directory be something so that it doesn't autosave
+        # to the same directory as the run files and crowds up the GitHub repo.
+        check = os.path.isdir(self.output_directory)
+        if not check:
+            os.makedirs(self.output_directory)
+        file = open(self.output_directory + "runReport.txt", "w") # later append to this file
+        file.close()
+
         # Get semester parameters and define important quantities
+        self.database_info_dict = hs.build_past_history(self.past_database_file, self.requests_frame, self.twilight_frame)
+        self.slots_needed_for_exposure_dict = self.build_slots_required_dictionary()
+
         semester_start_date, semester_end_date, semester_length, semester_year, semester_letter = \
             get_semester_info(self.current_day)
         all_dates_dict, all_dates_array = build_date_dictionary(semester_start_date, semester_length)
@@ -161,6 +163,7 @@ class data_admin(object):
         self.allocation_map_1D = allocation_map_1D
         self.allocation_map_2D = allocation_map_2D
         self.weathered_map = weathered_map
+        self.weathered_days = np.where(np.any(self.weather_diff_remaining == 1, axis=1))[0]
 
     def build_slots_required_dictionary(self, always_round_up_flag=False):
         """

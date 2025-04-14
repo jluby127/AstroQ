@@ -44,7 +44,7 @@ post_sunrise = {'Hawaii':'17:30', 'Arizona':'14:00'}
 # maximum southern declination to enforce preferred minimum altitude
 pointing_limits = {'Keck Observatory': [85.0, 5.3, 146.2, 33.3, 18.0, 30.0, 75.0, -35.0]}
 
-def produce_ultimate_map(manager, allocation_map_1D, twilight_map_remaining_flat):
+def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_flat):
     """
     Combine all maps for a target to produce the final map
 
@@ -107,8 +107,8 @@ def produce_ultimate_map(manager, allocation_map_1D, twilight_map_remaining_flat
             for d in range(manager.n_nights_in_semester):
                 start = d*manager.n_slots_in_night
                 end = start + manager.n_slots_in_night
-                possible_open_slots = np.sum(allocation_map_1D[start:end] & \
-                                            twilight_map_remaining_flat[start:end] & access[start:end])
+                possible_open_slots = np.sum(manager.allocation_map_1D[start:end] & \
+                                            manager.twilight_map_remaining_2D.flatten()[start:end] & access[start:end])
                 if possible_open_slots < minimum_slots_required:
                     no_multi_visit_observations.append([0]*manager.n_slots_in_night)
                 else:
@@ -118,7 +118,7 @@ def produce_ultimate_map(manager, allocation_map_1D, twilight_map_remaining_flat
             nonqueue_map_file_slots_ints = construct_nonqueue_arr(manager)
 
             # Construct the penultimate intersection of maps for the given request.
-            penultimate_map = allocation_map_1D & twilight_map_remaining_flat & \
+            penultimate_map = manager.allocation_map_1D & manager.twilight_map_remaining_2D.flatten() & \
                 nonqueue_map_file_slots_ints & access & custom_map & zero_out_map & \
                 respect_past_cadence
 
@@ -258,7 +258,7 @@ def prepare_allocation_map(manager):
     loss_stats_remaining = wh.get_loss_stats(manager)
     allocation_remaining_post_weather_loss, weather_diff_remaining, weather_diff_remaining_1D, \
         days_lost = wh.simulate_weather_losses(manager.allocation_remaining, loss_stats_remaining, \
-        covariance=0.14, dont_lose_nights=manager.run_weather_loss, plot=True, outputdir=manager.output_directory)
+        covariance=0.14, run_weather_loss=manager.run_weather_loss, plot=True, outputdir=manager.output_directory)
     allocation_map_1D, allocation_map_2D, weathered_map = \
         build_allocation_map(manager, allocation_remaining_post_weather_loss, weather_diff_remaining)
 
