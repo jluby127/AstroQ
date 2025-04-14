@@ -155,12 +155,12 @@ def report_allocation_stats(manager):
     ff.write("Total unique nights allocated: " + str(total_nights) + "\n")
     ff.close()
 
-def write_out_results(manager, model, round, start_the_clock):
+def write_out_results(manager, theta, round, start_the_clock):
     """
     Write the Run Report
     Args:
         manager (obj): a data_admin object
-        model (obj): a GurobiModel object
+        theta (obj): a Scheduler.theta object
         rount (str): "Round1" or "Round2"
         start_the_clock (obj): time object of when the scheduler code began
 
@@ -171,7 +171,7 @@ def write_out_results(manager, model, round, start_the_clock):
     filename = open(manager.output_directory + "runReport.txt", "a")
     theta_n_var = []
     counter = 0
-    for v in model.theta.values():
+    for v in theta.values():
         varname = v.VarName
         varval = v.X
         counter += varval
@@ -306,7 +306,7 @@ def write_stars_schedule_human_readable(combined_semester_schedule, Yrds, manage
         for name in list(manager.requests_frame['Starname']):
             if all_star_schedules[name][manager.today_starting_slot+s] == 1:
                 slotallocated += str(name)
-                print(s, combined_semester_schedule[s], "update: " + str(combined_semester_schedule[manager.today_starting_slot+s]), slotallocated)
+                # print(s, combined_semester_schedule[s], "update: " + str(combined_semester_schedule[manager.today_starting_slot+s]), slotallocated)
         combined_semester_schedule[manager.today_starting_slot+s] += str(slotallocated)
     combined_semester_schedule = np.reshape(combined_semester_schedule,
             (manager.semester_length, manager.n_slots_in_night))
