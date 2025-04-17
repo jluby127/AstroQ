@@ -22,7 +22,6 @@ class Scheduler(object):
     """A Scheduler object, from which we can define a Gurobi model, build constraints, and solve."""
 
     def __init__(self, request_set, cf):
-
         print("Building the Scheduler.")
         self.start_the_clock = time.time()
 

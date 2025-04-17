@@ -34,6 +34,7 @@ class data_admin(object):
 
         config = ConfigParser()
         config.read(config_path)
+
         self.upstream_path = eval(config.get('required', 'folder'), {"os": os})
 
         self.current_day = str(config.get('required', 'current_day'))

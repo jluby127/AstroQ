@@ -35,13 +35,12 @@ def schedule(args):
     cf = args.config_file
     print(f'    kpfcc_schedule function: config_file is {cf}')
 
-    manager = mn.data_admin(cf)
-    manager.run_admin()
+    #manager = mn.data_admin(cf)
+    #manager.run_admin()
 
-    request_set = rq.RequestSet(manager)
-    request_set.read_from_json(rf)
+    request_set = rq.read_json(rf)
 
-    schedule = sch.Scheduler(request_set, manager)
+    schedule = sch.Scheduler(request_set, cf)
     schedule.run_model()
     print("Done solving the schedule.")
     return
