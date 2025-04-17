@@ -6,13 +6,44 @@ import kpfcc.management as mn
 def bench(args):
 
     print("  Benchmark function in driver.py")
+    print(f"    Conducting benchmark {args.benchmark}")
+    
 
-    if args.benchmark1:
-        print("    Conducting benchmark 1")
+    if args.outdir is not None:
+        print(f"    Provided outdir is {args.outdir}")
 
-    if args.benchmark2:
-        print("    Conducting benchmark 2")
 
+    return
+    
+# def test(args):
+#
+#     print("  test function in driver.py")
+#     print(f"    Conducting test {args.test}")
+#
+#
+#     if args.outdir is not None:
+#         print(f"    Provided outdir is {args.test}")
+#
+#
+#     return
+    
+def schedule(args):
+
+    rf = args.request_file
+    print(f'    kpfcc_schedule function: request_file is {rf}')
+
+    cf = args.config_file
+    print(f'    kpfcc_schedule function: config_file is {cf}')
+
+    manager = mn.data_admin(cf)
+    manager.run_admin()
+
+    request_set = rq.RequestSet(manager)
+    request_set.read_from_json(rf)
+
+    schedule = sch.Scheduler(request_set, manager)
+    schedule.run_model()
+    print("Done solving the schedule.")
     return
 
 def kpfcc(args):
