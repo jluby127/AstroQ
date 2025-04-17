@@ -1,3 +1,21 @@
+"""
+Module that defines the RequestSet class. This encodes all the astronomy information into one place, and
+prepares it for the Scheduler object. Useful as a checkpoint to the code.
+
+"""
+import sys
+import time
+import os
+import warnings
+warnings.filterwarnings('ignore')
+
+import numpy as np
+import pandas as pd
+import json
+from configparser import ConfigParser
+
+import kpfcc.maps as mp
+
 class RequestSet(object):
     """
     Request Set
@@ -10,7 +28,7 @@ class RequestSet(object):
         strategy_cols = 'id t_visit n_intra_min n_intra_max tau_intra n_inter_max tau_inter'.split()
         strategy = strategy[strategy_cols]
         self.strategy = strategy
-        self.observable = observable
+        self.observability = observable
 
     def __str__(self, n=10):
         s = "# Request Set # \n"
@@ -22,7 +40,7 @@ class RequestSet(object):
         s += self.strategy.head(n).to_string()
         s += '\n'*2
         s += "## Observable ##\n"
-        s += self.observable.head(n).to_string()
+        s += self.observability.head(n).to_string()
         return s
 
     def to_json(self, fn):
@@ -32,7 +50,7 @@ class RequestSet(object):
         data = {}
         data['meta'] = self.meta.to_dict()
         data['strategy'] = self.strategy.to_dict()
-        data['observable'] = self.observable.to_dict()
+        data['observable'] = self.observability.to_dict()
 
         with open(fn, "w") as f:
             json.dump(data,f,indent=4) # Pretty-printed for readability
@@ -46,6 +64,94 @@ def read_json(fn):
 
     meta = pd.Series(data['meta'])
     strategy = pd.DataFrame(data['strategy'])
-    observable = pd.DataFrame(data['observable'])
+    observable = pd.DataFrame(data['observability'])
     rs = RequestSet(meta, strategy, observable)
     return rs
+
+def define_indices_for_requests(manager):
+    """
+    Using the dictionary of indices where each request is available, define a dataframe for which
+    we will use to cut/filter/merge r,d,s tuples
+    """
+    # Define the tuples of request and available slot for each request.
+    # This becomes the grid over which the Gurobi variables are defined.
+    # Now, slots that were never possible for scheduling are not included in the model.
+
+    available_indices_for_request = mp.produce_ultimate_map(manager)
+
+    observability = []
+    strategy_keys = []
+    for n,row in self.manager.requests_frame.iterrows():
+        name = row['Starname']
+        if name in list(available_indices_for_request.keys()):
+            max_n_visits = int(row['Desired Visits per Night'])
+            min_n_visits = int(row['Accepted Visits per Night'])
+            intra = int(row['Minimum Intra-Night Cadence'])
+            nnights = int(row['# of Nights Per Semester '])
+            inter = int(row['Minimum Inter-Night Cadence'])
+            slots_needed = self.manager.slots_needed_for_exposure_dict[name]
+            for d in range(len(available_indices_for_request[name])):
+                for s in available_indices_for_request[name][d]:
+                    observability.append((name, d, s))
+                    strategy_keys.append([name, slots_needed, min_n_visits, max_n_visits, intra, nnights, inter])
+    strategy = pd.DataFrame(strategy_keys, columns =['id', 't_visit', 'n_intra_min', 'n_intra_max',
+                                                     'tau_intra', 'n_inter_max', 'tau_inter'])
+    return strategy, observability
+
+def build_meta(config_file):
+
+    config = ConfigParser()
+    config.read(config_path)
+    daily_starting_time = str(config.get('other', 'daily_starting_time'))
+    current_day = str(config.get('required', 'current_day'))
+    slot_size = int(config.get('other', 'slot_size'))
+
+    meta = {"s1_time":daily_starting_time, "d1_date":current_day, "slot_duration":slot_size}
+    return meta
+
+def cull_from_weather(request_set, weather_loss_map):
+    request_set.original_observability = request_set.observability
+    request_set.observability = request_set.observability[~request_set.observability['d'].isin(weather_loss_map)]
+    return request_set
+
+def convert_slot_to_quarter(d, s, twilight_map_remaining_2D_d):
+    '''
+    Determine the slot numbers within the night that breaks the night into "equal" length quarters
+    Take extra precaution when the total number of slots between twilight times is not easily
+    divisable by 4.
+    '''
+
+    n_available_slots_in_quarter_tonight = int(np.sum(twilight_map_remaining_2D_d)/4)
+    extra_slots = np.sum(twilight_map_remaining_2D_d)%4
+    first_slot = np.argmax(twilight_map_remaining_2D_d)
+
+    if extra_slots == 0:
+        # when night is naturally divided into 4, accept as is
+        split_1st2nd = first_slot + n_available_slots_in_quarter_tonight
+        split_2nd3rd = split_1st2nd + n_available_slots_in_quarter_tonight
+        split_3rd4th = split_2nd3rd + n_available_slots_in_quarter_tonight
+    elif extra_slots == 1 or extra_slots == 2:
+        # when night has 1 extra slot, we place it into the 1st quarter
+        # when night has 2 extra slots, we place one into 1st, and one into 4th
+        split_1st2nd = first_slot + n_available_slots_in_quarter_tonight + 1
+        split_2nd3rd = split_1st2nd + n_available_slots_in_quarter_tonight
+        split_3rd4th = split_2nd3rd + n_available_slots_in_quarter_tonight
+    elif extra_slots == 3:
+        # when night has 3 extra slots, we place one into 1st, one into 3rd, and one into 4th
+        split_1st2nd = first_slot + n_available_slots_in_quarter_tonight + 1
+        split_2nd3rd = split_1st2nd + n_available_slots_in_quarter_tonight
+        split_3rd4th = split_2nd3rd + n_available_slots_in_quarter_tonight + 1
+
+    if s < split_1st2nd:
+        q = 0
+    elif s >= split_1st2nd and s < split_2nd3rd:
+        q = 1
+    elif s >= split_2nd3rd and s < split_3rd4th:
+        q = 2
+    elif s >= split_3rd4th:
+        q = 3
+    else:
+        q = 100
+        print("Houston, we've had a problem.")
+
+    return q

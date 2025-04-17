@@ -43,7 +43,7 @@ def get_loss_stats(manager):
 
 
 def simulate_weather_losses(allocation_remaining, loss_stats, covariance=0.14, \
-                            dont_lose_nights=False, plot=False, outputdir=None):
+                            run_weather_loss=False, plot=False, outputdir=None):
     """
     Simulate nights totally lost to weather usine historical data
 
@@ -53,7 +53,7 @@ def simulate_weather_losses(allocation_remaining, loss_stats, covariance=0.14, \
         loss_stats (array): 1D array of length n_nights_in_semester where elements are the
                             percent of the time that night is totally lost to weather
         covariance (float): the added percent that tomorrow will be lost if today is lost
-        dont_lose_nights (boolean): a flag that turns off weather simulation entirely
+        run_weather_loss (boolean): a flag that turns on/off weather simulation entirely
         plot (boolean): a flag to visualize the allocation and weather loss
         outputdir (str): path to save the plot
 
@@ -65,7 +65,7 @@ def simulate_weather_losses(allocation_remaining, loss_stats, covariance=0.14, \
     previous_day_was_lost = False
     allocation_remaining_post_losses = allocation_remaining.copy()
     counter = 0
-    if dont_lose_nights == False:
+    if run_weather_loss:
         days_lost = []
         # start at 1 because we never want tonight to be simulated as total loss
         for i in range(1, len(allocation_remaining_post_losses)):
