@@ -140,7 +140,7 @@ def read_accessibilty_map_dict(filename):
 
 
 def build_single_target_accessibility(starname, ra, dec, start_date, n_nights_in_semester,
-                                      slot_size, observatory, compute_turn_on_off=False):
+                                      slot_size, observatory, min_moon_sep = 30, compute_turn_on_off=False):
     """
     Compute a target's accessibility map for the entire semester
 
@@ -167,7 +167,8 @@ def build_single_target_accessibility(starname, ra, dec, start_date, n_nights_in
     quarter_map = []
     for d in range(n_nights_in_semester):
         tonights_access = is_observable(observatory, date, target, slot_size)
-        target_accessibility.append(tonights_access)
+        tonights_moonsafe = is_moonsafe(observatory, date, target, slot_size, min_moon_sep)
+        target_accessibility.append(tonights_access&tonights_moonsafe)
         date_formal += TimeDelta(1,format='jd')
         date = str(date_formal)[:10]
         if compute_turn_on_off:
@@ -226,57 +227,61 @@ def is_observable(observatory, date, target, slot_size):
     altaz_coordinates = keck.altaz(t, target, grid_times_targets=True)
 
     keckapy = apy.coordinates.EarthLocation.of_site(observatory)
-    moon = apy.coordinates.get_moon(Time(t[int(len(t)/2)],format='jd'), keckapy)
 
-    if moon_safe(moon, (target.ra.rad, target.dec.rad)):
-        observability_matrix = []
-        for i, item in enumerate(altaz_coordinates):
-            alt=altaz_coordinates[i].alt.deg
-            az=altaz_coordinates[i].az.deg
-            deck = np.where((az >= min_az) & (az <= max_az))
-            deck_height = np.where((alt <= max_alt) & (alt >= min_alt))
-            first = np.intersect1d(deck,deck_height)
+    observability_matrix = []
+    for i, item in enumerate(altaz_coordinates):
+        alt=altaz_coordinates[i].alt.deg
+        az=altaz_coordinates[i].az.deg
+        deck = np.where((az >= min_az) & (az <= max_az))
+        deck_height = np.where((alt <= max_alt) & (alt >= min_alt))
+        first = np.intersect1d(deck,deck_height)
 
-            not_deck_1 = np.where((az < min_az))
-            not_deck_2 = np.where((az > max_az))
+        not_deck_1 = np.where((az < min_az))
+        not_deck_2 = np.where((az > max_az))
 
-            # for targets sufficiently north or south in declination, allow access map to compute
-            # any time they are above telescope pointing limits as OK. For more equitorial targets,
-            # require that they be above the preferred minimum elevation.
-            if target.dec.deg > max_north or target.dec.deg < max_south:
-                not_deck_height = np.where((alt <= max_alt) & (alt >= else_min_alt))
-            else:
-                not_deck_height = np.where((alt <= max_alt) & (alt >= else_min_alt_alt))
+        # for targets sufficiently north or south in declination, allow access map to compute
+        # any time they are above telescope pointing limits as OK. For more equitorial targets,
+        # require that they be above the preferred minimum elevation.
+        if target.dec.deg > max_north or target.dec.deg < max_south:
+            not_deck_height = np.where((alt <= max_alt) & (alt >= else_min_alt))
+        else:
+            not_deck_height = np.where((alt <= max_alt) & (alt >= else_min_alt_alt))
 
-            second = np.intersect1d(not_deck_1,not_deck_height)
-            third = np.intersect1d(not_deck_2,not_deck_height)
+        second = np.intersect1d(not_deck_1,not_deck_height)
+        third = np.intersect1d(not_deck_2,not_deck_height)
 
-            good = np.concatenate((first,second,third))
+        good = np.concatenate((first,second,third))
 
-            observability_matrix = np.zeros(len(t),dtype=int)
-            observability_matrix[good] = 1
-    else:
         observability_matrix = np.zeros(len(t),dtype=int)
+        observability_matrix[good] = 1
 
     return observability_matrix
 
-def moon_safe(moon, target_tuple):
+
+def is_moonsafe(observatory, date, target, slot_size, min_separation):
     """
     Check that a coordinate is not too close to the moon.
-    Returns true if target is sufficiently far from the moon to allow for observations.
 
     Args:
-        moon (str): a "moon object" from Astropy
-        target_tuple (tuple): the RA and Dec of a target star in hourangle and degrees format
+        observatory (str): the Astropy and Astroplan resolvable name for an observatory
+        date (str): the calendar date to compute accessibilty in format 'YYYY-MM-DD'
+        target (str): an astroplan FixedTarget object
+        slot_size (int): the size of the slots in minutes
+        min_separation (float): the minimum separation, in degrees, from the moon that is allowed
     Returns:
-        Unnamed boolean
+        observability_matrix (array): a 1D array of length n_slots_in_night where 1 indicates the
+                                      target is accessible in that slot and 0 otherwise.
     """
-    ang_dist = apy.coordinates.angular_separation(moon.ra.rad, moon.dec.rad,
-                                                    target_tuple[0], target_tuple[1])
-    if ang_dist*180/(np.pi) >= 30:
-        return True
+
+    middle_of_night = Time(date + "10:30:00", format='jd')
+    keckapy = apy.coordinates.EarthLocation.of_site(observatory)
+    moon = apy.coordinates.get_moon(middle_of_night, keckapy)
+    ang_dist = apy.coordinates.angular_separation(moon.ra.rad, moon.dec.rad, target.ra.rad, target.dec.rad)
+    if ang_dist*180/(np.pi) >= min_separation:
+        moonsafe_matrix = np.ones(len(t),dtype=int)
     else:
-        return False
+        moonsafe_matrix = np.ones(len(t),dtype=int)
+    return moonsafe_matrix
 
 def get_accessibility_stats(access_map, time_up=30, slot_size=5):
     """
@@ -353,35 +358,6 @@ def construct_twilight_map(manager):
     twilight_map_remaining_1D = twilight_map_remaining.copy().flatten()
     twilight_map_remaining_2D = np.reshape(twilight_map_remaining_1D, (manager.n_nights_in_semester, manager.n_slots_in_night))
     return twilight_map_remaining_2D, available_slots_in_each_night
-
-def convert_slot_to_quarter(twilight_map_remaining_2D_d):
-    '''
-    Determine the slot numbers within the night that breaks the night into "equal" length quarters
-    Take extra precaution when the total number of slots between twilight times is not easily
-    divisable by 4.
-    '''
-
-    n_available_slots_in_quarter_tonight = int(np.sum(twilight_map_remaining_2D_d)/4)
-    extra_slots = np.sum(twilight_map_remaining_2D_d)%4
-    first_slot = np.argmax(twilight_map_remaining_2D_d)
-
-    if extra_slots == 0:
-        # when night is naturally divided into 4, accept as is
-        split_1st2nd = first_slot + n_available_slots_in_quarter_tonight
-        split_2nd3rd = split_1st2nd + n_available_slots_in_quarter_tonight
-        split_3rd4th = split_2nd3rd + n_available_slots_in_quarter_tonight
-    elif extra_slots == 1 or extra_slots == 2:
-        # when night has 1 extra slot, we place it into the 1st quarter
-        # when night has 2 extra slots, we place one into 1st, and one into 4th
-        split_1st2nd = first_slot + n_available_slots_in_quarter_tonight + 1
-        split_2nd3rd = split_1st2nd + n_available_slots_in_quarter_tonight
-        split_3rd4th = split_2nd3rd + n_available_slots_in_quarter_tonight
-    elif extra_slots == 3:
-        # when night has 3 extra slots, we place one into 1st, one into 3rd, and one into 4th
-        split_1st2nd = first_slot + n_available_slots_in_quarter_tonight + 1
-        split_2nd3rd = split_1st2nd + n_available_slots_in_quarter_tonight
-        split_3rd4th = split_2nd3rd + n_available_slots_in_quarter_tonight + 1
-    return split_1st2nd, split_2nd3rd, split_3rd4th
 
 def generate_twilight_times(all_dates_array):
     """generate_twilight_times
