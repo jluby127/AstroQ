@@ -273,9 +273,9 @@ def is_moonsafe(observatory, date, target, slot_size, min_separation):
                                       target is accessible in that slot and 0 otherwise.
     """
 
-    middle_of_night = Time(date + "10:30:00")
+    middle_of_night = Time(date + "10:30:00", format='jd')
     keckapy = apy.coordinates.EarthLocation.of_site(observatory)
-    moon = apy.coordinates.get_moon(middle_of_night, format='jd'), keckapy)
+    moon = apy.coordinates.get_moon(middle_of_night, keckapy)
     ang_dist = apy.coordinates.angular_separation(moon.ra.rad, moon.dec.rad, target.ra.rad, target.dec.rad)
     if ang_dist*180/(np.pi) >= min_separation:
         moonsafe_matrix = np.ones(len(t),dtype=int)
