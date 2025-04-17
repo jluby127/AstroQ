@@ -83,12 +83,12 @@ def main():
                                                   )
                                    
     psr_schedule.add_argument('-rf', '--request_file',
-                              type=int,
+                              type=str,
                               required=True,
                               help="Relative path of request file."
                                     )
     psr_schedule.add_argument('-cf', '--config_file',
-                              type=int,
+                              type=str,
                               required=True,
                               help="Relative path of config file."
                                     )
