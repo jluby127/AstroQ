@@ -51,7 +51,7 @@ One of the optimalAllocation dependencies is a package we co-developed, the TTP 
 
 To test installation and practice the workflow of running the autoscheduler, use the supplied example. From your terminal, run the following command:
 ```
-python <LOCAL_DIR>/bin/generate_night_plan.py -d 2024-08-02 -f <LOCAL_DIR>/examples/
+astroq schedule -rf examples/hello-world.json -cf examples/config_hello_world.ini
 ```
 
 ## Flags
