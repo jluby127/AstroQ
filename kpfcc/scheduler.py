@@ -35,7 +35,6 @@ class Scheduler(object):
         self.manager = manager
         request_set = rq.cull_from_weather(request_set, self.manager.weathered_days)
         self.request_set = request_set
-        print(request_set.strategy)
         self.observability_tuples = list(request_set.observability.itertuples(index=False, name=None))
 
         self.joiner = pd.merge(self.request_set.strategy, self.request_set.observability, on=['id'])
