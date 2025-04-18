@@ -50,10 +50,22 @@ def main():
                                   prefix_chars='-'
                                   )
 
-    psr_bench.add_argument('-bm', '--benchmark',
-                            type=str,
+    psr_bench.add_argument('-nR', '--number_requests',
+                            type=int,
                             required=True,
-                            help="Conduct the specified benchmark test"
+                            help="Run benchmark with given number of requests (strongly suggest value >= 250.)"
+                            )
+
+    psr_bench.add_argument('-nS', '--number_slots',
+                            type=int,
+                            required=True,
+                            help="Run benchmark with given number of slots required to complete the extra single shot requests."
+                            )
+    
+    psr_bench.add_argument('-cf', '--config_file',
+                              type=str,
+                              required=True,
+                              help="Relative path of config file."
                             )
 
     psr_bench.set_defaults(func=kpfcc.driver.bench)

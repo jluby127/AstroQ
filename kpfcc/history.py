@@ -14,8 +14,13 @@ from astropy.time import TimeDelta
 
 import numpy as np
 import pandas as pd
-JUMP_USERNAME = os.environ['KPFCC_JUMP_USERNAME']
-JUMP_PASSWORD = os.environ['KPFCC_JUMP_PASSWORD']
+try:
+    JUMP_USERNAME = os.environ['KPFCC_JUMP_USERNAME']
+    JUMP_PASSWORD = os.environ['KPFCC_JUMP_PASSWORD']
+except:
+    print("If pulling past history from Jump, first you must set your environment variables.")
+    JUMP_USERNAME = "none"
+    JUMP_PASSWORD = "none"
 
 def get_unique_nights(star_past_obs, twilight_frame):
     """

@@ -1,17 +1,25 @@
 import kpfcc.scheduler as sch
 import kpfcc.request as rq
 import kpfcc.management as mn
+import kpfcc.benchmarking as bn
 
 
 def bench(args):
+    print("Running benchmark test.")
 
-    print("  Benchmark function in driver.py")
-    print(f"    Conducting benchmark {args.benchmark}")
-    
+    nR = args.number_requests
+    nS = args.number_slots
+    cf - args.config_file
 
-    if args.outdir is not None:
-        print(f"    Provided outdir is {args.outdir}")
+    print("Checking for toy model files.")
+    rf = bn.do_benchmark_files_exist(cf)
+    request_set = rq.read_json(rf)
+    print("Parsing down size of model for desired test.")
+    request_set = bn.firstN_Requests(nR, request_set)
+    request_set = bn.set_nSlots_singles(nS, request_set)
 
+    print("Running solver.")
+    schedule = sch.Scheduler(request_set, cf)
 
     return
     
@@ -30,10 +38,7 @@ def bench(args):
 def schedule(args):
 
     rf = args.request_file
-    print(f'    kpfcc_schedule function: request_file is {rf}')
-
     cf = args.config_file
-    print(f'    kpfcc_schedule function: config_file is {cf}')
 
     #manager = mn.data_admin(cf)
     #manager.run_admin()
