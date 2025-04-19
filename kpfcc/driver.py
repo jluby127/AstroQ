@@ -9,7 +9,7 @@ def bench(args):
 
     nR = args.number_requests
     nS = args.number_slots
-    cf - args.config_file
+    cf = args.config_file
 
     print("Checking for toy model files.")
     rf = bn.do_benchmark_files_exist(cf)
@@ -21,34 +21,7 @@ def bench(args):
     print("Running solver.")
     schedule = sch.Scheduler(request_set, cf)
 
-    return
-    
-# def test(args):
-#
-#     print("  test function in driver.py")
-#     print(f"    Conducting test {args.test}")
-#
-#
-#     if args.outdir is not None:
-#         print(f"    Provided outdir is {args.test}")
-#
-#
-#     return
-    
-def schedule(args):
-
-    rf = args.request_file
-    cf = args.config_file
-
-    #manager = mn.data_admin(cf)
-    #manager.run_admin()
-
-    request_set = rq.read_json(rf)
-
-    schedule = sch.Scheduler(request_set, cf)
-    schedule.run_model()
-    print("Done solving the schedule.")
-    return
+    return    
 
 def kpfcc(args):
 
@@ -59,36 +32,39 @@ def kpfcc(args):
 
 def kpfcc_build(args):
 
-    print(f'    kpfcc_build function: boolarg is {args.boolean_argument}')
-
-
-    return
-
-def kpfcc_build(args):
-
-    print(f'    kpfcc_build function: boolarg is {args.boolean_argument}')
-
-
-    return
-
-def kpfcc_schedule(args):
-
-    rf = args.request_file
-    print(f'    kpfcc_schedule function: request_file is {rf}')
-
     cf = args.config_file
     print(f'    kpfcc_schedule function: config_file is {cf}')
 
-    # request_set = rq.RequestSet(manager)
-    # request_set.read_from_json(rf)
-    request_set = rq.read_json(rf)
+    manager = mn.data_admin(cf)
+    manager.run_admin()
+    print("Building valid indices.")
+    strategy, observable = rq.define_indices_for_requests(manager)
+    meta = rq.build_meta(cf)
+    request_set = rq.RequestSet(meta, strategy, observable)
+    request_set.to_json(manager.output_directory)
+    return
 
+def kpfcc_prep(args):
+    cf = args.config_file
+    print(f'    kpfcc_schedule function: config_file is {cf}')
+
+    mn.prepare_new_semester(cf)
+    return
+
+def schedule(args):
+
+    rf = args.request_file
+    print(f'    kpfcc_schedule function: request_file is {rf}')
+    cf = args.config_file
+    print(f'    kpfcc_schedule function: config_file is {cf}')
+
+    request_set = rq.read_json(rf)
     schedule = sch.Scheduler(request_set, cf)
     schedule.run_model()
     print("Done solving the schedule.")
     return
 
-def kpfcc_plot(args):
+def plot(args):
 
     so = args.schedule_object
     tp = type(so)
