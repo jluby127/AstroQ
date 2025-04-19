@@ -10,6 +10,7 @@ import matplotlib.pyplot as pt
 import pandas as pd
 import math
 from configparser import ConfigParser
+from argparse import Namespace
 
 import kpfcc.request as rq 
 import kpfcc.driver as dr 
@@ -21,9 +22,9 @@ def do_benchmark_files_exist(config_path):
 
     config = ConfigParser()
     config.read(config_path)
-    path2dir = eval(config.get('required', 'folder'), {"os": os})
+    path2dir = eval(config.get('required', 'folder'), {"os": os}) + "/inputs/"
 
-    if os.path.exists(path2dir + "toy_model.csv"):
+    if os.path.exists(path2dir + "Requests.csv"):
         print("Pulling previously generated toy_model.csv")
     else:
         print("toy_model.csv file not found, generating a new one.")
@@ -34,8 +35,8 @@ def do_benchmark_files_exist(config_path):
     else:
         print("toy_model.json file not found, generating a new one.")
         print("Note: this could take some time, depending on your machine's specs.")
-        request_set = dr.kpfcc_build(config_path)
-        request_set.to_json(path2dir + "toy_model.json")
+        args = Namespace(config_file=config_path)
+        dr.kpfcc_build(args)
         print("toy_model.json file is written. Proceed with benchmarking")
 
     return path2dir + "toy_model.json"
@@ -239,6 +240,6 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False, savepath =
         pt.ylim(-40,90)
         pt.show()
 
-    toy_requests.to_csv(savepath + "toy_model.csv", index=False)
+    toy_requests.to_csv(savepath  + "Requests.csv", index=False)
 
     print("The toy model is defined! Happy benchmarking.")

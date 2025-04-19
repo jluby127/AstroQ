@@ -7,12 +7,33 @@ import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as pt
+from pathlib import Path
 
 from astropy.time import Time
 from astropy.time import TimeDelta
 import astropy as apy
 import astropy.units as u
 import astroplan as apl
+
+# Define list of observatories which are currently supported.
+# To add an obseratory/telescope, add the Astroplan resolvable name to the list in generate_night_plan
+# Then add the same name to the appropriate element of the locations dictionary.
+# If necessary, add a location to the locations dictionary, if so, add the location to each of the
+# pre_sunrise and post_sunrise dictionaries. Ensure times are 14 hours apart, at least one hour
+# before the earliest sunset and one hour after the latest sunrise of the year.
+locations = {"Keck Observatory":"Hawaii", "Kitt Peak National Observatory":"Arizona"}
+pre_sunset = {'Hawaii':'07:30', 'Arizona':'05:00'}
+post_sunrise = {'Hawaii':'17:30', 'Arizona':'14:00'}
+# each telescope's pointing limits are defined by list with elements in following order:
+# maximum altitude
+# minimum azimuth of nasmyth deck (when no nasmyth deck, use 0)
+# maximum azimuth of nasmyth deck (when no nasmyth deck, use 360)
+# minimum altitude of nasmyth deck (when no nasmyth deck, use same as below)
+# minimum alitude of non-nasmyth deck (when no nasmyth deck, use same as above)
+# preferred minimum altitude
+# maximum northern declination to enforce preferred minimum altitude
+# maximum southern declination to enforce preferred minimum altitude
+pointing_limits = {'Keck Observatory': [85.0, 5.3, 146.2, 33.3, 18.0, 30.0, 75.0, -35.0]}
 
 def construct_access_dict(manager):
     """
@@ -25,9 +46,17 @@ def construct_access_dict(manager):
     """
     print("Reading pre-computed accessibility maps.")
     rewrite_flag = False
-    default_access_maps = read_accessibilty_map_dict(manager.accessibilities_file)
+    if os.path.exists(manager.accessibilities_file) == False:
+        default_access_maps = {}
+        # string_access_dict = {}
+        # string_access_dict['empty'] = "[0,0,0]"
+        # with open(manager.upstream_path + "inputs/" + manager.accessibilities_file, 'w') as convert_file:
+        #     convert_file.write(json.dumps(string_access_dict))
+        rewrite_flag = True 
+    else:
+        default_access_maps = read_accessibilty_map_dict(manager.accessibilities_file)
     for n,row in manager.requests_frame.iterrows():
-        name = row['Starname']
+        name = row['starname']
         # check that this target has a pre-computed accessibility map,
         # if not, make one and add it to the file
         try:
@@ -35,7 +64,7 @@ def construct_access_dict(manager):
         except:
             print(name + " not found in precomputed accessibilty maps. Running now.")
             # Note: the -1 is to account for python indexing
-            new_written_access_map = build_single_target_accessibility(name, row['RA'], row['Dec'],
+            new_written_access_map = build_single_target_accessibility(name, row['ra'], row['dec'],
                                                manager.semester_start_date, manager.semester_length-1,
                                                manager.slot_size, manager.observatory)
             default_access_maps[name] = np.array(new_written_access_map).flatten()
@@ -167,7 +196,7 @@ def build_single_target_accessibility(starname, ra, dec, start_date, n_nights_in
     quarter_map = []
     for d in range(n_nights_in_semester):
         tonights_access = is_observable(observatory, date, target, slot_size)
-        tonights_moonsafe = is_moonsafe(observatory, date, target, slot_size, min_moon_sep)
+        tonights_moonsafe = is_moonsafe(observatory, date, target, len(tonights_access), min_moon_sep)
         target_accessibility.append(tonights_access&tonights_moonsafe)
         date_formal += TimeDelta(1,format='jd')
         date = str(date_formal)[:10]
@@ -216,9 +245,9 @@ def is_observable(observatory, date, target, slot_size):
     # This is ~20 min before earliest sunset of the year in Hawaii
     # And ~20 min after the latest sunrise of the year in Hawaii
     # Both are UTC time zone.
-    start = date + pre_sunset[locations[observatory]]# "T03:30:00"
+    start = date + "T" + pre_sunset[locations[observatory]]# "T03:30:00"
     daily_start = Time(start)
-    end = date + post_sunrise[locations[observatory]] #"T17:30:00"
+    end = date + "T" + post_sunrise[locations[observatory]] #"T17:30:00"
     daily_end = Time(end)
     slot_size = TimeDelta(slot_size*60.,format='sec')
     t = Time(np.arange(daily_start.jd, daily_end.jd, slot_size.jd),format='jd')
@@ -258,7 +287,7 @@ def is_observable(observatory, date, target, slot_size):
     return observability_matrix
 
 
-def is_moonsafe(observatory, date, target, slot_size, min_separation):
+def is_moonsafe(observatory, date, target, n_slots_in_night, min_separation):
     """
     Check that a coordinate is not too close to the moon.
 
@@ -266,21 +295,21 @@ def is_moonsafe(observatory, date, target, slot_size, min_separation):
         observatory (str): the Astropy and Astroplan resolvable name for an observatory
         date (str): the calendar date to compute accessibilty in format 'YYYY-MM-DD'
         target (str): an astroplan FixedTarget object
-        slot_size (int): the size of the slots in minutes
+        n_slots_in_night (int): the number of slots in a night
         min_separation (float): the minimum separation, in degrees, from the moon that is allowed
     Returns:
         observability_matrix (array): a 1D array of length n_slots_in_night where 1 indicates the
                                       target is accessible in that slot and 0 otherwise.
     """
 
-    middle_of_night = Time(date + "10:30:00", format='jd')
+    middle_of_night = Time(date + "T10:30:00", format='isot')
     keckapy = apy.coordinates.EarthLocation.of_site(observatory)
     moon = apy.coordinates.get_moon(middle_of_night, keckapy)
     ang_dist = apy.coordinates.angular_separation(moon.ra.rad, moon.dec.rad, target.ra.rad, target.dec.rad)
     if ang_dist*180/(np.pi) >= min_separation:
-        moonsafe_matrix = np.ones(len(t),dtype=int)
+        moonsafe_matrix = np.ones(n_slots_in_night,dtype=int)
     else:
-        moonsafe_matrix = np.ones(len(t),dtype=int)
+        moonsafe_matrix = np.ones(n_slots_in_night,dtype=int)
     return moonsafe_matrix
 
 def get_accessibility_stats(access_map, time_up=30, slot_size=5):
@@ -379,6 +408,9 @@ def generate_twilight_times(all_dates_array):
     eighteen_deg_morning = []
     twelve_deg_morning = []
     six_deg_morning = []
+    twilight_frame['timestamp'] = pd.to_datetime(twilight_frame['time_utc'])
+    twilight_frame = twilight_frame.set_index('timestamp')
+    # for day in twilight_frame.index.strftime('%Y-%m-%d').tolist():
     for day in twilight_frame.index.strftime(date_format='%Y-%m-%d').tolist():
         as_day = Time(day,format='iso',scale='utc')
         eighteen_deg_evening.append(keck.twilight_evening_astronomical(as_day,which='next'))

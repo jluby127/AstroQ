@@ -13,6 +13,7 @@ import pandas as pd
 from astropy.time import Time
 from astropy.time import TimeDelta
 from configparser import ConfigParser
+from types import SimpleNamespace
 
 # from kpfcc import DATADIR
 DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')
@@ -43,8 +44,8 @@ class data_admin(object):
         self.observatory = config.get('required', 'observatory')
 
         self.slot_size = int(config.get('other', 'slot_size'))
-        self.n_quarters_in_night = 4
-        self.n_hours_in_night = 14
+        self.n_quarters_in_night = int(config.get('other', 'quarters_in_night'))
+        self.n_hours_in_night = int(config.get('other', 'hours_in_night'))
         self.daily_starting_time = str(config.get('other', 'daily_starting_time'))
 
         self.requests_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/Requests.csv"))
@@ -303,3 +304,76 @@ def get_gap_filler_targets(manager):
     old = scheduleR1[manager.all_dates_dict[manager.current_day]]
     gap_fillers = [x for x in new if x not in old]
     np.savetxt(manager.output_directory + 'Round2_Requests.txt', gap_fillers, delimiter=',', fmt="%s")
+
+
+def prepare_new_semester(config_path):
+
+    config = ConfigParser()
+    config.read(config_path)
+
+    little_manager = SimpleNamespace()
+
+
+    # Set up important variables
+    # -----------------------------------------------------------------------------------------
+    little_manager.current_day = str(config.get('required', 'current_day'))
+    little_manager.run_optimal_allocation = config.get('oia', 'run_optimal_allocation').strip().lower() == "true"
+
+    little_manager.upstream_path = eval(config.get('required', 'folder'), {"os": os})
+    little_manager.observatory = config.get('required', 'observatory')
+
+    little_manager.slot_size = int(config.get('other', 'slot_size'))
+    little_manager.n_quarters_in_night = int(config.get('other', 'quarters_in_night'))
+    little_manager.n_hours_in_night = int(config.get('other', 'hours_in_night'))
+    little_manager.daily_starting_time = str(config.get('other', 'daily_starting_time'))
+    little_manager.daily_ending_time  = f"{(int(little_manager.daily_starting_time.split(':')[0]) + little_manager.n_hours_in_night) % 24:02d}:{int(little_manager.daily_starting_time.split(':')[1]):02d}"
+
+    little_manager.requests_frame = pd.read_csv(os.path.join(little_manager.upstream_path, "inputs/Requests.csv"))
+    try:
+        little_manager.nonqueue_frame = pd.read_csv(os.path.join(little_manager.upstream_path, "inputs/NonQueueMap"  + str(little_manager.slot_size) + ".csv"))
+    except:
+        print("There are no times reserved for non-queue observations.")
+        little_manager.nonqueue_frame = None
+
+    little_manager.semester_start_date, little_manager.semester_end_date, little_manager.semester_length, little_manager.semester_year, little_manager.semester_letter = get_semester_info(little_manager.current_day)
+    little_manager.all_dates_dict, little_manager.all_dates_array = build_date_dictionary(little_manager.semester_start_date, little_manager.semester_length)
+    little_manager.n_nights_in_semester = len(little_manager.all_dates_dict) - little_manager.all_dates_dict[little_manager.current_day]
+
+    # Create the template file for the cadence plots including true weather map
+    # -----------------------------------------------------------------------------------------
+    print("Generate the cadence plot template file.")
+    dateslist = []
+    quarterlist = []
+    for d in range(len(little_manager.all_dates_array)):
+        for q in range(4):
+            dateslist.append(little_manager.all_dates_array[d])
+            quarterlist.append(0.5+q)
+    falselist = [False]*len(dateslist)
+    template_frame = pd.DataFrame({'Date':dateslist, 'Quarter':quarterlist,'Allocated':falselist,'Weathered':falselist})
+    template_frame.to_csv(little_manager.upstream_path + 'inputs/cadenceTemplateFile.csv', index=False)
+
+    # Create the template file for the cadence plots including true weather map
+    # -----------------------------------------------------------------------------------------
+    print("Computing twilight times for the semester.")
+    twilight_frame = ac.generate_twilight_times(little_manager.all_dates_array)
+    twilight_frame.to_csv(little_manager.upstream_path + 'inputs/twilight_times.csv', index=False)
+
+    # Create the json file containing the accessiblity for each target (elevation + moon safe)
+    # -----------------------------------------------------------------------------------------
+    print("Computing access maps for all stars.")
+    print("This could take some time.")
+    little_manager.accessibilities_file = os.path.join(little_manager.upstream_path, "inputs/accessibilities.json")
+    default_access_maps = ac.construct_access_dict(little_manager)
+
+    # Create the csv file containing the turn on and turn off dates for each target in each quarter
+    # -----------------------------------------------------------------------------------------
+    ########### code goes here, use the separation slots between quarters and sum access maps
+
+    if little_manager.run_optimal_allocation == False:
+        
+        little_manager.allocation_file = os.path.join(little_manager.upstream_path, "inputs/keck_obs_allocation.txt")
+        if os.path.exists(little_manager.allocation_file):
+            allocation = mp.format_keck_allocation_info(little_manager.allocation_file)
+            allocation_binary = mp.convert_allocation_info_to_binary(little_manager, allocation)
+        else:
+            print("No Keck Observatory instruments schedule found. See https://www2.keck.hawaii.edu/observing/keckSchedule/queryForm.php to download and then try again.")

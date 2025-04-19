@@ -24,26 +24,6 @@ import astroplan as apl
 import kpfcc.access as ac
 import kpfcc.weather as wh
 
-# Define list of observatories which are currently supported.
-# To add an obseratory/telescope, add the Astroplan resolvable name to the list in generate_night_plan
-# Then add the same name to the appropriate element of the locations dictionary.
-# If necessary, add a location to the locations dictionary, if so, add the location to each of the
-# pre_sunrise and post_sunrise dictionaries. Ensure times are 14 hours apart, at least one hour
-# before the earliest sunset and one hour after the latest sunrise of the year.
-locations = {'Hawaii':['Keck Observatory'], 'Arizona':['Kitt Peak National Observatory']}
-pre_sunset = {'Hawaii':'07:30', 'Arizona':'05:00'}
-post_sunrise = {'Hawaii':'17:30', 'Arizona':'14:00'}
-# each telescope's pointing limits are defined by list with elements in following order:
-# maximum altitude
-# minimum azimuth of nasmyth deck (when no nasmyth deck, use 0)
-# maximum azimuth of nasmyth deck (when no nasmyth deck, use 360)
-# minimum altitude of nasmyth deck (when no nasmyth deck, use same as below)
-# minimum alitude of non-nasmyth deck (when no nasmyth deck, use same as above)
-# preferred minimum altitude
-# maximum northern declination to enforce preferred minimum altitude
-# maximum southern declination to enforce preferred minimum altitude
-pointing_limits = {'Keck Observatory': [85.0, 5.3, 146.2, 33.3, 18.0, 30.0, 75.0, -35.0]}
-
 def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_flat):
     """
     Combine all maps for a target to produce the final map
@@ -418,6 +398,75 @@ def format_keck_allocation_info(allocation_file):
             allocation['Stop'].iloc[i]  = 1
 
     return allocation
+
+def convert_allocation_info_to_binary(manager, allocation):
+    # Generate the binary map for allocations this semester
+    # -----------------------------------------------------------------------------------------
+    print("Generating binary map of allocated nights/quarters.")
+    allocationMap = []
+    allocationMap_ints = []
+    uniqueDays = 0
+    for j in range(len(manager.all_dates_array)):
+        datemask = allocation['Date'] == manager.all_dates_array[j]
+        oneNight = allocation[datemask]
+        if np.sum(datemask) == 0:
+            # for night that is not allocated
+            map1 = "0 0 0 0"
+            map2 = [0, 0, 0, 0]
+        elif np.sum(datemask) == 1:
+            # for night where only one program is allocated (regardless of length of allocation)
+            oneNight.reset_index(inplace=True)
+            map1 = mf.quarter_translator(oneNight['Start'][0], oneNight['Stop'][0])
+            map2 = [int(map1[0]), int(map1[2]), int(map1[4]), int(map1[6])]
+            uniqueDays += 1
+        elif np.sum(datemask) >= 1:
+            # for night where multiple programs are allocated (regardless of their lengths)
+            oneNight.reset_index(inplace=True)
+            last = len(oneNight)
+            map1 = mf.quarter_translator(oneNight['Start'][0], oneNight['Stop'][last-1])
+            map2 = [int(map1[0]), int(map1[2]), int(map1[4]), int(map1[6])]
+            uniqueDays += 1
+        else:
+            print("We have a problem, error code 5.")
+            map1 = "0 0 0 0"
+            map2 = [0, 0, 0, 0]
+        allocationMap.append(map1)
+        allocationMap_ints.append(map2)
+    print("Total number of quarters allocated: ", np.sum(allocationMap_ints))
+    print("Total unique nights allocated: ", uniqueDays)
+
+    # Write the binary allocation map to file
+    filename = manager.upstream + "inputs/" + str(manager.semester_year) + manager.semester_letter + '_Binary_Schedule.txt'
+    file = open(filename, 'w')
+    for a in range(len(allocationMap)):
+        line = manager.all_dates_array[a] + " : " + str(allocationMap[a])
+        file.write(str(line) + "\n")
+    file.close()
+
+    # Produce and write the start and stop times of each night to file.
+    # For the TTP.
+    # -----------------------------------------------------------------------------------------
+    print("Generate the nightly start/stop times for observing.")
+    listdates = list(allocation['Date'])
+    processed_dates = []
+    starts = []
+    stops = []
+    for t in range(len(allocation)):
+        date = allocation['Date'][t]
+        if date in processed_dates:
+            continue
+        start = allocation['Time'][t][:5]
+        datecount = listdates.count(date)
+        if datecount > 1:
+            stop = allocation['Time'][t+datecount-1][8:13]
+        else:
+            stop = allocation['Time'][t][8:13]
+        processed_dates.append(date)
+        starts.append(start)
+        stops.append(stop)
+    allocation_frame = pd.DataFrame({'Date':processed_dates, 'Start':starts, 'Stop':stops})
+    allocation_frame.to_csv(manager.upstream_path + str(manager.semester_year) + manager.semester_letter + '_NightlyStartStopTimes.csv', index=False)
+
 
 def quarter_translator(start, stop):
     """
