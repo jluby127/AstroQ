@@ -13,6 +13,7 @@ def bench(args):
 
     nR = args.number_requests
     nS = args.number_slots
+    sc = args.shortcut
     cf = args.config_file
 
     config = ConfigParser()
@@ -20,7 +21,7 @@ def bench(args):
     current_day = str(config.get('required', 'current_day'))
 
     print("Checking for toy model files.")
-    rf = bn.do_benchmark_files_exist(cf)
+    rf = bn.do_benchmark_files_exist(cf, sc)
 
     request_set = rq.read_json(rf + "outputs/" + current_day + '/request_set.json')
     print("Parsing down size of model for desired test.")
