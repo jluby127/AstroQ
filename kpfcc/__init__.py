@@ -1,4 +1,5 @@
 import os
+from kpfcc import driver
 print("Importing all of KPF-CC modules")
 
 __version__='2.1.0'

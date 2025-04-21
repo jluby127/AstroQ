@@ -51,38 +51,22 @@ One of the optimalAllocation dependencies is a package we co-developed, the TTP 
 
 To test installation and practice the workflow of running the autoscheduler, use the supplied example. From your terminal, run the following command:
 ```
-python <LOCAL_DIR>/bin/generate_night_plan.py -d 2024-08-02 -f <LOCAL_DIR>/examples/
+astroq schedule -rf examples/hello-world.json -cf examples/config_hello_world.ini
 ```
 
 ## Flags
 
 ### Required
 
--f specifies the folder containing the inputs and outputs directory (can be defaulted to an environment variable: key name "KPFCC_SAVE_PATH")
+-rf 
 
--d specifies the date for which to produce a script, format YYYY-MM-DD (No Default)
+-cf
 
 ### Advanced
 
--a specifies to run the autoscheduler (Default: True)
-
--p specifies to run the plotting/reporting suite (Default: True)
-
--ttp specifies to turn off the ttp solver (Default: False)
-
--r specifies to run the "bonus" round (Default: False)
-
--w specifies to turn off the weather loss simulations. Now no nights will be lost to weather. (Default: False)
 
 ### Optional
 
--s specifies the slot size, in minutes (Default: 5)
-
--b specifies to turn on the back up bright star list script. Now we will produce an additional night plan of only bright (V < 8) stars. (Default: False)
-
--t specifies the maximum time to solve the model (Default: 300s)
-
--g specifies to print the gorubi output to terminal (Default: True)
 
 
 # More Info
