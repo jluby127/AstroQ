@@ -18,7 +18,7 @@ import kpfcc.driver as dr
 # In the paper, we used random seed = 24. 
 np.random.seed(24)
 
-def do_benchmark_files_exist(config_path):
+def do_benchmark_files_exist(config_path, shortcut=0):
 
     config = ConfigParser()
     config.read(config_path)
@@ -28,7 +28,7 @@ def do_benchmark_files_exist(config_path):
         print("Pulling previously generated toy_model.csv")
     else:
         print("toy_model.csv file not found, generating a new one.")
-        build_toy_model_from_paper(savepath=path2dir+"inputs/")
+        build_toy_model_from_paper(savepath=path2dir+"inputs/",shortcut=shortcut)
 
     print("Checking if semester has been prepared.")
     if os.path.exists(path2dir + "inputs/twilight_times.csv"):
@@ -106,7 +106,7 @@ def set_nSlots_singles(nslot, request_set, start_row=250):
     return request_set
 
 
-def build_toy_model_from_paper(hours_per_program = 100, plot = False, savepath = ""):
+def build_toy_model_from_paper(hours_per_program = 100, plot = False, savepath = "", shortcut=0):
 
     if not os.path.exists(savepath):
         os.makedirs(savepath)
@@ -251,7 +251,8 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False, savepath =
         pt.ylim(-40,90)
         pt.show()
 
-    # toy_requests = toy_requests[:2] # tmp for now!
+    if shortcut > 0:
+        toy_requests = toy_requests[:shortcut]
     toy_requests.to_csv(savepath  + "Requests.csv", index=False)
 
     print("The toy model is defined! Happy benchmarking.")
