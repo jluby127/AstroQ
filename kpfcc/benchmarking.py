@@ -22,24 +22,32 @@ def do_benchmark_files_exist(config_path):
 
     config = ConfigParser()
     config.read(config_path)
-    path2dir = eval(config.get('required', 'folder'), {"os": os}) + "/inputs/"
+    path2dir = eval(config.get('required', 'folder'), {"os": os})# + "/inputs/"
 
-    if os.path.exists(path2dir + "Requests.csv"):
+    if os.path.exists(path2dir + "inputs/Requests.csv"):
         print("Pulling previously generated toy_model.csv")
     else:
         print("toy_model.csv file not found, generating a new one.")
-        build_toy_model_from_paper(savepath=path2dir)
+        build_toy_model_from_paper(savepath=path2dir+"inputs/")
+
+    print("Checking if semester has been prepared.")
+    if os.path.exists(path2dir + "inputs/twilight_times.csv"):
+        print("Yes semester is prepped.")
+    else:
+        print("Semester not prepped, doing so now.")
+        args1 = Namespace(config_file=config_path)
+        dr.kpfcc_prep(args1)
 
     if os.path.exists(path2dir + "toy_model.json"):
         print("Pulling previously generated toy_model.json")
     else:
         print("toy_model.json file not found, generating a new one.")
         print("Note: this could take some time, depending on your machine's specs.")
-        args = Namespace(config_file=config_path)
-        dr.kpfcc_build(args)
+        args2 = Namespace(config_file=config_path)
+        dr.kpfcc_build(args2)
         print("toy_model.json file is written. Proceed with benchmarking")
 
-    return path2dir + "toy_model.json"
+    return path2dir# + "outputs/toy_model.json"
 
 def getDec(maxDec=75, minDec=-30):
     '''
@@ -99,6 +107,9 @@ def set_nSlots_singles(nslot, request_set, start_row=250):
 
 
 def build_toy_model_from_paper(hours_per_program = 100, plot = False, savepath = ""):
+
+    if not os.path.exists(savepath):
+        os.makedirs(savepath)
 
     # order: cadences, exptime, nobs, visits
     program0 = [1, 300, 40, 1] # APF-50
@@ -240,6 +251,7 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False, savepath =
         pt.ylim(-40,90)
         pt.show()
 
+    # toy_requests = toy_requests[:2] # tmp for now!
     toy_requests.to_csv(savepath  + "Requests.csv", index=False)
 
     print("The toy model is defined! Happy benchmarking.")
