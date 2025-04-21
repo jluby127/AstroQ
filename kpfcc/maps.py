@@ -46,13 +46,13 @@ def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_f
     available_slots_for_request = {}
     available_indices_for_request = {}
     for i,row in manager.requests_frame.iterrows():
-        name = row['Starname']
+        name = row['starname']
         # add an if statement here: if star is a single shot and if running opt allo, skip
-        if manager.run_optimal_allocation and row['# of Nights Per Semester'] == 1:
+        if manager.run_optimal_allocation and row['n_inter_max'] == 1:
             print("Removing star: " + str(name) + " from model. No single shots in optimal allocation.")
         else:
             accessibility_r = default_access_maps[name]
-            access = accessibility_r[manager.today_starting_slot:]
+            access = np.array(accessibility_r[manager.today_starting_slot:])
 
             if name in list(custom_access_maps.keys()):
                 custom_map = custom_access_maps[name][manager.today_starting_slot:]
@@ -70,18 +70,18 @@ def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_f
                     date_last_observed_number = manager.all_dates_dict[date_last_observed]
                     today_number = manager.all_dates_dict[manager.current_day]
                     diff = today_number - date_last_observed_number
-                    if diff < int(row['Minimum Inter-Night Cadence']):
-                        block_upcoming_days = int(row['Minimum Inter-Night Cadence']) - diff
+                    if diff < int(row['tau_intra']):
+                        block_upcoming_days = int(row['tau_intra']) - diff
                         respect_past_cadence[:block_upcoming_days*manager.n_slots_in_night] = 0
-
+            '''
             # Determine which nights a multi-visit request is allowed to be attempted to be scheduled.
             # This equation is a political decision and can be modified.
             # It states that for each visit, after the intra-night cadence time has elapsed,
             # we require a 90 minute window within which to allow for scheduling the next visit.
             # We then assume the next visit is scheduled at the very end of this 90 minute window,
             # which then restarts the clock for any additional visits.
-            minimum_time_required = ((int(row['Desired Visits per Night']) - 1)* \
-                (int(row['Minimum Intra-Night Cadence']) + 1.5))*3600 #convert hours to seconds
+            minimum_time_required = ((int(row['n_intra_max']) - 1)* \
+                (int(row['tau_intra']) + 1.5))*3600 #convert hours to seconds
             minimum_slots_required = manager.slots_needed_for_exposure_dict[name]
             no_multi_visit_observations = []
             for d in range(manager.n_nights_in_semester):
@@ -94,6 +94,7 @@ def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_f
                 else:
                     no_multi_visit_observations.append([1]*manager.n_slots_in_night)
             no_multi_visit_observations = np.array(no_multi_visit_observations)
+            '''
 
             nonqueue_map_file_slots_ints = construct_nonqueue_arr(manager)
 
@@ -185,8 +186,8 @@ def construct_nonqueue_arr(manager):
         nonqueue_map_file_slots_ints = np.array(nonqueue_map_file_slots_ints).flatten()
         nonqueue_map_file_slots_ints = nonqueue_map_file_slots_ints[manager.today_starting_slot:]
     else:
-        nonqueue_map_file_slots_ints = np.array(n_slots_in_semester)
-        print("No non-queue observations are scheduled.")
+        nonqueue_map_file_slots_ints = np.array([1]*manager.n_slots_in_semester)
+        #print("No non-queue observations are scheduled.")
     return nonqueue_map_file_slots_ints
 
 def prepare_allocation_map(manager):
