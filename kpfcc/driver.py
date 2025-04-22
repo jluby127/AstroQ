@@ -25,13 +25,13 @@ def bench(args):
 
     request_set = rq.read_json(rf + "outputs/" + current_day + '/request_set.json')
     print("Parsing down size of model for desired test.")
-    request_set = bn.firstN_Requests(nR, request_set)
+    request_set = bn.firstN_Requests(nR, request_set, rf + "inputs/Requests_all.csv")
     request_set = bn.set_nSlots_singles(nS, request_set)
     request_set.to_json(rf + "outputs/" + current_day + '/parsed_toy_model.json')
 
     args2 = Namespace(request_file=rf + "outputs/" + current_day + '/parsed_toy_model.json', config_file=cf)
     schedule(args2)
-    return    
+    return
 
 def kpfcc(args):
     print('    Entering kpfcc function in driver.py')
