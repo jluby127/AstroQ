@@ -115,9 +115,7 @@ def set_nSlots_singles(nslot, request_set, start_row=250):
     request_set.strategy.loc[request_set.strategy.iloc[start_row:].index, 't_visit'] = nslot
     return request_set
 
-
 def build_toy_model_from_paper(hours_per_program = 100, plot = False, savepath = "", shortcut=0):
-
     if not os.path.exists(savepath):
         os.makedirs(savepath)
 
@@ -261,8 +259,9 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False, savepath =
         pt.ylim(-40,90)
         pt.show()
 
+    shortcut = 5
     if shortcut > 0:
         toy_requests = toy_requests[:shortcut]
-    toy_requests.to_csv(savepath  + "Requests_all.csv", index=False)
+    toy_requests.to_csv(savepath  + "Requests.csv", index=False)
 
     print("The toy model is defined! Happy benchmarking.")
