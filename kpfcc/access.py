@@ -24,16 +24,6 @@ import astroplan as apl
 locations = {"Keck Observatory":"Hawaii", "Kitt Peak National Observatory":"Arizona"}
 pre_sunset = {'Hawaii':'03:30', 'Arizona':'05:00'}
 post_sunrise = {'Hawaii':'17:30', 'Arizona':'14:00'}
-# each telescope's pointing limits are defined by list with elements in following order:
-# maximum altitude
-# minimum azimuth of nasmyth deck (when no nasmyth deck, use 0)
-# maximum azimuth of nasmyth deck (when no nasmyth deck, use 360)
-# minimum altitude of nasmyth deck (when no nasmyth deck, use same as below)
-# minimum alitude of non-nasmyth deck (when no nasmyth deck, use same as above)
-# preferred minimum altitude
-# maximum northern declination to enforce preferred minimum altitude
-# maximum southern declination to enforce preferred minimum altitude
-pointing_limits = {'Keck Observatory': [85.0, 5.3, 146.2, 33.3, 18.0, 30.0, 75.0, -35.0]}
 
 def construct_access_dict(manager):
     """
@@ -184,31 +174,46 @@ def build_single_target_accessibility(manager, starname, ra, dec, min_moon_sep =
     target = apl.FixedTarget(name=starname, coord=coords)
     keck = apl.Observer.at_site(manager.observatory)
 
-    import pdb; pdb.set_trace()
     date_formal = Time(manager.current_day,format='iso',scale='utc')
     date = str(date_formal)[:10]
     target_accessibility = []
     quarter_map = []
-    
-    for d in range(manager.n_nights_in_semester):
-        tonights_access = is_observable(manager, date, target)
-        tonights_moonsafe = is_moonsafe(manager.observatory, date, target, len(tonights_access), min_moon_sep)
-        target_accessibility.append(tonights_access&tonights_moonsafe)
-        date_formal += TimeDelta(1,format='jd')
-        date = str(date_formal)[:10]
-        if compute_turn_on_off:
-            quarter_map.append(quarters_observable(tonights_access))
 
-    if compute_turn_on_off:
-        # compute the first and last calendar date that the target is at all accessibile.
-        # do so for each quarter of the night independently.
-        turns = []
-        for q in range(4):
-            on_off = compute_on_off_for_quarter(quarter_map, q)
-            turns.append(on_off)
-        return target_accessibility, turns
+    # Set up time grid for one night, first night of the semester
+    start = date + "T" + manager.daily_starting_time
+    daily_start = Time(start, location=keck.location)
+    daily_end = daily_start + TimeDelta(1.0, format='jd') # full day from start of first night
+    tmp_slot_size = TimeDelta(5.0*u.min) 
+    t = Time(np.arange(daily_start.jd, daily_end.jd, tmp_slot_size.jd), format='jd',location=keck.location)
+
+     # Compute base alt/az pattern
+    base_altaz = keck.altaz(t, target)
+    df = pd.DataFrame(dict(alt=base_altaz.alt.deg, az=base_altaz.az.deg, lst=t.sidereal_time('mean').value))
+    df = df.sort_values(by='lst')
+    df['is_observable'] = 1 # default to observable
+    idx = df.query('5.3 < az < 146.2 and alt < 33.3').index
+    df.loc[idx, 'is_observable'] = 0
+
+    # Enforce maximum elvation 
+    df.loc[df.alt > 85.0, 'is_observable'] = 0
+    # Enforce minumum elevation
+    if target.dec.deg < 75 and target.dec.deg > -35:
+        df.loc[df.alt < 30.0, 'is_observable'] = 0 # exclude targets below 30 degrees
     else:
-        return target_accessibility
+        df.loc[df.alt < 18.0, 'is_observable'] = 0 # exclude targets below 18 degrees
+
+    # slot midpoint of first day
+    slotmidpoint0 = daily_start + (np.arange(manager.n_slots_in_night) + 0.5) *  manager.slot_size * u.min
+    days = np.arange(manager.n_nights_in_semester) * u.day
+    slotmidpoint = (slotmidpoint0[:,np.newaxis] + days[np.newaxis,:])
+
+    from scipy.interpolate import interp1d
+    is_observable = interp1d(df.lst, df.is_observable, kind='nearest', fill_value='extrapolate')
+
+    slotmidpoint_lst = slotmidpoint.sidereal_time('mean').value
+            
+    x = is_observable(slotmidpoint_lst)
+    import ipdb; ipdb.set_trace()
 
 @profile
 def is_observable(manager, date, target):
@@ -225,19 +230,6 @@ def is_observable(manager, date, target):
         observability_matrix (array): a 1D array of length n_slots_in_night where 1 indicates the
                                       target is accessible in that slot and 0 otherwise.
     """
-    # Can't observe too close to zenith
-    max_alt = pointing_limits[manager.observatory][0]
-    # Naysmith deck azimuth direction limits
-    min_az = pointing_limits[manager.observatory][1]
-    max_az = pointing_limits[manager.observatory][2]
-    # Naysmith deck
-    min_alt = pointing_limits[manager.observatory][3]
-    #non-Naysmith deck minimum elevation
-    else_min_alt = pointing_limits[manager.observatory][4]
-    # Prefer to observe at least 30 degree altitude if they are not too far north/south
-    else_min_alt_alt = pointing_limits[manager.observatory][5]
-    max_north = pointing_limits[manager.observatory][6]
-    max_south = pointing_limits[manager.observatory][7]
 
     # This is ~20 min before earliest sunset of the year in Hawaii
     # And ~20 min after the latest sunrise of the year in Hawaii
@@ -250,9 +242,11 @@ def is_observable(manager, date, target):
     t = Time(np.arange(daily_start.jd, daily_end.jd, tmp_slot_size.jd),format='jd')
 
     keck = apl.Observer.at_site(manager.observatory)
-    import pdb; pdb.set_trace()
-    altaz_coordinates = keck.altaz(t, target, grid_times_targets=True)
+    altaz_coordinates = keck.altaz(t, target)
+    df = pd.DataFrame(dict(alt=altaz_coordinates.alt.deg, az=altaz_coordinates.az.deg, lst=t.sidereal_time('mean').value))
+    df['is_observable'] = 1 # default to observable
 
+    # Exclude Nasmyth deck 
     keckapy = apy.coordinates.EarthLocation.of_site(manager.observatory)
 
     observability_matrix = []
