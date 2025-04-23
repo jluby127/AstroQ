@@ -259,7 +259,7 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False, savepath =
         pt.ylim(-40,90)
         pt.show()
 
-    shortcut = 5
+    shortcut = 10
     if shortcut > 0:
         toy_requests = toy_requests[:shortcut]
     toy_requests.to_csv(savepath  + "Requests.csv", index=False)
