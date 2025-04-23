@@ -241,7 +241,7 @@ def is_observable(manager, date, target):
     start = date + "T" + manager.daily_starting_time #+ pre_sunset[locations[manger.observatory]]# "T03:30:00"
     daily_start = Time(start)
     end = date + "T" + manager.daily_ending_time #+ post_sunrise[locations[observatory]] #"T17:30:00"
-    daily_end = Time(end) + TimeDelta(0.999,format='jd') # add almost one day, if add exactly 1 day, then we get an extra slot by mistake
+    daily_end = Time(end) #+ TimeDelta(0.999,format='jd') # add almost one day, if add exactly 1 day, then we get an extra slot by mistake
     tmp_slot_size = TimeDelta(manager.slot_size*60.,format='sec')
     t = Time(np.arange(daily_start.jd, daily_end.jd, tmp_slot_size.jd),format='jd')
 

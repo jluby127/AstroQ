@@ -417,14 +417,14 @@ def convert_allocation_info_to_binary(manager, allocation):
         elif np.sum(datemask) == 1:
             # for night where only one program is allocated (regardless of length of allocation)
             oneNight.reset_index(inplace=True)
-            map1 = mf.quarter_translator(oneNight['Start'][0], oneNight['Stop'][0])
+            map1 = quarter_translator(oneNight['Start'][0], oneNight['Stop'][0])
             map2 = [int(map1[0]), int(map1[2]), int(map1[4]), int(map1[6])]
             uniqueDays += 1
         elif np.sum(datemask) >= 1:
             # for night where multiple programs are allocated (regardless of their lengths)
             oneNight.reset_index(inplace=True)
             last = len(oneNight)
-            map1 = mf.quarter_translator(oneNight['Start'][0], oneNight['Stop'][last-1])
+            map1 = quarter_translator(oneNight['Start'][0], oneNight['Stop'][last-1])
             map2 = [int(map1[0]), int(map1[2]), int(map1[4]), int(map1[6])]
             uniqueDays += 1
         else:
@@ -437,7 +437,7 @@ def convert_allocation_info_to_binary(manager, allocation):
     print("Total unique nights allocated: ", uniqueDays)
 
     # Write the binary allocation map to file
-    filename = manager.upstream + "inputs/" + str(manager.semester_year) + manager.semester_letter + '_Binary_Schedule.txt'
+    filename = manager.upstream_path + "inputs/allocation_schedule.txt"
     file = open(filename, 'w')
     for a in range(len(allocationMap)):
         line = manager.all_dates_array[a] + " : " + str(allocationMap[a])
@@ -466,7 +466,7 @@ def convert_allocation_info_to_binary(manager, allocation):
         starts.append(start)
         stops.append(stop)
     allocation_frame = pd.DataFrame({'Date':processed_dates, 'Start':starts, 'Stop':stops})
-    allocation_frame.to_csv(manager.upstream_path + str(manager.semester_year) + manager.semester_letter + '_NightlyStartStopTimes.csv', index=False)
+    allocation_frame.to_csv(manager.upstream_path + 'inputs/nightly_start_start_times.csv', index=False)
 
 
 def quarter_translator(start, stop):
