@@ -151,7 +151,6 @@ def read_accessibilty_map_dict(filename):
         access_dict[starnames[i]] = reformat
     return access_dict
 
-
 def build_single_target_accessibility(manager, starname, ra, dec, min_moon_sep = 30, compute_turn_on_off=False):
     """
     Compute a target's accessibility map for the entire semester
@@ -201,108 +200,27 @@ def build_single_target_accessibility(manager, starname, ra, dec, min_moon_sep =
         df.loc[df.alt < 30.0, 'is_observable'] = 0 # exclude targets below 30 degrees
     else:
         df.loc[df.alt < 18.0, 'is_observable'] = 0 # exclude targets below 18 degrees
-
     # slot midpoint of first day
     slotmidpoint0 = daily_start + (np.arange(manager.n_slots_in_night) + 0.5) *  manager.slot_size * u.min
     days = np.arange(manager.n_nights_in_semester) * u.day
     slotmidpoint = (slotmidpoint0[:,np.newaxis] + days[np.newaxis,:])
 
     from scipy.interpolate import interp1d
-    is_observable = interp1d(df.lst, df.is_observable, kind='nearest', fill_value='extrapolate')
+    f_is_observable = interp1d(
+        df.lst, df.is_observable, kind='nearest', fill_value='extrapolate',
+        assume_sorted=True
+    )
+    is_observable = f_is_observable(slotmidpoint.sidereal_time('mean').value)
 
-    slotmidpoint_lst = slotmidpoint.sidereal_time('mean').value
-            
-    x = is_observable(slotmidpoint_lst)
-    import ipdb; ipdb.set_trace()
-
-@profile
-def is_observable(manager, date, target):
-    """
-    Compute a target's accessibility map on a given date, taking into account the
-    telescope pointing limits and moon-safe distance at the beginning of every slot.
-
-    Args:
-        observatory (str): the Astropy and Astroplan resolvable name for an observatory
-        date (str): the calendar date to compute accessibilty in format 'YYYY-MM-DD'
-        target (str): an astroplan FixedTarget object
-        slot_size (int): the size of the slots in minutes
-    Returns:
-        observability_matrix (array): a 1D array of length n_slots_in_night where 1 indicates the
-                                      target is accessible in that slot and 0 otherwise.
-    """
-
-    # This is ~20 min before earliest sunset of the year in Hawaii
-    # And ~20 min after the latest sunrise of the year in Hawaii
-    # Both are UTC time zone.
-    start = date + "T" + manager.daily_starting_time #+ pre_sunset[locations[manger.observatory]]# "T03:30:00"
-    daily_start = Time(start)
-    end = date + "T" + manager.daily_ending_time #+ post_sunrise[locations[observatory]] #"T17:30:00"
-    daily_end = Time(end) + TimeDelta(0.999,format='jd') # add almost one day, if add exactly 1 day, then we get an extra slot by mistake
-    tmp_slot_size = TimeDelta(manager.slot_size*60.,format='sec')
-    t = Time(np.arange(daily_start.jd, daily_end.jd, tmp_slot_size.jd),format='jd')
-
-    keck = apl.Observer.at_site(manager.observatory)
-    altaz_coordinates = keck.altaz(t, target)
-    df = pd.DataFrame(dict(alt=altaz_coordinates.alt.deg, az=altaz_coordinates.az.deg, lst=t.sidereal_time('mean').value))
-    df['is_observable'] = 1 # default to observable
-
-    # Exclude Nasmyth deck 
-    keckapy = apy.coordinates.EarthLocation.of_site(manager.observatory)
-
-    observability_matrix = []
-    for i, item in enumerate(altaz_coordinates):
-        alt=altaz_coordinates[i].alt.deg
-        az=altaz_coordinates[i].az.deg
-        deck = np.where((az >= min_az) & (az <= max_az))
-        deck_height = np.where((alt <= max_alt) & (alt >= min_alt))
-        first = np.intersect1d(deck,deck_height)
-
-        not_deck_1 = np.where((az < min_az))
-        not_deck_2 = np.where((az > max_az))
-
-        # for targets sufficiently north or south in declination, allow access map to compute
-        # any time they are above telescope pointing limits as OK. For more equitorial targets,
-        # require that they be above the preferred minimum elevation.
-        if target.dec.deg > max_north or target.dec.deg < max_south:
-            not_deck_height = np.where((alt <= max_alt) & (alt >= else_min_alt))
-        else:
-            not_deck_height = np.where((alt <= max_alt) & (alt >= else_min_alt_alt))
-
-        second = np.intersect1d(not_deck_1,not_deck_height)
-        third = np.intersect1d(not_deck_2,not_deck_height)
-
-        good = np.concatenate((first,second,third))
-
-        observability_matrix = np.zeros(len(t),dtype=int)
-        observability_matrix[good] = 1
-
-    return observability_matrix
-
-
-def is_moonsafe(observatory, date, target, n_slots_in_night, min_separation):
-    """
-    Check that a coordinate is not too close to the moon.
-
-    Args:
-        observatory (str): the Astropy and Astroplan resolvable name for an observatory
-        date (str): the calendar date to compute accessibilty in format 'YYYY-MM-DD'
-        target (str): an astroplan FixedTarget object
-        n_slots_in_night (int): the number of slots in a night
-        min_separation (float): the minimum separation, in degrees, from the moon that is allowed
-    Returns:
-        observability_matrix (array): a 1D array of length n_slots_in_night where 1 indicates the
-                                      target is accessible in that slot and 0 otherwise.
-    """
-
-    middle_of_night = Time(date + "T10:30:00", format='isot')
-    keckapy = apy.coordinates.EarthLocation.of_site(observatory)
-    moon = apy.coordinates.get_moon(middle_of_night, keckapy)
+    # Compute moon accessibility
+    moon = apy.coordinates.get_moon(slotmidpoint[0,:] , keck.location)
     ang_dist = apy.coordinates.angular_separation(moon.ra.rad, moon.dec.rad, target.ra.rad, target.dec.rad)
-    if ang_dist*180/(np.pi) >= min_separation:
-        moonsafe_matrix = np.ones(n_slots_in_night,dtype=int)
-    else:
-        moonsafe_matrix = np.ones(n_slots_in_night,dtype=int)
-    return moonsafe_matrix
+    is_moonsafe = ang_dist*180/(np.pi) >= min_moon_sep
+
+    # compute intersection of observable and moonsafe, should be seperate functions!
+    is_accessible = is_observable.astype(bool) & is_moonsafe.astype(bool) # note that this is an element-wise AND
+    return is_accessible.flatten()
+
 
 def get_accessibility_stats(access_map, time_up=30, slot_size=5):
     """
