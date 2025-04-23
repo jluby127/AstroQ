@@ -7,7 +7,6 @@ import kpfcc.request as rq
 import kpfcc.management as mn
 import kpfcc.benchmarking as bn
 
-
 def bench(args):
     print("Running benchmark test.")
 

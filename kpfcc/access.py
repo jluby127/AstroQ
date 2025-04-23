@@ -207,6 +207,7 @@ def build_single_target_accessibility(manager, starname, ra, dec, min_moon_sep =
     else:
         return target_accessibility
 
+@profile
 def is_observable(manager, date, target):
     """
     Compute a target's accessibility map on a given date, taking into account the
@@ -246,6 +247,7 @@ def is_observable(manager, date, target):
     t = Time(np.arange(daily_start.jd, daily_end.jd, tmp_slot_size.jd),format='jd')
 
     keck = apl.Observer.at_site(manager.observatory)
+    import pdb; pdb.set_trace()
     altaz_coordinates = keck.altaz(t, target, grid_times_targets=True)
 
     keckapy = apy.coordinates.EarthLocation.of_site(manager.observatory)
