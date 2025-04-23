@@ -1,4 +1,5 @@
 import os
+import json
 from configparser import ConfigParser
 from argparse import Namespace
 
@@ -6,6 +7,7 @@ import kpfcc.scheduler as sch
 import kpfcc.request as rq
 import kpfcc.management as mn
 import kpfcc.benchmarking as bn
+import kpfcc.blocks as ob
 
 
 def bench(args):
@@ -59,6 +61,36 @@ def kpfcc_prep(args):
     mn.prepare_new_semester(cf)
     return
 
+def kpfcc_data(args):
+
+    pull_file = args.pull_file
+    print(f'    kpfcc_data function: using pull info from {pull_file}')
+
+    savepath = args.database_file
+    print(f'    kpfcc_data function: saving to {savepath}')
+
+    with open(pull_file, "r") as f:
+        data = json.load(f)
+    semester = data["semester"]
+    awarded_programs = data["awarded_programs"]
+
+    if not os.path.exists(savepath):
+        os.makedirs(savepath)
+
+    OBs = ob.refresh_local_data(semester)
+    good_obs, bad_obs_values, bad_obs_hasFields = ob.get_request_sheet(OBs, awarded_programs, savepath + "/Requests.csv")
+
+    send_emails_with = []
+    for i in range(len(bad_obs_values)):
+        if bad_obs_values['metadata.semid'][i] in awarded_programs:
+            send_emails_with.append(ob.inspect_row(bad_obs_hasFields, bad_obs_values, i))
+
+    '''
+    this is where code to automatically send emails will go.
+    '''
+
+    return 
+
 def schedule(args):
 
     rf = args.request_file
@@ -79,3 +111,4 @@ def plot(args):
     print(f'    kpfcc_plot function: schedule object is {so} and type is {tp}')
     print("this function doesn't do anything yet.")
     return
+

@@ -17,6 +17,7 @@ from gurobipy import GRB
 import kpfcc.io as io
 import kpfcc.management as mn
 import kpfcc.request as rq
+import kpfcc.maps as mp
 
 class Scheduler(object):
     """A Scheduler object, from which we can define a Gurobi model, build constraints, and solve."""
@@ -144,50 +145,6 @@ class Scheduler(object):
             self.absolute_max_obs_allowed_dict = absolute_max_obs_allowed_dict
             self.past_nights_observed_dict = past_nights_observed_dict
         print("Initializing complete.")
-
-    def constraint_build_theta(self):
-        """
-        According to Eq X in Lubin et al. 2025.
-        """
-        print("Constraint 0: Build theta variable")
-        for name in self.schedulable_requests:
-            idx = self.manager.requests_frame.index[self.manager.requests_frame['starname']==name][0]
-            self.model.addConstr(self.theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
-            # Get all (d,s) pairs for which this request is valid.
-            available = list(zip(list(self.all_valid_ds_for_request.loc[name].d), list(self.all_valid_ds_for_request.loc[name].s)))
-            self.model.addConstr(self.theta[name] >= ((self.manager.requests_frame['n_inter_max'][idx] - \
-                        self.past_nights_observed_dict[name]) - gp.quicksum(self.Yrds[name, d, s] for d,s in available)), \
-                        'greater_than_nobs_shortfall_' + str(name))
-
-    # Note: Likely can delete this constraint
-    def constraint_build_theta_time_normalized(self):
-        """
-        According to Eq X in Lubin et al. 2025.
-        """
-        print("Constraint 0: Build theta variable")
-        for name in self.schedulable_requests:
-            idx = self.manager.requests_frame.index[self.manager.requests_frame['starname']==name][0]
-            self.model.addConstr(self.theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
-            # Get all (d,s) pairs for which this request is valid.
-            available = list(zip(list(self.all_valid_ds_for_request.loc[name].d), list(self.all_valid_ds_for_request.loc[name].s)))
-            self.model.addConstr(self.theta[name] >= ((self.manager.requests_frame['n_inter_max'][idx] - \
-                        self.past_nights_observed_dict[name]) - gp.quicksum(self.Yrds[name, d, s] for d,s in available))*self.manager.slots_needed_for_exposure_dict[name], \
-                        'greater_than_nobs_shortfall_' + str(name))
-
-    # Note: Likely can delete this constraint
-    def constraint_build_theta_program_normalized(self):
-        """
-        According to Eq X in Lubin et al. 2025.
-        """
-        print("Constraint 0: Build theta variable")
-        for name in self.schedulable_requests:
-            idx = self.manager.requests_frame.index[self.manager.requests_frame['starname']==name][0]
-            self.model.addConstr(self.theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
-            # Get all (d,s) pairs for which this request is valid.
-            available = list(zip(list(self.all_valid_ds_for_request.loc[name].d), list(self.all_valid_ds_for_request.loc[name].s)))
-            self.model.addConstr(self.theta[name] >= ((self.manager.requests_frame['n_inter_max'][idx] - \
-                        self.past_nights_observed_dict[name]) - gp.quicksum(self.Yrds[name, d, s] for d,s in available))/self.manager.requests_frame['n_inter_max'][idx], \
-                        'greater_than_nobs_shortfall_' + str(name))
 
     def constraint_one_request_per_slot(self):
         """
@@ -343,7 +300,8 @@ class Scheduler(object):
         print("Constraint: cannot observe if night/quarter is not allocated.")
         # if quarter is not allocated, all slots in quarter must be zero
         # note that the twilight times at the front and end of the night have to be respected
-        for id, d, s in self.request_set.observability:
+        for id, d, s in zip(self.request_set.observability['id'], self.request_set.observability['d'], self.request_set.observability['s']):
+        # for id, d, s in self.request_set.observability:
             q = rq.convert_slot_to_quarter(d, s, twilight_map_remaining_2D)
             self.model.addConstr(self.Yrds[id, d, s] <= self.Anq[d, q], "dontSched_ifNot_Allocated_"+ str(d) + "d_" + str(q) + "q_" + str(s) + "s_" + id, d, id)
 
@@ -410,39 +368,11 @@ class Scheduler(object):
                             for id, d, s in self.observability_tuples), GRB.MAXIMIZE)
                             # for id, d, s in self.joiner), GRB.MAXIMIZE)
 
-    # This objective can likely be deleted.
-    def set_objective_minimize_theta(self):
-        """
-        According to Eq X in Lubin et al. 2025.
-        """
-        self.model.setObjective(gp.quicksum(self.theta[name] for name in self.schedulable_requests), GRB.MINIMIZE)
-
     def set_objective_minimize_theta_time_normalized(self):
         """
         According to Eq X in Lubin et al. 2025.
         """
         self.model.setObjective(gp.quicksum(self.theta[name]*self.manager.slots_needed_for_exposure_dict[name] for name in self.schedulable_requests), GRB.MINIMIZE)
-
-    # This objective can likely be deleted.
-    def set_objective_minimize_theta_prog_norm(self):
-        """
-        According to Eq X in Lubin et al. 2025.
-        """
-        self.model.setObjective(gp.quicksum(self.theta[name]/self.manager.requests_frame.loc[self.manager.requests_frame['starname'] == name, 'n_inter_max'] for name in self.schedulable_requests), GRB.MINIMIZE)
-
-    # def constraint_connect_Wrd_and_Yrds(self):
-    #     """
-    #     According to Eq X in Lubin et al. 2025.
-    #     """
-    #     print("Constraint -1: Connect W and Y for all requests.")
-    #     # Get all slots s that are valid for a given r and d
-    #     grouped_s = self.request_set.Aframe.groupby(['r', 'd'])['s'].unique().reset_index()
-    #     grouped_s.set_index(['r', 'd'], inplace=True)
-    #     for i, row in self.request_set.Aframe.iterrows():
-    #         all_valid_slots_tonight = list(grouped_s.loc[(row.r, row.d)]['s'])
-    #         self.model.addConstr(gp.quicksum(self.Yrds[row.r,row.d,s3] for s3 in all_valid_slots_tonight) <= \
-    #             row.n_intra_max*self.Wrd[row.r, row.d],
-    #             'connect_W_and_Y' + row.r + "_" + str(row.d) + "d")
 
     def constraint_build_theta_multivisit(self):
         """
@@ -490,28 +420,6 @@ class Scheduler(object):
                     self.absolute_max_obs_allowed_dict[name],
                     'max_absolute_unique_nights_for_request_' + str(name))
 
-    # This constraint can likely be deleted.
-    def constraint_set_max_desired_unique_nights_Yrds(self):
-        """
-        According to Eq X in Lubin et al. 2025.
-        """
-        for name in self.single_visit_requests:
-            available = list(zip(list(self.all_valid_ds_for_request.loc[name].d), list(self.all_valid_ds_for_request.loc[name].s)))
-            self.model.addConstr(gp.quicksum(self.Yrds[name, d, s] for d,s in available) <=
-                    self.desired_max_obs_allowed_dict[name],
-                    'max_desired_unique_nights_for_request_' + str(name))
-
-    # This constraint can likely be deleted.
-    def constraint_set_max_absolute_unique_nights_Yrds(self):
-        """
-        According to Eq X in Lubin et al. 2025.
-        """
-        for name in self.single_visit_requests:
-            available = list(zip(list(self.all_valid_ds_for_request.loc[name].d), list(self.all_valid_ds_for_request.loc[name].s)))
-            self.model.addConstr(gp.quicksum(self.Yrds[name, d, s] for d,s in available) <=
-                    self.absolute_max_obs_allowed_dict[name],
-                    'max_absolute_unique_nights_for_request_' + str(name))
-
     def constraint_build_enforce_intranight_cadence(self):
         """
         According to Eq X in Lubin et al. 2025.
@@ -553,25 +461,6 @@ class Scheduler(object):
                 self.model.addConstr((((gp.quicksum(self.Yrds[row.id,row.d,s3] for s3 in all_valid_slots_tonight)))) <= \
                     row.n_intra_max, 'enforce_min_visits_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
 
-    # def constraint_set_min_max_visits_per_night_singles(self):
-    #     """
-    #     According to Eq X in Lubin et al. 2025.
-    #     """
-    #     print("Constraint 7: Allow minimum and maximum visits.")
-    #     intracadence_frame_on_day = self.joiner.copy().drop_duplicates(subset=['id', 'd'])
-    #     grouped_s = self.joiner.copy().groupby(['id', 'd'])['s'].unique().reset_index()
-    #     grouped_s.set_index(['id', 'd'], inplace=True)
-    #     for i, row in intracadence_frame_on_day.iterrows():
-    #         if row.id in self.multi_visit_requests:
-    #             all_valid_slots_tonight = list(grouped_s.loc[(row.id, row.d)]['s'])
-    #             self.model.addConstr((((gp.quicksum(self.Yrds[row.id, row.d,s3] for s3 in all_valid_slots_tonight)))) <= \
-    #                 row.n_intra_max*self.Wrd[row.id, row.d], 'enforce_max_visits1_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
-    #             self.model.addConstr((((gp.quicksum(self.Yrds[row.id,row.d,s3] for s3 in all_valid_slots_tonight)))) >= \
-    #                 row.n_intra_min*self.Wrd[row.id, row.d], 'enforce_min_visits_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
-    #         else:
-    #             self.model.addConstr((((gp.quicksum(self.Yrds[row.id,row.d,s3] for s3 in all_valid_slots_tonight)))) >= \
-    #                 row.n_intra_min*self.Wrd[row.id, row.d], 'enforce_min_visits_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
-    #
     def optimize_model(self):
         print("Begin model solve.")
         t1 = time.time()
@@ -635,7 +524,7 @@ class Scheduler(object):
                 self.constraint_enforce_restricted_nights(limit=0)
             if os.path.exists(self.manager.whiteout_file):
                 self.constraint_enforce_restricted_nights(limit=1)
-            if manager.include_aesthetic:
+            if self.manager.include_aesthetic:
                 self.constraint_max_consecutive_onsky()
                 self.constraint_minimum_consecutive_offsky()
                 self.constraint_maximize_baseline()
@@ -669,7 +558,7 @@ class Scheduler(object):
             else:
                 allocation_schedule_1d.append(0)
         allocation_schedule = np.reshape(allocation_schedule_1d, (self.manager.n_nights_in_semester, self.manager.n_quarters_in_night))
-        manager.allocation_map_2D_NQ = allocation_schedule
+        self.manager.allocation_map_2D_NQ = allocation_schedule
         weather_holder = np.zeros(np.shape(allocation_schedule))
         allocation_map_1D, allocation_map_2D, weathered_map = mp.build_allocation_map(self.manager, allocation_schedule, weather_holder)
         mp.convert_allocation_array_to_binary(self.manager)

@@ -63,13 +63,13 @@ class data_admin(object):
         self.run_weather_loss = eval(config.get('options', 'run_weather_loss'))#.strip().lower() == "true"
 
         self.run_optimal_allocation = config.get('oia', 'run_optimal_allocation').strip().lower() == "true"
-        self.include_aesthetic = config.get('oia', 'run_with_aesthetics')
+        self.include_aesthetic = config.get('oia', 'run_with_aesthetics').strip().lower() == "true"
         self.max_quarters = int(config.get('oia', 'maximum_allocated_quarters'))
         self.max_unique_nights = int(config.get('oia', 'maximum_allocated_nights'))
         self.min_represented = 1
         self.whiteout_file = os.path.join(self.semester_directory, "inputs/whiteout_dates.txt")
         self.blackout_file = os.path.join(self.semester_directory, "inputs/blackout_dates.txt")
-        self.allow_single_quarters = config.get('oia', 'allow_single_quarter_allocations')
+        self.allow_single_quarters = config.get('oia', 'allow_single_quarter_allocations').strip().lower() == "true"
         self.max_consecutive = int(config.get('oia', 'maximum_consecutive_onsky'))
         self.min_consecutive = int(config.get('oia', 'minimum_consecutive_offsky'))
         self.max_baseline = int(config.get('oia', 'maximum_baseline'))
@@ -376,7 +376,7 @@ def prepare_new_semester(config_path):
 
     if little_manager.run_optimal_allocation == False:
         
-        little_manager.allocation_file = os.path.join(little_manager.upstream_path, "inputs/keck_obs_allocation.txt")
+        little_manager.allocation_file = os.path.join(little_manager.upstream_path, "inputs/Observatory_Allocation.csv")
         if os.path.exists(little_manager.allocation_file):
             allocation = mp.format_keck_allocation_info(little_manager.allocation_file)
             allocation_binary = mp.convert_allocation_info_to_binary(little_manager, allocation)
