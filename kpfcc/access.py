@@ -182,11 +182,14 @@ def build_single_target_accessibility(manager, starname, ra, dec, min_moon_sep =
     """
     coords = apy.coordinates.SkyCoord(ra * u.deg, dec * u.deg, frame='icrs')
     target = apl.FixedTarget(name=starname, coord=coords)
+    keck = apl.Observer.at_site(manager.observatory)
 
+    import pdb; pdb.set_trace()
     date_formal = Time(manager.current_day,format='iso',scale='utc')
     date = str(date_formal)[:10]
     target_accessibility = []
     quarter_map = []
+    
     for d in range(manager.n_nights_in_semester):
         tonights_access = is_observable(manager, date, target)
         tonights_moonsafe = is_moonsafe(manager.observatory, date, target, len(tonights_access), min_moon_sep)
