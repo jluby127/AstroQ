@@ -115,7 +115,6 @@ def set_nSlots_singles(nslot, request_set, start_row=250):
     return request_set
 
 def build_toy_model_from_paper(hours_per_program = 100, plot = False, savepath = "", shortcut=0):
-    import pdb; pdb.set_trace()
     if not os.path.exists(savepath):
         os.makedirs(savepath)
 
