@@ -11,6 +11,22 @@ import numpy as np
 import os
 from astropy.time import Time
 
+exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', 'metadata.history', 
+                    'metadata.instruments', 'metadata.is_approved', 'metadata.last_modification', 
+                    'metadata.ob_feasible', 'metadata.observer_name', 'metadata.state', 'metadata.status', 
+                    'metadata.submitted', 'metadata.submitter', 'metadata.tags', 'observation.auto_exp_meter', 
+                    'observation.auto_nd_filters', 'observation.cal_n_d_1', 'observation.cal_n_d_2', 
+                    'observation.exp_meter_exp_time', 'observation.exp_meter_mode', 
+                    'observation.exp_meter_threshold', 'observation.guide_here', 
+                    'observation.object', 'observation.take_simulcal', 
+                    'observation.trigger_ca_h_k', 'observation.trigger_green', 'observation.trigger_red', 
+                    'schedule.accessibility_map', 'schedule.days_observable', 'schedule.fast_read_mode_requested',
+                    'schedule.minimum_elevation', 'schedule.minimum_moon_separation',  
+                    'schedule.rise_semester_day', 'schedule.scheduling_mode', 'schedule.sets_semester_day', 
+                    'schedule.total_observations_requested', 'schedule.total_time_for_target', 
+                    'schedule.total_time_for_target_hours', 'target.isNew', 'target.parallax', 'target.equinox', 'target.systemic_velocity',
+                    'target.tic_id', 'target.two_mass_id', 'schedule.weather_band', 'target.catalog_comment']
+
 def refresh_local_data(semester):
     """
     Pull the latest database OBs down to local.
@@ -120,22 +136,6 @@ def flatten(d, parent_key='', sep='.'):
         else:
             items[new_key] = v
     return items
-
-exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', 'metadata.history', 
-                    'metadata.instruments', 'metadata.is_approved', 'metadata.last_modification', 
-                    'metadata.ob_feasible', 'metadata.observer_name', 'metadata.state', 'metadata.status', 
-                    'metadata.submitted', 'metadata.submitter', 'metadata.tags', 'observation.auto_exp_meter', 
-                    'observation.auto_nd_filters', 'observation.cal_n_d_1', 'observation.cal_n_d_2', 
-                    'observation.exp_meter_exp_time', 'observation.exp_meter_mode', 
-                    'observation.exp_meter_threshold', 'observation.guide_here', 
-                    'observation.object', 'observation.take_simulcal', 
-                    'observation.trigger_ca_h_k', 'observation.trigger_green', 'observation.trigger_red', 
-                    'schedule.accessibility_map', 'schedule.days_observable', 'schedule.fast_read_mode_requested',
-                    'schedule.minimum_elevation', 'schedule.minimum_moon_separation',  
-                    'schedule.rise_semester_day', 'schedule.scheduling_mode', 'schedule.sets_semester_day', 
-                    'schedule.total_observations_requested', 'schedule.total_time_for_target', 
-                    'schedule.total_time_for_target_hours', 'target.isNew', 'target.parallax', 'target.equinox', 'target.systemic_velocity',
-                    'target.tic_id', 'target.two_mass_id', 'schedule.weather_band', 'target.catalog_comment']
 
 def create_checks_dataframes(OBs, exception_fields):
     # Store flattened rows and collect all keys

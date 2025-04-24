@@ -47,6 +47,7 @@ class data_admin(object):
         self.n_quarters_in_night = int(config.get('other', 'quarters_in_night'))
         self.n_hours_in_night = int(config.get('other', 'hours_in_night'))
         self.daily_starting_time = str(config.get('other', 'daily_starting_time'))
+        self.daily_ending_time  = f"{(int(self.daily_starting_time.split(':')[0]) + self.n_hours_in_night) % 24:02d}:{int(self.daily_starting_time.split(':')[1]):02d}"
 
         # self.allocation_file = os.path.join(self.semester_directory, "inputs/allocation_schedule.txt")
         self.allocation_file = str(config.get('oia', 'allocation_file'))
@@ -333,6 +334,8 @@ def prepare_new_semester(config_path):
     little_manager.daily_starting_time = str(config.get('other', 'daily_starting_time'))
     little_manager.daily_ending_time  = f"{(int(little_manager.daily_starting_time.split(':')[0]) + little_manager.n_hours_in_night) % 24:02d}:{int(little_manager.daily_starting_time.split(':')[1]):02d}"
 
+    print(little_manager.upstream_path)
+    print(os.path.join(little_manager.upstream_path, "inputs/Requests.csv"))
     little_manager.requests_frame = pd.read_csv(os.path.join(little_manager.upstream_path, "inputs/Requests.csv"))
     try:
         little_manager.nonqueue_frame = pd.read_csv(os.path.join(little_manager.upstream_path, "inputs/NonQueueMap"  + str(little_manager.slot_size) + ".csv"))
