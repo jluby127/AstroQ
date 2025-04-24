@@ -127,6 +127,23 @@ def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_f
                                                         available_slots_for_request[name][d] == 1)[0]))
             available_indices_for_request[name] = nightly_available_slots
 
+    import gzip
+    import pickle
+    def save_dict_compressed(dictionary, filename):
+        with gzip.open(filename, 'wb') as f:
+            pickle.dump(dictionary, f)
+    # Load compressed
+    def load_dict_compressed(filename):
+        with gzip.open(filename, 'rb') as f:
+            return pickle.load(f)
+    # Example usage:
+    # Save
+    #save_dict_compressed(available_indices_for_request, 'available_indices.pkl.gz')
+
+    # Load
+    available_indices_for_request_save = load_dict_compressed('available_indices.pkl.gz')
+    #removed_indices = available_indices_for_request.pop('Star0001')
+    assert available_indices_for_request_save == available_indices_for_request, "old not equal new"
 
     return available_indices_for_request
 
