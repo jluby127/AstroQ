@@ -39,23 +39,23 @@ def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_f
 
     """
     print("Build unique star available slot indices.")
-    default_access_maps = ac.construct_access_dict(manager)
-    custom_access_maps = construct_custom_map_dict(manager.special_map_file)
-    zero_out_names = construct_zero_out_arr(manager.zero_out_file)
+    default_access_maps = ac.construct_access_dict(manager) # dictionary dict(starname=array([30000])
+    custom_access_maps = construct_custom_map_dict(manager.special_map_file) # if there is a custom map for the star, it will have the same form as above
+    zero_out_names = construct_zero_out_arr(manager.zero_out_file) # manually remove stars from current night.
 
     available_slots_for_request = {}
     available_indices_for_request = {}
     for i,row in manager.requests_frame.iterrows():
         name = row['starname']
-        # add an if statement here: if star is a single shot and if running opt allo, skip
+        #  possibly can be removed
         if manager.run_optimal_allocation and row['n_inter_max'] == 1:
             print("Removing star: " + str(name) + " from model. No single shots in optimal allocation.")
         else:
             accessibility_r = default_access_maps[name]
-            access = np.array(accessibility_r[manager.today_starting_slot:])
+            access = np.array(accessibility_r[manager.today_starting_slot:]) # throwing out things in the past
 
             if name in list(custom_access_maps.keys()):
-                custom_map = custom_access_maps[name][manager.today_starting_slot:]
+                custom_map = custom_access_maps[name][manager.today_starting_slot:] # same as above but for custom maps
             else:
                 custom_map = np.array([1]*manager.n_slots_in_semester)
 
@@ -64,8 +64,8 @@ def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_f
                 zero_out_map[:manager.n_slots_in_night] = np.array([0]*manager.n_slots_in_night)
 
             respect_past_cadence = np.ones(manager.n_slots_in_semester, dtype=np.int64)
-            if manager.database_info_dict != {}:
-                date_last_observed = manager.database_info_dict[name][0]
+            if manager.database_info_dict != {}: # modify access map based on past observatiosn
+                date_last_observed = manager.database_info_dict[name][0] 
                 if date_last_observed != '0000-00-00':
                     date_last_observed_number = manager.all_dates_dict[date_last_observed]
                     today_number = manager.all_dates_dict[manager.current_day]
@@ -96,7 +96,7 @@ def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_f
             no_multi_visit_observations = np.array(no_multi_visit_observations)
             '''
 
-            nonqueue_map_file_slots_ints = construct_nonqueue_arr(manager)
+            nonqueue_map_file_slots_ints = construct_nonqueue_arr(manager) # length n_slots_in_semester
 
             # Construct the penultimate intersection of maps for the given request.
             penultimate_map = manager.allocation_map_1D & manager.twilight_map_remaining_2D.flatten() & \
@@ -104,6 +104,7 @@ def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_f
                 respect_past_cadence
 
             # find when target goes from available to unavailable, for any reason is not available a
+            # eat into the array from end. 
             fit_within_night = np.array([1]*manager.n_slots_in_semester)
             slots_needed = manager.slots_needed_for_exposure_dict[name]
             if slots_needed > 1:
@@ -115,7 +116,7 @@ def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_f
 
             # Construct the ultimate intersection of maps for the given request.
             # Define the slot indices that are available to the request for scheduling.
-            available_slots_for_request[name] = penultimate_map & fit_within_night
+            available_slots_for_request[name] = penultimate_map & fit_within_night 
 
             # reshape into n_nights_in_semester by n_slots_in_night
             available_slots_for_request[name] = np.reshape(available_slots_for_request[name], \
@@ -125,6 +126,8 @@ def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_f
                  nightly_available_slots.append(list(np.where( \
                                                         available_slots_for_request[name][d] == 1)[0]))
             available_indices_for_request[name] = nightly_available_slots
+
+
     return available_indices_for_request
 
 def construct_custom_map_dict(special_map_file):
