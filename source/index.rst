@@ -3,7 +3,8 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to AstroQ_docs's documentationnnn!
+Welcome to AstroQ_docs's documentation!
+This text was generated automatically by pushing changes.
 =======================================
 
 .. toctree::
