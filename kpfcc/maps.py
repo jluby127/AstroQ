@@ -39,9 +39,102 @@ def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_f
 
     """
     print("Build unique star available slot indices.")
-    default_access_maps = ac.construct_access_dict(manager) # dictionary dict(starname=array([30000])
+
+    rs = manager.requests_frame # request set
+    #default_access_maps = ac.construct_access_dict(manager) # dictionary dict(starname=array([30000])
+
+    # Build default access map
+    
+    coords = apy.coordinates.SkyCoord(rs.ra * u.deg, rs.dec * u.deg, frame='icrs')
+    targets = apl.FixedTarget(name=rs.starname, coord=coords)
+    keck = apl.Observer.at_site(manager.observatory)
+
+    date_formal = Time(manager.current_day,format='iso',scale='utc')
+    date = str(date_formal)[:10]
+    target_accessibility = []
+    quarter_map = []
+
+    # Set up time grid for one night, first night of the semester
+    start = date + "T" + manager.daily_starting_time
+    daily_start = Time(start, location=keck.location)
+    daily_end = daily_start + TimeDelta(1.0, format='jd') # full day from start of first night
+    tmp_slot_size = TimeDelta(5.0*u.min) 
+    t = Time(np.arange(daily_start.jd, daily_end.jd, tmp_slot_size.jd), format='jd',location=keck.location)
+
+     # Compute base alt/az pattern
+    base_altaz = keck.altaz(t, targets,grid_times_targets=True)
+    import xarray as xr
+    ds = xr.Dataset(
+        data_vars=dict(
+            alt=(['target','time'],base_altaz.alt.deg),
+            az=(['target','time'],base_altaz.az.deg),
+            ra=(['target'],rs.ra),
+            lst=(['time'],t.sidereal_time('mean').value)
+        ),
+        coords=dict(target=rs.starname, time=t.jd)
+    )
+    import pdb; pdb.set_trace()
+    
+    
+    df = pd.DataFrame(dict(alt=base_altaz.alt.deg, az=base_altaz.az.deg, lst=t.sidereal_time('mean').value))
+    df = df.sort_values(by='lst')
+    df['is_observable'] = 1 # default to observable
+    idx = df.query('5.3 < az < 146.2 and alt < 33.3').index
+    df.loc[idx, 'is_observable'] = 0
+
+    # Enforce maximum elvation 
+    df.loc[df.alt > 85.0, 'is_observable'] = 0
+    # Enforce minumum elevation
+    if target.dec.deg < 75 and target.dec.deg > -35:
+        df.loc[df.alt < 30.0, 'is_observable'] = 0 # exclude targets below 30 degrees
+    else:
+        df.loc[df.alt < 18.0, 'is_observable'] = 0 # exclude targets below 18 degrees
+    # slot midpoint of first day
+    slotmidpoint0 = daily_start + (np.arange(manager.n_slots_in_night) + 0.5) *  manager.slot_size * u.min
+    days = np.arange(manager.n_nights_in_semester) * u.day
+    slotmidpoint = (slotmidpoint0[:,np.newaxis] + days[np.newaxis,:])
+
+    from scipy.interpolate import interp1d
+    f_is_observable = interp1d(
+        df.lst, df.is_observable, kind='nearest', fill_value='extrapolate',
+        assume_sorted=True
+    )
+    is_observable = f_is_observable(slotmidpoint.sidereal_time('mean').value)
+
+    # Compute moon accessibility
+    moon = apy.coordinates.get_moon(slotmidpoint[0,:] , keck.location)
+    ang_dist = apy.coordinates.angular_separation(moon.ra.rad, moon.dec.rad, target.ra.rad, target.dec.rad)
+    is_moonsafe = ang_dist*180/(np.pi) >= min_moon_sep
+
+    # compute intersection of observable and moonsafe, should be seperate functions!
+    is_accessible = is_observable.astype(bool) & is_moonsafe.astype(bool) # note that this is an element-wise AND
+    return is_accessible.flatten()
+
+
+
+
     custom_access_maps = construct_custom_map_dict(manager.special_map_file) # if there is a custom map for the star, it will have the same form as above
     zero_out_names = construct_zero_out_arr(manager.zero_out_file) # manually remove stars from current night.
+    import gzip
+    import pickle
+    def save_dict_compressed(dictionary, filename):
+        with gzip.open(filename, 'wb') as f:
+            pickle.dump(dictionary, f)
+    # Load compressed
+    def load_dict_compressed(filename):
+        with gzip.open(filename, 'rb') as f:
+            return pickle.load(f)
+
+    #save_dict_compressed(default_access_maps, 'default_access_maps.pkl.gz')
+
+    # Load
+    default_access_maps_save = load_dict_compressed('default_access_maps.pkl.gz')
+    default_access_maps_save['Star0000'][:] = False
+    np.testing.assert_equal(default_access_maps_save, default_access_maps, err_msg="Objects not equal")
+
+
+
+
 
     available_slots_for_request = {}
     available_indices_for_request = {}
@@ -127,23 +220,6 @@ def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_f
                                                         available_slots_for_request[name][d] == 1)[0]))
             available_indices_for_request[name] = nightly_available_slots
 
-    import gzip
-    import pickle
-    def save_dict_compressed(dictionary, filename):
-        with gzip.open(filename, 'wb') as f:
-            pickle.dump(dictionary, f)
-    # Load compressed
-    def load_dict_compressed(filename):
-        with gzip.open(filename, 'rb') as f:
-            return pickle.load(f)
-    # Example usage:
-    # Save
-    #save_dict_compressed(available_indices_for_request, 'available_indices.pkl.gz')
-
-    # Load
-    available_indices_for_request_save = load_dict_compressed('available_indices.pkl.gz')
-    #removed_indices = available_indices_for_request.pop('Star0001')
-    assert available_indices_for_request_save == available_indices_for_request, "old not equal new"
 
     return available_indices_for_request
 
