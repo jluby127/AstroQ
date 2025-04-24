@@ -19,15 +19,14 @@ import kpfcc.driver as dr
 np.random.seed(24)
 
 def do_benchmark_files_exist(config_path, shortcut=0):
-
     config = ConfigParser()
     config.read(config_path)
     path2dir = eval(config.get('required', 'folder'), {"os": os})# + "/inputs/"
     current_day = config.get('required', 'current_day')
 
-    if os.path.exists(path2dir + "inputs/Requests_all.csv"):
+    if os.path.exists(path2dir + "inputs/Requests.csv"):
         print("Pulling previously generated toy_model.csv")
-        tmp_request = pd.read_csv(path2dir + "inputs/Requests_all.csv")
+        tmp_request = pd.read_csv(path2dir + "inputs/Requests.csv")
         tmp_request.to_csv(path2dir + "inputs/Requests.csv")
     else:
         print("toy_model.csv file not found, generating a new one.")
@@ -116,6 +115,7 @@ def set_nSlots_singles(nslot, request_set, start_row=250):
     return request_set
 
 def build_toy_model_from_paper(hours_per_program = 100, plot = False, savepath = "", shortcut=0):
+    import pdb; pdb.set_trace()
     if not os.path.exists(savepath):
         os.makedirs(savepath)
 
@@ -259,7 +259,6 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False, savepath =
         pt.ylim(-40,90)
         pt.show()
 
-    shortcut = 10
     if shortcut > 0:
         toy_requests = toy_requests[:shortcut]
     toy_requests.to_csv(savepath  + "Requests.csv", index=False)
