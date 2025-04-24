@@ -30,7 +30,7 @@ def do_benchmark_files_exist(config_path, shortcut=0):
         tmp_request = pd.read_csv(path2dir + "inputs/Requests_all.csv")
         tmp_request.to_csv(path2dir + "inputs/Requests.csv")
     else:
-        print("toy_model.csv file not found, generating a new one.")
+        print("Requests_all.csv file not found, generating a new one.")
         build_toy_model_from_paper(savepath=path2dir+"inputs/",shortcut=shortcut)
 
     print("Checking if semester has been prepared.")
@@ -263,6 +263,7 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False, savepath =
 
     if shortcut > 0:
         toy_requests = toy_requests[:shortcut]
-    toy_requests.to_csv(savepath  + "Requests_all.csv", index=False)
+    toy_requests.to_csv(savepath + "Requests_all.csv", index=False)
+    toy_requests.to_csv(savepath + "Requests.csv", index=False)
 
     print("The toy model is defined! Happy benchmarking.")

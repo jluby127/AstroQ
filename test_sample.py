@@ -33,5 +33,5 @@ class TestClass:
         dr.schedule(argparse.Namespace(request_file="examples/hello_world/outputs/2024-08-01/request_set.json", config_file='examples/hello_world/config_hello_world.ini'))
 
     def test_ob_database_pull(self):
-        dr.kpfcc_data(argparse.Namespace(pull_file='examples/pull_filec.json', database_file='examples/recreate_paper/'))
+        dr.kpfcc_data(argparse.Namespace(pull_file='examples/pull_file.json', database_file='examples/recreate_paper/'))
 
