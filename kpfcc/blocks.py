@@ -18,14 +18,22 @@ exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', '
                     'observation.auto_nd_filters', 'observation.cal_n_d_1', 'observation.cal_n_d_2', 
                     'observation.exp_meter_exp_time', 'observation.exp_meter_mode', 
                     'observation.exp_meter_threshold', 'observation.guide_here', 
-                    'observation.object', 'observation.take_simulcal', 
+                    'observation.object', 'observation.take_simulcal', 'observation.exp_meter_bin',
                     'observation.trigger_ca_h_k', 'observation.trigger_green', 'observation.trigger_red', 
                     'schedule.accessibility_map', 'schedule.days_observable', 'schedule.fast_read_mode_requested',
                     'schedule.minimum_elevation', 'schedule.minimum_moon_separation',  
                     'schedule.rise_semester_day', 'schedule.scheduling_mode', 'schedule.sets_semester_day', 
                     'schedule.total_observations_requested', 'schedule.total_time_for_target', 
                     'schedule.total_time_for_target_hours', 'target.isNew', 'target.parallax', 'target.equinox', 'target.systemic_velocity',
-                    'target.tic_id', 'target.two_mass_id', 'schedule.weather_band', 'target.catalog_comment']
+                    'target.tic_id', 'target.two_mass_id', 'schedule.weather_band', 'target.catalog_comment',
+                    'calibration.cal_n_d_1', 'calibration.cal_n_d_2', 'calibration.cal_source', 'calibration.exp_meter_bin', 
+                    'calibration.exp_meter_exp_time', 'calibration.exp_meter_mode', 'calibration.exp_meter_threshold', 
+                    'calibration.exposure_time', 'calibration.intensity_monitor', 'calibration.num_exposures', 'calibration.object', 
+                    'calibration.open_science_shutter', 'calibration.open_sky_shutter', 'calibration.take_simulcal', 
+                    'calibration.trigger_ca_h_k', 'calibration.trigger_green', 'calibration.trigger_red', 
+                    'calibration.wide_flat_pos', 'observation.block_sky', 'observation.nod_e', 'observation.nod_n', 
+                    'schedule.isNew'
+]
 
 def refresh_local_data(semester):
     """
