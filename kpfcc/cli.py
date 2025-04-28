@@ -110,6 +110,26 @@ def main():
                                 )
     psr_kpfcc_prep.set_defaults(func=kpfcc.driver.kpfcc_prep)
 
+    ## subcommand of kpfcc: data -- pull latest OB database
+    psr_kpfcc_data = kpfcc_subpsr.add_parser('data', #parents=[psr_parent],
+                                               description="Pull the OB database from Keck",
+                                               prefix_chars="-"
+                                               )
+
+    psr_kpfcc_data.add_argument('-pf', '--pull_file',
+                              type=str,
+                              required=True,
+                              help="Path to the file that determines how to pull from the database."
+                                )
+    
+    psr_kpfcc_data.add_argument('-df', '--database_file',
+                              type=str,
+                              required=True,
+                              help="Path to save the good OBs request sheet."
+                                )
+    
+    psr_kpfcc_data.set_defaults(func=kpfcc.driver.kpfcc_data)
+
     # If no arguments are provided, print help message and exit
     if len(sys.argv)==1:
         psr.print_help(sys.stderr)

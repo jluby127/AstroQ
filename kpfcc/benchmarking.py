@@ -12,10 +12,10 @@ import math
 from configparser import ConfigParser
 from argparse import Namespace
 
-import kpfcc.request as rq 
-import kpfcc.driver as dr 
+import kpfcc.request as rq
+import kpfcc.driver as dr
 
-# In the paper, we used random seed = 24. 
+# In the paper, we used random seed = 24.
 np.random.seed(24)
 
 def do_benchmark_files_exist(config_path, shortcut=0):
@@ -23,11 +23,14 @@ def do_benchmark_files_exist(config_path, shortcut=0):
     config = ConfigParser()
     config.read(config_path)
     path2dir = eval(config.get('required', 'folder'), {"os": os})# + "/inputs/"
+    current_day = config.get('required', 'current_day')
 
-    if os.path.exists(path2dir + "inputs/Requests.csv"):
+    if os.path.exists(path2dir + "inputs/Requests_all.csv"):
         print("Pulling previously generated toy_model.csv")
+        tmp_request = pd.read_csv(path2dir + "inputs/Requests_all.csv")
+        tmp_request.to_csv(path2dir + "inputs/Requests.csv")
     else:
-        print("toy_model.csv file not found, generating a new one.")
+        print("Requests_all.csv file not found, generating a new one.")
         build_toy_model_from_paper(savepath=path2dir+"inputs/",shortcut=shortcut)
 
     print("Checking if semester has been prepared.")
@@ -38,21 +41,21 @@ def do_benchmark_files_exist(config_path, shortcut=0):
         args1 = Namespace(config_file=config_path)
         dr.kpfcc_prep(args1)
 
-    if os.path.exists(path2dir + "toy_model.json"):
+    if os.path.exists(path2dir +"/outputs/" + current_day + "/request_set.json"):
         print("Pulling previously generated toy_model.json")
     else:
-        print("toy_model.json file not found, generating a new one.")
+        print("request_set.json file not found, generating a new one.")
         print("Note: this could take some time, depending on your machine's specs.")
         args2 = Namespace(config_file=config_path)
         dr.kpfcc_build(args2)
-        print("toy_model.json file is written. Proceed with benchmarking")
+        print("request_set.json file is written. Proceed with benchmarking")
 
     return path2dir# + "outputs/toy_model.json"
 
 def getDec(maxDec=75, minDec=-30):
     '''
     Randomly draw a declination from cosine i distribution between two values.
-    The default min/max declination values are chosen based on favorable viewing from Hawaii. 
+    The default min/max declination values are chosen based on favorable viewing from Hawaii.
     '''
     mincosdec = np.cos((90+maxDec)*(np.pi/180.))
     maxcosdec = np.cos((90+minDec)*(np.pi/180.))
@@ -63,7 +66,7 @@ def getDec(maxDec=75, minDec=-30):
 def stars_in_program(program, total_hours):
     '''
     Determine how many stars should be in a program based on that program's observing strategy and
-    it's awarded time. 
+    it's awarded time.
     '''
     e = program[1]
     n = program[2]
@@ -72,25 +75,32 @@ def stars_in_program(program, total_hours):
     n_stars = int(np.round(total_hours/total_time,0))
     return n_stars
 
-def firstN_Requests(nstar, request_set):
+def firstN_Requests(nstar, request_set, request_file):
     '''
-    Cut down the large RequestSet's number of requests into a smaller number. 
-    Useful for benchmarking astroq's performance as a function of number of requests. 
-    Note: Setting nstar < 250 will remove requests that are part of the standard toy model. This 
-          set of requests is designed to mimic a real semester and is paired to match the total "awarded" time 
-          in the Real2024B and Random allocation maps. 
+    Cut down the large RequestSet's number of requests into a smaller number.
+    Useful for benchmarking astroq's performance as a function of number of requests.
+    Note: Setting nstar < 250 will remove requests that are part of the standard toy model. This
+          set of requests is designed to mimic a real semester and is paired to match the total "awarded" time
+          in the Real2024B and Random allocation maps.
     '''
-    
+
     unique_stars = list(set(request_set.observability.id))
+    unique_stars.sort()
     keep_stars = unique_stars[:nstar]
 
     mask1 = request_set.observability['id'].isin(keep_stars)
     mask2 = request_set.strategy['id'].isin(keep_stars)
-    
+
     request_set.observability = request_set.observability[mask1]
     request_set.observability.reset_index(inplace=True, drop=True)
     request_set.strategy = request_set.strategy[mask2]
     request_set.strategy.reset_index(inplace=True, drop=True)
+
+    request_frame = pd.read_csv(request_file)
+    request_frame.sort_values(by='starname', inplace=True)
+    request_frame.reset_index(inplace=True, drop=True)
+    request_frame = request_frame[:nstar]
+    request_frame.to_csv(request_file[:-8] + ".csv", index=False)
 
     return request_set
 
@@ -99,7 +109,7 @@ def set_nSlots_singles(nslot, request_set, start_row=250):
     Change the number of slots required to complete one request of the extra single shot requests.
     Useful for benchmarking astroq's performance as a function of # of Slots to Complete Request
 
-    star_row is set to 250 because this is the first row of the extra single shot requests. We don't 
+    star_row is set to 250 because this is the first row of the extra single shot requests. We don't
     want to apply this logic to any of the standard toy model requests.
     '''
     request_set.strategy.loc[request_set.strategy.iloc[start_row:].index, 't_visit'] = nslot
@@ -253,6 +263,7 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False, savepath =
 
     if shortcut > 0:
         toy_requests = toy_requests[:shortcut]
-    toy_requests.to_csv(savepath  + "Requests.csv", index=False)
+    toy_requests.to_csv(savepath + "Requests_all.csv", index=False)
+    toy_requests.to_csv(savepath + "Requests.csv", index=False)
 
     print("The toy model is defined! Happy benchmarking.")
