@@ -46,10 +46,10 @@ class Scheduler(object):
         self.observability_nights = self.joiner[self.joiner['n_intra_min'] > 1][['id', 'd']].drop_duplicates().copy()
         self.multi_visit_requests = list(self.observability_nights['id'].unique())
 
-        self.all_requests = list(manager.requests_frame['Starname'])
+        self.all_requests = list(manager.requests_frame['starname'])
         self.schedulable_requests =  list(self.joiner['id'].unique())
         self.single_visit_requests = [item for item in self.schedulable_requests if item not in self.multi_visit_requests]
-        for name in list(manager.requests_frame['Starname']):
+        for name in list(manager.requests_frame['starname']):
             if name not in self.schedulable_requests:
                 print("WARNING: Target " + name + " has no valid day/slot pairs and therefore is effectively removed from the model.")
 
@@ -120,20 +120,20 @@ class Scheduler(object):
         absolute_max_obs_allowed_dict = {}
         past_nights_observed_dict = {}
         for name in self.schedulable_requests:
-            idx = self.manager.requests_frame.index[self.manager.requests_frame['Starname']==name][0]
+            idx = self.manager.requests_frame.index[self.manager.requests_frame['starname']==name][0]
             if self.manager.database_info_dict == {}:
                 past_nights_observed = 0
             else:
                 past_nights_observed = len(self.manager.database_info_dict[name][1])
 
             # Safety valve for if the target is over-observed for any reason
-            if past_nights_observed > self.manager.requests_frame['# of Nights Per Semester'][idx] + \
-                        int(self.manager.requests_frame['# of Nights Per Semester'][idx]*self.manager.max_bonus):
+            if past_nights_observed > self.manager.requests_frame['n_inter_max'][idx] + \
+                        int(self.manager.requests_frame['n_inter_max'][idx]*self.manager.max_bonus):
                 desired_max_obs = past_nights_observed
             else:
-                desired_max_obs = (self.manager.requests_frame['# of Nights Per Semester'][idx] - past_nights_observed)
-                absolute_max_obs = (self.manager.requests_frame['# of Nights Per Semester'][idx] - past_nights_observed) \
-                        + int(self.manager.requests_frame['# of Nights Per Semester'][idx]*self.manager.max_bonus)
+                desired_max_obs = (self.manager.requests_frame['n_inter_max'][idx] - past_nights_observed)
+                absolute_max_obs = (self.manager.requests_frame['n_inter_max'][idx] - past_nights_observed) \
+                        + int(self.manager.requests_frame['n_inter_max'][idx]*self.manager.max_bonus)
                 # second safety valve
                 if past_nights_observed > absolute_max_obs:
                     absolute_max_obs = past_nights_observed
@@ -143,6 +143,7 @@ class Scheduler(object):
             self.desired_max_obs_allowed_dict = desired_max_obs_allowed_dict
             self.absolute_max_obs_allowed_dict = absolute_max_obs_allowed_dict
             self.past_nights_observed_dict = past_nights_observed_dict
+        print("Initializing complete.")
 
     def constraint_build_theta(self):
         """
@@ -150,11 +151,11 @@ class Scheduler(object):
         """
         print("Constraint 0: Build theta variable")
         for name in self.schedulable_requests:
-            idx = self.manager.requests_frame.index[self.manager.requests_frame['Starname']==name][0]
+            idx = self.manager.requests_frame.index[self.manager.requests_frame['starname']==name][0]
             self.model.addConstr(self.theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
             # Get all (d,s) pairs for which this request is valid.
             available = list(zip(list(self.all_valid_ds_for_request.loc[name].d), list(self.all_valid_ds_for_request.loc[name].s)))
-            self.model.addConstr(self.theta[name] >= ((self.manager.requests_frame['# of Nights Per Semester'][idx] - \
+            self.model.addConstr(self.theta[name] >= ((self.manager.requests_frame['n_inter_max'][idx] - \
                         self.past_nights_observed_dict[name]) - gp.quicksum(self.Yrds[name, d, s] for d,s in available)), \
                         'greater_than_nobs_shortfall_' + str(name))
 
@@ -165,11 +166,11 @@ class Scheduler(object):
         """
         print("Constraint 0: Build theta variable")
         for name in self.schedulable_requests:
-            idx = self.manager.requests_frame.index[self.manager.requests_frame['Starname']==name][0]
+            idx = self.manager.requests_frame.index[self.manager.requests_frame['starname']==name][0]
             self.model.addConstr(self.theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
             # Get all (d,s) pairs for which this request is valid.
             available = list(zip(list(self.all_valid_ds_for_request.loc[name].d), list(self.all_valid_ds_for_request.loc[name].s)))
-            self.model.addConstr(self.theta[name] >= ((self.manager.requests_frame['# of Nights Per Semester'][idx] - \
+            self.model.addConstr(self.theta[name] >= ((self.manager.requests_frame['n_inter_max'][idx] - \
                         self.past_nights_observed_dict[name]) - gp.quicksum(self.Yrds[name, d, s] for d,s in available))*self.manager.slots_needed_for_exposure_dict[name], \
                         'greater_than_nobs_shortfall_' + str(name))
 
@@ -180,12 +181,12 @@ class Scheduler(object):
         """
         print("Constraint 0: Build theta variable")
         for name in self.schedulable_requests:
-            idx = self.manager.requests_frame.index[self.manager.requests_frame['Starname']==name][0]
+            idx = self.manager.requests_frame.index[self.manager.requests_frame['starname']==name][0]
             self.model.addConstr(self.theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
             # Get all (d,s) pairs for which this request is valid.
             available = list(zip(list(self.all_valid_ds_for_request.loc[name].d), list(self.all_valid_ds_for_request.loc[name].s)))
-            self.model.addConstr(self.theta[name] >= ((self.manager.requests_frame['# of Nights Per Semester'][idx] - \
-                        self.past_nights_observed_dict[name]) - gp.quicksum(self.Yrds[name, d, s] for d,s in available))/self.manager.requests_frame['# of Nights Per Semester'][idx], \
+            self.model.addConstr(self.theta[name] >= ((self.manager.requests_frame['n_inter_max'][idx] - \
+                        self.past_nights_observed_dict[name]) - gp.quicksum(self.Yrds[name, d, s] for d,s in available))/self.manager.requests_frame['n_inter_max'][idx], \
                         'greater_than_nobs_shortfall_' + str(name))
 
     def constraint_one_request_per_slot(self):
@@ -397,7 +398,7 @@ class Scheduler(object):
         According to Eq X in Lubin et al. 2025.
         """
         print("Constraint: Fixing the previous solution's objective value.")
-        self.model.addConstr(gp.quicksum(self.theta[name] for name in self.manager.requests_frame['Starname']) <= \
+        self.model.addConstr(gp.quicksum(self.theta[name] for name in self.manager.requests_frame['starname']) <= \
                         self.model.objval + epsilon)
 
     def set_objective_maximize_slots_used(self):
@@ -427,7 +428,7 @@ class Scheduler(object):
         """
         According to Eq X in Lubin et al. 2025.
         """
-        self.model.setObjective(gp.quicksum(self.theta[name]/self.manager.requests_frame.loc[self.manager.requests_frame['Starname'] == name, '# of Nights Per Semester'] for name in self.schedulable_requests), GRB.MINIMIZE)
+        self.model.setObjective(gp.quicksum(self.theta[name]/self.manager.requests_frame.loc[self.manager.requests_frame['starname'] == name, 'n_inter_max'] for name in self.schedulable_requests), GRB.MINIMIZE)
 
     # def constraint_connect_Wrd_and_Yrds(self):
     #     """
@@ -449,13 +450,13 @@ class Scheduler(object):
         """
         print("Constraint 0: Build theta variable")
         for name in self.schedulable_requests:
-            idx = self.manager.requests_frame.index[self.manager.requests_frame['Starname']==name][0]
+            idx = self.manager.requests_frame.index[self.manager.requests_frame['starname']==name][0]
             self.model.addConstr(self.theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
             # Get all (d,s) pairs for which this request is valid.
             all_d = list(set(list(self.all_valid_ds_for_request.loc[name].d)))
             available = list(zip(list(self.all_valid_ds_for_request.loc[name].d), list(self.all_valid_ds_for_request.loc[name].s)))
-            self.model.addConstr(self.theta[name] >= ((self.manager.requests_frame['# of Nights Per Semester'][idx] - \
-                        self.past_nights_observed_dict[name]) - (gp.quicksum(self.Yrds[name, d, s] for d, s in available))/self.manager.requests_frame['Desired Visits per Night'][idx]), \
+            self.model.addConstr(self.theta[name] >= ((self.manager.requests_frame['n_inter_max'][idx] - \
+                        self.past_nights_observed_dict[name]) - (gp.quicksum(self.Yrds[name, d, s] for d, s in available))/self.manager.requests_frame['n_intra_max'][idx]), \
                         'greater_than_nobs_shortfall_' + str(name))
 
     def constraint_set_max_desired_unique_nights_Wrd(self):

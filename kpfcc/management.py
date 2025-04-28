@@ -48,11 +48,13 @@ class data_admin(object):
         self.n_hours_in_night = int(config.get('other', 'hours_in_night'))
         self.daily_starting_time = str(config.get('other', 'daily_starting_time'))
 
+        # self.allocation_file = os.path.join(self.semester_directory, "inputs/allocation_schedule.txt")
+        self.allocation_file = str(config.get('oia', 'allocation_file'))
+        print("Using allocation map as defined in: ", self.allocation_file)
         self.requests_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/Requests.csv"))
         self.twilight_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/twilight_times.csv"), parse_dates=True)
         self.past_database_file = os.path.join(self.semester_directory, "inputs/queryJumpDatabase.csv")
-        self.allocation_file = os.path.join(self.semester_directory, "inputs/allocation_schedule.txt")
-        self.accessibilities_file = os.path.join(self.semester_directory, "inputs/AccessMaps_" + str(self.slot_size) + "minSlots.txt")
+        self.accessibilities_file = os.path.join(self.semester_directory, "inputs/accessibilities_" + str(self.slot_size) + "minSlots.json")
         self.special_map_file = os.path.join(self.semester_directory, "inputs/specialMaps_" + str(self.slot_size) + "minSlots.txt")
         self.zero_out_file = os.path.join(self.semester_directory, "inputs/zero_out.csv")
         self.nonqueue_map_file = os.path.join(self.semester_directory, "inputs//NonQueueMap"  + str(self.slot_size) + ".txt")
@@ -165,7 +167,10 @@ class data_admin(object):
         self.allocation_map_1D = allocation_map_1D
         self.allocation_map_2D = allocation_map_2D
         self.weathered_map = weathered_map
-        self.weathered_days = np.where(np.any(self.weather_diff_remaining == 1, axis=1))[0]
+        if np.sum(self.weather_diff_remaining) == 0:
+            self.weathered_days = []
+        else:
+            self.weathered_days = np.where(np.any(self.weather_diff_remaining == 1, axis=1))[0]
 
     def build_slots_required_dictionary(self, always_round_up_flag=False):
         """
@@ -183,9 +188,9 @@ class data_admin(object):
         # When n_shots and n_visits are both 1, this reduces down to just the stated exposure time.
         slots_needed_for_exposure_dict = {}
         for n,row in self.requests_frame.iterrows():
-            name = row['Starname']
-            exposure_time = row['Nominal Exposure Time [s]']*row['# of Exposures per Visit'] + \
-                45*(row['# of Exposures per Visit'] - 1)
+            name = row['starname']
+            exposure_time = row['exptime']*row['n_exp'] + \
+                45*(row['n_exp'] - 1)
             slots_needed_for_exposure_dict[name] = compute_slots_required_for_exposure(exposure_time, self.slot_size, always_round_up_flag)
         return slots_needed_for_exposure_dict
 
@@ -362,7 +367,7 @@ def prepare_new_semester(config_path):
     # -----------------------------------------------------------------------------------------
     print("Computing access maps for all stars.")
     print("This could take some time.")
-    little_manager.accessibilities_file = os.path.join(little_manager.upstream_path, "inputs/accessibilities.json")
+    little_manager.accessibilities_file = os.path.join(little_manager.upstream_path, "inputs/accessibilities_" + str(little_manager.slot_size) + "minSlots.json")
     default_access_maps = ac.construct_access_dict(little_manager)
 
     # Create the csv file containing the turn on and turn off dates for each target in each quarter

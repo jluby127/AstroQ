@@ -1,3 +1,0 @@
-starname,program,ra,dec,exptime,n_exp,n_intra_max,n_intra_min,n_inter_max,tau_inter,tau_intra
-Star0000,Program0,111.6036337005429,-3.411512717999173,300,1,1,1,40,1,0
-Star0001,Program0,119.97213145101466,40.04009243316111,300,1,1,1,40,1,0

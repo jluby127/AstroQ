@@ -22,7 +22,7 @@ import astroplan as apl
 # pre_sunrise and post_sunrise dictionaries. Ensure times are 14 hours apart, at least one hour
 # before the earliest sunset and one hour after the latest sunrise of the year.
 locations = {"Keck Observatory":"Hawaii", "Kitt Peak National Observatory":"Arizona"}
-pre_sunset = {'Hawaii':'07:30', 'Arizona':'05:00'}
+pre_sunset = {'Hawaii':'03:30', 'Arizona':'05:00'}
 post_sunrise = {'Hawaii':'17:30', 'Arizona':'14:00'}
 # each telescope's pointing limits are defined by list with elements in following order:
 # maximum altitude
@@ -48,10 +48,6 @@ def construct_access_dict(manager):
     rewrite_flag = False
     if os.path.exists(manager.accessibilities_file) == False:
         default_access_maps = {}
-        # string_access_dict = {}
-        # string_access_dict['empty'] = "[0,0,0]"
-        # with open(manager.upstream_path + "inputs/" + manager.accessibilities_file, 'w') as convert_file:
-        #     convert_file.write(json.dumps(string_access_dict))
         rewrite_flag = True 
     else:
         default_access_maps = read_accessibilty_map_dict(manager.accessibilities_file)
@@ -64,9 +60,7 @@ def construct_access_dict(manager):
         except:
             print(name + " not found in precomputed accessibilty maps. Running now.")
             # Note: the -1 is to account for python indexing
-            new_written_access_map = build_single_target_accessibility(name, row['ra'], row['dec'],
-                                               manager.semester_start_date, manager.semester_length-1,
-                                               manager.slot_size, manager.observatory)
+            new_written_access_map = build_single_target_accessibility(manager, name, row['ra'], row['dec'])
             default_access_maps[name] = np.array(new_written_access_map).flatten()
             rewrite_flag = True
     if rewrite_flag:
@@ -168,8 +162,7 @@ def read_accessibilty_map_dict(filename):
     return access_dict
 
 
-def build_single_target_accessibility(starname, ra, dec, start_date, n_nights_in_semester,
-                                      slot_size, observatory, min_moon_sep = 30, compute_turn_on_off=False):
+def build_single_target_accessibility(manager, starname, ra, dec, min_moon_sep = 30, compute_turn_on_off=False):
     """
     Compute a target's accessibility map for the entire semester
 
@@ -190,13 +183,13 @@ def build_single_target_accessibility(starname, ra, dec, start_date, n_nights_in
     coords = apy.coordinates.SkyCoord(ra * u.deg, dec * u.deg, frame='icrs')
     target = apl.FixedTarget(name=starname, coord=coords)
 
-    date_formal = Time(start_date,format='iso',scale='utc')
+    date_formal = Time(manager.current_day,format='iso',scale='utc')
     date = str(date_formal)[:10]
     target_accessibility = []
     quarter_map = []
-    for d in range(n_nights_in_semester):
-        tonights_access = is_observable(observatory, date, target, slot_size)
-        tonights_moonsafe = is_moonsafe(observatory, date, target, len(tonights_access), min_moon_sep)
+    for d in range(manager.n_nights_in_semester):
+        tonights_access = is_observable(manager, date, target)
+        tonights_moonsafe = is_moonsafe(manager.observatory, date, target, len(tonights_access), min_moon_sep)
         target_accessibility.append(tonights_access&tonights_moonsafe)
         date_formal += TimeDelta(1,format='jd')
         date = str(date_formal)[:10]
@@ -214,7 +207,7 @@ def build_single_target_accessibility(starname, ra, dec, start_date, n_nights_in
     else:
         return target_accessibility
 
-def is_observable(observatory, date, target, slot_size):
+def is_observable(manager, date, target):
     """
     Compute a target's accessibility map on a given date, taking into account the
     telescope pointing limits and moon-safe distance at the beginning of every slot.
@@ -229,33 +222,33 @@ def is_observable(observatory, date, target, slot_size):
                                       target is accessible in that slot and 0 otherwise.
     """
     # Can't observe too close to zenith
-    max_alt = pointing_limits[observatory][0]
+    max_alt = pointing_limits[manager.observatory][0]
     # Naysmith deck azimuth direction limits
-    min_az = pointing_limits[observatory][1]
-    max_az = pointing_limits[observatory][2]
+    min_az = pointing_limits[manager.observatory][1]
+    max_az = pointing_limits[manager.observatory][2]
     # Naysmith deck
-    min_alt = pointing_limits[observatory][3]
+    min_alt = pointing_limits[manager.observatory][3]
     #non-Naysmith deck minimum elevation
-    else_min_alt = pointing_limits[observatory][4]
+    else_min_alt = pointing_limits[manager.observatory][4]
     # Prefer to observe at least 30 degree altitude if they are not too far north/south
-    else_min_alt_alt = pointing_limits[observatory][5]
-    max_north = pointing_limits[observatory][6]
-    max_south = pointing_limits[observatory][7]
+    else_min_alt_alt = pointing_limits[manager.observatory][5]
+    max_north = pointing_limits[manager.observatory][6]
+    max_south = pointing_limits[manager.observatory][7]
 
     # This is ~20 min before earliest sunset of the year in Hawaii
     # And ~20 min after the latest sunrise of the year in Hawaii
     # Both are UTC time zone.
-    start = date + "T" + pre_sunset[locations[observatory]]# "T03:30:00"
+    start = date + "T" + manager.daily_starting_time #+ pre_sunset[locations[manger.observatory]]# "T03:30:00"
     daily_start = Time(start)
-    end = date + "T" + post_sunrise[locations[observatory]] #"T17:30:00"
-    daily_end = Time(end)
-    slot_size = TimeDelta(slot_size*60.,format='sec')
-    t = Time(np.arange(daily_start.jd, daily_end.jd, slot_size.jd),format='jd')
+    end = date + "T" + manager.daily_ending_time #+ post_sunrise[locations[observatory]] #"T17:30:00"
+    daily_end = Time(end) + TimeDelta(0.999,format='jd') # add almost one day, if add exactly 1 day, then we get an extra slot by mistake
+    tmp_slot_size = TimeDelta(manager.slot_size*60.,format='sec')
+    t = Time(np.arange(daily_start.jd, daily_end.jd, tmp_slot_size.jd),format='jd')
 
-    keck = apl.Observer.at_site(observatory)
+    keck = apl.Observer.at_site(manager.observatory)
     altaz_coordinates = keck.altaz(t, target, grid_times_targets=True)
 
-    keckapy = apy.coordinates.EarthLocation.of_site(observatory)
+    keckapy = apy.coordinates.EarthLocation.of_site(manager.observatory)
 
     observability_matrix = []
     for i, item in enumerate(altaz_coordinates):
