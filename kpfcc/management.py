@@ -47,6 +47,7 @@ class data_admin(object):
         self.n_quarters_in_night = int(config.get('other', 'quarters_in_night'))
         self.n_hours_in_night = int(config.get('other', 'hours_in_night'))
         self.daily_starting_time = str(config.get('other', 'daily_starting_time'))
+        self.daily_ending_time  = f"{(int(self.daily_starting_time.split(':')[0]) + self.n_hours_in_night) % 24:02d}:{int(self.daily_starting_time.split(':')[1]):02d}"
 
         # self.allocation_file = os.path.join(self.semester_directory, "inputs/allocation_schedule.txt")
         self.allocation_file = str(config.get('oia', 'allocation_file'))
@@ -63,13 +64,13 @@ class data_admin(object):
         self.run_weather_loss = eval(config.get('options', 'run_weather_loss'))#.strip().lower() == "true"
 
         self.run_optimal_allocation = config.get('oia', 'run_optimal_allocation').strip().lower() == "true"
-        self.include_aesthetic = config.get('oia', 'run_with_aesthetics')
+        self.include_aesthetic = config.get('oia', 'run_with_aesthetics').strip().lower() == "true"
         self.max_quarters = int(config.get('oia', 'maximum_allocated_quarters'))
         self.max_unique_nights = int(config.get('oia', 'maximum_allocated_nights'))
         self.min_represented = 1
         self.whiteout_file = os.path.join(self.semester_directory, "inputs/whiteout_dates.txt")
         self.blackout_file = os.path.join(self.semester_directory, "inputs/blackout_dates.txt")
-        self.allow_single_quarters = config.get('oia', 'allow_single_quarter_allocations')
+        self.allow_single_quarters = config.get('oia', 'allow_single_quarter_allocations').strip().lower() == "true"
         self.max_consecutive = int(config.get('oia', 'maximum_consecutive_onsky'))
         self.min_consecutive = int(config.get('oia', 'minimum_consecutive_offsky'))
         self.max_baseline = int(config.get('oia', 'maximum_baseline'))
@@ -333,6 +334,8 @@ def prepare_new_semester(config_path):
     little_manager.daily_starting_time = str(config.get('other', 'daily_starting_time'))
     little_manager.daily_ending_time  = f"{(int(little_manager.daily_starting_time.split(':')[0]) + little_manager.n_hours_in_night) % 24:02d}:{int(little_manager.daily_starting_time.split(':')[1]):02d}"
 
+    print(little_manager.upstream_path)
+    print(os.path.join(little_manager.upstream_path, "inputs/Requests.csv"))
     little_manager.requests_frame = pd.read_csv(os.path.join(little_manager.upstream_path, "inputs/Requests.csv"))
     try:
         little_manager.nonqueue_frame = pd.read_csv(os.path.join(little_manager.upstream_path, "inputs/NonQueueMap"  + str(little_manager.slot_size) + ".csv"))
@@ -376,7 +379,7 @@ def prepare_new_semester(config_path):
 
     if little_manager.run_optimal_allocation == False:
         
-        little_manager.allocation_file = os.path.join(little_manager.upstream_path, "inputs/keck_obs_allocation.txt")
+        little_manager.allocation_file = os.path.join(little_manager.upstream_path, "inputs/Observatory_Allocation.csv")
         if os.path.exists(little_manager.allocation_file):
             allocation = mp.format_keck_allocation_info(little_manager.allocation_file)
             allocation_binary = mp.convert_allocation_info_to_binary(little_manager, allocation)

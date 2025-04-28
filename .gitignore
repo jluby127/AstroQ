@@ -121,3 +121,7 @@ venv.bak/
 # PDM
 __pypackages__/
 pdm.lock
+examples/bench/inputs/
+examples/bench/outputs/
+examples/hello_world/inputs/
+examples/hello_world/outputs/
