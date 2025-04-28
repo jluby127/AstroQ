@@ -39,19 +39,16 @@ git clone https://github.com/jluby127/astroq.git
 
 And then install via:
 ```
-pip install . (you may want include a "-e" flag if you intend to be editing the code)
+pip install -e .
 ```
 
-This will set up the environment and all dependency packages. Once again, it is very important that you _**do not**_ run the pip installer until you have obtained a Gurobi license. I cannot stress this enough.
-
-### Install ttpsolver
-One of the optimalAllocation dependencies is a package we co-developed, the TTP Solver (Traveling Telescope Problem). While the AstroQ autoscheduler decides which requests should be observed on a given night, the TTP solves for the optimal slew path to observe all those targets within the night. This package is automatically installed via pip from the environment.yml; however, you must navigate to its local path update your environment variables. For more information on installation and documentation of the TTP, see its Github Repo at: https://github.com/lukehandley/ttp. 
+This will set up the environment and all dependency packages.
 
 # Run instructions
 
 To test installation and practice the workflow of running the autoscheduler, use the supplied example. From your terminal, run the following command:
 ```
-astroq schedule -rf examples/hello-world.json -cf examples/config_hello_world.ini
+astroq bench -nr ... -ns ... -cf ...
 ```
 
 ## Flags

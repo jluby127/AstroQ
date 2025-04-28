@@ -5,7 +5,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>kpfcc.access &mdash; AstroQ_docs 1.0.0 documentation</title>
+  <title>kpfcc.access &mdash; AstroQ 1.0.0 documentation</title>
       <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
 
@@ -29,7 +29,7 @@
           
           
           <a href="../../index.html" class="icon icon-home">
-            AstroQ_docs
+            AstroQ
           </a>
 <div role="search">
   <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
@@ -41,7 +41,8 @@
         </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
               <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../kpfcc.html">kpfcc package</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../getting_started.html">GS</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api.html">API</a></li>
 </ul>
 
         </div>
@@ -50,7 +51,7 @@
 
     <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
           <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
-          <a href="../../index.html">AstroQ_docs</a>
+          <a href="../../index.html">AstroQ</a>
       </nav>
 
       <div class="wy-nav-content">
@@ -78,12 +79,33 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pt</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
 
 <span class="kn">from</span><span class="w"> </span><span class="nn">astropy.time</span><span class="w"> </span><span class="kn">import</span> <span class="n">Time</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">astropy.time</span><span class="w"> </span><span class="kn">import</span> <span class="n">TimeDelta</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">astropy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">apy</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">astropy.units</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">u</span>
 <span class="kn">import</span><span class="w"> </span><span class="nn">astroplan</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">apl</span>
+
+<span class="c1"># Define list of observatories which are currently supported.</span>
+<span class="c1"># To add an obseratory/telescope, add the Astroplan resolvable name to the list in generate_night_plan</span>
+<span class="c1"># Then add the same name to the appropriate element of the locations dictionary.</span>
+<span class="c1"># If necessary, add a location to the locations dictionary, if so, add the location to each of the</span>
+<span class="c1"># pre_sunrise and post_sunrise dictionaries. Ensure times are 14 hours apart, at least one hour</span>
+<span class="c1"># before the earliest sunset and one hour after the latest sunrise of the year.</span>
+<span class="n">locations</span> <span class="o">=</span> <span class="p">{</span><span class="s2">&quot;Keck Observatory&quot;</span><span class="p">:</span><span class="s2">&quot;Hawaii&quot;</span><span class="p">,</span> <span class="s2">&quot;Kitt Peak National Observatory&quot;</span><span class="p">:</span><span class="s2">&quot;Arizona&quot;</span><span class="p">}</span>
+<span class="n">pre_sunset</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;Hawaii&#39;</span><span class="p">:</span><span class="s1">&#39;07:30&#39;</span><span class="p">,</span> <span class="s1">&#39;Arizona&#39;</span><span class="p">:</span><span class="s1">&#39;05:00&#39;</span><span class="p">}</span>
+<span class="n">post_sunrise</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;Hawaii&#39;</span><span class="p">:</span><span class="s1">&#39;17:30&#39;</span><span class="p">,</span> <span class="s1">&#39;Arizona&#39;</span><span class="p">:</span><span class="s1">&#39;14:00&#39;</span><span class="p">}</span>
+<span class="c1"># each telescope&#39;s pointing limits are defined by list with elements in following order:</span>
+<span class="c1"># maximum altitude</span>
+<span class="c1"># minimum azimuth of nasmyth deck (when no nasmyth deck, use 0)</span>
+<span class="c1"># maximum azimuth of nasmyth deck (when no nasmyth deck, use 360)</span>
+<span class="c1"># minimum altitude of nasmyth deck (when no nasmyth deck, use same as below)</span>
+<span class="c1"># minimum alitude of non-nasmyth deck (when no nasmyth deck, use same as above)</span>
+<span class="c1"># preferred minimum altitude</span>
+<span class="c1"># maximum northern declination to enforce preferred minimum altitude</span>
+<span class="c1"># maximum southern declination to enforce preferred minimum altitude</span>
+<span class="n">pointing_limits</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;Keck Observatory&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mf">85.0</span><span class="p">,</span> <span class="mf">5.3</span><span class="p">,</span> <span class="mf">146.2</span><span class="p">,</span> <span class="mf">33.3</span><span class="p">,</span> <span class="mf">18.0</span><span class="p">,</span> <span class="mf">30.0</span><span class="p">,</span> <span class="mf">75.0</span><span class="p">,</span> <span class="o">-</span><span class="mf">35.0</span><span class="p">]}</span>
 
 <div class="viewcode-block" id="construct_access_dict">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.construct_access_dict">[docs]</a>
@@ -98,9 +120,17 @@
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Reading pre-computed accessibility maps.&quot;</span><span class="p">)</span>
     <span class="n">rewrite_flag</span> <span class="o">=</span> <span class="kc">False</span>
-    <span class="n">default_access_maps</span> <span class="o">=</span> <span class="n">read_accessibilty_map_dict</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">accessibilities_file</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">accessibilities_file</span><span class="p">)</span> <span class="o">==</span> <span class="kc">False</span><span class="p">:</span>
+        <span class="n">default_access_maps</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="c1"># string_access_dict = {}</span>
+        <span class="c1"># string_access_dict[&#39;empty&#39;] = &quot;[0,0,0]&quot;</span>
+        <span class="c1"># with open(manager.upstream_path + &quot;inputs/&quot; + manager.accessibilities_file, &#39;w&#39;) as convert_file:</span>
+        <span class="c1">#     convert_file.write(json.dumps(string_access_dict))</span>
+        <span class="n">rewrite_flag</span> <span class="o">=</span> <span class="kc">True</span> 
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">default_access_maps</span> <span class="o">=</span> <span class="n">read_accessibilty_map_dict</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">accessibilities_file</span><span class="p">)</span>
     <span class="k">for</span> <span class="n">n</span><span class="p">,</span><span class="n">row</span> <span class="ow">in</span> <span class="n">manager</span><span class="o">.</span><span class="n">requests_frame</span><span class="o">.</span><span class="n">iterrows</span><span class="p">():</span>
-        <span class="n">name</span> <span class="o">=</span> <span class="n">row</span><span class="p">[</span><span class="s1">&#39;Starname&#39;</span><span class="p">]</span>
+        <span class="n">name</span> <span class="o">=</span> <span class="n">row</span><span class="p">[</span><span class="s1">&#39;starname&#39;</span><span class="p">]</span>
         <span class="c1"># check that this target has a pre-computed accessibility map,</span>
         <span class="c1"># if not, make one and add it to the file</span>
         <span class="k">try</span><span class="p">:</span>
@@ -108,7 +138,7 @@
         <span class="k">except</span><span class="p">:</span>
             <span class="nb">print</span><span class="p">(</span><span class="n">name</span> <span class="o">+</span> <span class="s2">&quot; not found in precomputed accessibilty maps. Running now.&quot;</span><span class="p">)</span>
             <span class="c1"># Note: the -1 is to account for python indexing</span>
-            <span class="n">new_written_access_map</span> <span class="o">=</span> <span class="n">build_single_target_accessibility</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">row</span><span class="p">[</span><span class="s1">&#39;RA&#39;</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s1">&#39;Dec&#39;</span><span class="p">],</span>
+            <span class="n">new_written_access_map</span> <span class="o">=</span> <span class="n">build_single_target_accessibility</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">row</span><span class="p">[</span><span class="s1">&#39;ra&#39;</span><span class="p">],</span> <span class="n">row</span><span class="p">[</span><span class="s1">&#39;dec&#39;</span><span class="p">],</span>
                                                <span class="n">manager</span><span class="o">.</span><span class="n">semester_start_date</span><span class="p">,</span> <span class="n">manager</span><span class="o">.</span><span class="n">semester_length</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span>
                                                <span class="n">manager</span><span class="o">.</span><span class="n">slot_size</span><span class="p">,</span> <span class="n">manager</span><span class="o">.</span><span class="n">observatory</span><span class="p">)</span>
             <span class="n">default_access_maps</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">new_written_access_map</span><span class="p">)</span><span class="o">.</span><span class="n">flatten</span><span class="p">()</span>
@@ -225,7 +255,7 @@
 <div class="viewcode-block" id="build_single_target_accessibility">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.build_single_target_accessibility">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">build_single_target_accessibility</span><span class="p">(</span><span class="n">starname</span><span class="p">,</span> <span class="n">ra</span><span class="p">,</span> <span class="n">dec</span><span class="p">,</span> <span class="n">start_date</span><span class="p">,</span> <span class="n">n_nights_in_semester</span><span class="p">,</span>
-                                      <span class="n">slot_size</span><span class="p">,</span> <span class="n">observatory</span><span class="p">,</span> <span class="n">compute_turn_on_off</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
+                                      <span class="n">slot_size</span><span class="p">,</span> <span class="n">observatory</span><span class="p">,</span> <span class="n">min_moon_sep</span> <span class="o">=</span> <span class="mi">30</span><span class="p">,</span> <span class="n">compute_turn_on_off</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Compute a target&#39;s accessibility map for the entire semester</span>
 
@@ -252,7 +282,8 @@
     <span class="n">quarter_map</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="k">for</span> <span class="n">d</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_nights_in_semester</span><span class="p">):</span>
         <span class="n">tonights_access</span> <span class="o">=</span> <span class="n">is_observable</span><span class="p">(</span><span class="n">observatory</span><span class="p">,</span> <span class="n">date</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">slot_size</span><span class="p">)</span>
-        <span class="n">target_accessibility</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">tonights_access</span><span class="p">)</span>
+        <span class="n">tonights_moonsafe</span> <span class="o">=</span> <span class="n">is_moonsafe</span><span class="p">(</span><span class="n">observatory</span><span class="p">,</span> <span class="n">date</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">tonights_access</span><span class="p">),</span> <span class="n">min_moon_sep</span><span class="p">)</span>
+        <span class="n">target_accessibility</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">tonights_access</span><span class="o">&amp;</span><span class="n">tonights_moonsafe</span><span class="p">)</span>
         <span class="n">date_formal</span> <span class="o">+=</span> <span class="n">TimeDelta</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="nb">format</span><span class="o">=</span><span class="s1">&#39;jd&#39;</span><span class="p">)</span>
         <span class="n">date</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">date_formal</span><span class="p">)[:</span><span class="mi">10</span><span class="p">]</span>
         <span class="k">if</span> <span class="n">compute_turn_on_off</span><span class="p">:</span>
@@ -303,9 +334,9 @@
     <span class="c1"># This is ~20 min before earliest sunset of the year in Hawaii</span>
     <span class="c1"># And ~20 min after the latest sunrise of the year in Hawaii</span>
     <span class="c1"># Both are UTC time zone.</span>
-    <span class="n">start</span> <span class="o">=</span> <span class="n">date</span> <span class="o">+</span> <span class="n">pre_sunset</span><span class="p">[</span><span class="n">locations</span><span class="p">[</span><span class="n">observatory</span><span class="p">]]</span><span class="c1"># &quot;T03:30:00&quot;</span>
+    <span class="n">start</span> <span class="o">=</span> <span class="n">date</span> <span class="o">+</span> <span class="s2">&quot;T&quot;</span> <span class="o">+</span> <span class="n">pre_sunset</span><span class="p">[</span><span class="n">locations</span><span class="p">[</span><span class="n">observatory</span><span class="p">]]</span><span class="c1"># &quot;T03:30:00&quot;</span>
     <span class="n">daily_start</span> <span class="o">=</span> <span class="n">Time</span><span class="p">(</span><span class="n">start</span><span class="p">)</span>
-    <span class="n">end</span> <span class="o">=</span> <span class="n">date</span> <span class="o">+</span> <span class="n">post_sunrise</span><span class="p">[</span><span class="n">locations</span><span class="p">[</span><span class="n">observatory</span><span class="p">]]</span> <span class="c1">#&quot;T17:30:00&quot;</span>
+    <span class="n">end</span> <span class="o">=</span> <span class="n">date</span> <span class="o">+</span> <span class="s2">&quot;T&quot;</span> <span class="o">+</span> <span class="n">post_sunrise</span><span class="p">[</span><span class="n">locations</span><span class="p">[</span><span class="n">observatory</span><span class="p">]]</span> <span class="c1">#&quot;T17:30:00&quot;</span>
     <span class="n">daily_end</span> <span class="o">=</span> <span class="n">Time</span><span class="p">(</span><span class="n">end</span><span class="p">)</span>
     <span class="n">slot_size</span> <span class="o">=</span> <span class="n">TimeDelta</span><span class="p">(</span><span class="n">slot_size</span><span class="o">*</span><span class="mf">60.</span><span class="p">,</span><span class="nb">format</span><span class="o">=</span><span class="s1">&#39;sec&#39;</span><span class="p">)</span>
     <span class="n">t</span> <span class="o">=</span> <span class="n">Time</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">daily_start</span><span class="o">.</span><span class="n">jd</span><span class="p">,</span> <span class="n">daily_end</span><span class="o">.</span><span class="n">jd</span><span class="p">,</span> <span class="n">slot_size</span><span class="o">.</span><span class="n">jd</span><span class="p">),</span><span class="nb">format</span><span class="o">=</span><span class="s1">&#39;jd&#39;</span><span class="p">)</span>
@@ -314,60 +345,64 @@
     <span class="n">altaz_coordinates</span> <span class="o">=</span> <span class="n">keck</span><span class="o">.</span><span class="n">altaz</span><span class="p">(</span><span class="n">t</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">grid_times_targets</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 
     <span class="n">keckapy</span> <span class="o">=</span> <span class="n">apy</span><span class="o">.</span><span class="n">coordinates</span><span class="o">.</span><span class="n">EarthLocation</span><span class="o">.</span><span class="n">of_site</span><span class="p">(</span><span class="n">observatory</span><span class="p">)</span>
-    <span class="n">moon</span> <span class="o">=</span> <span class="n">apy</span><span class="o">.</span><span class="n">coordinates</span><span class="o">.</span><span class="n">get_moon</span><span class="p">(</span><span class="n">Time</span><span class="p">(</span><span class="n">t</span><span class="p">[</span><span class="nb">int</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">t</span><span class="p">)</span><span class="o">/</span><span class="mi">2</span><span class="p">)],</span><span class="nb">format</span><span class="o">=</span><span class="s1">&#39;jd&#39;</span><span class="p">),</span> <span class="n">keckapy</span><span class="p">)</span>
 
-    <span class="k">if</span> <span class="n">moon_safe</span><span class="p">(</span><span class="n">moon</span><span class="p">,</span> <span class="p">(</span><span class="n">target</span><span class="o">.</span><span class="n">ra</span><span class="o">.</span><span class="n">rad</span><span class="p">,</span> <span class="n">target</span><span class="o">.</span><span class="n">dec</span><span class="o">.</span><span class="n">rad</span><span class="p">)):</span>
-        <span class="n">observability_matrix</span> <span class="o">=</span> <span class="p">[]</span>
-        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">item</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">altaz_coordinates</span><span class="p">):</span>
-            <span class="n">alt</span><span class="o">=</span><span class="n">altaz_coordinates</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">alt</span><span class="o">.</span><span class="n">deg</span>
-            <span class="n">az</span><span class="o">=</span><span class="n">altaz_coordinates</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">az</span><span class="o">.</span><span class="n">deg</span>
-            <span class="n">deck</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">((</span><span class="n">az</span> <span class="o">&gt;=</span> <span class="n">min_az</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">az</span> <span class="o">&lt;=</span> <span class="n">max_az</span><span class="p">))</span>
-            <span class="n">deck_height</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">((</span><span class="n">alt</span> <span class="o">&lt;=</span> <span class="n">max_alt</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">alt</span> <span class="o">&gt;=</span> <span class="n">min_alt</span><span class="p">))</span>
-            <span class="n">first</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">intersect1d</span><span class="p">(</span><span class="n">deck</span><span class="p">,</span><span class="n">deck_height</span><span class="p">)</span>
+    <span class="n">observability_matrix</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">item</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">altaz_coordinates</span><span class="p">):</span>
+        <span class="n">alt</span><span class="o">=</span><span class="n">altaz_coordinates</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">alt</span><span class="o">.</span><span class="n">deg</span>
+        <span class="n">az</span><span class="o">=</span><span class="n">altaz_coordinates</span><span class="p">[</span><span class="n">i</span><span class="p">]</span><span class="o">.</span><span class="n">az</span><span class="o">.</span><span class="n">deg</span>
+        <span class="n">deck</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">((</span><span class="n">az</span> <span class="o">&gt;=</span> <span class="n">min_az</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">az</span> <span class="o">&lt;=</span> <span class="n">max_az</span><span class="p">))</span>
+        <span class="n">deck_height</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">((</span><span class="n">alt</span> <span class="o">&lt;=</span> <span class="n">max_alt</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">alt</span> <span class="o">&gt;=</span> <span class="n">min_alt</span><span class="p">))</span>
+        <span class="n">first</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">intersect1d</span><span class="p">(</span><span class="n">deck</span><span class="p">,</span><span class="n">deck_height</span><span class="p">)</span>
 
-            <span class="n">not_deck_1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">((</span><span class="n">az</span> <span class="o">&lt;</span> <span class="n">min_az</span><span class="p">))</span>
-            <span class="n">not_deck_2</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">((</span><span class="n">az</span> <span class="o">&gt;</span> <span class="n">max_az</span><span class="p">))</span>
+        <span class="n">not_deck_1</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">((</span><span class="n">az</span> <span class="o">&lt;</span> <span class="n">min_az</span><span class="p">))</span>
+        <span class="n">not_deck_2</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">((</span><span class="n">az</span> <span class="o">&gt;</span> <span class="n">max_az</span><span class="p">))</span>
 
-            <span class="c1"># for targets sufficiently north or south in declination, allow access map to compute</span>
-            <span class="c1"># any time they are above telescope pointing limits as OK. For more equitorial targets,</span>
-            <span class="c1"># require that they be above the preferred minimum elevation.</span>
-            <span class="k">if</span> <span class="n">target</span><span class="o">.</span><span class="n">dec</span><span class="o">.</span><span class="n">deg</span> <span class="o">&gt;</span> <span class="n">max_north</span> <span class="ow">or</span> <span class="n">target</span><span class="o">.</span><span class="n">dec</span><span class="o">.</span><span class="n">deg</span> <span class="o">&lt;</span> <span class="n">max_south</span><span class="p">:</span>
-                <span class="n">not_deck_height</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">((</span><span class="n">alt</span> <span class="o">&lt;=</span> <span class="n">max_alt</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">alt</span> <span class="o">&gt;=</span> <span class="n">else_min_alt</span><span class="p">))</span>
-            <span class="k">else</span><span class="p">:</span>
-                <span class="n">not_deck_height</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">((</span><span class="n">alt</span> <span class="o">&lt;=</span> <span class="n">max_alt</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">alt</span> <span class="o">&gt;=</span> <span class="n">else_min_alt_alt</span><span class="p">))</span>
+        <span class="c1"># for targets sufficiently north or south in declination, allow access map to compute</span>
+        <span class="c1"># any time they are above telescope pointing limits as OK. For more equitorial targets,</span>
+        <span class="c1"># require that they be above the preferred minimum elevation.</span>
+        <span class="k">if</span> <span class="n">target</span><span class="o">.</span><span class="n">dec</span><span class="o">.</span><span class="n">deg</span> <span class="o">&gt;</span> <span class="n">max_north</span> <span class="ow">or</span> <span class="n">target</span><span class="o">.</span><span class="n">dec</span><span class="o">.</span><span class="n">deg</span> <span class="o">&lt;</span> <span class="n">max_south</span><span class="p">:</span>
+            <span class="n">not_deck_height</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">((</span><span class="n">alt</span> <span class="o">&lt;=</span> <span class="n">max_alt</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">alt</span> <span class="o">&gt;=</span> <span class="n">else_min_alt</span><span class="p">))</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">not_deck_height</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">((</span><span class="n">alt</span> <span class="o">&lt;=</span> <span class="n">max_alt</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">alt</span> <span class="o">&gt;=</span> <span class="n">else_min_alt_alt</span><span class="p">))</span>
 
-            <span class="n">second</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">intersect1d</span><span class="p">(</span><span class="n">not_deck_1</span><span class="p">,</span><span class="n">not_deck_height</span><span class="p">)</span>
-            <span class="n">third</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">intersect1d</span><span class="p">(</span><span class="n">not_deck_2</span><span class="p">,</span><span class="n">not_deck_height</span><span class="p">)</span>
+        <span class="n">second</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">intersect1d</span><span class="p">(</span><span class="n">not_deck_1</span><span class="p">,</span><span class="n">not_deck_height</span><span class="p">)</span>
+        <span class="n">third</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">intersect1d</span><span class="p">(</span><span class="n">not_deck_2</span><span class="p">,</span><span class="n">not_deck_height</span><span class="p">)</span>
 
-            <span class="n">good</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">((</span><span class="n">first</span><span class="p">,</span><span class="n">second</span><span class="p">,</span><span class="n">third</span><span class="p">))</span>
+        <span class="n">good</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">((</span><span class="n">first</span><span class="p">,</span><span class="n">second</span><span class="p">,</span><span class="n">third</span><span class="p">))</span>
 
-            <span class="n">observability_matrix</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">t</span><span class="p">),</span><span class="n">dtype</span><span class="o">=</span><span class="nb">int</span><span class="p">)</span>
-            <span class="n">observability_matrix</span><span class="p">[</span><span class="n">good</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
-    <span class="k">else</span><span class="p">:</span>
         <span class="n">observability_matrix</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">t</span><span class="p">),</span><span class="n">dtype</span><span class="o">=</span><span class="nb">int</span><span class="p">)</span>
+        <span class="n">observability_matrix</span><span class="p">[</span><span class="n">good</span><span class="p">]</span> <span class="o">=</span> <span class="mi">1</span>
 
     <span class="k">return</span> <span class="n">observability_matrix</span></div>
 
 
-<div class="viewcode-block" id="moon_safe">
-<a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.moon_safe">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">moon_safe</span><span class="p">(</span><span class="n">moon</span><span class="p">,</span> <span class="n">target_tuple</span><span class="p">):</span>
+
+<div class="viewcode-block" id="is_moonsafe">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.is_moonsafe">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">is_moonsafe</span><span class="p">(</span><span class="n">observatory</span><span class="p">,</span> <span class="n">date</span><span class="p">,</span> <span class="n">target</span><span class="p">,</span> <span class="n">n_slots_in_night</span><span class="p">,</span> <span class="n">min_separation</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Check that a coordinate is not too close to the moon.</span>
-<span class="sd">    Returns true if target is sufficiently far from the moon to allow for observations.</span>
 
 <span class="sd">    Args:</span>
-<span class="sd">        moon (str): a &quot;moon object&quot; from Astropy</span>
-<span class="sd">        target_tuple (tuple): the RA and Dec of a target star in hourangle and degrees format</span>
+<span class="sd">        observatory (str): the Astropy and Astroplan resolvable name for an observatory</span>
+<span class="sd">        date (str): the calendar date to compute accessibilty in format &#39;YYYY-MM-DD&#39;</span>
+<span class="sd">        target (str): an astroplan FixedTarget object</span>
+<span class="sd">        n_slots_in_night (int): the number of slots in a night</span>
+<span class="sd">        min_separation (float): the minimum separation, in degrees, from the moon that is allowed</span>
 <span class="sd">    Returns:</span>
-<span class="sd">        Unnamed boolean</span>
+<span class="sd">        observability_matrix (array): a 1D array of length n_slots_in_night where 1 indicates the</span>
+<span class="sd">                                      target is accessible in that slot and 0 otherwise.</span>
 <span class="sd">    &quot;&quot;&quot;</span>
-    <span class="n">ang_dist</span> <span class="o">=</span> <span class="n">apy</span><span class="o">.</span><span class="n">coordinates</span><span class="o">.</span><span class="n">angular_separation</span><span class="p">(</span><span class="n">moon</span><span class="o">.</span><span class="n">ra</span><span class="o">.</span><span class="n">rad</span><span class="p">,</span> <span class="n">moon</span><span class="o">.</span><span class="n">dec</span><span class="o">.</span><span class="n">rad</span><span class="p">,</span>
-                                                    <span class="n">target_tuple</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">target_tuple</span><span class="p">[</span><span class="mi">1</span><span class="p">])</span>
-    <span class="k">if</span> <span class="n">ang_dist</span><span class="o">*</span><span class="mi">180</span><span class="o">/</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="mi">30</span><span class="p">:</span>
-        <span class="k">return</span> <span class="kc">True</span>
+
+    <span class="n">middle_of_night</span> <span class="o">=</span> <span class="n">Time</span><span class="p">(</span><span class="n">date</span> <span class="o">+</span> <span class="s2">&quot;T10:30:00&quot;</span><span class="p">,</span> <span class="nb">format</span><span class="o">=</span><span class="s1">&#39;isot&#39;</span><span class="p">)</span>
+    <span class="n">keckapy</span> <span class="o">=</span> <span class="n">apy</span><span class="o">.</span><span class="n">coordinates</span><span class="o">.</span><span class="n">EarthLocation</span><span class="o">.</span><span class="n">of_site</span><span class="p">(</span><span class="n">observatory</span><span class="p">)</span>
+    <span class="n">moon</span> <span class="o">=</span> <span class="n">apy</span><span class="o">.</span><span class="n">coordinates</span><span class="o">.</span><span class="n">get_moon</span><span class="p">(</span><span class="n">middle_of_night</span><span class="p">,</span> <span class="n">keckapy</span><span class="p">)</span>
+    <span class="n">ang_dist</span> <span class="o">=</span> <span class="n">apy</span><span class="o">.</span><span class="n">coordinates</span><span class="o">.</span><span class="n">angular_separation</span><span class="p">(</span><span class="n">moon</span><span class="o">.</span><span class="n">ra</span><span class="o">.</span><span class="n">rad</span><span class="p">,</span> <span class="n">moon</span><span class="o">.</span><span class="n">dec</span><span class="o">.</span><span class="n">rad</span><span class="p">,</span> <span class="n">target</span><span class="o">.</span><span class="n">ra</span><span class="o">.</span><span class="n">rad</span><span class="p">,</span> <span class="n">target</span><span class="o">.</span><span class="n">dec</span><span class="o">.</span><span class="n">rad</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">ang_dist</span><span class="o">*</span><span class="mi">180</span><span class="o">/</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="p">)</span> <span class="o">&gt;=</span> <span class="n">min_separation</span><span class="p">:</span>
+        <span class="n">moonsafe_matrix</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">n_slots_in_night</span><span class="p">,</span><span class="n">dtype</span><span class="o">=</span><span class="nb">int</span><span class="p">)</span>
     <span class="k">else</span><span class="p">:</span>
-        <span class="k">return</span> <span class="kc">False</span></div>
+        <span class="n">moonsafe_matrix</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">n_slots_in_night</span><span class="p">,</span><span class="n">dtype</span><span class="o">=</span><span class="nb">int</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">moonsafe_matrix</span></div>
 
 
 <div class="viewcode-block" id="get_accessibility_stats">
@@ -452,38 +487,6 @@
     <span class="k">return</span> <span class="n">twilight_map_remaining_2D</span><span class="p">,</span> <span class="n">available_slots_in_each_night</span></div>
 
 
-<div class="viewcode-block" id="convert_slot_to_quarter">
-<a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.convert_slot_to_quarter">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">convert_slot_to_quarter</span><span class="p">(</span><span class="n">twilight_map_remaining_2D_d</span><span class="p">):</span>
-<span class="w">    </span><span class="sd">&#39;&#39;&#39;</span>
-<span class="sd">    Determine the slot numbers within the night that breaks the night into &quot;equal&quot; length quarters</span>
-<span class="sd">    Take extra precaution when the total number of slots between twilight times is not easily</span>
-<span class="sd">    divisable by 4.</span>
-<span class="sd">    &#39;&#39;&#39;</span>
-
-    <span class="n">n_available_slots_in_quarter_tonight</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">twilight_map_remaining_2D_d</span><span class="p">)</span><span class="o">/</span><span class="mi">4</span><span class="p">)</span>
-    <span class="n">extra_slots</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">twilight_map_remaining_2D_d</span><span class="p">)</span><span class="o">%</span><span class="mi">4</span>
-    <span class="n">first_slot</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">argmax</span><span class="p">(</span><span class="n">twilight_map_remaining_2D_d</span><span class="p">)</span>
-
-    <span class="k">if</span> <span class="n">extra_slots</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-        <span class="c1"># when night is naturally divided into 4, accept as is</span>
-        <span class="n">split_1st2nd</span> <span class="o">=</span> <span class="n">first_slot</span> <span class="o">+</span> <span class="n">n_available_slots_in_quarter_tonight</span>
-        <span class="n">split_2nd3rd</span> <span class="o">=</span> <span class="n">split_1st2nd</span> <span class="o">+</span> <span class="n">n_available_slots_in_quarter_tonight</span>
-        <span class="n">split_3rd4th</span> <span class="o">=</span> <span class="n">split_2nd3rd</span> <span class="o">+</span> <span class="n">n_available_slots_in_quarter_tonight</span>
-    <span class="k">elif</span> <span class="n">extra_slots</span> <span class="o">==</span> <span class="mi">1</span> <span class="ow">or</span> <span class="n">extra_slots</span> <span class="o">==</span> <span class="mi">2</span><span class="p">:</span>
-        <span class="c1"># when night has 1 extra slot, we place it into the 1st quarter</span>
-        <span class="c1"># when night has 2 extra slots, we place one into 1st, and one into 4th</span>
-        <span class="n">split_1st2nd</span> <span class="o">=</span> <span class="n">first_slot</span> <span class="o">+</span> <span class="n">n_available_slots_in_quarter_tonight</span> <span class="o">+</span> <span class="mi">1</span>
-        <span class="n">split_2nd3rd</span> <span class="o">=</span> <span class="n">split_1st2nd</span> <span class="o">+</span> <span class="n">n_available_slots_in_quarter_tonight</span>
-        <span class="n">split_3rd4th</span> <span class="o">=</span> <span class="n">split_2nd3rd</span> <span class="o">+</span> <span class="n">n_available_slots_in_quarter_tonight</span>
-    <span class="k">elif</span> <span class="n">extra_slots</span> <span class="o">==</span> <span class="mi">3</span><span class="p">:</span>
-        <span class="c1"># when night has 3 extra slots, we place one into 1st, one into 3rd, and one into 4th</span>
-        <span class="n">split_1st2nd</span> <span class="o">=</span> <span class="n">first_slot</span> <span class="o">+</span> <span class="n">n_available_slots_in_quarter_tonight</span> <span class="o">+</span> <span class="mi">1</span>
-        <span class="n">split_2nd3rd</span> <span class="o">=</span> <span class="n">split_1st2nd</span> <span class="o">+</span> <span class="n">n_available_slots_in_quarter_tonight</span>
-        <span class="n">split_3rd4th</span> <span class="o">=</span> <span class="n">split_2nd3rd</span> <span class="o">+</span> <span class="n">n_available_slots_in_quarter_tonight</span> <span class="o">+</span> <span class="mi">1</span>
-    <span class="k">return</span> <span class="n">split_1st2nd</span><span class="p">,</span> <span class="n">split_2nd3rd</span><span class="p">,</span> <span class="n">split_3rd4th</span></div>
-
-
 <div class="viewcode-block" id="generate_twilight_times">
 <a class="viewcode-back" href="../../kpfcc.html#kpfcc.access.generate_twilight_times">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">generate_twilight_times</span><span class="p">(</span><span class="n">all_dates_array</span><span class="p">):</span>
@@ -506,6 +509,9 @@
     <span class="n">eighteen_deg_morning</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="n">twelve_deg_morning</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="n">six_deg_morning</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="n">twilight_frame</span><span class="p">[</span><span class="s1">&#39;timestamp&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">to_datetime</span><span class="p">(</span><span class="n">twilight_frame</span><span class="p">[</span><span class="s1">&#39;time_utc&#39;</span><span class="p">])</span>
+    <span class="n">twilight_frame</span> <span class="o">=</span> <span class="n">twilight_frame</span><span class="o">.</span><span class="n">set_index</span><span class="p">(</span><span class="s1">&#39;timestamp&#39;</span><span class="p">)</span>
+    <span class="c1"># for day in twilight_frame.index.strftime(&#39;%Y-%m-%d&#39;).tolist():</span>
     <span class="k">for</span> <span class="n">day</span> <span class="ow">in</span> <span class="n">twilight_frame</span><span class="o">.</span><span class="n">index</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="n">date_format</span><span class="o">=</span><span class="s1">&#39;%Y-%m-</span><span class="si">%d</span><span class="s1">&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">tolist</span><span class="p">():</span>
         <span class="n">as_day</span> <span class="o">=</span> <span class="n">Time</span><span class="p">(</span><span class="n">day</span><span class="p">,</span><span class="nb">format</span><span class="o">=</span><span class="s1">&#39;iso&#39;</span><span class="p">,</span><span class="n">scale</span><span class="o">=</span><span class="s1">&#39;utc&#39;</span><span class="p">)</span>
         <span class="n">eighteen_deg_evening</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">keck</span><span class="o">.</span><span class="n">twilight_evening_astronomical</span><span class="p">(</span><span class="n">as_day</span><span class="p">,</span><span class="n">which</span><span class="o">=</span><span class="s1">&#39;next&#39;</span><span class="p">))</span>
@@ -628,7 +634,7 @@
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2025, JLubinAstroQ.</p>
+    <p>&#169; Copyright 2025, Jack Lubin.</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
