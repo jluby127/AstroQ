@@ -40,6 +40,12 @@ def main():
                             help="Run benchmark with given number of slots required to complete the extra single shot requests."
                             )
     
+    psr_bench.add_argument('-sc', '--shortcut',
+                            type=int,
+                            required=True,
+                            help="Run benchmark with a small request set, for testing purposes only."
+                            )
+    
     psr_bench.add_argument('-cf', '--config_file',
                               type=str,
                               required=True,

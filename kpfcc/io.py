@@ -34,7 +34,7 @@ def build_fullness_report(combined_semester_schedule, manager, round_info):
     file = open(manager.output_directory + "runReport.txt", "a")
     file.write("Stats for " + str(round_info) + "\n")
     file.write("------------------------------------------------------" + "\n")
-    listnames = list(manager.requests_frame['Starname'])
+    listnames = list(manager.requests_frame['starname'])
     unavailable = 0
     unused = 0
     used = 0
@@ -56,8 +56,8 @@ def build_fullness_report(combined_semester_schedule, manager, round_info):
 
     total_slots_requested = 0
     for i in range(len(manager.requests_frame)):
-        total_slots_requested += manager.requests_frame['# of Nights Per Semester'][i]* \
-            math.ceil(manager.requests_frame['Nominal Exposure Time [s]'][i]/(manager.slot_size*60.))
+        total_slots_requested += manager.requests_frame['n_inter_max'][i]* \
+            math.ceil(manager.requests_frame['exptime'][i]/(manager.slot_size*60.))
     file.write("N slots requested (total): " + str(total_slots_requested) + "\n")
     percentage = np.round((used*100)/allocated,3)
     file.write("Percent full: " + str(percentage) + "%." + "\n")
@@ -284,7 +284,7 @@ def write_stars_schedule_human_readable(combined_semester_schedule, Yrds, manage
 
     end_past = manager.all_dates_dict[manager.current_day]*manager.n_slots_in_night
     all_star_schedules = {}
-    for name in list(manager.requests_frame['Starname']):
+    for name in list(manager.requests_frame['starname']):
         star_schedule = []
         # buffer the past with zeros
         for p in range(end_past):
@@ -303,7 +303,7 @@ def write_stars_schedule_human_readable(combined_semester_schedule, Yrds, manage
     combined_semester_schedule = combined_semester_schedule.flatten()
     for s in range(manager.n_slots_in_semester):
         slotallocated = ''
-        for name in list(manager.requests_frame['Starname']):
+        for name in list(manager.requests_frame['starname']):
             if all_star_schedules[name][manager.today_starting_slot+s] == 1:
                 slotallocated += str(name)
                 # print(s, combined_semester_schedule[s], "update: " + str(combined_semester_schedule[manager.today_starting_slot+s]), slotallocated)
@@ -316,7 +316,7 @@ def write_stars_schedule_human_readable(combined_semester_schedule, Yrds, manage
     # Here fill in the multi-slot exposures appropriately for ease of human reading and accounting.
     for n in range(manager.n_nights_in_semester-1-manager.all_dates_dict[manager.current_day], -1, -1):
         for s in range(manager.n_slots_in_night-1, -1, -1):
-            if combined_semester_schedule[n+manager.all_dates_dict[manager.current_day]][s] in list(manager.requests_frame['Starname']):
+            if combined_semester_schedule[n+manager.all_dates_dict[manager.current_day]][s] in list(manager.requests_frame['starname']):
                 target_name = combined_semester_schedule[n+manager.all_dates_dict[manager.current_day]][s]
                 slots_needed_for_exposure = manager.slots_needed_for_exposure_dict[target_name]
                 if slots_needed_for_exposure > 1:
@@ -412,11 +412,11 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
     print('Writing starlist to ' + script_file)
 
     lines = []
-    for i, item in enumerate(solution_frame['Starname']):
-        filler_flag = solution_frame['Starname'][i] in filler_stars
-        row = frame.loc[frame['Starname'] == solution_frame['Starname'][i]]
+    for i, item in enumerate(solution_frame['starname']):
+        filler_flag = solution_frame['starname'][i] in filler_stars
+        row = frame.loc[frame['starname'] == solution_frame['starname'][i]]
         row.reset_index(inplace=True)
-        total_exptime += float(row['Nominal Exposure Time [s]'][0])
+        total_exptime += float(row['exptime'][0])
 
         start_exposure_hst = str(TimeDelta(solution_frame['Start Exposure'][i]*60,format='sec') + \
                                                 night_start_time)[11:16]
@@ -432,12 +432,12 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
     lines.append('X' * 45 + 'EXTRAS' + 'X' * 45)
     lines.append('')
 
-    for j in range(len(extras['Starname'])):
-        if extras['Starname'][j] in filler_stars:
+    for j in range(len(extras['starname'])):
+        if extras['starname'][j] in filler_stars:
             filler_flag = True
         else:
             filler_flag = False
-        row = frame.loc[frame['Starname'] == extras['Starname'][j]]
+        row = frame.loc[frame['starname'] == extras['starname'][j]]
         row.reset_index(inplace=True)
         lines.append(format_kpf_row(row, '56:78', extras['First Available'][j],
                     extras['Last Available'][j], current_day, filler_flag, True))
@@ -479,12 +479,12 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
     if updated_dec[0] != "-":
         updated_dec = "+" + updated_dec
 
-    namestring = ' '*(16-len(row['Starname'][0][:16])) + row['Starname'][0][:16]
+    namestring = ' '*(16-len(row['starname'][0][:16])) + row['starname'][0][:16]
 
     jmagstring = ('jmag=' + str(np.round(float(row['J Magnitude'][0]),1)) + ' '* \
         (4-len(str(np.round(row['J Magnitude'][0],1)))))
-    exposurestring = (' '*(4-len(str(int(row['Nominal Exposure Time [s]'][0])))) + \
-        str(int(row['Nominal Exposure Time [s]'][0])) + '/' + \
+    exposurestring = (' '*(4-len(str(int(row['exptime'][0])))) + \
+        str(int(row['exptime'][0])) + '/' + \
         str(int(row['Maximum Exposure Time [s]'][0])) + ' '* \
         (4-len(str(int(row['Maximum Exposure Time [s]'][0])))))
 

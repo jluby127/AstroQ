@@ -48,7 +48,10 @@ class RequestSet(object):
         Save request set to json
         """
         data = {}
-        data['meta'] = self.meta.to_dict()
+        if isinstance(self.meta, dict):
+            data['meta'] = self.meta
+        else:
+            data['meta'] = self.meta.to_dict()
         data['strategy'] = self.strategy.to_dict()
         data['observable'] = self.observability.to_dict()
 
@@ -64,7 +67,7 @@ def read_json(fn):
 
     meta = pd.Series(data['meta'])
     strategy = pd.DataFrame(data['strategy'])
-    observable = pd.DataFrame(data['observability'])
+    observable = pd.DataFrame(data['observable'])
     rs = RequestSet(meta, strategy, observable)
     return rs
 
@@ -79,29 +82,30 @@ def define_indices_for_requests(manager):
 
     available_indices_for_request = mp.produce_ultimate_map(manager)
 
-    observability = []
+    observability_keys = []
     strategy_keys = []
-    for n,row in self.manager.requests_frame.iterrows():
-        name = row['Starname']
+    for n,row in manager.requests_frame.iterrows():
+        name = row['starname']
         if name in list(available_indices_for_request.keys()):
-            max_n_visits = int(row['Desired Visits per Night'])
-            min_n_visits = int(row['Accepted Visits per Night'])
-            intra = int(row['Minimum Intra-Night Cadence'])
-            nnights = int(row['# of Nights Per Semester '])
-            inter = int(row['Minimum Inter-Night Cadence'])
-            slots_needed = self.manager.slots_needed_for_exposure_dict[name]
+            max_n_visits = int(row['n_intra_max'])
+            min_n_visits = int(row['n_intra_min'])
+            intra = int(row['tau_intra'])
+            nnights = int(row['n_inter_max'])
+            inter = int(row['tau_inter'])
+            slots_needed = manager.slots_needed_for_exposure_dict[name]
+            strategy_keys.append([name, slots_needed, min_n_visits, max_n_visits, intra, nnights, inter])
             for d in range(len(available_indices_for_request[name])):
                 for s in available_indices_for_request[name][d]:
-                    observability.append((name, d, s))
-                    strategy_keys.append([name, slots_needed, min_n_visits, max_n_visits, intra, nnights, inter])
+                    observability_keys.append((name, d, s))
     strategy = pd.DataFrame(strategy_keys, columns =['id', 't_visit', 'n_intra_min', 'n_intra_max',
                                                      'tau_intra', 'n_inter_max', 'tau_inter'])
+    observability = pd.DataFrame(observability_keys, columns =['id', 'd', 's'])
     return strategy, observability
 
 def build_meta(config_file):
 
     config = ConfigParser()
-    config.read(config_path)
+    config.read(config_file)
     daily_starting_time = str(config.get('other', 'daily_starting_time'))
     current_day = str(config.get('required', 'current_day'))
     slot_size = int(config.get('other', 'slot_size'))
