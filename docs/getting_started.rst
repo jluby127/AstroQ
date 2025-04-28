@@ -32,3 +32,41 @@ Follow these steps to install and set up Gurobi:
     1. **Create an Account** on Gurobi's `registration site <https://portal.gurobi.com/iam/register/>`_. Select that you are an "Academic," type in your home institution, and submit the form via "Access Now." You will receive an email to complete the registration.
     
     2. **Download Gurobi** for your OS from `this download page <https://www.gurobi.com/downloads/gurobi-software/>`_. Follow the instructions to run the installer file.
+    
+    3. **Request an Academic License** from your `user portal <https://portal.gurobi.com/iam/login/?target=https%3A%2F%2Fportal.gurobi.com%2Fiam%2Flicenses%2Frequest%2F>`_ *while connected to a university network*. You want the 'Named-User Academic License,' which has a one-year lifetime. At the end of the year, you can obtain a new license easily within your account (and for free) as long as you have maintained your academic status.
+    
+    4. **Retrieve the License** by running the command given in the popup window in a shell. It should look like:
+        .. code-block:: bash
+
+            $ grbgetkey 253e22f3...
+        
+    This command will download a file called ``gurobi.lic`` to your machine.
+    
+    5. **Define the GRB_LICENSE_FILE environment variable** by adding the following to your ``.zshrc`` file:
+        .. code-block:: bash
+
+            export GRB_LICENSE_FILE=/path/to/gurobi.lic
+
+
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        

@@ -48,7 +48,8 @@ This will set up the environment and all dependency packages.
 
 To test installation and practice the workflow of running the autoscheduler, use the supplied example. From your terminal, run the following command:
 ```
-astroq bench -nr ... -ns ... -cf ...
+astroq bench -nr 250 -ns 50 -cf examples/bench/config_benchmark.ini
+
 ```
 
 ## Flags
