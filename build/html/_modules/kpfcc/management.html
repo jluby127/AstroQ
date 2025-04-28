@@ -41,6 +41,7 @@
         </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
               <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
 <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../getting_started.html">Getting Started</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../../api.html">API</a></li>
 </ul>
 
@@ -93,7 +94,7 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">kpfcc.maps</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">mp</span>
 
 <div class="viewcode-block" id="data_admin">
-<a class="viewcode-back" href="../../individual_rsts/management.html#kpfcc.management.data_admin">[docs]</a>
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.management.data_admin">[docs]</a>
 <span class="k">class</span><span class="w"> </span><span class="nc">data_admin</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;A Data Admin object, from which we can easily pass around information.</span>
 
@@ -168,7 +169,7 @@
         <span class="bp">self</span><span class="o">.</span><span class="n">backup_observability_file</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">DATADIR</span><span class="p">,</span><span class="s2">&quot;bright_backup_observability.csv&quot;</span><span class="p">)</span>
 
 <div class="viewcode-block" id="data_admin.run_admin">
-<a class="viewcode-back" href="../../individual_rsts/management.html#kpfcc.management.data_admin.run_admin">[docs]</a>
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.management.data_admin.run_admin">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">run_admin</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Given today&#39;s date, collate all important information about the semester.</span>
@@ -244,7 +245,7 @@
 
 
 <div class="viewcode-block" id="data_admin.build_slots_required_dictionary">
-<a class="viewcode-back" href="../../individual_rsts/management.html#kpfcc.management.data_admin.build_slots_required_dictionary">[docs]</a>
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.management.data_admin.build_slots_required_dictionary">[docs]</a>
     <span class="k">def</span><span class="w"> </span><span class="nf">build_slots_required_dictionary</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">always_round_up_flag</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
 <span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">        Computes the slots needed for a given exposure for all requests.</span>
@@ -270,7 +271,7 @@
 
 
 <div class="viewcode-block" id="get_semester_info">
-<a class="viewcode-back" href="../../individual_rsts/management.html#kpfcc.management.get_semester_info">[docs]</a>
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.management.get_semester_info">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">get_semester_info</span><span class="p">(</span><span class="n">current_day</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Given today&#39;s date, return information about the semester we are currently in.</span>
@@ -336,7 +337,7 @@
 
 
 <div class="viewcode-block" id="build_date_dictionary">
-<a class="viewcode-back" href="../../individual_rsts/management.html#kpfcc.management.build_date_dictionary">[docs]</a>
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.management.build_date_dictionary">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">build_date_dictionary</span><span class="p">(</span><span class="n">semester_start_date</span><span class="p">,</span> <span class="n">semester_length</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Builds a dictionary where keys are the calendar dates within the semester and values are the</span>
@@ -359,6 +360,8 @@
     <span class="c1"># manager.all_dates_dict = all_dates</span>
     <span class="c1"># manager.all_dates_array = list(all_dates.keys())</span>
 
+<div class="viewcode-block" id="compute_slots_required_for_exposure">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.management.compute_slots_required_for_exposure">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">compute_slots_required_for_exposure</span><span class="p">(</span><span class="n">exposure_time</span><span class="p">,</span> <span class="n">slot_size</span><span class="p">,</span> <span class="n">always_round_up_flag</span><span class="p">):</span>
 
     <span class="n">slot_size</span> <span class="o">=</span> <span class="n">slot_size</span> <span class="o">*</span> <span class="mi">60</span> <span class="c1"># converting to seconds</span>
@@ -369,10 +372,11 @@
             <span class="n">slots_needed_for_exposure</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="nb">round</span><span class="p">(</span><span class="n">exposure_time</span><span class="o">/</span><span class="n">slot_size</span><span class="p">))</span>
         <span class="k">else</span><span class="p">:</span>
             <span class="n">slots_needed_for_exposure</span> <span class="o">=</span> <span class="mi">1</span>
-    <span class="k">return</span> <span class="n">slots_needed_for_exposure</span>
+    <span class="k">return</span> <span class="n">slots_needed_for_exposure</span></div>
+
 
 <div class="viewcode-block" id="get_gap_filler_targets">
-<a class="viewcode-back" href="../../individual_rsts/management.html#kpfcc.management.get_gap_filler_targets">[docs]</a>
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.management.get_gap_filler_targets">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">get_gap_filler_targets</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Using the results of the two rounds of scheduling, determine what is different between them,</span>
@@ -395,6 +399,8 @@
 
 
 
+<div class="viewcode-block" id="prepare_new_semester">
+<a class="viewcode-back" href="../../kpfcc.html#kpfcc.management.prepare_new_semester">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">prepare_new_semester</span><span class="p">(</span><span class="n">config_path</span><span class="p">):</span>
 
     <span class="n">config</span> <span class="o">=</span> <span class="n">ConfigParser</span><span class="p">()</span>
@@ -465,7 +471,8 @@
             <span class="n">allocation</span> <span class="o">=</span> <span class="n">mp</span><span class="o">.</span><span class="n">format_keck_allocation_info</span><span class="p">(</span><span class="n">little_manager</span><span class="o">.</span><span class="n">allocation_file</span><span class="p">)</span>
             <span class="n">allocation_binary</span> <span class="o">=</span> <span class="n">mp</span><span class="o">.</span><span class="n">convert_allocation_info_to_binary</span><span class="p">(</span><span class="n">little_manager</span><span class="p">,</span> <span class="n">allocation</span><span class="p">)</span>
         <span class="k">else</span><span class="p">:</span>
-            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;No Keck Observatory instruments schedule found. See https://www2.keck.hawaii.edu/observing/keckSchedule/queryForm.php to download and then try again.&quot;</span><span class="p">)</span>
+            <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;No Keck Observatory instruments schedule found. See https://www2.keck.hawaii.edu/observing/keckSchedule/queryForm.php to download and then try again.&quot;</span><span class="p">)</span></div>
+
 </pre></div>
 
            </div>
