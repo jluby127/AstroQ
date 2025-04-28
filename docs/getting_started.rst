@@ -43,7 +43,7 @@ and run the following commands in the top-level directory:
 
     .. code-block:: bash
 
-        $ conda create --name astroq --file environment.yml
+        $ conda env create --name astroq --file environment.yml
         $ conda activate astroq
 
 Then install the package:
@@ -64,7 +64,11 @@ Run ``pytest`` from your terminal to execute a suite of tests verifying that the
 
 This may take a few minutes on the first run. The desired result is that all tests pass successfully.
         
-        
+Temporary note: you can also run ``coverage`` to see how much code the tests touch:
+
+    .. code-block:: bash
+
+        $ coverage run -m pytest
         
         
         
