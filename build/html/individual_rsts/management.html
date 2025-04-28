@@ -1,86 +1,50 @@
 
 
 <!DOCTYPE html>
-<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
-<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<html class="writer-html5" lang="en" data-content_root="../">
 <head>
-  <meta charset="utf-8">
-  
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Management &mdash; AstroQ 1.0.0 documentation</title>
-  
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
 
   
-  
-  
-  
-
-  
-  <script type="text/javascript" src="../_static/js/modernizr.min.js"></script>
-  
-    
-      <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
-        <script src="../_static/jquery.js"></script>
-        <script src="../_static/underscore.js"></script>
-        <script src="../_static/doctools.js"></script>
-    
-    <script type="text/javascript" src="../_static/js/theme.js"></script>
-
-    
-
-  
-  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
-  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=8d563738"></script>
+      <script src="../_static/doctools.js?v=9a2dae69"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="IO" href="io.html" />
     <link rel="prev" title="Maps" href="maps.html" /> 
 </head>
 
-<body class="wy-body-for-nav">
-
-   
+<body class="wy-body-for-nav"> 
   <div class="wy-grid-for-nav">
-    
     <nav data-toggle="wy-nav-shift" class="wy-nav-side">
       <div class="wy-side-scroll">
         <div class="wy-side-nav-search" >
-          
 
           
-            <a href="../index.html" class="icon icon-home"> AstroQ
           
-
-          
+          <a href="../index.html" class="icon icon-home">
+            AstroQ
           </a>
-
-          
-            
-            
-          
-
-          
 <div role="search">
   <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
-    <input type="text" name="q" placeholder="Search docs" />
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
     <input type="hidden" name="check_keywords" value="yes" />
     <input type="hidden" name="area" value="default" />
   </form>
 </div>
-
-          
-        </div>
-
-        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
-          
-            
-            
-              
-            
-            
-              <p class="caption"><span class="caption-text">Contents:</span></p>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
 <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="../getting_started.html">GS</a></li>
 <li class="toctree-l1 current"><a class="reference internal" href="../api.html">API</a><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="history.html">History</a></li>
 <li class="toctree-l2"><a class="reference internal" href="constraints.html">Constraints</a></li>
@@ -89,7 +53,17 @@
 <li class="toctree-l2"><a class="reference internal" href="schedule.html">Schedule</a></li>
 <li class="toctree-l2"><a class="reference internal" href="plot.html">Plot</a></li>
 <li class="toctree-l2"><a class="reference internal" href="maps.html">Maps</a></li>
-<li class="toctree-l2 current"><a class="current reference internal" href="#">Management</a></li>
+<li class="toctree-l2 current"><a class="current reference internal" href="#">Management</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#kpfcc.management.build_date_dictionary"><code class="docutils literal notranslate"><span class="pre">build_date_dictionary()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#kpfcc.management.data_admin"><code class="docutils literal notranslate"><span class="pre">data_admin</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#kpfcc.management.data_admin.build_slots_required_dictionary"><code class="docutils literal notranslate"><span class="pre">data_admin.build_slots_required_dictionary()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#kpfcc.management.data_admin.run_admin"><code class="docutils literal notranslate"><span class="pre">data_admin.run_admin()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#kpfcc.management.get_gap_filler_targets"><code class="docutils literal notranslate"><span class="pre">get_gap_filler_targets()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#kpfcc.management.get_semester_info"><code class="docutils literal notranslate"><span class="pre">get_semester_info()</span></code></a></li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="io.html">IO</a></li>
 <li class="toctree-l2"><a class="reference internal" href="weather.html">Weather</a></li>
 <li class="toctree-l2"><a class="reference internal" href="onsky.html">Onsky</a></li>
@@ -97,85 +71,46 @@
 </li>
 </ul>
 
-            
-          
         </div>
       </div>
     </nav>
 
-    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
-
-      
-      <nav class="wy-nav-top" aria-label="top navigation">
-        
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
           <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
           <a href="../index.html">AstroQ</a>
-        
       </nav>
 
-
       <div class="wy-nav-content">
-        
         <div class="rst-content">
-        
-          
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-<div role="navigation" aria-label="breadcrumbs navigation">
-
+          <div role="navigation" aria-label="Page navigation">
   <ul class="wy-breadcrumbs">
-    
-      <li><a href="../index.html">Docs</a> &raquo;</li>
-        
-          <li><a href="../api.html">API</a> &raquo;</li>
-        
-      <li>Management</li>
-    
-    
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../api.html">API</a></li>
+      <li class="breadcrumb-item active">Management</li>
       <li class="wy-breadcrumbs-aside">
-        
-            
             <a href="../_sources/individual_rsts/management.rst.txt" rel="nofollow"> View page source</a>
-          
-        
       </li>
-    
   </ul>
-
-  
   <hr/>
 </div>
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
-            
-  <div class="section" id="management">
-<span id="id1"></span><h1>Management<a class="headerlink" href="#management" title="Permalink to this headline">¶</a></h1>
-<span class="target" id="module-kpfcc"></span><span class="target" id="module-kpfcc.management"></span><p>Module defining the admin object, which stores, manipulates, and passes information across
+             
+  <section id="management">
+<span id="id1"></span><h1>Management<a class="headerlink" href="#management" title="Link to this heading"></a></h1>
+<p id="module-kpfcc.management"><span id="module-kpfcc"></span>Module defining the admin object, which stores, manipulates, and passes information across
 all requests easily.</p>
 <dl class="simple">
 <dt>Example usage:</dt><dd><p>import admin_functions as af</p>
 </dd>
 </dl>
 <dl class="py function">
-<dt id="kpfcc.management.build_date_dictionary">
-<code class="sig-prename descclassname"><span class="pre">kpfcc.management.</span></code><code class="sig-name descname"><span class="pre">build_date_dictionary</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">semester_start_date</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">semester_length</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/management.html#build_date_dictionary"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.management.build_date_dictionary" title="Permalink to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="kpfcc.management.build_date_dictionary">
+<span class="sig-prename descclassname"><span class="pre">kpfcc.management.</span></span><span class="sig-name descname"><span class="pre">build_date_dictionary</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">semester_start_date</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">semester_length</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/management.html#build_date_dictionary"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.management.build_date_dictionary" title="Link to this definition"></a></dt>
 <dd><p>Builds a dictionary where keys are the calendar dates within the semester and values are the
 corresponding day numbers of the semester.</p>
 <dl class="field-list simple">
-<dt class="field-odd">Parameters</dt>
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>semester_start_date</strong> (<em>str</em>) – the first day of the semester, format YYYY-MM-DD</p></li>
 <li><p><strong>semester_length</strong> (<em>int</em>) – the number of days in the full semester</p></li>
@@ -185,52 +120,23 @@ corresponding day numbers of the semester.</p>
 </dd></dl>
 
 <dl class="py class">
-<dt id="kpfcc.management.data_admin">
-<em class="property"><span class="pre">class</span> </em><code class="sig-prename descclassname"><span class="pre">kpfcc.management.</span></code><code class="sig-name descname"><span class="pre">data_admin</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">output_directory</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">current_day</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">observatory</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">slot_size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">requests_file</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">twilight_file</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">past_observations_file</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">allocation_file</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">accessibilities_file</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">special_map_file</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">zero_out_file</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nonqueue_map_file</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nonqueue_file</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">run_weather_loss</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">run_optimal_allocation</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">include_aesthetic</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_quarters</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_nights</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">min_represented</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">allow_single_quarters</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_consecutive</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">min_consecutive</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_baseline</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">whiteout_file</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">blackout_file</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">gurobi_output</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">plot_results</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">solve_time_limit</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">solve_max_gap</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">run_round_two</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_bonus</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">folder_forecasts</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">folder_cadences</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">turn_on_off_file</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">starmap_template_filename</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">future_forecast</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">build_starmaps</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">nightly_start_stop_times</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">backup_file</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">backup_observability_file</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/management.html#data_admin"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.management.data_admin" title="Permalink to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="kpfcc.management.data_admin">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">kpfcc.management.</span></span><span class="sig-name descname"><span class="pre">data_admin</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config_path</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/management.html#data_admin"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.management.data_admin" title="Link to this definition"></a></dt>
 <dd><p>A Data Admin object, from which we can easily pass around information.</p>
 <dl class="field-list simple">
-<dt class="field-odd">Parameters</dt>
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>current_day</strong> (<em>-</em>) – Sets the “first” day of the semester from which to compute the
-semester schedule solution from this day forward. Format: YYYY-MM-DD.</p></li>
-<li><p><strong>requests_file</strong> (<em>-</em>) – Confirm that column names are correct.</p></li>
-<li><p><strong>allocation_file</strong> (<em>-</em>) – </p></li>
-<li><p><strong>accessibilities_file</strong> (<em>-</em>) – dictionary of target names and associated pre-computed 1D
-accessibility maps of length equal to n_slots_in_semester.</p></li>
-<li><p><strong>twilight_file</strong> (<em>-</em>) – </p></li>
-<li><p><strong>output_directory</strong> (<em>-</em>) – It is recommended that the path be outside the git repo.</p></li>
-<li><p><strong>slot_size</strong> (<em>-</em>) – </p></li>
-<li><p><strong>run_round_two</strong> (<em>-</em>) – When False, do not run the bonus round.</p></li>
-<li><p><strong>past_observations_file</strong> (<em>-</em>) – on all previous observations in the semester. If file
-does not exist, then we are ignoring prior observations.</p></li>
-<li><p><strong>semester_template_file</strong> (<em>-</em>) – template of the semester. For plotting purposes only.</p></li>
-<li><p><strong>turn_off_on_file</strong> (<em>-</em>) – first and last day of accessiblity for each target.
-For plotting purposes only.</p></li>
-<li><p><strong>nonqueue_map_file</strong> (<em>-</em>) – n_nights_in_semester by n_slots_in_night elements where slots
-reserved for non-queue observations are filled with target name.</p></li>
-<li><p><strong>special_map_file</strong> (<em>-</em>) – n_nights_in_semester by n_slots_in_night elements which contains
-information on the custom set of slots a request can be
-scheduled into for various reasons of the PI</p></li>
-<li><p><strong>zero_out_file</strong> (<em>-</em>) – tonight for any reason. Often this is empty.</p></li>
-<li><p><strong>run_weather_loss</strong> (<em>-</em>) – </p></li>
-<li><p><strong>run_optimal_allocation</strong> (<em>-</em>) – </p></li>
-<li><p><strong>include_aesthetic</strong> (<em>-</em>) – </p></li>
-<li><p><strong>max_quarters</strong> (<em>-</em>) – </p></li>
-<li><p><strong>max_nights</strong> (<em>-</em>) – </p></li>
-<li><p><strong>whiteout_file</strong> (<em>-</em>) – </p></li>
-<li><p><strong>blackout_file</strong> (<em>-</em>) – </p></li>
-<li><p><strong>gurobi_output</strong> (<em>-</em>) – to the terminal as it solves the model.</p></li>
-<li><p><strong>plot_results</strong> (<em>-</em>) – </p></li>
-<li><p><strong>solve_time_limit</strong> (<em>-</em>) – </p></li>
+<li><p><strong>config_path</strong> (<em>-</em>)</p></li>
+<li><p><strong>current_day</strong> (<em>-</em>) – YYYY-MM-DD.</p></li>
 </ul>
 </dd>
-<dt class="field-even">Returns</dt>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>None</p>
 </dd>
 </dl>
 <dl class="py method">
-<dt id="kpfcc.management.data_admin.build_slots_required_dictionary">
-<code class="sig-name descname"><span class="pre">build_slots_required_dictionary</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">always_round_up_flag</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/management.html#data_admin.build_slots_required_dictionary"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.management.data_admin.build_slots_required_dictionary" title="Permalink to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="kpfcc.management.data_admin.build_slots_required_dictionary">
+<span class="sig-name descname"><span class="pre">build_slots_required_dictionary</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">always_round_up_flag</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/management.html#data_admin.build_slots_required_dictionary"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.management.data_admin.build_slots_required_dictionary" title="Link to this definition"></a></dt>
 <dd><p>Computes the slots needed for a given exposure for all requests.
 When always_round_up_flag is false, we can round up or down.
 Example: with 5 minute slot sizes, we want a 6 minute exposure to only require one slot</p>
@@ -238,7 +144,7 @@ Example: with 5 minute slot sizes, we want a 6 minute exposure to only require o
 <div><p>(round down) as opposed to 2 slots (round up)</p>
 </div></blockquote>
 <dl class="field-list simple">
-<dt class="field-odd">Parameters</dt>
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>manager</strong> (<em>obj</em>) – a data_admin object</p></li>
 <li><p><strong>always_round_up_flag</strong> (<em>boolean</em>) – if true, slots needed is always larger than exposure_time</p></li>
@@ -248,88 +154,70 @@ Example: with 5 minute slot sizes, we want a 6 minute exposure to only require o
 </dd></dl>
 
 <dl class="py method">
-<dt id="kpfcc.management.data_admin.run_admin">
-<code class="sig-name descname"><span class="pre">run_admin</span></code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/management.html#data_admin.run_admin"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.management.data_admin.run_admin" title="Permalink to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="kpfcc.management.data_admin.run_admin">
+<span class="sig-name descname"><span class="pre">run_admin</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/management.html#data_admin.run_admin"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.management.data_admin.run_admin" title="Link to this definition"></a></dt>
 <dd><p>Given today’s date, collate all important information about the semester.</p>
 </dd></dl>
 
 </dd></dl>
 
 <dl class="py function">
-<dt id="kpfcc.management.get_gap_filler_targets">
-<code class="sig-prename descclassname"><span class="pre">kpfcc.management.</span></code><code class="sig-name descname"><span class="pre">get_gap_filler_targets</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">manager</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/management.html#get_gap_filler_targets"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.management.get_gap_filler_targets" title="Permalink to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="kpfcc.management.get_gap_filler_targets">
+<span class="sig-prename descclassname"><span class="pre">kpfcc.management.</span></span><span class="sig-name descname"><span class="pre">get_gap_filler_targets</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">manager</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/management.html#get_gap_filler_targets"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.management.get_gap_filler_targets" title="Link to this definition"></a></dt>
 <dd><p>Using the results of the two rounds of scheduling, determine what is different between them,
 i.e. which targets were added in Round 2</p>
 <dl class="field-list simple">
-<dt class="field-odd">Parameters</dt>
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><p><strong>manager</strong> (<em>obj</em>) – a data_admin object</p>
 </dd>
-<dt class="field-even">Returns</dt>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
 <dd class="field-even"><p>None</p>
 </dd>
 </dl>
 </dd></dl>
 
 <dl class="py function">
-<dt id="kpfcc.management.get_semester_info">
-<code class="sig-prename descclassname"><span class="pre">kpfcc.management.</span></code><code class="sig-name descname"><span class="pre">get_semester_info</span></code><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">current_day</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/management.html#get_semester_info"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.management.get_semester_info" title="Permalink to this definition">¶</a></dt>
+<dt class="sig sig-object py" id="kpfcc.management.get_semester_info">
+<span class="sig-prename descclassname"><span class="pre">kpfcc.management.</span></span><span class="sig-name descname"><span class="pre">get_semester_info</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">current_day</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/kpfcc/management.html#get_semester_info"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.management.get_semester_info" title="Link to this definition"></a></dt>
 <dd><p>Given today’s date, return information about the semester we are currently in.</p>
 <dl class="field-list simple">
-<dt class="field-odd">Parameters</dt>
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
 <dd class="field-odd"><p><strong>manager</strong> (<em>obj</em>) – a data_admin object</p>
 </dd>
 </dl>
 </dd></dl>
 
-</div>
+</section>
 
 
            </div>
-           
           </div>
-          <footer>
-  
-    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
-      
-        <a href="io.html" class="btn btn-neutral float-right" title="IO" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right"></span></a>
-      
-      
-        <a href="maps.html" class="btn btn-neutral float-left" title="Maps" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
-      
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="maps.html" class="btn btn-neutral float-left" title="Maps" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="io.html" class="btn btn-neutral float-right" title="IO" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
     </div>
-  
 
   <hr/>
 
   <div role="contentinfo">
-    <p>
-        &copy; Copyright 2025, Jack Lubin
-
-    </p>
+    <p>&#169; Copyright 2025, Jack Lubin.</p>
   </div>
-  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
 
 </footer>
-
         </div>
       </div>
-
     </section>
-
   </div>
-  
-
-
-  <script type="text/javascript">
+  <script>
       jQuery(function () {
           SphinxRtdTheme.Navigation.enable(true);
       });
-  </script>
-
-  
-  
-    
-   
+  </script> 
 
 </body>
 </html>

@@ -5,7 +5,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>kpfcc.io &mdash; AstroQ_docs 1.0.0 documentation</title>
+  <title>kpfcc.io &mdash; AstroQ 1.0.0 documentation</title>
       <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
       <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
 
@@ -29,7 +29,7 @@
           
           
           <a href="../../index.html" class="icon icon-home">
-            AstroQ_docs
+            AstroQ
           </a>
 <div role="search">
   <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
@@ -41,7 +41,7 @@
         </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
               <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="../../kpfcc.html">kpfcc package</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api.html">API</a></li>
 </ul>
 
         </div>
@@ -50,7 +50,7 @@
 
     <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
           <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
-          <a href="../../index.html">AstroQ_docs</a>
+          <a href="../../index.html">AstroQ</a>
       </nav>
 
       <div class="wy-nav-content">
@@ -87,7 +87,7 @@
 <span class="kn">import</span><span class="w"> </span><span class="nn">matplotlib.pyplot</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pt</span>
 
 <div class="viewcode-block" id="build_fullness_report">
-<a class="viewcode-back" href="../../kpfcc.html#kpfcc.io.build_fullness_report">[docs]</a>
+<a class="viewcode-back" href="../../individual_rsts/io.html#kpfcc.io.build_fullness_report">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">build_fullness_report</span><span class="p">(</span><span class="n">combined_semester_schedule</span><span class="p">,</span> <span class="n">manager</span><span class="p">,</span> <span class="n">round_info</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Determine how full the schedule is: slots available, slots scheduled, and slots required</span>
@@ -138,7 +138,7 @@
 
 
 <div class="viewcode-block" id="report_allocation_stats">
-<a class="viewcode-back" href="../../kpfcc.html#kpfcc.io.report_allocation_stats">[docs]</a>
+<a class="viewcode-back" href="../../individual_rsts/io.html#kpfcc.io.report_allocation_stats">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">report_allocation_stats</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Return the number of Q1, Q2, Q3, and Q4 nights, as well as single, half, three quarter</span>
@@ -233,13 +233,13 @@
 
 
 <div class="viewcode-block" id="write_out_results">
-<a class="viewcode-back" href="../../kpfcc.html#kpfcc.io.write_out_results">[docs]</a>
-<span class="k">def</span><span class="w"> </span><span class="nf">write_out_results</span><span class="p">(</span><span class="n">manager</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="nb">round</span><span class="p">,</span> <span class="n">start_the_clock</span><span class="p">):</span>
+<a class="viewcode-back" href="../../individual_rsts/io.html#kpfcc.io.write_out_results">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">write_out_results</span><span class="p">(</span><span class="n">manager</span><span class="p">,</span> <span class="n">theta</span><span class="p">,</span> <span class="nb">round</span><span class="p">,</span> <span class="n">start_the_clock</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Write the Run Report</span>
 <span class="sd">    Args:</span>
 <span class="sd">        manager (obj): a data_admin object</span>
-<span class="sd">        model (obj): a GurobiModel object</span>
+<span class="sd">        theta (obj): a Scheduler.theta object</span>
 <span class="sd">        rount (str): &quot;Round1&quot; or &quot;Round2&quot;</span>
 <span class="sd">        start_the_clock (obj): time object of when the scheduler code began</span>
 
@@ -250,7 +250,7 @@
     <span class="n">filename</span> <span class="o">=</span> <span class="nb">open</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">output_directory</span> <span class="o">+</span> <span class="s2">&quot;runReport.txt&quot;</span><span class="p">,</span> <span class="s2">&quot;a&quot;</span><span class="p">)</span>
     <span class="n">theta_n_var</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="n">counter</span> <span class="o">=</span> <span class="mi">0</span>
-    <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">model</span><span class="o">.</span><span class="n">theta</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+    <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">theta</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
         <span class="n">varname</span> <span class="o">=</span> <span class="n">v</span><span class="o">.</span><span class="n">VarName</span>
         <span class="n">varval</span> <span class="o">=</span> <span class="n">v</span><span class="o">.</span><span class="n">X</span>
         <span class="n">counter</span> <span class="o">+=</span> <span class="n">varval</span>
@@ -265,7 +265,7 @@
 
 
 <div class="viewcode-block" id="build_observed_map_past">
-<a class="viewcode-back" href="../../kpfcc.html#kpfcc.io.build_observed_map_past">[docs]</a>
+<a class="viewcode-back" href="../../individual_rsts/io.html#kpfcc.io.build_observed_map_past">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">build_observed_map_past</span><span class="p">(</span><span class="n">past_info</span><span class="p">,</span> <span class="n">starmap_template_filename</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Construct stage one (past) of the starmap which is then used to build the cadence plot.</span>
@@ -290,7 +290,7 @@
 
 
 <div class="viewcode-block" id="build_observed_map_future">
-<a class="viewcode-back" href="../../kpfcc.html#kpfcc.io.build_observed_map_future">[docs]</a>
+<a class="viewcode-back" href="../../individual_rsts/io.html#kpfcc.io.build_observed_map_future">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">build_observed_map_future</span><span class="p">(</span><span class="n">manager</span><span class="p">,</span> <span class="n">combined_semester_schedule</span><span class="p">,</span> <span class="n">starname</span><span class="p">,</span> <span class="n">starmap</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Construct stage two (future) of the starmap which is then used to build the cadence plot.</span>
@@ -328,7 +328,7 @@
 
 
 <div class="viewcode-block" id="determine_quarter">
-<a class="viewcode-back" href="../../kpfcc.html#kpfcc.io.determine_quarter">[docs]</a>
+<a class="viewcode-back" href="../../individual_rsts/io.html#kpfcc.io.determine_quarter">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">determine_quarter</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="n">n_slots_in_night</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Given a slot number, determine what quarter it is to be observed in.</span>
@@ -357,7 +357,7 @@
 
 
 <div class="viewcode-block" id="write_stars_schedule_human_readable">
-<a class="viewcode-back" href="../../kpfcc.html#kpfcc.io.write_stars_schedule_human_readable">[docs]</a>
+<a class="viewcode-back" href="../../individual_rsts/io.html#kpfcc.io.write_stars_schedule_human_readable">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">write_stars_schedule_human_readable</span><span class="p">(</span><span class="n">combined_semester_schedule</span><span class="p">,</span> <span class="n">Yrds</span><span class="p">,</span> <span class="n">manager</span><span class="p">,</span> <span class="n">round_info</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Turns the non-square matrix of the solution into a square matrix and starts the human readable</span>
@@ -395,9 +395,10 @@
     <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">n_slots_in_semester</span><span class="p">):</span>
         <span class="n">slotallocated</span> <span class="o">=</span> <span class="s1">&#39;&#39;</span>
         <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="nb">list</span><span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">requests_frame</span><span class="p">[</span><span class="s1">&#39;Starname&#39;</span><span class="p">]):</span>
-            <span class="k">if</span> <span class="n">all_star_schedules</span><span class="p">[</span><span class="n">name</span><span class="p">][</span><span class="n">s</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="k">if</span> <span class="n">all_star_schedules</span><span class="p">[</span><span class="n">name</span><span class="p">][</span><span class="n">manager</span><span class="o">.</span><span class="n">today_starting_slot</span><span class="o">+</span><span class="n">s</span><span class="p">]</span> <span class="o">==</span> <span class="mi">1</span><span class="p">:</span>
                 <span class="n">slotallocated</span> <span class="o">+=</span> <span class="nb">str</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
-        <span class="n">combined_semester_schedule</span><span class="p">[</span><span class="n">s</span><span class="p">]</span> <span class="o">+=</span> <span class="nb">str</span><span class="p">(</span><span class="n">slotallocated</span><span class="p">)</span>
+                <span class="c1"># print(s, combined_semester_schedule[s], &quot;update: &quot; + str(combined_semester_schedule[manager.today_starting_slot+s]), slotallocated)</span>
+        <span class="n">combined_semester_schedule</span><span class="p">[</span><span class="n">manager</span><span class="o">.</span><span class="n">today_starting_slot</span><span class="o">+</span><span class="n">s</span><span class="p">]</span> <span class="o">+=</span> <span class="nb">str</span><span class="p">(</span><span class="n">slotallocated</span><span class="p">)</span>
     <span class="n">combined_semester_schedule</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">combined_semester_schedule</span><span class="p">,</span>
             <span class="p">(</span><span class="n">manager</span><span class="o">.</span><span class="n">semester_length</span><span class="p">,</span> <span class="n">manager</span><span class="o">.</span><span class="n">n_slots_in_night</span><span class="p">))</span>
 
@@ -425,7 +426,7 @@
 
 
 <div class="viewcode-block" id="write_available_human_readable">
-<a class="viewcode-back" href="../../kpfcc.html#kpfcc.io.write_available_human_readable">[docs]</a>
+<a class="viewcode-back" href="../../individual_rsts/io.html#kpfcc.io.write_available_human_readable">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">write_available_human_readable</span><span class="p">(</span><span class="n">manager</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Fill in the human readable solution with the non-observation information: non-allocated slots,</span>
@@ -482,7 +483,7 @@
 
 
 <div class="viewcode-block" id="write_starlist">
-<a class="viewcode-back" href="../../kpfcc.html#kpfcc.io.write_starlist">[docs]</a>
+<a class="viewcode-back" href="../../individual_rsts/io.html#kpfcc.io.write_starlist">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">write_starlist</span><span class="p">(</span><span class="n">frame</span><span class="p">,</span> <span class="n">solution_frame</span><span class="p">,</span> <span class="n">night_start_time</span><span class="p">,</span> <span class="n">extras</span><span class="p">,</span> <span class="n">filler_stars</span><span class="p">,</span> <span class="n">current_day</span><span class="p">,</span>
                     <span class="n">outputdir</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
@@ -548,7 +549,7 @@
 
 
 <div class="viewcode-block" id="format_kpf_row">
-<a class="viewcode-back" href="../../kpfcc.html#kpfcc.io.format_kpf_row">[docs]</a>
+<a class="viewcode-back" href="../../individual_rsts/io.html#kpfcc.io.format_kpf_row">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">format_kpf_row</span><span class="p">(</span><span class="n">row</span><span class="p">,</span> <span class="n">obs_time</span><span class="p">,</span> <span class="n">first_available</span><span class="p">,</span> <span class="n">last_available</span><span class="p">,</span> <span class="n">current_day</span><span class="p">,</span>
                     <span class="n">filler_flag</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span> <span class="n">extra</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
@@ -629,7 +630,7 @@
 
 
 <div class="viewcode-block" id="pm_correcter">
-<a class="viewcode-back" href="../../kpfcc.html#kpfcc.io.pm_correcter">[docs]</a>
+<a class="viewcode-back" href="../../individual_rsts/io.html#kpfcc.io.pm_correcter">[docs]</a>
 <span class="k">def</span><span class="w"> </span><span class="nf">pm_correcter</span><span class="p">(</span><span class="n">ra</span><span class="p">,</span> <span class="n">dec</span><span class="p">,</span> <span class="n">pmra</span><span class="p">,</span> <span class="n">pmdec</span><span class="p">,</span> <span class="n">epochstr</span><span class="p">,</span> <span class="n">current_day</span><span class="p">,</span> <span class="n">verbose</span><span class="o">=</span><span class="kc">False</span><span class="p">):</span>
 <span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
 <span class="sd">    Update a star&#39;s coordinates due to proper motion</span>
@@ -674,7 +675,7 @@
   <hr/>
 
   <div role="contentinfo">
-    <p>&#169; Copyright 2025, JLubinAstroQ.</p>
+    <p>&#169; Copyright 2025, Jack Lubin.</p>
   </div>
 
   Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
