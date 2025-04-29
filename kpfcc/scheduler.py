@@ -149,6 +149,8 @@ class Scheduler(object):
     def constraint_one_request_per_slot(self):
         """
         According to Eq X in Lubin et al. 2025.
+        Ensure that at most one request is scheduled
+        per available slot.
         """
         print("Constraint 1: Enforce one request per slot.")
         # Construct the constraint
@@ -161,6 +163,9 @@ class Scheduler(object):
     def constraint_reserve_multislot_exposures(self):
         """
         According to Eq X in Lubin et al. 2025.
+        Reserve multiple time slots for exposures that require
+        more than one time slot to complete, and ensure that
+        no other observations are scheduled during these slots.
         """
         print("Constraint 2: Reserve slots for for multi-slot exposures.")
         # Get requests that are valid in (d,s+t_visit) pair for a given (d,s,1...t_visit)
