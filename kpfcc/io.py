@@ -10,6 +10,8 @@ import math
 import time
 from astropy.time import Time
 from astropy.time import TimeDelta
+from astropy.coordinates import Angle
+from astropy import units as u
 
 import numpy as np
 import pandas as pd
@@ -314,7 +316,7 @@ def write_stars_schedule_human_readable(combined_semester_schedule, Yrds, manage
     # The semester solver puts a 1 only in the slot that starts the exposure for a target.
     # Therefore, many slots are empty because they are part of a multi-slot visit.
     # Here fill in the multi-slot exposures appropriately for ease of human reading and accounting.
-    for n in range(manager.n_nights_in_semester-1-manager.all_dates_dict[manager.current_day], -1, -1):
+    for n in range(manager.semester_length -1-manager.all_dates_dict[manager.current_day], -1, -1):
         for s in range(manager.n_slots_in_night-1, -1, -1):
             if combined_semester_schedule[n+manager.all_dates_dict[manager.current_day]][s] in list(manager.requests_frame['starname']):
                 target_name = combined_semester_schedule[n+manager.all_dates_dict[manager.current_day]][s]
@@ -412,9 +414,9 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
     print('Writing starlist to ' + script_file)
 
     lines = []
-    for i, item in enumerate(solution_frame['starname']):
-        filler_flag = solution_frame['starname'][i] in filler_stars
-        row = frame.loc[frame['starname'] == solution_frame['starname'][i]]
+    for i, item in enumerate(solution_frame['Starname']):
+        filler_flag = solution_frame['Starname'][i] in filler_stars
+        row = frame.loc[frame['starname'] == solution_frame['Starname'][i]]
         row.reset_index(inplace=True)
         total_exptime += float(row['exptime'][0])
 
@@ -432,12 +434,12 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
     lines.append('X' * 45 + 'EXTRAS' + 'X' * 45)
     lines.append('')
 
-    for j in range(len(extras['starname'])):
-        if extras['starname'][j] in filler_stars:
+    for j in range(len(extras['Starname'])):
+        if extras['Starname'][j] in filler_stars:
             filler_flag = True
         else:
             filler_flag = False
-        row = frame.loc[frame['starname'] == extras['starname'][j]]
+        row = frame.loc[frame['starname'] == extras['Starname'][j]]
         row.reset_index(inplace=True)
         lines.append(format_kpf_row(row, '56:78', extras['First Available'][j],
                     extras['Last Available'][j], current_day, filler_flag, True))
@@ -472,38 +474,38 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
     """
 
     epochstr = '2024'
-    updated_ra, updated_dec = pm_correcter(row['RA'][0], row['Dec'][0],
-                                row['Proper Motion in RA [miliarcseconds/year]'][0],
-                                row['Proper Motion in Dec [miliarcseconds/year]'][0],
+    updated_ra, updated_dec = pm_correcter(row['ra'][0], row['dec'][0],
+                                row['pmra'][0],
+                                row['pmdec'][0],
                                 epochstr, current_day, verbose=False)
     if updated_dec[0] != "-":
         updated_dec = "+" + updated_dec
 
     namestring = ' '*(16-len(row['starname'][0][:16])) + row['starname'][0][:16]
 
-    jmagstring = ('jmag=' + str(np.round(float(row['J Magnitude'][0]),1)) + ' '* \
-        (4-len(str(np.round(row['J Magnitude'][0],1)))))
+    jmagstring = ('jmag=' + str(np.round(float(row['jmag'][0]),1)) + ' '* \
+        (4-len(str(np.round(row['jmag'][0],1)))))
     exposurestring = (' '*(4-len(str(int(row['exptime'][0])))) + \
         str(int(row['exptime'][0])) + '/' + \
-        str(int(row['Maximum Exposure Time [s]'][0])) + ' '* \
-        (4-len(str(int(row['Maximum Exposure Time [s]'][0])))))
+        str(int(row['exptime'][0])) + ' '* \
+        (4-len(str(int(row['exptime'][0])))))
 
-    ofstring = ('1of' + str(int(row['# Visits per Night'][0])))
+    ofstring = ('1of' + str(int(row['n_intra_max'][0])))
 
-    if row['Simucal'][0]:
-        scval = 'T'
-    else:
-        scval = 'F'
-    scstring = 'sc=' + scval
+    # if row['Simucal'][0]:
+    #     scval = 'T'
+    # else:
+    #     scval = 'F'
+    scstring = 'sc=' + 'T'
 
-    numstring = str(int(row['# of Exposures per Visit'][0])) + "x"
-    gmagstring = 'gmag=' + str(np.round(float(row['G Magnitude'][0]),1)) + \
-                                                ' '*(4-len(str(np.round(row['G Magnitude'][0],1))))
-    teffstr = 'Teff=' + str(int(row['Effective Temperature [Kelvin]'][0])) + \
-                                    ' '*(4-len(str(int(row['Effective Temperature [Kelvin]'][0]))))
+    numstring = str(int(row['n_exp'][0])) + "x"
+    gmagstring = 'gmag=' + str(np.round(float(row['gmag'][0]),1)) + \
+                                                ' '*(4-len(str(np.round(row['gmag'][0],1))))
+    teffstr = 'Teff=' + str(int(row['teff'][0])) + \
+                                    ' '*(4-len(str(int(row['teff'][0]))))
 
-    gaiastring = str(row['GAIA Identifier'][0]) + ' '*(25-len(str(row['GAIA Identifier'][0])))
-    programstring = row['Program_Code'][0]
+    gaiastring = str(row['gaia_id'][0]) + ' '*(25-len(str(row['gaia_id'][0])))
+    programstring = row['program_code'][0]
 
     if filler_flag:
         # All targets added in round 2 bonus round are lower priority
@@ -523,8 +525,8 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
                         + priostring + ' ' + programstring + ' ' + timestring2 +
                          ' ' + first_available  + ' ' + last_available )
 
-    if not pd.isnull(row['Observing Notes'][0]):
-        line += (' ' + str(row['Observing Notes'][0]))
+    # if not pd.isnull(row['Observing Notes'][0]):
+    #     line += (' ' + str(row['Observing Notes'][0]))
 
     return line
 
