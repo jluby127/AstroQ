@@ -71,6 +71,13 @@ Temporary note: you can also run ``coverage`` to see how much code the tests tou
         $ coverage run -m pytest
         
         
+Now separately run the ``astroq schedule`` command to get some practice with the command line interface. The arguments point to files which should have been created by the previous ``pytest`` command.
+
+    .. code-block:: bash
+
+        $ astroq schedule -rf examples/bench/outputs/2024-08-01/request_set_short.json -cf examples/bench/config_benchmark.ini
+        
+        
         
         
         
