@@ -1,5 +1,7 @@
 import os
 import json
+import numpy as np
+import pandas as pd
 from configparser import ConfigParser
 from argparse import Namespace
 
@@ -8,7 +10,9 @@ import kpfcc.request as rq
 import kpfcc.management as mn
 import kpfcc.benchmarking as bn
 import kpfcc.blocks as ob
-
+import kpfcc.plot as pl
+import kpfcc.tracking as tk
+import kpfcc.onsky as sk
 
 def bench(args):
     print("Running benchmark test.")
@@ -89,7 +93,7 @@ def kpfcc_data(args):
     this is where code to automatically send emails will go.
     '''
 
-    return 
+    return
 
 def schedule(args):
 
@@ -106,9 +110,32 @@ def schedule(args):
 
 def plot(args):
 
-    so = args.schedule_object
-    tp = type(so)
-    print(f'    kpfcc_plot function: schedule object is {so} and type is {tp}')
-    print("this function doesn't do anything yet.")
+    # so = args.schedule_object
+    # tp = type(so)
+    # print(f'    kpfcc_plot function: schedule object is {so} and type is {tp}')
+    # print("this function doesn't do anything yet.")
+
+    cf = args.config_file
+    print(f'    kpfcc_schedule function: config_file is {cf}')
+
+    manager = mn.data_admin(cf)
+    manager.run_admin()
+
+    forecast_frame = pd.read_csv(manager.upstream_path + "/outputs/" + str(manager.current_day) + "/raw_combined_semester_schedule_Round2.txt")
+    manager.combined_semester_schedule_stars = forecast_frame.values
+    star_tracker = tk.StarTracker(manager)
+#    io.report_allocation_stats(manager)
+    pl.write_cadence_plot_files(manager)
+    pl.run_plot_suite(star_tracker, manager)
+
     return
 
+def ttp(args):
+
+    cf = args.config_file
+    print(f'    kpfcc_schedule function: config_file is {cf}')
+
+    manager = mn.data_admin(cf)
+    manager.run_admin()
+
+    sk.run_ttp(manager)

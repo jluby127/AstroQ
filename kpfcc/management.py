@@ -92,7 +92,7 @@ class data_admin(object):
         self.starmap_template_filename = os.path.join(self.semester_directory, "inputs/cadenceTemplateFile.csv")
         self.build_starmaps = config.get('other', 'build_starmaps').strip().lower() == "true"
 
-        self.nightly_start_stop_times = os.path.join(self.semester_directory, "inputs/NightlyStartStopTimes.csv")
+        self.nightly_start_stop_times_file = os.path.join(self.semester_directory, "inputs/nightly_start_stop_times.csv")
         self.run_backup_scripts = config.get('other', 'generate_backup_script').strip().lower() == "true"
         self.backup_file = os.path.join(DATADIR,"bright_backups_frame.csv")
         self.backup_observability_file = os.path.join(DATADIR,"bright_backup_observability.csv")
@@ -378,7 +378,7 @@ def prepare_new_semester(config_path):
     ########### code goes here, use the separation slots between quarters and sum access maps
 
     if little_manager.run_optimal_allocation == False:
-        
+
         little_manager.allocation_file = os.path.join(little_manager.upstream_path, "inputs/Observatory_Allocation.csv")
         if os.path.exists(little_manager.allocation_file):
             allocation = mp.format_keck_allocation_info(little_manager.allocation_file)

@@ -96,7 +96,7 @@ def run_plot_suite(star_tracker, manager):
                                        prog_colors)
     all_stars = np.array(all_stars).flatten()
     all_completions = np.array(all_completions).flatten()
-    complete_frame = pd.DataFrame({"Starname":all_stars, 'CompletetionPercent':all_completions})
+    complete_frame = pd.DataFrame({"starname":all_stars, 'CompletetionPercent':all_completions})
     complete_frame.to_csv(manager.semester_directory + 'reports/admin/' + str(star_tracker.manager.current_day) + \
                                                     '/cofs/final_completion_rates.csv', index=False)
     print("All plots generated. Saved to " + manager.semester_directory + "reports/")
@@ -113,24 +113,24 @@ def write_cadence_plot_files(manager):
         for i in range(len(manager.requests_frame)):
             if manager.database_info_dict != {}:
                 starmap = io.build_observed_map_past( \
-                    manager.database_info_dict[manager.requests_frame['Starname'][i]], manager.starmap_template_filename)
+                    manager.database_info_dict[manager.requests_frame['starname'][i]], manager.starmap_template_filename)
             else:
                 starmap = io.build_observed_map_past([[],[],[],[]], manager.starmap_template_filename)
 
             starmap_updated = io.build_observed_map_future(manager, combined_semester_schedule_stars,
-                                manager.requests_frame['Starname'][i], starmap)
+                                manager.requests_frame['starname'][i], starmap)
 
-            all_starmaps[manager.requests_frame['Starname'][i]] = starmap_updated
+            all_starmaps[manager.requests_frame['starname'][i]] = starmap_updated
             future_unique_days_forecasted = 0
             for k, item in enumerate(manager.combined_semester_schedule_stars):
-                if manager.requests_frame['Starname'][i] in manager.combined_semester_schedule_stars[k]:
+                if manager.requests_frame['starname'][i] in manager.combined_semester_schedule_stars[k]:
                     future_unique_days_forecasted += 1
 
             try:
-                past_unique_dates_for_star = manager.database_info_dict[manager.requests_frame['Starname'][i]][1]
+                past_unique_dates_for_star = manager.database_info_dict[manager.requests_frame['starname'][i]][1]
             except:
                 past_unique_dates_for_star = []
-            write_one_cadence_plot_file(manager.requests_frame['Starname'][i], starmap_updated,
+            write_one_cadence_plot_file(manager.requests_frame['starname'][i], starmap_updated,
                                         turn_on_off_frame, manager.requests_frame,
                                         future_unique_days_forecasted,
                                         past_unique_dates_for_star,
@@ -153,16 +153,16 @@ def write_one_cadence_plot_file(starname, starmap, turn_frame, requests_frame, f
     Returns:
         None
     """
-    request_id = requests_frame.index[requests_frame['Starname']==str(starname)][0]
-    program_code = requests_frame.loc[request_id,'Program_Code']
+    request_id = requests_frame.index[requests_frame['starname']==str(starname)][0]
+    program_code = requests_frame.loc[request_id,'program_code']
     save_path = outputdir + "/cadences/" + str(program_code) + "/"
     os.makedirs(save_path, exist_ok = True)
 
-    n_obs_desired = requests_frame.loc[request_id,'# of Nights Per Semester']
+    n_obs_desired = requests_frame.loc[request_id,'n_inter_max']
     n_obs_taken = len(unique_hst_dates_observed)
     n_obs_scheduled = future_obs #np.sum(starmap['N_obs']) #n_obs_desired - n_obs_taken #
-    cadence = requests_frame.loc[request_id,'Minimum Inter-Night Cadence']
-    turn_index = turn_frame.index[turn_frame['Starname']==str(starname)][0]
+    cadence = requests_frame.loc[request_id,'tau_inter']
+    turn_index = turn_frame.index[turn_frame['starname']==str(starname)][0]
     turns = [[turn_frame['Q1_on_date'][turn_index], turn_frame['Q1_off_date'][turn_index]],
              [turn_frame['Q2_on_date'][turn_index], turn_frame['Q2_off_date'][turn_index]],
              [turn_frame['Q3_on_date'][turn_index], turn_frame['Q3_off_date'][turn_index]],
@@ -560,8 +560,8 @@ def create_single_program_birds_eye(star_tracker, program, color):
     stars_in_program = []
     color_counter = 0
     for i in range(len(star_tracker.manager.requests_frame)):
-        if star_tracker.manager.requests_frame['Program_Code'][i] == program:
-            starname = star_tracker.manager.requests_frame['Starname'][i]
+        if star_tracker.manager.requests_frame['program_code'][i] == program:
+            starname = star_tracker.manager.requests_frame['starname'][i]
             stars_in_program.append(starname)
             requested_nobs_per_night, total_observations_requested, exposure_time, slots_per_night,\
                 program, slots_per_visit = star_tracker.get_star_stats(starname)
@@ -612,7 +612,7 @@ def generate_birds_eye(star_tracker, all_star_maps, all_star_cols, all_star_nobs
         ))
     if nonqueue:
         for i in range(len(star_tracker.nonqueue)):
-            starname = 'RM__' + star_tracker.nonqueue['Starname'][i]
+            starname = 'RM__' + star_tracker.nonqueue['starname'][i]
             starmap, nobs = process_single_target_for_birds_eye(star_tracker, starname)
             starttime = Time(star_tracker.nonqueue['Start'][i])
             stoptime = Time(star_tracker.nonqueue['Stop'][i])
@@ -624,9 +624,9 @@ def generate_birds_eye(star_tracker, all_star_maps, all_star_cols, all_star_nobs
                 zmin=0, zmax=1,
                 opacity=1.0,
                 showscale=False,
-                name=star_tracker.nonqueue['Starname'][i],
+                name=star_tracker.nonqueue['starname'][i],
                 text=[str(nobs)],
-                hovertemplate='<b>' + str(star_tracker.nonqueue['Starname'][i]) +
+                hovertemplate='<b>' + str(star_tracker.nonqueue['starname'][i]) +
                     '</b><br><b>Date: %{x}</b><br><b>Slot: %{y}</b><br>Window: ' + \
                     str(starttime) + " to " + str(stoptime) + '<extra></extra>',
                 showlegend=True,
@@ -707,10 +707,10 @@ def generate_single_program_plot_suite(star_tracker, program_code, build_cadence
     stars_cofs_first_forecasts = {}
     stars_info = {}
     print("Building individual program report for ", program_code)
-    for i in range(len(star_tracker.manager.requests_frame['Program_Code'])):
-        if star_tracker.manager.requests_frame['Program_Code'][i] == program_code:
-            star = star_tracker.manager.requests_frame['Starname'][i]
-            if star_tracker.manager.requests_frame['# of Nights Per Semester'][i] != 0:
+    for i in range(len(star_tracker.manager.requests_frame['program_code'])):
+        if star_tracker.manager.requests_frame['program_code'][i] == program_code:
+            star = star_tracker.manager.requests_frame['starname'][i]
+            if star_tracker.manager.requests_frame['n_inter_max'][i] != 0:
                 stars_in_program.append(star)
                 running_total_obs_counter, running_total_obs_percent, total_observations_requested,\
                     first_forecast = single_request_cof(star_tracker, star)
