@@ -306,7 +306,6 @@
 <span class="sd">    &quot;&quot;&quot;</span>
     <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Compiling past observation history.&quot;</span><span class="p">)</span>
     <span class="n">database_info_dict</span> <span class="o">=</span> <span class="p">{}</span>
-    <span class="c1"># pf.get_kpf_past_database(past_observations_file)</span>
     <span class="k">if</span> <span class="n">os</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">(</span><span class="n">past_observations_file</span><span class="p">):</span>
         <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Pulled database of past observations this semester.&quot;</span><span class="p">)</span>
         <span class="n">database</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">past_observations_file</span><span class="p">)</span>
