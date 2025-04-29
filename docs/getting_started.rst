@@ -32,6 +32,14 @@ Follow these steps to install and set up Gurobi:
         .. code-block:: bash
 
             export GRB_LICENSE_FILE=/path/to/gurobi.lic
+            
+    6. **Optionally define some additional environment variables** while you're at it:
+    
+        .. code-block:: bash
+
+            export KPFCC_JUMP_USERNAME=your_username
+            export KPFCC_JUMP_PASSWORD=your_pass
+            export KPFCC_SAVE_PATH=path/to/AstrQ/results
 
 
 Installing AstroQ
