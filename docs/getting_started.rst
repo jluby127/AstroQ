@@ -3,6 +3,7 @@
 Getting Started
 ===============
 
+.. _installation:
 
 Installation
 ++++++++++++
@@ -70,16 +71,39 @@ Temporary note: you can also run ``coverage`` to see how much code the tests tou
 
         $ coverage run -m pytest
         
-        
-Now separately run the ``astroq schedule`` command to get some practice with the command line interface. The arguments point to files which should have been created by the previous ``pytest`` command.
+
+Example Usage
++++++++++++++
+
+Test your installation further by running some of the commands below. We will use ``AstroQ``'s command line interface to mock up a toy observing schedule. After performing the steps in the :ref:`installation` section, you should have access to the ``astroq`` binary at the command line. If not, ensure that you have run ``pip install -e .`` in the top-level directory of the repository.
+
+Let's see which subcommands are available using ``astroq --help``:
+    .. code-block:: bash
+
+        $ astroq --help
+          usage: astroq [-h] [-V] {bench,plot,schedule,kpfcc} ...
+
+          AstroQ: Optimized observation scheduling
+
+          optional arguments:
+              -h, --help            show this help message and exit
+              -V, --version         Print version number and exit.
+
+          subcommands:
+              {bench,plot,schedule,kpfcc}
+
+
+To create your mock observing schedule, first run the ``astroq schedule`` command given below. The arguments point to files which should have been created by the previous ``pytest`` command.
 
     .. code-block:: bash
 
         $ astroq schedule -rf examples/bench/outputs/2024-08-01/request_set_short.json -cf examples/bench/config_benchmark.ini
         
-        
-        
-        
+This will produce a set of files in the `examples/bench/outputs/2024-08-01/` directory, including a plot called `weather_loss_visualization.png` that looks this:
+
+.. image:: plots/weather_loss_visualization.png
+
+
         
         
         

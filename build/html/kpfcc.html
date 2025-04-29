@@ -80,7 +80,7 @@
 <p>Module for computing acccessibility of requests, including from telescope pointing and twilight</p>
 <dl class="py function">
 <dt class="sig sig-object py" id="kpfcc.access.build_single_target_accessibility">
-<span class="sig-prename descclassname"><span class="pre">kpfcc.access.</span></span><span class="sig-name descname"><span class="pre">build_single_target_accessibility</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">starname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ra</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dec</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">start_date</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n_nights_in_semester</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">slot_size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">observatory</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">min_moon_sep</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">30</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">compute_turn_on_off</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/access.html#build_single_target_accessibility"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.access.build_single_target_accessibility" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">kpfcc.access.</span></span><span class="sig-name descname"><span class="pre">build_single_target_accessibility</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">manager</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">starname</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">ra</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dec</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">min_moon_sep</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">30</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">compute_turn_on_off</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/access.html#build_single_target_accessibility"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.access.build_single_target_accessibility" title="Link to this definition"></a></dt>
 <dd><p>Compute a target’s accessibility map for the entire semester</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -297,7 +297,7 @@ Format: YYYY-MM-DD.</p></li>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="kpfcc.access.is_observable">
-<span class="sig-prename descclassname"><span class="pre">kpfcc.access.</span></span><span class="sig-name descname"><span class="pre">is_observable</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">observatory</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">date</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">slot_size</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/access.html#is_observable"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.access.is_observable" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">kpfcc.access.</span></span><span class="sig-name descname"><span class="pre">is_observable</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">manager</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">date</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/access.html#is_observable"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.access.is_observable" title="Link to this definition"></a></dt>
 <dd><p>Compute a target’s accessibility map on a given date, taking into account the
 telescope pointing limits and moon-safe distance at the beginning of every slot.</p>
 <dl class="field-list simple">
@@ -401,17 +401,17 @@ Best to match the original name and overwrite.</p></li>
 <p>Module for preparing the benchmark tests</p>
 <dl class="py function">
 <dt class="sig sig-object py" id="kpfcc.benchmarking.build_toy_model_from_paper">
-<span class="sig-prename descclassname"><span class="pre">kpfcc.benchmarking.</span></span><span class="sig-name descname"><span class="pre">build_toy_model_from_paper</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hours_per_program</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">plot</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">savepath</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/benchmarking.html#build_toy_model_from_paper"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.benchmarking.build_toy_model_from_paper" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">kpfcc.benchmarking.</span></span><span class="sig-name descname"><span class="pre">build_toy_model_from_paper</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">hours_per_program</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">100</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">plot</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">savepath</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">shortcut</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/benchmarking.html#build_toy_model_from_paper"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.benchmarking.build_toy_model_from_paper" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="kpfcc.benchmarking.do_benchmark_files_exist">
-<span class="sig-prename descclassname"><span class="pre">kpfcc.benchmarking.</span></span><span class="sig-name descname"><span class="pre">do_benchmark_files_exist</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config_path</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/benchmarking.html#do_benchmark_files_exist"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.benchmarking.do_benchmark_files_exist" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">kpfcc.benchmarking.</span></span><span class="sig-name descname"><span class="pre">do_benchmark_files_exist</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">config_path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">shortcut</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/benchmarking.html#do_benchmark_files_exist"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.benchmarking.do_benchmark_files_exist" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py function">
 <dt class="sig sig-object py" id="kpfcc.benchmarking.firstN_Requests">
-<span class="sig-prename descclassname"><span class="pre">kpfcc.benchmarking.</span></span><span class="sig-name descname"><span class="pre">firstN_Requests</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">nstar</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">request_set</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/benchmarking.html#firstN_Requests"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.benchmarking.firstN_Requests" title="Link to this definition"></a></dt>
+<span class="sig-prename descclassname"><span class="pre">kpfcc.benchmarking.</span></span><span class="sig-name descname"><span class="pre">firstN_Requests</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">nstar</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">request_set</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">request_file</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/benchmarking.html#firstN_Requests"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.benchmarking.firstN_Requests" title="Link to this definition"></a></dt>
 <dd><p>Cut down the large RequestSet’s number of requests into a smaller number.
 Useful for benchmarking astroq’s performance as a function of number of requests.
 Note: Setting nstar &lt; 250 will remove requests that are part of the standard toy model. This</p>
@@ -454,243 +454,8 @@ it’s awarded time.</p>
 <dd></dd></dl>
 
 </section>
-<section id="module-kpfcc.constraints">
-<span id="kpfcc-constraints-module"></span><h2>kpfcc.constraints module<a class="headerlink" href="#module-kpfcc.constraints" title="Link to this heading"></a></h2>
-<p>Module for building constraints</p>
-<p>This module constructs constraints for the gurobi model.</p>
-<dl class="simple">
-<dt>Example usage:</dt><dd><p>import constraints_functions as cf</p>
-</dd>
-</dl>
-<dl class="py class">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">kpfcc.constraints.</span></span><span class="sig-name descname"><span class="pre">GorubiModel</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">manager</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Aset</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Aframe</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">schedulable_requests</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">Wset</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel" title="Link to this definition"></a></dt>
-<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
-<p>A Gorubi Model object, from which we can add constraints and share variables easily.</p>
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.constraint_all_portions_of_night_represented">
-<span class="sig-name descname"><span class="pre">constraint_all_portions_of_night_represented</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.constraint_all_portions_of_night_represented"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.constraint_all_portions_of_night_represented" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.constraint_build_enforce_intranight_cadence">
-<span class="sig-name descname"><span class="pre">constraint_build_enforce_intranight_cadence</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.constraint_build_enforce_intranight_cadence"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.constraint_build_enforce_intranight_cadence" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.constraint_build_theta">
-<span class="sig-name descname"><span class="pre">constraint_build_theta</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.constraint_build_theta"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.constraint_build_theta" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.constraint_build_theta_multivisit">
-<span class="sig-name descname"><span class="pre">constraint_build_theta_multivisit</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.constraint_build_theta_multivisit"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.constraint_build_theta_multivisit" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.constraint_build_theta_program_normalized">
-<span class="sig-name descname"><span class="pre">constraint_build_theta_program_normalized</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.constraint_build_theta_program_normalized"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.constraint_build_theta_program_normalized" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.constraint_build_theta_time_normalized">
-<span class="sig-name descname"><span class="pre">constraint_build_theta_time_normalized</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.constraint_build_theta_time_normalized"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.constraint_build_theta_time_normalized" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.constraint_cannot_observe_if_not_allocated">
-<span class="sig-name descname"><span class="pre">constraint_cannot_observe_if_not_allocated</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">twilight_map_remaining_2D</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.constraint_cannot_observe_if_not_allocated"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.constraint_cannot_observe_if_not_allocated" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.constraint_connect_Wrd_and_Yrds">
-<span class="sig-name descname"><span class="pre">constraint_connect_Wrd_and_Yrds</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.constraint_connect_Wrd_and_Yrds"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.constraint_connect_Wrd_and_Yrds" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.constraint_enforce_internight_cadence">
-<span class="sig-name descname"><span class="pre">constraint_enforce_internight_cadence</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.constraint_enforce_internight_cadence"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.constraint_enforce_internight_cadence" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.constraint_enforce_restricted_nights">
-<span class="sig-name descname"><span class="pre">constraint_enforce_restricted_nights</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">limit</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.constraint_enforce_restricted_nights"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.constraint_enforce_restricted_nights" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><p><strong>limit</strong> (<em>int</em>) – either 0 or 1 to enforce blackout and whiteout, respectively</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.constraint_fix_previous_objective">
-<span class="sig-name descname"><span class="pre">constraint_fix_previous_objective</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">epsilon</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">5</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.constraint_fix_previous_objective"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.constraint_fix_previous_objective" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.constraint_forbidden_quarter_patterns">
-<span class="sig-name descname"><span class="pre">constraint_forbidden_quarter_patterns</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.constraint_forbidden_quarter_patterns"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.constraint_forbidden_quarter_patterns" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.constraint_max_consecutive_onsky">
-<span class="sig-name descname"><span class="pre">constraint_max_consecutive_onsky</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.constraint_max_consecutive_onsky"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.constraint_max_consecutive_onsky" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.constraint_max_visits_per_night">
-<span class="sig-name descname"><span class="pre">constraint_max_visits_per_night</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.constraint_max_visits_per_night"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.constraint_max_visits_per_night" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.constraint_maximize_baseline">
-<span class="sig-name descname"><span class="pre">constraint_maximize_baseline</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.constraint_maximize_baseline"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.constraint_maximize_baseline" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.constraint_minimum_consecutive_offsky">
-<span class="sig-name descname"><span class="pre">constraint_minimum_consecutive_offsky</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.constraint_minimum_consecutive_offsky"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.constraint_minimum_consecutive_offsky" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.constraint_one_request_per_slot">
-<span class="sig-name descname"><span class="pre">constraint_one_request_per_slot</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.constraint_one_request_per_slot"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.constraint_one_request_per_slot" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.constraint_relate_allocation_and_onsky">
-<span class="sig-name descname"><span class="pre">constraint_relate_allocation_and_onsky</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.constraint_relate_allocation_and_onsky"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.constraint_relate_allocation_and_onsky" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.constraint_reserve_multislot_exposures">
-<span class="sig-name descname"><span class="pre">constraint_reserve_multislot_exposures</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.constraint_reserve_multislot_exposures"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.constraint_reserve_multislot_exposures" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.constraint_set_max_absolute_unique_nights_Wrd">
-<span class="sig-name descname"><span class="pre">constraint_set_max_absolute_unique_nights_Wrd</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.constraint_set_max_absolute_unique_nights_Wrd"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.constraint_set_max_absolute_unique_nights_Wrd" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.constraint_set_max_absolute_unique_nights_Yrds">
-<span class="sig-name descname"><span class="pre">constraint_set_max_absolute_unique_nights_Yrds</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.constraint_set_max_absolute_unique_nights_Yrds"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.constraint_set_max_absolute_unique_nights_Yrds" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.constraint_set_max_desired_unique_nights_Wrd">
-<span class="sig-name descname"><span class="pre">constraint_set_max_desired_unique_nights_Wrd</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.constraint_set_max_desired_unique_nights_Wrd"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.constraint_set_max_desired_unique_nights_Wrd" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.constraint_set_max_desired_unique_nights_Yrds">
-<span class="sig-name descname"><span class="pre">constraint_set_max_desired_unique_nights_Yrds</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.constraint_set_max_desired_unique_nights_Yrds"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.constraint_set_max_desired_unique_nights_Yrds" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.constraint_set_max_onsky_allocated">
-<span class="sig-name descname"><span class="pre">constraint_set_max_onsky_allocated</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.constraint_set_max_onsky_allocated"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.constraint_set_max_onsky_allocated" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.constraint_set_max_quarters_allocated">
-<span class="sig-name descname"><span class="pre">constraint_set_max_quarters_allocated</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.constraint_set_max_quarters_allocated"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.constraint_set_max_quarters_allocated" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.constraint_set_min_max_visits_per_night">
-<span class="sig-name descname"><span class="pre">constraint_set_min_max_visits_per_night</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.constraint_set_min_max_visits_per_night"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.constraint_set_min_max_visits_per_night" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.remove_constraint_set_max_desired_unique_nights_Wrd">
-<span class="sig-name descname"><span class="pre">remove_constraint_set_max_desired_unique_nights_Wrd</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.remove_constraint_set_max_desired_unique_nights_Wrd"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.remove_constraint_set_max_desired_unique_nights_Wrd" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.set_objective_maximize_slots_used">
-<span class="sig-name descname"><span class="pre">set_objective_maximize_slots_used</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.set_objective_maximize_slots_used"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.set_objective_maximize_slots_used" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.set_objective_minimize_theta">
-<span class="sig-name descname"><span class="pre">set_objective_minimize_theta</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.set_objective_minimize_theta"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.set_objective_minimize_theta" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.set_objective_minimize_theta_prog_norm">
-<span class="sig-name descname"><span class="pre">set_objective_minimize_theta_prog_norm</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.set_objective_minimize_theta_prog_norm"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.set_objective_minimize_theta_prog_norm" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.set_objective_minimize_theta_time_normalized">
-<span class="sig-name descname"><span class="pre">set_objective_minimize_theta_time_normalized</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.set_objective_minimize_theta_time_normalized"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.set_objective_minimize_theta_time_normalized" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.constraints.GorubiModel.solve_model">
-<span class="sig-name descname"><span class="pre">solve_model</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#GorubiModel.solve_model"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.GorubiModel.solve_model" title="Link to this definition"></a></dt>
-<dd></dd></dl>
-
-</dd></dl>
-
-<dl class="py function">
-<dt class="sig sig-object py" id="kpfcc.constraints.define_slot_index_frame">
-<span class="sig-prename descclassname"><span class="pre">kpfcc.constraints.</span></span><span class="sig-name descname"><span class="pre">define_slot_index_frame</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">manager</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">available_indices_for_request</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/constraints.html#define_slot_index_frame"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.constraints.define_slot_index_frame" title="Link to this definition"></a></dt>
-<dd><p>Using the dictionary of indices where each request is available, define a dataframe for which
-we will use to cut/filter/merge r,d,s tuples</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters<span class="colon">:</span></dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>requests_frame</strong> (<em>dataframe</em>) – the pandas dataframe containing the request information</p></li>
-<li><p><strong>slots_needed_for_exposure_dict</strong> (<em>dictionary</em>) – keys are the request names, values are the
-number of slots required for one exposure of that request</p></li>
-<li><p><strong>available_indices_for_request</strong> (<em>dictionary</em>) – keys are the starnames and values are a 1D array
-the indices where available_slots_for_request is 1.</p></li>
-</ul>
-</dd>
-<dt class="field-even">Returns<span class="colon">:</span></dt>
-<dd class="field-even"><p>a pandas dataframe containing one row for each valid r,d,s tuple
-Aset (array): an array of [r, d, s] tuples that make up the indices of Yrds
-schedulable_requests (list): the requests that are valid for this schedule</p>
-</dd>
-<dt class="field-odd">Return type<span class="colon">:</span></dt>
-<dd class="field-odd"><p>Aframe (dataframe)</p>
-</dd>
-</dl>
-</dd></dl>
-
+<section id="kpfcc-constraints-module">
+<h2>kpfcc.constraints module<a class="headerlink" href="#kpfcc-constraints-module" title="Link to this heading"></a></h2>
 </section>
 <section id="module-kpfcc.driver">
 <span id="kpfcc-driver-module"></span><h2>kpfcc.driver module<a class="headerlink" href="#module-kpfcc.driver" title="Link to this heading"></a></h2>
@@ -707,6 +472,11 @@ schedulable_requests (list): the requests that are valid for this schedule</p>
 <dl class="py function">
 <dt class="sig sig-object py" id="kpfcc.driver.kpfcc_build">
 <span class="sig-prename descclassname"><span class="pre">kpfcc.driver.</span></span><span class="sig-name descname"><span class="pre">kpfcc_build</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">args</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/driver.html#kpfcc_build"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.driver.kpfcc_build" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="kpfcc.driver.kpfcc_data">
+<span class="sig-prename descclassname"><span class="pre">kpfcc.driver.</span></span><span class="sig-name descname"><span class="pre">kpfcc_data</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">args</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/driver.html#kpfcc_data"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.driver.kpfcc_data" title="Link to this definition"></a></dt>
 <dd></dd></dl>
 
 <dl class="py function">
@@ -2004,26 +1774,8 @@ Gurobi model. It is nearly completely agnostic to all astronomy knowledge.</p>
 </dd></dl>
 
 <dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.scheduler.Scheduler.constraint_build_theta">
-<span class="sig-name descname"><span class="pre">constraint_build_theta</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/scheduler.html#Scheduler.constraint_build_theta"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.scheduler.Scheduler.constraint_build_theta" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
 <dt class="sig sig-object py" id="kpfcc.scheduler.Scheduler.constraint_build_theta_multivisit">
 <span class="sig-name descname"><span class="pre">constraint_build_theta_multivisit</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/scheduler.html#Scheduler.constraint_build_theta_multivisit"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.scheduler.Scheduler.constraint_build_theta_multivisit" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.scheduler.Scheduler.constraint_build_theta_program_normalized">
-<span class="sig-name descname"><span class="pre">constraint_build_theta_program_normalized</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/scheduler.html#Scheduler.constraint_build_theta_program_normalized"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.scheduler.Scheduler.constraint_build_theta_program_normalized" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.scheduler.Scheduler.constraint_build_theta_time_normalized">
-<span class="sig-name descname"><span class="pre">constraint_build_theta_time_normalized</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/scheduler.html#Scheduler.constraint_build_theta_time_normalized"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.scheduler.Scheduler.constraint_build_theta_time_normalized" title="Link to this definition"></a></dt>
 <dd><p>According to Eq X in Lubin et al. 2025.</p>
 </dd></dl>
 
@@ -2111,20 +1863,8 @@ Gurobi model. It is nearly completely agnostic to all astronomy knowledge.</p>
 </dd></dl>
 
 <dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.scheduler.Scheduler.constraint_set_max_absolute_unique_nights_Yrds">
-<span class="sig-name descname"><span class="pre">constraint_set_max_absolute_unique_nights_Yrds</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/scheduler.html#Scheduler.constraint_set_max_absolute_unique_nights_Yrds"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.scheduler.Scheduler.constraint_set_max_absolute_unique_nights_Yrds" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
 <dt class="sig sig-object py" id="kpfcc.scheduler.Scheduler.constraint_set_max_desired_unique_nights_Wrd">
 <span class="sig-name descname"><span class="pre">constraint_set_max_desired_unique_nights_Wrd</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/scheduler.html#Scheduler.constraint_set_max_desired_unique_nights_Wrd"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.scheduler.Scheduler.constraint_set_max_desired_unique_nights_Wrd" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.scheduler.Scheduler.constraint_set_max_desired_unique_nights_Yrds">
-<span class="sig-name descname"><span class="pre">constraint_set_max_desired_unique_nights_Yrds</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/scheduler.html#Scheduler.constraint_set_max_desired_unique_nights_Yrds"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.scheduler.Scheduler.constraint_set_max_desired_unique_nights_Yrds" title="Link to this definition"></a></dt>
 <dd><p>According to Eq X in Lubin et al. 2025.</p>
 </dd></dl>
 
@@ -2175,18 +1915,6 @@ Gurobi model. It is nearly completely agnostic to all astronomy knowledge.</p>
 <dl class="py method">
 <dt class="sig sig-object py" id="kpfcc.scheduler.Scheduler.set_objective_maximize_slots_used">
 <span class="sig-name descname"><span class="pre">set_objective_maximize_slots_used</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/scheduler.html#Scheduler.set_objective_maximize_slots_used"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.scheduler.Scheduler.set_objective_maximize_slots_used" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.scheduler.Scheduler.set_objective_minimize_theta">
-<span class="sig-name descname"><span class="pre">set_objective_minimize_theta</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/scheduler.html#Scheduler.set_objective_minimize_theta"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.scheduler.Scheduler.set_objective_minimize_theta" title="Link to this definition"></a></dt>
-<dd><p>According to Eq X in Lubin et al. 2025.</p>
-</dd></dl>
-
-<dl class="py method">
-<dt class="sig sig-object py" id="kpfcc.scheduler.Scheduler.set_objective_minimize_theta_prog_norm">
-<span class="sig-name descname"><span class="pre">set_objective_minimize_theta_prog_norm</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="_modules/kpfcc/scheduler.html#Scheduler.set_objective_minimize_theta_prog_norm"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#kpfcc.scheduler.Scheduler.set_objective_minimize_theta_prog_norm" title="Link to this definition"></a></dt>
 <dd><p>According to Eq X in Lubin et al. 2025.</p>
 </dd></dl>
 
