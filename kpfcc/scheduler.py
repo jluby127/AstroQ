@@ -43,6 +43,7 @@ class Scheduler(object):
         self.joiner['d2'] = self.joiner['d']
         self.joiner['s2'] = self.joiner['s']
         self.joiner['tau_intra'] *= 12 # convert hours to slots
+        self.joiner['tau_intra'] += self.joiner['t_visit'] # start the minimum intracadence time from the end of the previous exposure, not the beginning
 
         # Prepare information by construction observability_nights (Wset) and schedulable_requests
         self.observability_nights = self.joiner[self.joiner['n_intra_max'] > 1][['id', 'd']].drop_duplicates().copy()
@@ -439,9 +440,9 @@ class Scheduler(object):
         intracadence_frame = pd.merge(
             intracadence_valid_tuples.drop_duplicates(['id','d','s']),
             intracadence_valid_tuples[['id','d','s']],
-            suffixes=['','2'],on=['id', 'd']
-            ).query('s + 0 < s2 <= s + tau_intra')
-        intracadence_frame = intracadence_frame.groupby(['id','d','s'])[['s2']].agg(list)
+            suffixes=['','3'],on=['id', 'd']
+            ).query('s + 0 < s3 <= s + tau_intra')
+        intracadence_frame = intracadence_frame.groupby(['id','d','s'])[['s3']].agg(list)
         for i, row in intracadence_valid_tuples.iterrows():
             if (row.id, row.d, row.s) in intracadence_frame.index:
                 # Get all slots tonight which are too soon after given slot for another visit
