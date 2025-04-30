@@ -170,7 +170,7 @@ def build_single_target_accessibility(manager, starname, ra, dec, min_moon_sep =
                                      the target is accessible in that slot and 0 otherwise.
     """
     coords = apy.coordinates.SkyCoord(ra * u.deg, dec * u.deg, frame='icrs')
-    targets = apl.FixedTarget(name=starname, coord=coords)
+    target = apl.FixedTarget(name=starname, coord=coords)
     keck = apl.Observer.at_site(manager.observatory)
 
     date_formal = Time(manager.current_day,format='iso',scale='utc')
@@ -186,7 +186,7 @@ def build_single_target_accessibility(manager, starname, ra, dec, min_moon_sep =
     t = Time(np.arange(daily_start.jd, daily_end.jd, tmp_slot_size.jd), format='jd',location=keck.location)
 
      # Compute base alt/az pattern
-    base_altaz = keck.altaz(t, targets, grid_times_targets=True)
+    base_altaz = keck.altaz(t, target)
 
     df = pd.DataFrame(dict(alt=base_altaz.alt.deg, az=base_altaz.az.deg, lst=t.sidereal_time('mean').value))
     df = df.sort_values(by='lst')

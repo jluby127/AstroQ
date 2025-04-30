@@ -257,8 +257,8 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False, savepath =
         pt.xlim(0,360)
         pt.ylim(-40,90)
         pt.show()
-
-    if shortcut > 0:
+    import pdb;pdb.set_trace()
+    if shortcut is not None:
         toy_requests = toy_requests[:shortcut]
     toy_requests.to_csv(savepath  + "Requests.csv", index=False)
 
