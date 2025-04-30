@@ -61,16 +61,6 @@ def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_f
     nnights = manager.n_nights_in_semester
     nslots = manager.n_slots_in_night
 
-    # specify indeces of 3D observability array
-    itarget, inight, islot = np.mgrid[:ntargets,:nnights,:nslots]
-
-    # define flat table to access maps
-    df = pd.DataFrame(
-        {'itarget':itarget.flatten(),
-         'inight':inight.flatten(),
-         'islot':islot.flatten()}
-    )
-
     # Determine observability
     coords = apy.coordinates.SkyCoord(rs.ra * u.deg, rs.dec * u.deg, frame='icrs')
     targets = apl.FixedTarget(name=rs.starname, coord=coords)
@@ -112,7 +102,10 @@ def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_f
     idx = np.searchsorted(x, x_new, side='left')
     idx = np.clip(idx, 0, len(x)-1) # Handle edge cases
     is_altaz = is_altaz0[:,idx]
-    df['is_altaz'] = is_altaz.flatten() 
+
+    is_future = np.ones((ntargets, nnights, nslots),dtype=bool)
+    inight_current = manager.all_dates_dict[manager.current_day]
+    is_future[:,:inight_current,:] = False
 
     # Compute moon accessibility
     is_moon = np.ones_like(is_altaz, dtype=bool)
@@ -123,42 +116,37 @@ def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_f
         moon.ra.reshape(1,-1), moon.dec.reshape(1,-1), 
     ) # (ntargets)
     is_moon = is_moon & (ang_dist.to(u.deg) > 30*u.deg)[:, :, np.newaxis]
-    df['is_moon'] = is_moon.flatten()
 
-    # imshow(df.is_altaz.to_numpy().reshape((ntargets,nnights,nslots))[0])
     # TODO add in logic for custom maps
 
     # TODO add in logic to remove stars that are not observable, currently code is a no-op
-    #idx_remove_stars = np.array([])
-    #is_observable3D[idx_remove_stars,:,:] = False
-
     # Set to False if internight cadence is violated
-    df['is_inter'] = True
-    rs['days_since_observed'] = np.nan
-    for i, row in rs.iterrows():
-        if row.name in manager.database_info_dict:
-            rs.loc[i,'days_since_observed'] = manager.all_dates_dict[manager.database_info_dict[row.name][0]]
-    # rs.loc[0,'days_since_observed'] = 0 # just for testing
-    df = pd.merge(df,rs,left_on='itarget', right_index=True)
-    df.loc[df['days_since_observed'] < df['tau_inter'], 'is_inter'] = False 
 
+    is_inter = np.ones((ntargets, nnights, nslots),dtype=bool)
+    for itarget in range(ntargets):
+        name = rs.iloc[itarget]['starname']
+        if name in manager.database_info_dict:
+            inight_start = manager.all_dates_dict[manager.database_info_dict[name][0]]
+            inight_stop = min(inight_start + rs.iloc[itarget]['tau_inter'],nnights)
+            is_inter[itarget,inight_start:inight_stop,:] = False
+    
     # True if obseravtion occurs at night
     is_night = manager.twilight_map_remaining_2D.astype(bool) # shape = (nnights, nslots)
     is_night = np.ones_like(is_altaz, dtype=bool) & is_night[np.newaxis,:,:]
-    df['is_night'] = is_night.flatten() 
 
-    # is_observable_now means that
+    is_observable_now = np.logical_and.reduce([
+        is_altaz,
+        is_moon,
+        is_night,
+        is_inter,
+        is_future
+
+    ])
+
     # the target does not viloate any of the observability limits in that specific slot, but
     # it does not mean it can be started at the slot. retroactively grow mask to accomodate multishot exposures. 
     #import pdb;pdb.set_trace()
     # Is observable now, 
-    is_observable_now = np.logical_and.reduce([
-        df['is_altaz'].values,
-        df['is_moon'].values,
-        df['is_night'].values,
-        df['is_inter'].values
-    ])
-    is_observable_now = is_observable_now.reshape(ntargets, nnights, nslots)
     is_observable = is_observable_now.copy()
     for itarget in range(ntargets):
         e_val = manager.slots_needed_for_exposure_dict[rs.iloc[itarget]['starname']]
@@ -171,23 +159,30 @@ def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_f
             is_observable[itarget, :, :-shift] &= is_observable_now[itarget, :, shift:]
 
     # Convert back to DataFrame
+
+
+    # specify indeces of 3D observability array
+    itarget, inight, islot = np.mgrid[:ntargets,:nnights,:nslots]
+
+    # define flat table to access maps
+    df = pd.DataFrame(
+        {'itarget':itarget.flatten(),
+         'inight':inight.flatten(),
+         'islot':islot.flatten()}
+    )
     df['is_observable'] = is_observable.flatten()
 
-    # Filter the DataFrame earlier in the process
     observable_df = df.query('is_observable')
-    # Then perform operations on this smaller DataFrame
     available_indices_for_request = (
         observable_df
-        .groupby(['starname', 'inight'])
+        .groupby(['itarget', 'inight'])
         ['islot']
         .apply(list)
         .unstack(fill_value=[])
         .apply(list, axis=1)
-        .to_dict()
     )
-    #import pdb;pdb.set_trace()
-    #available_indices_for_request_save = load_dict_compressed('available_indices.pkl.gz')
-    #np.testing.assert_array_equal(available_indices_for_request, available_indices_for_request_save)
+    available_indices_for_request.index = rs.starname
+    available_indices_for_request = available_indices_for_request.to_dict()
     return available_indices_for_request
 
 def construct_custom_map_dict(special_map_file):
