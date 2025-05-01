@@ -13,8 +13,8 @@ sys.path.insert(0, os.path.abspath('..')) # Make sure that the root directory is
 
 
 project = 'AstroQ'
-copyright = '2025, Jack Lubin'
-author = 'Jack Lubin'
+copyright = '2025, Jack Lubin, Judah Van Zandt, Erik Petigura'
+author = 'Jack Lubin, Judah Van Zandt, Erik Petigura'
 release = '1.0.0'
 
 # -- General configuration ---------------------------------------------------
