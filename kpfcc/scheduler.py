@@ -209,13 +209,16 @@ class Scheduler(object):
         # Get requests that are valid in (d,s+t_visit) pair for a given (d,s,1...t_visit)
         # Note: earlier we had a full query and merge of an outer join via pandas but found that this quickly
         # ballooned in size in terms of memory required to complete the merge. This is an equal shortcut.
-        import pdb;pdb.set_trace()
         frame_holder = []
         for day in range(self.manager.n_nights_in_semester):
             today_mask = self.joiner.d==day
-            frame_holder.append(pd.merge(self.joiner[today_mask&self.multislot_mask]['id d s t_visit'.split()] \
+            result = pd.merge(self.joiner[today_mask&self.multislot_mask]['id d s t_visit'.split()] \
                 ,self.joiner['id d s'.split()],on=['d'],suffixes=['','2']) \
-                .query('s < s2 < s + t_visit').groupby('id d s'.split()).agg(list))
+                .query('s < s2 < s + t_visit').groupby('id d s'.split()).agg(list)
+            #if len(result) > 0:
+            #    import pdb;pdb.set_trace()
+            frame_holder.append(result)
+
         requests_valid_in_reserved_slots = pd.concat(frame_holder)
         # If request requires only 1 slot to complete, then no constraint on reserving additional slots
         for i, row in self.multi_slot_frame.iterrows():
@@ -582,6 +585,7 @@ class Scheduler(object):
         self.model.params.MIPGap = self.manager.solve_max_gap
         # More aggressive presolve gives better solution in shorter time
         self.model.params.Presolve = 2
+        #self.model.params.Presolve = 0
         self.model.update()
         self.model.optimize()
 
