@@ -140,6 +140,13 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False, savepath =
         stars_per_program.append(n_stars)
         all_programs[p].append(n_stars)
 
+    #prog_info = pd.DataFrame(all_programs)
+    #savepath = "./examples/bench/inputs/toy_model_program_info.csv"
+    #test = pd.read_csv(savepath, index_col=0)
+    #savepath = "./examples/bench/inputs/Requests.csv"
+    #test2 = pd.read_csv(savepath, index_col=0)
+
+
     # Generate request data
     starname = []
     program_code = []
@@ -160,10 +167,21 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False, savepath =
     for p, program in enumerate(all_programs):
         n_stars = program[4]  # Number of stars for this program
         for s in range(n_stars):
-            starname.append(f"Star_{star_idx}")
-            program_code.append(p)
-            RA.append(np.random.uniform(0, 360))
-            Dec.append(getDec())
+            starname.append(f"Star{star_idx:04d}")
+            program_code.append(f"Program{p}")
+            
+            # Generate RA/Dec following original logic
+            if p == 4:  # Constrained to Kepler field
+                tmpra = np.random.uniform(18*15, 20*15)  # RA between 270-300 degrees
+                tmpdec = np.random.uniform(40, 50)       # Dec between 40-50 degrees
+            else:
+                tmpra = np.random.uniform(18*15, ((20*15)+180))  # RA between 270-450 degrees
+                tmpdec = getDec()  # Uses cosine distribution
+            if tmpra > 360:
+                tmpra -= 360
+            RA.append(tmpra)
+            Dec.append(tmpdec)
+            
             exposure_times.append(program[1])
             internight_cadences.append(program[0])
             intranight_cadences.append(0 if program[3] == 1 else 1)
@@ -179,19 +197,19 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False, savepath =
     # Create DataFrame
     requests_data = {
         'starname': starname,
-        'program_code': program_code,
+        'program': program_code,
         'ra': RA,
         'dec': Dec,
-        'exposure_time': exposure_times,
-        'internight_cadence': internight_cadences,
-        'intranight_cadence': intranight_cadences,
-        'visits_per_night_max': visits_per_night_max,
-        'visits_per_night_min': visits_per_night_min,
-        'unique_nights': unique_nights,
-        'exposures_per_visit': exposures_per_visit,
-        'n_intra_max': n_intra_max,
-        'tau_inter': tau_inter,
-        'priority': priority
+        'exptime': exposure_times,
+        'n_exp': exposures_per_visit,
+        'n_intra_max': visits_per_night_max,
+        'n_intra_min': visits_per_night_min,
+        'n_inter_max': unique_nights,
+        'tau_inter': internight_cadences,
+        'tau_intra': intranight_cadences
     }
+    requests_data = pd.DataFrame(requests_data)
+    print(requests_data.head(2).T)
+    return requests_data
 
-    return pd.DataFrame(requests_data)
+
