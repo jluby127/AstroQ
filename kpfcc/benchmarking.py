@@ -209,7 +209,6 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False, savepath =
         'tau_intra': intranight_cadences
     }
     requests_data = pd.DataFrame(requests_data)
-    print(requests_data.head(2).T)
     return requests_data
 
 
