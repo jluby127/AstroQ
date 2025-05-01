@@ -106,7 +106,7 @@ To create your mock observing schedule, first run the ``kpfcc build`` command gi
     .. code-block:: bash
 
         $ astroq kpfcc build -cf <path to config file>
-        $ astroq schedule -cf <path to config file> -ff <path to request set file>
+        $ astroq schedule -cf <path to config file> -rf <path to request set file>
         $ astroq plot -cf <path to config file>
         
 This will produce a set of files in the `<FILL THIS IN>` directory, including a plot called `weather_loss_visualization.png` that looks this:
