@@ -7,7 +7,7 @@ This package contains the code for solving two related problems:
 
 # Documentation
 
-For information on the installation and use of the ``AstroQ`` code, please visit the [documentation page](https://astroq.readthedocs.io)
+For information on the installation and use of the ``AstroQ`` code, please visit the [documentation page](https://astroq.readthedocs.io).
 
 
 

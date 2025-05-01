@@ -1,9 +1,0 @@
-.. _testfolder:
-
-Test Folder
-===
-
-.. toctree::
-   :maxdepth: 2
-
-   individual_rsts/history
