@@ -6,32 +6,44 @@ import kpfcc.scheduler as sch
 import kpfcc.request as rq
 import kpfcc.management as mn
 import kpfcc.benchmarking as bn
+import pandas as pd
+import numpy as np
 
 def bench(args):
     print("Running benchmark test.")
 
     nR = args.number_requests
     nS = args.number_slots
-    sc = args.shortcut
     cf = args.config_file
 
-    config = ConfigParser()
-    config.read(cf)
-    current_day = str(config.get('required', 'current_day'))
-
-    print("Checking for toy model files.")
-    rf = bn.do_benchmark_files_exist(cf, sc)
-    request_set = rq.read_json(rf + "outputs/" + current_day + '/request_set.json')
-    '''
+    # Initialize manager with config
+    manager = mn.data_admin(cf)
     
-    print("Parsing down size of model for desired test.")
-    request_set = bn.firstN_Requests(nR, request_set, rf + "inputs/Requests.csv")
-    request_set = bn.set_nSlots_singles(nS, request_set)
-    request_set.to_json(rf + "outputs/" + current_day + '/parsed_toy_model.json')
+    # Generate synthetic request set
+    print("Generating synthetic request set...")
+    manager.requests_frame = bn.build_toy_model_from_paper()
+    
+    # Limit number of requests if specified
+    if nR is not None:
+        manager.requests_frame = manager.requests_frame.iloc[:nR]
+    
+    # Run admin to set up other necessary attributes
+    manager.run_admin()
+    
+    # Build observability maps and request set
+    print("Building valid indices.")
+    strategy, observable = rq.define_indices_for_requests(manager)
+    meta = rq.build_meta(cf)
+    request_set = rq.RequestSet(meta, strategy, observable)
+    
+    # Limit number of slots if needed
+    if nS is not None:
+        request_set = bn.set_nSlots_singles(nS, request_set)
 
-    args2 = Namespace(request_file=rf + "outputs/" + current_day + '/parsed_toy_model.json', config_file=cf)
-    schedule(args2)
-    '''
+    # Run the schedule
+    schedule = sch.Scheduler(request_set, cf)
+    schedule.run_model()
+    print("Done solving the schedule.")
     return
 
 def kpfcc(args):
