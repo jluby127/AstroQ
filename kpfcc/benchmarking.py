@@ -17,7 +17,6 @@ import kpfcc.driver as dr
 
 # In the paper, we used random seed = 24.
 np.random.seed(24)
-
 def do_benchmark_files_exist(config_path, shortcut=0):
     config = ConfigParser()
     config.read(config_path)

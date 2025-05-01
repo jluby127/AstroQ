@@ -35,7 +35,6 @@ from scipy.interpolate import interp1d
 import kpfcc.access as ac
 import kpfcc.weather as wh
 
-@profile
 def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_flat):
     """
     Combine all maps for a target to produce the final map
@@ -171,18 +170,14 @@ def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_f
          'islot':islot.flatten()}
     )
     df['is_observable'] = is_observable.flatten()
+    available_indices_for_request = {}
+    for itarget in range(ntargets):
+        temp = []
+        for inight in range(nnights):
+            temp.append(list(islot[itarget,inight,is_observable[itarget,inight,:]]))
 
-    observable_df = df.query('is_observable')
-    available_indices_for_request = (
-        observable_df
-        .groupby(['itarget', 'inight'])
-        ['islot']
-        .apply(list)
-        .unstack(fill_value=[])
-        .apply(list, axis=1)
-    )
-    available_indices_for_request.index = rs.starname
-    available_indices_for_request = available_indices_for_request.to_dict()
+        available_indices_for_request[rs.iloc[itarget]['starname']] = temp
+    #np.testing.assert_equal(available_indices_for_request, available_indices_for_request2)
     return available_indices_for_request
 
 def construct_custom_map_dict(special_map_file):
