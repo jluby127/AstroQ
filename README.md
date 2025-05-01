@@ -5,65 +5,9 @@ This package contains the code for solving two related problems:
 1. Optimal Semester Scheduler -- Determine which targets should be observed on which nights
 2. Optimal Instrument Scheduler -- Determine the best distribution of nights for the KPF-CC queue in a semester
 
-# Installation instructions
+# Documentation
 
-The installation of this package is not straight-forward. Please read carefully and follow closely.
-
-We _*highly recommend*_ (though optional) setting up within a new Conda environment first. To do so, run this command and then be sure to activate the environment:
-```
-conda env create --name astroq --file <LOCAL PATH>/environment.yml
-conda activate astroq
-```
-
-### Installing Gurobi
-Before doing anything else, you must obtain a license for Gurobi.
-
-`kpfcc` relies on Gurobi for solving large matrix equations efficiently. Follow these steps to install and set up Gurobi:
-
-1. **Create an an Account** on Gurobi's [registration site](https://portal.gurobi.com/iam/register/). Select that you are an "Academic", type in your home institution, and submit the form via "Access Now". You will receive an email to complete the registration.
-2. **Download Gurobi** for your OS from [this download page](https://www.gurobi.com/downloads/gurobi-software/). Run the installer file following their instructions.
-3. **Request an Academic License** from your [user portal](https://portal.gurobi.com/iam/licenses/request/) *while connected to a university network*. You want the 'Named-User Academic License' which has a one year lifetime. At the end of the year, you can obtain a new license easily within your account (and for free) so long as you have maintained your academic status.
-4. **Retrieve the License** by running the command from the popup window in a shell. It should look like:
-```
-grbgetkey 253e22f3...
-```
-
-(Add info on setting your environment variable to the correct license)
-
-### Install AstroQ
-
-Only once you have obtained a Gurobi license can clone this repository:
-```
-git clone https://github.com/jluby127/astroq.git
-```
-
-And then install via:
-```
-pip install -e .
-```
-
-This will set up the environment and all dependency packages.
-
-# Run instructions
-
-To test installation and practice the workflow of running the autoscheduler, use the supplied example. From your terminal, run the following command:
-```
-astroq bench -nr 250 -ns 50 -cf examples/bench/config_benchmark.ini
-
-```
-
-## Flags
-
-### Required
-
--rf 
-
--cf
-
-### Advanced
-
-
-### Optional
+For information on the installation and use of the ``AstroQ`` code, please visit the [documentation page](https://astroq.readthedocs.io)
 
 
 
