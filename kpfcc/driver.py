@@ -6,8 +6,6 @@ import kpfcc.scheduler as sch
 import kpfcc.request as rq
 import kpfcc.management as mn
 import kpfcc.benchmarking as bn
-import pandas as pd
-import numpy as np
 
 def bench(args):
     print("Running benchmark test.")
@@ -16,18 +14,18 @@ def bench(args):
     nS = args.number_slots
     cf = args.config_file
 
-    # Initialize manager with config
+    # Initialize manager and compute request set on the fly
+    # This is a hacky workaround. run_admin needs this file to exist. This can
+    # lead to race conditions if benchmarking is run in parallel.
+    from configparser import ConfigParser
+    config = ConfigParser()
+    config.read(cf)
+    upstream_path = eval(config.get('required', 'folder'), {"os": os})
+    semester_directory = upstream_path
+    requests_frame = bn.build_toy_model_from_paper(hours_per_program = 100)
+    requests_frame = requests_frame.iloc[:nR]
+    requests_frame.to_csv(os.path.join(semester_directory, "inputs/Requests.csv"))
     manager = mn.data_admin(cf)
-    
-    # Generate synthetic request set
-    print("Generating synthetic request set...")
-    manager.requests_frame = bn.build_toy_model_from_paper()
-    
-    # Limit number of requests if specified
-    if nR is not None:
-        manager.requests_frame = manager.requests_frame.iloc[:nR]
-    
-    # Run admin to set up other necessary attributes
     manager.run_admin()
     
     # Build observability maps and request set

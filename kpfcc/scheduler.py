@@ -209,6 +209,7 @@ class Scheduler(object):
         # Get requests that are valid in (d,s+t_visit) pair for a given (d,s,1...t_visit)
         # Note: earlier we had a full query and merge of an outer join via pandas but found that this quickly
         # ballooned in size in terms of memory required to complete the merge. This is an equal shortcut.
+        import pdb;pdb.set_trace()
         frame_holder = []
         for day in range(self.manager.n_nights_in_semester):
             today_mask = self.joiner.d==day
