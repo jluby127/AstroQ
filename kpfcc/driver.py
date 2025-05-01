@@ -21,8 +21,8 @@ def bench(args):
 
     print("Checking for toy model files.")
     rf = bn.do_benchmark_files_exist(cf, sc)
-    '''
     request_set = rq.read_json(rf + "outputs/" + current_day + '/request_set.json')
+    '''
     
     print("Parsing down size of model for desired test.")
     request_set = bn.firstN_Requests(nR, request_set, rf + "inputs/Requests.csv")
