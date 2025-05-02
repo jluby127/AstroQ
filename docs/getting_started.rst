@@ -101,13 +101,13 @@ Let's see which subcommands are available using ``astroq --help``:
               {bench,plot,schedule,kpfcc}
 
 
-To create your mock observing schedule, first run the ``kpfcc build`` command given below. <There should be example files that the user has immediate access to, e.g. in the example/ directory.>
+To create your mock observing schedule, first run the ``kpfcc build`` command given below.
 
     .. code-block:: bash
-
-        $ astroq kpfcc build -cf <path to config file>
-        $ astroq schedule -cf <path to config file> -rf <path to request set file>
-        $ astroq plot -cf <path to config file>
+    
+        $ astroq kpfcc build -cf examples/hello_world/config_hello_world.ini
+        $ astroq schedule -cf examples/hello_world/config_hello_world.ini -rf examples/hello_world/hello-world.json
+        $ PUT PLOT COMMAND HERE WHEN IT WORKS
         
 This will produce a set of files in the `<FILL THIS IN>` directory, including a plot called `weather_loss_visualization.png` that looks this:
 
