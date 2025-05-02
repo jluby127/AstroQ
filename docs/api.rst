@@ -15,4 +15,4 @@ API
    individual_rsts/management
    individual_rsts/io
    individual_rsts/weather
-   onsky
+   individual_rsts/onsky
