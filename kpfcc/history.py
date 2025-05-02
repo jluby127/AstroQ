@@ -217,17 +217,17 @@ def build_past_history(past_observations_file, requests_frame, twilight_frame):
     if os.path.exists(past_observations_file):
         print("Pulled database of past observations this semester.")
         database = pd.read_csv(past_observations_file)
-        for i in range(len(requests_frame['Starname'])):
-            starmask = database['star_id'] == requests_frame['Starname'][i]
+        for i in range(len(requests_frame['starname'])):
+            starmask = database['star_id'] == requests_frame['starname'][i]
             star_past_obs = database[starmask]
             star_past_obs.sort_values(by='utctime', inplace=True)
             star_past_obs.reset_index(inplace=True)
             total_past_observations = int(len(star_past_obs)/
-                                    (requests_frame['Desired Visits per Night'][i]*
-                                    requests_frame['# of Exposures per Visit'][i]))
+                                    (requests_frame['n_intra_max'][i]*
+                                    requests_frame['n_exp'][i]))
             star_past_obs, unique_hst_dates_observed, quarter_observed = \
-                rf.get_unique_nights(star_past_obs, twilight_frame)
-            n_obs_on_date = rf.get_nobs_on_night(star_past_obs, unique_hst_dates_observed)
+                get_unique_nights(star_past_obs, twilight_frame)
+            n_obs_on_date = get_nobs_on_night(star_past_obs, unique_hst_dates_observed)
 
             if len(unique_hst_dates_observed) > 0:
                 most_recent_observation_date = unique_hst_dates_observed[-1]
@@ -242,7 +242,7 @@ def build_past_history(past_observations_file, requests_frame, twilight_frame):
             #             If multiple visits in one night, then this is quarter of the first visit.
             # element 3 = a list of the # of observations on each past night,
             #             corresponding the nights in element 1.
-            database_info_dict[requests_frame['Starname'][i]] = \
+            database_info_dict[requests_frame['starname'][i]] = \
                 [most_recent_observation_date, unique_hst_dates_observed, quarter_observed, \
                 n_obs_on_date]
     else:

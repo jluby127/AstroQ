@@ -302,13 +302,16 @@ def get_gap_filler_targets(manager):
     Returns:
         None
     """
-    scheduleR1 = np.loadtxt(manager.output_directory + 'raw_combined_semester_schedule_Round1.txt',
-        delimiter=',', dtype=str)
-    scheduleR2 = np.loadtxt(manager.output_directory + 'raw_combined_semester_schedule_Round2.txt',
-        delimiter=',', dtype=str)
-    new = scheduleR2[manager.all_dates_dict[manager.current_day]]
-    old = scheduleR1[manager.all_dates_dict[manager.current_day]]
-    gap_fillers = [x for x in new if x not in old]
+    round1_results = manager.output_directory + 'raw_combined_semester_schedule_Round1.txt'
+    round2_results = manager.output_directory + 'raw_combined_semester_schedule_Round2.txt'
+    if os.path.exists(round1_results) and os.path.exists(round2_results):
+        scheduleR1 = np.loadtxt(round1_results, delimiter=',', dtype=str)
+        scheduleR2 = np.loadtxt(round2_results, delimiter=',', dtype=str)
+        new = scheduleR2[manager.all_dates_dict[manager.current_day]]
+        old = scheduleR1[manager.all_dates_dict[manager.current_day]]
+        gap_fillers = [x for x in new if x not in old]
+    else:
+        gap_fillers = []
     np.savetxt(manager.output_directory + 'Round2_Requests.txt', gap_fillers, delimiter=',', fmt="%s")
 
 
