@@ -557,6 +557,7 @@ class Scheduler(object):
         self.human_read_schedule = io.write_stars_schedule_human_readable(self.human_read_available, self.Yrds, self.manager, self.round_info)
         io.build_fullness_report(self.human_read_schedule, self.manager, self.round_info)
         io.write_out_results(self.manager, self.theta, self.round_info, self.start_the_clock)
+        mn.get_gap_filler_targets(self.manager)
 
     def retrieve_ois_solution(self):
         print("Retrieving results of Optimal Instrument Allocation set of nights.")

@@ -1,4 +1,4 @@
-import kpfcc.driver as dr 
+import kpfcc.driver as dr
 import kpfcc.request as rq
 import kpfcc.benchmarking as bn
 import argparse
@@ -16,10 +16,10 @@ class TestClass:
         request_set = bn.firstN_Requests(2, request_set, 'examples/bench/inputs/Requests_all.csv')
         request_set = bn.set_nSlots_singles(2, request_set, start_row=1)
         request_set.to_json("examples/bench/outputs/2024-08-01/request_set_short.json")
-        dr.schedule(argparse.Namespace(request_file="examples/bench/outputs/2024-08-01/request_set_short.json", config_file='examples/bench/config_benchmark.ini'))             
+        dr.schedule(argparse.Namespace(request_file="examples/bench/outputs/2024-08-01/request_set_short.json", config_file='examples/bench/config_benchmark.ini'))
 
     def test_prep(self):
-        # test the creation of all upstream files, including the allocation map 
+        # test the creation of all upstream files, including the allocation map
         dr.kpfcc_prep(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
 
     def test_oia(self):
@@ -35,3 +35,8 @@ class TestClass:
     def test_ob_database_pull(self):
         dr.kpfcc_data(argparse.Namespace(pull_file='examples/pull_file.json', database_file='examples/recreate_paper/'))
 
+    def test_plot(self):
+        dr.plot(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
+
+    def test_ttp(self):
+        dr.ttp(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
