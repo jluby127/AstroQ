@@ -69,6 +69,7 @@ instance/
 
 # Sphinx documentation
 docs/_build/
+make.bat # Same as Makefile but for Windows
 
 # Jupyter Notebook
 .ipynb_checkpoints
