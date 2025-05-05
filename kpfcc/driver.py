@@ -117,16 +117,7 @@ def plot(args):
 
     cf = args.config_file
     print(f'    kpfcc_schedule function: config_file is {cf}')
-
-    manager = mn.data_admin(cf)
-    manager.run_admin()
-
-    forecast_frame = pd.read_csv(manager.upstream_path + "/outputs/" + str(manager.current_day) + "/raw_combined_semester_schedule_Round2.txt")
-    manager.combined_semester_schedule_stars = forecast_frame.values
-    star_tracker = tk.StarTracker(manager)
-#    io.report_allocation_stats(manager)
-    pl.write_cadence_plot_files(manager)
-    pl.run_plot_suite(star_tracker, manager)
+    pl.run_plot_suite(cf)
 
     return
 

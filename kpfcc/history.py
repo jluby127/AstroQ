@@ -198,6 +198,18 @@ def get_kpf_past_database(path_to_csv):
     get_database_explorer(name, path_to_csv)
     print("This semester's past KPF observations pulled from Jump. Saved to csv: " + path_to_csv)
 
+def real_star_name(name):
+    if name.isdigit():
+        return 'HD ' + name
+    elif name.startswith('KIC') and name[3:].isdigit():
+        return 'KIC ' + name[3:]
+    elif name.startswith('T00') and name[3:].isdigit() and len(name[3:]) == 3:
+        return 'TOI-' + name[3:]
+    elif name.startswith('T0') and name[2:].isdigit() and len(name[2:]) == 4:
+        return 'TOI-' + name[2:]
+    else:
+        return name
+
 def build_past_history(past_observations_file, requests_frame, twilight_frame):
     """
     Construct the past history dictionary having pulled a table of observations from Jump.
@@ -217,6 +229,10 @@ def build_past_history(past_observations_file, requests_frame, twilight_frame):
     if os.path.exists(past_observations_file):
         print("Pulled database of past observations this semester.")
         database = pd.read_csv(past_observations_file)
+        # ensure naming conventions are consistent
+        database['star_id_cps'] = database['star_id']
+        database['star_id'] = database['star_id_cps'].apply(real_star_name)
+
         for i in range(len(requests_frame['starname'])):
             starmask = database['star_id'] == requests_frame['starname'][i]
             star_past_obs = database[starmask]
