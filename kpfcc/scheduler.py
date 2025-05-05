@@ -204,8 +204,8 @@ class Scheduler(object):
         """
         According to Eq X in Lubin et al. 2025.
 
-        # Get requests that are valid in (d,s+t_visit) pair for a given (d,s,1...t_visit)
-        # Note: earlier we had a full query and merge of an outer join via pandas but found that this quickly
+        Get requests that are valid in (d,s+t_visit) pair for a given (d,s,1...t_visit)
+        Note: earlier we had a full query and merge of an outer join via pandas but found that this quickly
         # ballooned in size in terms of memory required to complete the merge. This is an equal shortcut.
 
         # The Yr,d,s matrix represents the day/slot pairs where an exposure r will begin. Therefore, when a re-
@@ -216,29 +216,27 @@ class Scheduler(object):
         # uled into the required consecutive slots
         """
         print("Constraint 2: Reserve slots for for multi-slot exposures.")
- 
-        valid_rds = list(self.request_set.observability.itertuples(index=False, name=None))
-        valid_rds = set(valid_rds)
-
         obs = self.request_set.observability
         ms = self.multi_slot_frame
-        #ms = pd.merge(ms, self.request_set.strategy[['id','t_visit']], on=['id'])
-
-        #import pdb;pdb.set_trace()
         # If request requires only 1 slot to complete, then no constraint on reserving additional slots
+
         for d in ms.d.drop_duplicates():
             obs_day = obs[obs.d == d]
             ms_day = ms[ms.d == d]
 
-            valid_requests = {}
-            for s in ms_day.s.drop_duplicates():
-                valid_requests[s] = set(obs_day[obs_day.s == s].id)
+            # Precompute all requests that are valid on day d, and slot s.
+            valid_requests = obs_day.groupby('s')['id'].apply(set).to_dict()
 
-            for i, ms_row in ms_day.iterrows():
-                id = ms_row.id
-                s = ms_row.s
-                t_visit = ms_row.t_visit
-                lhs = t_visit*(1 - self.Yrds[id,d,s])
+            # Loop over all multi-slot requests on day d and enforce no other request in 
+            # slots within t_visit from slot starting slot
+            ids = ms_day.id.values
+            ss = ms_day.s.values
+            t_visits = ms_day.t_visit.values
+            for i in range(len(ids)):
+                id = ids[i]
+                s = ss[i]
+                t_visit = t_visits[i]
+                lhs = t_visit * (1 - self.Yrds[id,d,s])
                 rhs = []       
                 for delta in range(1,t_visit):
                     s_shift = s + delta
