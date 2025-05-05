@@ -17,7 +17,6 @@ from gurobipy import GRB
 import kpfcc.io as io
 import kpfcc.management as mn
 import kpfcc.request as rq
-
 class Scheduler(object):
     """A Scheduler object, from which we can define a Gurobi model, build constraints, and solve."""
 
@@ -200,38 +199,53 @@ class Scheduler(object):
             requests_valid_in_slot = list(self.requests_valid_for_ds.loc[(row.d, row.s)])[0]
             self.model.addConstr((gp.quicksum(self.Yrds[name,row.d,row.s] for name in requests_valid_in_slot) <= 1),
                             'one_request_per_slot_' + str(row.d) + "d_" + str(row.s) + "s")
-
+    @profile
     def constraint_reserve_multislot_exposures(self):
         """
         According to Eq X in Lubin et al. 2025.
-        """
-        print("Constraint 2: Reserve slots for for multi-slot exposures.")
+
         # Get requests that are valid in (d,s+t_visit) pair for a given (d,s,1...t_visit)
         # Note: earlier we had a full query and merge of an outer join via pandas but found that this quickly
         # ballooned in size in terms of memory required to complete the merge. This is an equal shortcut.
-        frame_holder = []
-        for day in range(self.manager.n_nights_in_semester):
-            today_mask = self.joiner.d==day
-            result = pd.merge(self.joiner[today_mask&self.multislot_mask]['id d s t_visit'.split()] \
-                ,self.joiner['id d s'.split()],on=['d'],suffixes=['','2']) \
-                .query('s < s2 < s + t_visit').groupby('id d s'.split()).agg(list)
-            #if len(result) > 0:
-            #    import pdb;pdb.set_trace()
-            frame_holder.append(result)
 
-        requests_valid_in_reserved_slots = pd.concat(frame_holder)
+        # The Yr,d,s matrix represents the day/slot pairs where an exposure r will begin. Therefore, when a re-
+        # quest's exposure time exceeds the length of time repre-
+        # sented by a single slot, then multiple consecutive slots
+        # must be reserved for the request. In this case, no re-
+        # quest, including the one being scheduled, may be sched-
+        # uled into the required consecutive slots
+        """
+        print("Constraint 2: Reserve slots for for multi-slot exposures.")
+ 
+        valid_rds = list(self.request_set.observability.itertuples(index=False, name=None))
+        valid_rds = set(valid_rds)
+
+        rs = self.request_set.observability.id.drop_duplicates().tolist()
+        ss = self.request_set.observability.s.drop_duplicates().tolist()
+
         # If request requires only 1 slot to complete, then no constraint on reserving additional slots
+        constraints = []
         for i, row in self.multi_slot_frame.iterrows():
-            # construct list of (r,d,s) indices to be constrained. These are all requests that are
-            # valid in slots (d, s+1) through (d, s + e)
-            # Ensuring slot (d, s) is not double filled already taken care of in Constraint 1.
-            if (row.id, row.d, row.s) in requests_valid_in_reserved_slots.index:
-                allr = list(requests_valid_in_reserved_slots.loc[row.id, row.d, row.s]['id2'])
-                alls = list(requests_valid_in_reserved_slots.loc[row.id, row.d, row.s]['s2'])
-                all_reserved_slots = list(zip(allr, [row.d]*len(allr), alls))
-                self.model.addConstr((row.t_visit*(1 - self.Yrds[row.id,row.d,row.s])) >= gp.quicksum(self.Yrds[c]
-                                                                for c in all_reserved_slots),
-                                'reserve_multislot_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
+            id = row.id
+            d = row.d
+            s = row.s
+            lhs = row.t_visit*(1 - self.Yrds[id,d,s])
+            rhs = []       
+            for delta in range(1,row.t_visit):
+                for r in rs:
+                    for s in ss:
+                        s_shift = s + delta
+                        if (r,d,s_shift) in valid_rds:
+                            rhs.append(self.Yrds[r,d,s_shift])
+
+            if len(rhs) > 0:  # Only add constraint if there are slots to reserve
+                name = f'reserve_multislot_{id}_{d}d_{s}s'
+                constr = (lhs >= gp.quicksum(rhs))
+                self.model.addConstr(constr, name)
+    
+
+        import pdb;pdb.set_trace()        # Add all constraints at once
+      
 
     def constraint_max_visits_per_night(self):
         """
