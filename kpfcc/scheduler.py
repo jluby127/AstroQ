@@ -220,31 +220,37 @@ class Scheduler(object):
         valid_rds = list(self.request_set.observability.itertuples(index=False, name=None))
         valid_rds = set(valid_rds)
 
-        rs = self.request_set.observability.id.drop_duplicates().tolist()
-        ss = self.request_set.observability.s.drop_duplicates().tolist()
+        obs = self.request_set.observability
+        ms = self.multi_slot_frame
+        #ms = pd.merge(ms, self.request_set.strategy[['id','t_visit']], on=['id'])
 
+        #import pdb;pdb.set_trace()
         # If request requires only 1 slot to complete, then no constraint on reserving additional slots
-        constraints = []
-        for i, row in self.multi_slot_frame.iterrows():
-            id = row.id
-            d = row.d
-            s = row.s
-            lhs = row.t_visit*(1 - self.Yrds[id,d,s])
-            rhs = []       
-            for delta in range(1,row.t_visit):
-                for r in rs:
-                    for s in ss:
-                        s_shift = s + delta
-                        if (r,d,s_shift) in valid_rds:
-                            rhs.append(self.Yrds[r,d,s_shift])
+        for d in ms.d.drop_duplicates():
+            obs_day = obs[obs.d == d]
+            ms_day = ms[ms.d == d]
 
-            if len(rhs) > 0:  # Only add constraint if there are slots to reserve
-                name = f'reserve_multislot_{id}_{d}d_{s}s'
-                constr = (lhs >= gp.quicksum(rhs))
-                self.model.addConstr(constr, name)
+            valid_requests = {}
+            for s in ms_day.s.drop_duplicates():
+                valid_requests[s] = set(obs_day[obs_day.s == s].id)
+
+            for i, ms_row in ms_day.iterrows():
+                id = ms_row.id
+                s = ms_row.s
+                t_visit = ms_row.t_visit
+                lhs = t_visit*(1 - self.Yrds[id,d,s])
+                rhs = []       
+                for delta in range(1,t_visit):
+                    s_shift = s + delta
+                    if s_shift in valid_requests:
+                        rhs.extend(self.Yrds[r,d,s_shift] for r in valid_requests[s_shift])
+
+                if len(rhs) > 0:  # Only add constraint if there are slots to reserve
+                    name = f'reserve_multislot_{id}_{d}d_{s}s'
+                    constr = (lhs >= gp.quicksum(rhs))
+                    self.model.addConstr(constr, name)
     
 
-        import pdb;pdb.set_trace()        # Add all constraints at once
       
 
     def constraint_max_visits_per_night(self):
