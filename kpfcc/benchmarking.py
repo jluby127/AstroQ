@@ -80,7 +80,7 @@ def set_nSlots_singles(nslot, request_set, start_row=250):
     request_set.strategy.loc[request_set.strategy.iloc[start_row:].index, 't_visit'] = nslot
     return request_set
 
-def build_toy_model_from_paper(hours_per_program = 100, plot = False, savepath = "", shortcut=0):
+def build_toy_model_from_paper(hours_per_program = 10, plot = False, savepath = "", shortcut=0):
     """
     Generate a synthetic request set based on the paper's toy model.
     Returns a pandas DataFrame with the request information.
