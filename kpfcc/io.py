@@ -11,6 +11,7 @@ import time
 from astropy.time import Time
 from astropy.time import TimeDelta
 from astropy.coordinates import Angle
+from astropy.coordinates import SkyCoord
 from astropy import units as u
 
 import numpy as np
@@ -473,11 +474,9 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
         line (str): the properly formatted string to be included in the script file
     """
 
-    epochstr = '2024'
+    equinox = '2000'
     updated_ra, updated_dec = pm_correcter(row['ra'][0], row['dec'][0],
-                                row['pmra'][0],
-                                row['pmdec'][0],
-                                epochstr, current_day, verbose=False)
+                                row['pmra'][0], row['pmdec'][0], current_day, equinox=equinox)
     if updated_dec[0] != "-":
         updated_dec = "+" + updated_dec
 
@@ -519,7 +518,7 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
         # designate a nonsense time
         timestring2 = "56:78"
 
-    line = (namestring + ' ' + updated_ra + ' ' + updated_dec + ' ' + str(epochstr) + ' '
+    line = (namestring + ' ' + updated_ra + ' ' + updated_dec + ' ' + str(equinox) + ' '
                 + jmagstring + ' ' + exposurestring + ' ' + ofstring + ' ' + scstring +  ' '
                 + numstring + ' '+ gmagstring + ' ' + teffstr + ' ' + gaiastring + ' CC '
                         + priostring + ' ' + programstring + ' ' + timestring2 +
@@ -530,37 +529,35 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
 
     return line
 
-def pm_correcter(ra, dec, pmra, pmdec, epochstr, current_day, verbose=False):
+def pm_correcter(ra, dec, pmra, pmdec, current_day, equinox="2000"):
     """
-    Update a star's coordinates due to proper motion
+    Update a star's coordinates due to proper motion.
 
     Args:
-        ra (str): star's old coordinate RA in units of degrees
-        dec (str): star's old coordinate Dec in units of degrees
-        pmra (str): star's proper motion in the RA dimension, units of millearcseconds per year
-        pmdec (str): star's proper motion in the Dec dimension, units of millearcseconds per year
-        epochstr (str): a string of the year those coordinates are updated to
-        verbose (boolean): True to print out to command line
+        ra (float): RA in degrees
+        dec (float): Dec in degrees
+        pmra (float): proper motion in RA (mas/yr), including cos(Dec)
+        pmdec (float): proper motion in Dec (mas/yr)
+        equinox (str): original epoch (e.g. '2000.0')
+        current_day (str): date to which to propagate (e.g. '2025-04-30')
 
     Returns:
-        formatted_ra (str): the updated RA position in units of degrees
-        formatted_dec (str):  the updated Dec position in units of degrees
+        formatted_ra (str), formatted_dec (str): updated coordinates as strings
     """
-    # requires giving RA and Dec in degrees
-    # example: RA = 321.5 and Dec = 15.6
-    # note that degrees are not hour angles!
-    # this code converts RA from degrees to hourangle at the end
+    start_time = Time(f'J{equinox}')
+    current_time = Time(current_day)
 
-    current_time = Time(current_day)  # You can adjust the date as needed
-    ra_deg = Angle(ra, unit=u.deg)  # RA in degrees
-    dec_deg = Angle(dec, unit=u.deg)  # Dec in degrees
-    pm_ra = pmra * u.mas/u.yr
-    pm_dec = pmdec * u.mas/u.yr
-    epochtime = Time('J' + epochstr)
-    ra_advanced_deg = (ra_deg + (pm_ra * (current_time - epochtime).to(u.yr)).to(u.deg))/15
-    dec_advanced_deg = dec_deg + (pm_dec * (current_time - epochtime).to(u.yr)).to(u.deg)
+    coord = SkyCoord(
+        ra=ra * u.deg,
+        dec=dec * u.deg,
+        pm_ra_cosdec=pmra * u.mas/u.yr,
+        pm_dec=pmdec * u.mas/u.yr,
+        obstime=start_time
+    )
 
-    formatted_ra = ra_advanced_deg.to_string(unit=u.deg, sep=' ', pad=True, precision=1)
-    formatted_dec = dec_advanced_deg.to_string(unit=u.deg, sep=' ', pad=True, precision=0)
+    new_coord = coord.apply_space_motion(new_obstime=current_time)
+
+    formatted_ra = new_coord.ra.to_string(unit=u.hourangle, sep=' ', pad=True, precision=1)
+    formatted_dec = new_coord.dec.to_string(unit=u.deg, sep=' ', pad=True, precision=0)
 
     return formatted_ra, formatted_dec
