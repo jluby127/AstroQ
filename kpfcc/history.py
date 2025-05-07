@@ -198,6 +198,31 @@ def get_kpf_past_database(path_to_csv):
     get_database_explorer(name, path_to_csv)
     print("This semester's past KPF observations pulled from Jump. Saved to csv: " + path_to_csv)
 
+def real_star_name(name):
+    if name.isdigit():
+        return 'HD ' + name
+    elif name.startswith('KIC') and name[3:].isdigit():
+        return 'KIC ' + name[3:]
+    elif name.startswith('T00') and name[3:].isdigit() and len(name[3:]) == 3:
+        return 'TOI-' + name[3:]
+    elif name.startswith('T0') and name[2:].isdigit() and len(name[2:]) == 4:
+        return 'TOI-' + name[2:]
+    else:
+        return name
+
+def cps_star_name(name):
+    if name.startswith('HD'):
+        name2 = name.replace(" ", "")
+        return name2[2:]
+    elif name.startswith('KIC'):
+        name2 = name.replace(" ", "")
+        return name2
+    elif name.startswith('TYC'):
+        name2 = name.replace(" ", "-")
+        return name2
+    else:
+        return name
+
 def build_past_history(past_observations_file, requests_frame, twilight_frame):
     """
     Construct the past history dictionary having pulled a table of observations from Jump.
@@ -214,21 +239,24 @@ def build_past_history(past_observations_file, requests_frame, twilight_frame):
     """
     print("Compiling past observation history.")
     database_info_dict = {}
-    # pf.get_kpf_past_database(past_observations_file)
     if os.path.exists(past_observations_file):
         print("Pulled database of past observations this semester.")
         database = pd.read_csv(past_observations_file)
-        for i in range(len(requests_frame['Starname'])):
-            starmask = database['star_id'] == requests_frame['Starname'][i]
+        # ensure naming conventions are consistent
+        database['star_id_cps'] = database['star_id']
+        database['star_id'] = database['star_id_cps'].apply(real_star_name)
+
+        for i in range(len(requests_frame['starname'])):
+            starmask = database['star_id'] == requests_frame['starname'][i]
             star_past_obs = database[starmask]
             star_past_obs.sort_values(by='utctime', inplace=True)
             star_past_obs.reset_index(inplace=True)
             total_past_observations = int(len(star_past_obs)/
-                                    (requests_frame['Desired Visits per Night'][i]*
-                                    requests_frame['# of Exposures per Visit'][i]))
+                                    (requests_frame['n_intra_max'][i]*
+                                    requests_frame['n_exp'][i]))
             star_past_obs, unique_hst_dates_observed, quarter_observed = \
-                rf.get_unique_nights(star_past_obs, twilight_frame)
-            n_obs_on_date = rf.get_nobs_on_night(star_past_obs, unique_hst_dates_observed)
+                get_unique_nights(star_past_obs, twilight_frame)
+            n_obs_on_date = get_nobs_on_night(star_past_obs, unique_hst_dates_observed)
 
             if len(unique_hst_dates_observed) > 0:
                 most_recent_observation_date = unique_hst_dates_observed[-1]
@@ -243,7 +271,7 @@ def build_past_history(past_observations_file, requests_frame, twilight_frame):
             #             If multiple visits in one night, then this is quarter of the first visit.
             # element 3 = a list of the # of observations on each past night,
             #             corresponding the nights in element 1.
-            database_info_dict[requests_frame['Starname'][i]] = \
+            database_info_dict[requests_frame['starname'][i]] = \
                 [most_recent_observation_date, unique_hst_dates_observed, quarter_observed, \
                 n_obs_on_date]
     else:

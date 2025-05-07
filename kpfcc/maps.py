@@ -133,18 +133,22 @@ def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_f
     is_night = manager.twilight_map_remaining_2D.astype(bool) # shape = (nnights, nslots)
     is_night = np.ones_like(is_altaz, dtype=bool) & is_night[np.newaxis,:,:]
 
+    is_alloc = manager.allocation_map_2D.astype(bool) # shape = (nnights, nslots)
+    is_alloc = np.ones_like(is_altaz, dtype=bool) & is_alloc[np.newaxis,:,:] # shape = (ntargets, nnights, nslots)
+
     is_observable_now = np.logical_and.reduce([
         is_altaz,
         is_moon,
         is_night,
         is_inter,
-        is_future
-
+        is_future,
+        is_alloc
     ])
+
 
     # the target does not viloate any of the observability limits in that specific slot, but
     # it does not mean it can be started at the slot. retroactively grow mask to accomodate multishot exposures. 
-    #import pdb;pdb.set_trace()
+
     # Is observable now, 
     is_observable = is_observable_now.copy()
     for itarget in range(ntargets):
@@ -156,9 +160,6 @@ def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_f
             # shifts the is_observable_now array to the left by shift
             # for is_observable to be true, it must be true for all shifts
             is_observable[itarget, :, :-shift] &= is_observable_now[itarget, :, shift:]
-
-    # Convert back to DataFrame
-
 
     # specify indeces of 3D observability array
     itarget, inight, islot = np.mgrid[:ntargets,:nnights,:nslots]
@@ -470,14 +471,14 @@ def convert_allocation_info_to_binary(manager, allocation):
         elif np.sum(datemask) == 1:
             # for night where only one program is allocated (regardless of length of allocation)
             oneNight.reset_index(inplace=True)
-            map1 = mf.quarter_translator(oneNight['Start'][0], oneNight['Stop'][0])
+            map1 = quarter_translator(oneNight['Start'][0], oneNight['Stop'][0])
             map2 = [int(map1[0]), int(map1[2]), int(map1[4]), int(map1[6])]
             uniqueDays += 1
         elif np.sum(datemask) >= 1:
             # for night where multiple programs are allocated (regardless of their lengths)
             oneNight.reset_index(inplace=True)
             last = len(oneNight)
-            map1 = mf.quarter_translator(oneNight['Start'][0], oneNight['Stop'][last-1])
+            map1 = quarter_translator(oneNight['Start'][0], oneNight['Stop'][last-1])
             map2 = [int(map1[0]), int(map1[2]), int(map1[4]), int(map1[6])]
             uniqueDays += 1
         else:
@@ -490,7 +491,7 @@ def convert_allocation_info_to_binary(manager, allocation):
     print("Total unique nights allocated: ", uniqueDays)
 
     # Write the binary allocation map to file
-    filename = manager.upstream + "inputs/" + str(manager.semester_year) + manager.semester_letter + '_Binary_Schedule.txt'
+    filename = manager.upstream_path + "inputs/allocation_schedule.txt"
     file = open(filename, 'w')
     for a in range(len(allocationMap)):
         line = manager.all_dates_array[a] + " : " + str(allocationMap[a])
@@ -519,7 +520,7 @@ def convert_allocation_info_to_binary(manager, allocation):
         starts.append(start)
         stops.append(stop)
     allocation_frame = pd.DataFrame({'Date':processed_dates, 'Start':starts, 'Stop':stops})
-    allocation_frame.to_csv(manager.upstream_path + str(manager.semester_year) + manager.semester_letter + '_NightlyStartStopTimes.csv', index=False)
+    allocation_frame.to_csv(manager.upstream_path + 'inputs/nightly_start_stop_times.csv', index=False)
 
 
 def quarter_translator(start, stop):
