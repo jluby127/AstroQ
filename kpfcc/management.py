@@ -47,6 +47,7 @@ class data_admin(object):
         self.n_quarters_in_night = int(config.get('other', 'quarters_in_night'))
         self.n_hours_in_night = int(config.get('other', 'hours_in_night'))
         self.daily_starting_time = str(config.get('other', 'daily_starting_time'))
+        self.daily_ending_time  = f"{(int(self.daily_starting_time.split(':')[0]) + self.n_hours_in_night) % 24:02d}:{int(self.daily_starting_time.split(':')[1]):02d}"
 
         # self.allocation_file = os.path.join(self.semester_directory, "inputs/allocation_schedule.txt")
         self.allocation_file = str(config.get('oia', 'allocation_file'))
@@ -63,13 +64,13 @@ class data_admin(object):
         self.run_weather_loss = eval(config.get('options', 'run_weather_loss'))#.strip().lower() == "true"
 
         self.run_optimal_allocation = config.get('oia', 'run_optimal_allocation').strip().lower() == "true"
-        self.include_aesthetic = config.get('oia', 'run_with_aesthetics')
+        self.include_aesthetic = config.get('oia', 'run_with_aesthetics').strip().lower() == "true"
         self.max_quarters = int(config.get('oia', 'maximum_allocated_quarters'))
         self.max_unique_nights = int(config.get('oia', 'maximum_allocated_nights'))
         self.min_represented = 1
         self.whiteout_file = os.path.join(self.semester_directory, "inputs/whiteout_dates.txt")
         self.blackout_file = os.path.join(self.semester_directory, "inputs/blackout_dates.txt")
-        self.allow_single_quarters = config.get('oia', 'allow_single_quarter_allocations')
+        self.allow_single_quarters = config.get('oia', 'allow_single_quarter_allocations').strip().lower() == "true"
         self.max_consecutive = int(config.get('oia', 'maximum_consecutive_onsky'))
         self.min_consecutive = int(config.get('oia', 'minimum_consecutive_offsky'))
         self.max_baseline = int(config.get('oia', 'maximum_baseline'))
@@ -91,7 +92,7 @@ class data_admin(object):
         self.starmap_template_filename = os.path.join(self.semester_directory, "inputs/cadenceTemplateFile.csv")
         self.build_starmaps = config.get('other', 'build_starmaps').strip().lower() == "true"
 
-        self.nightly_start_stop_times = os.path.join(self.semester_directory, "inputs/NightlyStartStopTimes.csv")
+        self.nightly_start_stop_times_file = os.path.join(self.semester_directory, "inputs/nightly_start_stop_times.csv")
         self.run_backup_scripts = config.get('other', 'generate_backup_script').strip().lower() == "true"
         self.backup_file = os.path.join(DATADIR,"bright_backups_frame.csv")
         self.backup_observability_file = os.path.join(DATADIR,"bright_backup_observability.csv")
@@ -301,13 +302,16 @@ def get_gap_filler_targets(manager):
     Returns:
         None
     """
-    scheduleR1 = np.loadtxt(manager.output_directory + 'raw_combined_semester_schedule_Round1.txt',
-        delimiter=',', dtype=str)
-    scheduleR2 = np.loadtxt(manager.output_directory + 'raw_combined_semester_schedule_Round2.txt',
-        delimiter=',', dtype=str)
-    new = scheduleR2[manager.all_dates_dict[manager.current_day]]
-    old = scheduleR1[manager.all_dates_dict[manager.current_day]]
-    gap_fillers = [x for x in new if x not in old]
+    round1_results = manager.output_directory + 'raw_combined_semester_schedule_Round1.txt'
+    round2_results = manager.output_directory + 'raw_combined_semester_schedule_Round2.txt'
+    if os.path.exists(round1_results) and os.path.exists(round2_results):
+        scheduleR1 = np.loadtxt(round1_results, delimiter=',', dtype=str)
+        scheduleR2 = np.loadtxt(round2_results, delimiter=',', dtype=str)
+        new = scheduleR2[manager.all_dates_dict[manager.current_day]]
+        old = scheduleR1[manager.all_dates_dict[manager.current_day]]
+        gap_fillers = [x for x in new if x not in old]
+    else:
+        gap_fillers = []
     np.savetxt(manager.output_directory + 'Round2_Requests.txt', gap_fillers, delimiter=',', fmt="%s")
 
 
@@ -333,6 +337,8 @@ def prepare_new_semester(config_path):
     little_manager.daily_starting_time = str(config.get('other', 'daily_starting_time'))
     little_manager.daily_ending_time  = f"{(int(little_manager.daily_starting_time.split(':')[0]) + little_manager.n_hours_in_night) % 24:02d}:{int(little_manager.daily_starting_time.split(':')[1]):02d}"
 
+    print(little_manager.upstream_path)
+    print(os.path.join(little_manager.upstream_path, "inputs/Requests.csv"))
     little_manager.requests_frame = pd.read_csv(os.path.join(little_manager.upstream_path, "inputs/Requests.csv"))
     try:
         little_manager.nonqueue_frame = pd.read_csv(os.path.join(little_manager.upstream_path, "inputs/NonQueueMap"  + str(little_manager.slot_size) + ".csv"))
@@ -375,8 +381,8 @@ def prepare_new_semester(config_path):
     ########### code goes here, use the separation slots between quarters and sum access maps
 
     if little_manager.run_optimal_allocation == False:
-        
-        little_manager.allocation_file = os.path.join(little_manager.upstream_path, "inputs/keck_obs_allocation.txt")
+
+        little_manager.allocation_file = os.path.join(little_manager.upstream_path, "inputs/Observatory_Allocation.csv")
         if os.path.exists(little_manager.allocation_file):
             allocation = mp.format_keck_allocation_info(little_manager.allocation_file)
             allocation_binary = mp.convert_allocation_info_to_binary(little_manager, allocation)

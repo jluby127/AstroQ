@@ -17,6 +17,8 @@ from gurobipy import GRB
 import kpfcc.io as io
 import kpfcc.management as mn
 import kpfcc.request as rq
+import kpfcc.maps as mp
+
 class Scheduler(object):
     """A Scheduler object, from which we can define a Gurobi model, build constraints, and solve."""
 
@@ -40,9 +42,11 @@ class Scheduler(object):
         self.joiner['id2'] = self.joiner['id']
         self.joiner['d2'] = self.joiner['d']
         self.joiner['s2'] = self.joiner['s']
+        self.joiner['tau_intra'] *= int(60/self.manager.slot_size) # convert hours to slots
+        self.joiner['tau_intra'] += self.joiner['t_visit'] # start the minimum intracadence time from the end of the previous exposure, not the beginning
 
         # Prepare information by construction observability_nights (Wset) and schedulable_requests
-        self.observability_nights = self.joiner[self.joiner['n_intra_min'] > 1][['id', 'd']].drop_duplicates().copy()
+        self.observability_nights = self.joiner[self.joiner['n_intra_max'] > 1][['id', 'd']].drop_duplicates().copy()
         self.multi_visit_requests = list(self.observability_nights['id'].unique())
 
         self.all_requests = list(manager.requests_frame['starname'])
@@ -73,9 +77,9 @@ class Scheduler(object):
         valid_s_for_rd = pd.merge(
             self.joiner.drop_duplicates(['id','d',]),
             self.joiner[['id','d','s']],
-            suffixes=['','2'],on=['id']
-        ).query('d == d2')
-        self.slots_on_day_for_r = valid_s_for_rd.groupby(['id','d'])[['s2']].agg(list)
+            suffixes=['','3'],on=['id']
+        ).query('d == d3')
+        self.slots_on_day_for_r = valid_s_for_rd.groupby(['id','d'])[['s3']].agg(list)
         # Get all request id's that are valid on a given day
         self.unique_request_on_day_pairs = self.joiner.copy().drop_duplicates(['id','d'])
 
@@ -144,50 +148,6 @@ class Scheduler(object):
             self.past_nights_observed_dict = past_nights_observed_dict
         print("Initializing complete.")
 
-    def constraint_build_theta(self):
-        """
-        According to Eq X in Lubin et al. 2025.
-        """
-        print("Constraint 0: Build theta variable")
-        for name in self.schedulable_requests:
-            idx = self.manager.requests_frame.index[self.manager.requests_frame['starname']==name][0]
-            self.model.addConstr(self.theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
-            # Get all (d,s) pairs for which this request is valid.
-            available = list(zip(list(self.all_valid_ds_for_request.loc[name].d), list(self.all_valid_ds_for_request.loc[name].s)))
-            self.model.addConstr(self.theta[name] >= ((self.manager.requests_frame['n_inter_max'][idx] - \
-                        self.past_nights_observed_dict[name]) - gp.quicksum(self.Yrds[name, d, s] for d,s in available)), \
-                        'greater_than_nobs_shortfall_' + str(name))
-
-    # Note: Likely can delete this constraint
-    def constraint_build_theta_time_normalized(self):
-        """
-        According to Eq X in Lubin et al. 2025.
-        """
-        print("Constraint 0: Build theta variable")
-        for name in self.schedulable_requests:
-            idx = self.manager.requests_frame.index[self.manager.requests_frame['starname']==name][0]
-            self.model.addConstr(self.theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
-            # Get all (d,s) pairs for which this request is valid.
-            available = list(zip(list(self.all_valid_ds_for_request.loc[name].d), list(self.all_valid_ds_for_request.loc[name].s)))
-            self.model.addConstr(self.theta[name] >= ((self.manager.requests_frame['n_inter_max'][idx] - \
-                        self.past_nights_observed_dict[name]) - gp.quicksum(self.Yrds[name, d, s] for d,s in available))*self.manager.slots_needed_for_exposure_dict[name], \
-                        'greater_than_nobs_shortfall_' + str(name))
-
-    # Note: Likely can delete this constraint
-    def constraint_build_theta_program_normalized(self):
-        """
-        According to Eq X in Lubin et al. 2025.
-        """
-        print("Constraint 0: Build theta variable")
-        for name in self.schedulable_requests:
-            idx = self.manager.requests_frame.index[self.manager.requests_frame['starname']==name][0]
-            self.model.addConstr(self.theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
-            # Get all (d,s) pairs for which this request is valid.
-            available = list(zip(list(self.all_valid_ds_for_request.loc[name].d), list(self.all_valid_ds_for_request.loc[name].s)))
-            self.model.addConstr(self.theta[name] >= ((self.manager.requests_frame['n_inter_max'][idx] - \
-                        self.past_nights_observed_dict[name]) - gp.quicksum(self.Yrds[name, d, s] for d,s in available))/self.manager.requests_frame['n_inter_max'][idx], \
-                        'greater_than_nobs_shortfall_' + str(name))
-
     def constraint_one_request_per_slot(self):
         """
         According to Eq X in Lubin et al. 2025.
@@ -199,7 +159,7 @@ class Scheduler(object):
             requests_valid_in_slot = list(self.requests_valid_for_ds.loc[(row.d, row.s)])[0]
             self.model.addConstr((gp.quicksum(self.Yrds[name,row.d,row.s] for name in requests_valid_in_slot) <= 1),
                             'one_request_per_slot_' + str(row.d) + "d_" + str(row.s) + "s")
-    @profile
+
     def constraint_reserve_multislot_exposures(self):
         """
         According to Eq X in Lubin et al. 2025.
@@ -251,6 +211,7 @@ class Scheduler(object):
 
       
 
+    # this function can likely be deleted - Jack 4/28/25
     def constraint_max_visits_per_night(self):
         """
         According to Eq X in Lubin et al. 2025.
@@ -273,7 +234,7 @@ class Scheduler(object):
             self.joiner[['id','d','s']],
             suffixes=['','3'],on=['id']
         ).query('d + 0 < d3 < d + tau_inter')
-        self.intercadence_tracker = intercadence.groupby(['id','d'])[['d2','s2']].agg(list)
+        self.intercadence_tracker = intercadence.groupby(['id','d'])[['d3','s3']].agg(list)
         # When inter-night cadence is 1, there will be no keys to constrain so skip
         # While the if/else statement would catch these, by shrinking the list here we do fewer
         # total steps in the loop.
@@ -285,9 +246,10 @@ class Scheduler(object):
         for i, row in intercadence_valid_tuples.iterrows():
             constrained_slots_tonight = np.array(self.slots_on_day_for_r.loc[(row.id2, row.d2)][0])
             # Get all slots for pair (r, d) where valid
+            # print(row.id, row.d)
             if (row.id, row.d) in self.intercadence_tracker.index:
                 slots_to_constrain_future = self.intercadence_tracker.loc[(row.id2, row.d2)]
-                ds_pairs = zip(list(np.array(slots_to_constrain_future.d2).flatten()), list(np.array(slots_to_constrain_future.s2).flatten()))
+                ds_pairs = zip(list(np.array(slots_to_constrain_future.d3).flatten()), list(np.array(slots_to_constrain_future.s3).flatten()))
                 self.model.addConstr((gp.quicksum(self.Yrds[row.id,row.d,s2] for s2 in constrained_slots_tonight)/row.n_intra_max \
                      <= (1 - (gp.quicksum(self.Yrds[row.id,d3,s3] for d3, s3 in ds_pairs)))), \
                     'enforce_internight_cadence_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
@@ -365,7 +327,8 @@ class Scheduler(object):
         print("Constraint: cannot observe if night/quarter is not allocated.")
         # if quarter is not allocated, all slots in quarter must be zero
         # note that the twilight times at the front and end of the night have to be respected
-        for id, d, s in self.request_set.observability:
+        for id, d, s in zip(self.request_set.observability['id'], self.request_set.observability['d'], self.request_set.observability['s']):
+        # for id, d, s in self.request_set.observability:
             q = rq.convert_slot_to_quarter(d, s, twilight_map_remaining_2D)
             self.model.addConstr(self.Yrds[id, d, s] <= self.Anq[d, q], "dontSched_ifNot_Allocated_"+ str(d) + "d_" + str(q) + "q_" + str(s) + "s_" + id, d, id)
 
@@ -432,39 +395,11 @@ class Scheduler(object):
                             for id, d, s in self.observability_tuples), GRB.MAXIMIZE)
                             # for id, d, s in self.joiner), GRB.MAXIMIZE)
 
-    # This objective can likely be deleted.
-    def set_objective_minimize_theta(self):
-        """
-        According to Eq X in Lubin et al. 2025.
-        """
-        self.model.setObjective(gp.quicksum(self.theta[name] for name in self.schedulable_requests), GRB.MINIMIZE)
-
     def set_objective_minimize_theta_time_normalized(self):
         """
         According to Eq X in Lubin et al. 2025.
         """
         self.model.setObjective(gp.quicksum(self.theta[name]*self.manager.slots_needed_for_exposure_dict[name] for name in self.schedulable_requests), GRB.MINIMIZE)
-
-    # This objective can likely be deleted.
-    def set_objective_minimize_theta_prog_norm(self):
-        """
-        According to Eq X in Lubin et al. 2025.
-        """
-        self.model.setObjective(gp.quicksum(self.theta[name]/self.manager.requests_frame.loc[self.manager.requests_frame['starname'] == name, 'n_inter_max'] for name in self.schedulable_requests), GRB.MINIMIZE)
-
-    # def constraint_connect_Wrd_and_Yrds(self):
-    #     """
-    #     According to Eq X in Lubin et al. 2025.
-    #     """
-    #     print("Constraint -1: Connect W and Y for all requests.")
-    #     # Get all slots s that are valid for a given r and d
-    #     grouped_s = self.request_set.Aframe.groupby(['r', 'd'])['s'].unique().reset_index()
-    #     grouped_s.set_index(['r', 'd'], inplace=True)
-    #     for i, row in self.request_set.Aframe.iterrows():
-    #         all_valid_slots_tonight = list(grouped_s.loc[(row.r, row.d)]['s'])
-    #         self.model.addConstr(gp.quicksum(self.Yrds[row.r,row.d,s3] for s3 in all_valid_slots_tonight) <= \
-    #             row.n_intra_max*self.Wrd[row.r, row.d],
-    #             'connect_W_and_Y' + row.r + "_" + str(row.d) + "d")
 
     def constraint_build_theta_multivisit(self):
         """
@@ -491,6 +426,11 @@ class Scheduler(object):
             self.model.addConstr(gp.quicksum(self.Wrd[name, d] for d in all_d) <=
                         self.desired_max_obs_allowed_dict[name],
                         'max_desired_unique_nights_for_request_' + str(name))
+        for name in self.single_visit_requests:
+            available = list(zip(list(self.all_valid_ds_for_request.loc[name].d), list(self.all_valid_ds_for_request.loc[name].s)))
+            self.model.addConstr(gp.quicksum(self.Yrds[name, d, s] for d, s in available) <=
+                        self.desired_max_obs_allowed_dict[name],
+                        'max_desired_unique_nights_for_request_' + str(name))
 
     def remove_constraint_set_max_desired_unique_nights_Wrd(self):
         """
@@ -512,28 +452,6 @@ class Scheduler(object):
                     self.absolute_max_obs_allowed_dict[name],
                     'max_absolute_unique_nights_for_request_' + str(name))
 
-    # This constraint can likely be deleted.
-    def constraint_set_max_desired_unique_nights_Yrds(self):
-        """
-        According to Eq X in Lubin et al. 2025.
-        """
-        for name in self.single_visit_requests:
-            available = list(zip(list(self.all_valid_ds_for_request.loc[name].d), list(self.all_valid_ds_for_request.loc[name].s)))
-            self.model.addConstr(gp.quicksum(self.Yrds[name, d, s] for d,s in available) <=
-                    self.desired_max_obs_allowed_dict[name],
-                    'max_desired_unique_nights_for_request_' + str(name))
-
-    # This constraint can likely be deleted.
-    def constraint_set_max_absolute_unique_nights_Yrds(self):
-        """
-        According to Eq X in Lubin et al. 2025.
-        """
-        for name in self.single_visit_requests:
-            available = list(zip(list(self.all_valid_ds_for_request.loc[name].d), list(self.all_valid_ds_for_request.loc[name].s)))
-            self.model.addConstr(gp.quicksum(self.Yrds[name, d, s] for d,s in available) <=
-                    self.absolute_max_obs_allowed_dict[name],
-                    'max_absolute_unique_nights_for_request_' + str(name))
-
     def constraint_build_enforce_intranight_cadence(self):
         """
         According to Eq X in Lubin et al. 2025.
@@ -541,13 +459,13 @@ class Scheduler(object):
         print("Constraint 6: Enforce intra-night cadence.")
         # get all combos of slots that must be constrained if given slot is scheduled
         # # When intra-night cadence is 0, there will be no keys to constrain so skip
-        intracadence_valid_tuples = self.joiner.copy()[self.joiner['tau_intra'] > 1]
+        intracadence_valid_tuples = self.joiner.copy()[self.joiner['n_intra_max'] > 1]
         intracadence_frame = pd.merge(
             intracadence_valid_tuples.drop_duplicates(['id','d','s']),
             intracadence_valid_tuples[['id','d','s']],
-            suffixes=['','2'],on=['id', 'd']
-            ).query('s + 0 < s2 <= s + tau_intra')
-        intracadence_frame = intracadence_frame.groupby(['id','d','s'])[['s2']].agg(list)
+            suffixes=['','3'],on=['id', 'd']
+            ).query('s + 0 < s3 <= s + tau_intra')
+        intracadence_frame = intracadence_frame.groupby(['id','d','s'])[['s3']].agg(list)
         for i, row in intracadence_valid_tuples.iterrows():
             if (row.id, row.d, row.s) in intracadence_frame.index:
                 # Get all slots tonight which are too soon after given slot for another visit
@@ -575,25 +493,6 @@ class Scheduler(object):
                 self.model.addConstr((((gp.quicksum(self.Yrds[row.id,row.d,s3] for s3 in all_valid_slots_tonight)))) <= \
                     row.n_intra_max, 'enforce_min_visits_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
 
-    # def constraint_set_min_max_visits_per_night_singles(self):
-    #     """
-    #     According to Eq X in Lubin et al. 2025.
-    #     """
-    #     print("Constraint 7: Allow minimum and maximum visits.")
-    #     intracadence_frame_on_day = self.joiner.copy().drop_duplicates(subset=['id', 'd'])
-    #     grouped_s = self.joiner.copy().groupby(['id', 'd'])['s'].unique().reset_index()
-    #     grouped_s.set_index(['id', 'd'], inplace=True)
-    #     for i, row in intracadence_frame_on_day.iterrows():
-    #         if row.id in self.multi_visit_requests:
-    #             all_valid_slots_tonight = list(grouped_s.loc[(row.id, row.d)]['s'])
-    #             self.model.addConstr((((gp.quicksum(self.Yrds[row.id, row.d,s3] for s3 in all_valid_slots_tonight)))) <= \
-    #                 row.n_intra_max*self.Wrd[row.id, row.d], 'enforce_max_visits1_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
-    #             self.model.addConstr((((gp.quicksum(self.Yrds[row.id,row.d,s3] for s3 in all_valid_slots_tonight)))) >= \
-    #                 row.n_intra_min*self.Wrd[row.id, row.d], 'enforce_min_visits_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
-    #         else:
-    #             self.model.addConstr((((gp.quicksum(self.Yrds[row.id,row.d,s3] for s3 in all_valid_slots_tonight)))) >= \
-    #                 row.n_intra_min*self.Wrd[row.id, row.d], 'enforce_min_visits_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
-    #
     def optimize_model(self):
         print("Begin model solve.")
         t1 = time.time()
@@ -658,7 +557,7 @@ class Scheduler(object):
                 self.constraint_enforce_restricted_nights(limit=0)
             if os.path.exists(self.manager.whiteout_file):
                 self.constraint_enforce_restricted_nights(limit=1)
-            if manager.include_aesthetic:
+            if self.manager.include_aesthetic:
                 self.constraint_max_consecutive_onsky()
                 self.constraint_minimum_consecutive_offsky()
                 self.constraint_maximize_baseline()
@@ -682,6 +581,8 @@ class Scheduler(object):
         self.human_read_schedule = io.write_stars_schedule_human_readable(self.human_read_available, self.Yrds, self.manager, self.round_info)
         io.build_fullness_report(self.human_read_schedule, self.manager, self.round_info)
         io.write_out_results(self.manager, self.theta, self.round_info, self.start_the_clock)
+        mn.get_gap_filler_targets(self.manager)
+        io.serialize_schedule(self.Yrds, self.manager,)
 
     def retrieve_ois_solution(self):
         print("Retrieving results of Optimal Instrument Allocation set of nights.")
@@ -692,7 +593,7 @@ class Scheduler(object):
             else:
                 allocation_schedule_1d.append(0)
         allocation_schedule = np.reshape(allocation_schedule_1d, (self.manager.n_nights_in_semester, self.manager.n_quarters_in_night))
-        manager.allocation_map_2D_NQ = allocation_schedule
+        self.manager.allocation_map_2D_NQ = allocation_schedule
         weather_holder = np.zeros(np.shape(allocation_schedule))
         allocation_map_1D, allocation_map_2D, weathered_map = mp.build_allocation_map(self.manager, allocation_schedule, weather_holder)
         mp.convert_allocation_array_to_binary(self.manager)

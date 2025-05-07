@@ -17,6 +17,7 @@ import kpfcc.driver as dr
 
 # In the paper, we used random seed = 24.
 np.random.seed(24)
+
 def getDec(maxDec=75, minDec=-30):
     '''
     Randomly draw a declination from cosine i distribution between two values.
@@ -80,13 +81,12 @@ def set_nSlots_singles(nslot, request_set, start_row=250):
     request_set.strategy.loc[request_set.strategy.iloc[start_row:].index, 't_visit'] = nslot
     return request_set
 
-def build_toy_model_from_paper(hours_per_program = 10, plot = False, savepath = "", shortcut=0):
+def build_toy_model_from_paper(hours_per_program = 100, plot = False):
     """
     Generate a synthetic request set based on the paper's toy model.
     Returns a pandas DataFrame with the request information.
     """
     # Define programs with their characteristics
-    # order: cadences, exptime, nobs, visits
     program0 = [1, 300, 40, 1]  # APF-50
     program1 = [5, 600, 20, 1]  # TKS
     program2 = [15, 1200, 10, 1]  # bi-weekly
@@ -106,13 +106,63 @@ def build_toy_model_from_paper(hours_per_program = 10, plot = False, savepath = 
         stars_per_program.append(n_stars)
         all_programs[p].append(n_stars)
 
-    #prog_info = pd.DataFrame(all_programs)
-    #savepath = "./examples/bench/inputs/toy_model_program_info.csv"
-    #test = pd.read_csv(savepath, index_col=0)
-    #savepath = "./examples/bench/inputs/Requests.csv"
-    #test2 = pd.read_csv(savepath, index_col=0)
+   # Compute stats for the paper's table
+    stars_per_program = []
+    total_stars = 0
+    prog_numb = []
+    prog_nobs = []
+    prog_inter = []
+    prog_visits = []
+    prog_intra = []
+    prog_nexp = []
+    prog_exptime = []
+    prog_nstars = []
+    prog_nexpos = []
+    prog_nslots = []
+    prog_award = []
+    for p in range(len(all_programs)):
+        nights = all_programs[p][2]
+        inter = all_programs[p][0]
+        viz = all_programs[p][3]
+        exptime = all_programs[p][1]
 
+        prog_numb.append(p)
+        prog_nobs.append(nights)
+        prog_inter.append(inter)
+        prog_visits.append(viz)
+        if viz == 1:
+            prog_intra.append(0)
+        else:
+            prog_intra.append(1)
+        prog_nexp.append(1)
+        prog_exptime.append(exptime)
 
+        # First six programs get a number of stars to fill their allocation and observing strategy
+        # Program 6 is the extra requests
+        if p <= 5:
+            n_stars = stars_in_program(all_programs[p], hours_per_program)
+        else:
+            n_stars = 1350
+        prog_nstars.append(n_stars)
+        prog_nexpos.append(n_stars*viz*nights)
+        prog_nslots.append(n_stars*viz*nights*int(exptime/300))
+        prog_award.append(np.round((n_stars*viz*nights*exptime)/3600,1))
+        all_programs[p].append(n_stars)
+        total_stars += n_stars
+        
+        # Metadata about toy model, currently not returned
+    prog_info = pd.DataFrame({"Program #":prog_numb,
+                            "# Nights":prog_nobs,
+                            "Inter Cadence":prog_inter,
+                            "# Visits":prog_visits,
+                            "Intra Cadence":prog_intra,
+                            "# Exposures":prog_nexp,
+                            "Exp Time":prog_exptime,
+                            "# Stars":prog_nstars,
+                            "Total Exposures":prog_nexpos,
+                            "Total Slots":prog_nslots,
+                            "Award":prog_award,
+                            })
     # Generate request data
     starname = []
     program_code = []
@@ -175,6 +225,22 @@ def build_toy_model_from_paper(hours_per_program = 10, plot = False, savepath = 
         'tau_intra': intranight_cadences
     }
     requests_data = pd.DataFrame(requests_data)
-    return requests_data
 
+    if plot:
+        # Plot out the stars on the sky
+        for i in range(len(all_programs), 0, -1):
+            filt = requests_data[requests_data['program'] == 'Program' + str(i)]
+            if i < 5 and i != 4:
+                c = 'b'
+            elif i == 4:
+                c = 'r'
+            else:
+                c = 'g'
+            pt.plot(filt['ra'], filt['dec'], 'o', color=c)
+        pt.xlim(0,360)
+        pt.ylim(-40,90)
+        pt.show()
+
+    print("The toy model is defined! Happy benchmarking.")
+    return requests_data
 
