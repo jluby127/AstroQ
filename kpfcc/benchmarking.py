@@ -81,10 +81,7 @@ def set_nSlots_singles(nslot, request_set, start_row=250):
     request_set.strategy.loc[request_set.strategy.iloc[start_row:].index, 't_visit'] = nslot
     return request_set
 
-def build_toy_model_from_paper(hours_per_program = 100, plot = False, savepath = "", shortcut=0):
-    if not os.path.exists(savepath):
-        os.makedirs(savepath)
-
+def build_toy_model_from_paper(hours_per_program = 100, plot = False, shortcut=0):
     # order: cadences, exptime, nobs, visits
     program0 = [1, 300, 40, 1] # APF-50
     program1 = [5, 600, 20, 1] # TKS
@@ -151,7 +148,6 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False, savepath =
                             "Total Slots":prog_nslots,
                             "Award":prog_award,
                             })
-    prog_info.to_csv(savepath + "toy_model_program_info.csv", index=False)
 
     # Randomly generate the RA/Decs for these stars
     starname = []
@@ -224,11 +220,8 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False, savepath =
         pt.xlim(0,360)
         pt.ylim(-40,90)
         pt.show()
-    import pdb;pdb.set_trace()
-    if shortcut is not None:
+
+    if shortcut > 0:
         toy_requests = toy_requests[:shortcut]
-
-    # need to create for manager object, can delete later
-    toy_requests.to_csv(savepath  + "Requests.csv", index=False)
-
     print("The toy model is defined! Happy benchmarking.")
+    return toy_requests

@@ -16,30 +16,40 @@ import kpfcc.history as hs
 
 def bench(args):
     print("Running benchmark test.")
-
+ 
     nR = args.number_requests
     nS = args.number_slots
-    sc = args.shortcut
     cf = args.config_file
-
+ 
+    # Initialize manager and compute request set on the fly
+    # This is a hacky workaround. run_admin needs this file to exist. This can
+    # lead to race conditions if benchmarking is run in parallel.
     config = ConfigParser()
     config.read(cf)
+    upstream_path = eval(config.get('required', 'folder'), {"os": os})
+    semester_directory = upstream_path
+    requests_frame = bn.build_toy_model_from_paper(hours_per_program = 100)
+    if nR is not None:
+        requests_frame = requests_frame.iloc[:nR][::10]
+    requests_frame.to_csv(os.path.join(semester_directory, "inputs/Requests.csv"))
+    manager = mn.data_admin(cf)
+    manager.run_admin()
+    
+    # Build observability maps and request set
+    print("Building valid indices.")
+    strategy, observable = rq.define_indices_for_requests(manager)
+    meta = rq.build_meta(cf)
+    request_set = rq.RequestSet(meta, strategy, observable)
     current_day = str(config.get('required', 'current_day'))
 
-    print("Checking for toy model files.")
-    rf = bn.do_benchmark_files_exist(cf, sc)
-    request_set = rq.read_json(rf + "outputs/" + current_day + '/request_set.json')
-    '''
-    
-    print("Parsing down size of model for desired test.")
-    request_set = bn.firstN_Requests(nR, request_set, rf + "inputs/Requests.csv")
-    request_set = bn.set_nSlots_singles(nS, request_set)
-    request_set.to_json(rf + "outputs/" + current_day + '/parsed_toy_model.json')
-
-    args2 = Namespace(request_file=rf + "outputs/" + current_day + '/parsed_toy_model.json', config_file=cf)
-    schedule(args2)
-    '''
+    # Run the schedule
+    schedule = sch.Scheduler(request_set, cf)
+    schedule.run_model()
+    print("Done solving the schedule.")
     return
+
+
+
 
 def kpfcc(args):
     print('    Entering kpfcc function in driver.py')
