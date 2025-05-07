@@ -42,7 +42,7 @@ def main():
 
     psr_bench.add_argument('-sc', '--shortcut',
                             type=int,
-                            required=True,
+                            required=False,
                             help="Run benchmark with a small request set, for testing purposes only."
                             )
 
