@@ -18,40 +18,6 @@ import kpfcc.driver as dr
 # In the paper, we used random seed = 24.
 np.random.seed(24)
 
-def do_benchmark_files_exist(config_path, shortcut=0):
-
-    config = ConfigParser()
-    config.read(config_path)
-    path2dir = eval(config.get('required', 'folder'), {"os": os})# + "/inputs/"
-    current_day = config.get('required', 'current_day')
-
-    if os.path.exists(path2dir + "inputs/Requests_all.csv"):
-        print("Pulling previously generated toy_model.csv")
-        tmp_request = pd.read_csv(path2dir + "inputs/Requests_all.csv")
-        tmp_request.to_csv(path2dir + "inputs/Requests.csv")
-    else:
-        print("Requests_all.csv file not found, generating a new one.")
-        build_toy_model_from_paper(savepath=path2dir+"inputs/",shortcut=shortcut)
-
-    print("Checking if semester has been prepared.")
-    if os.path.exists(path2dir + "inputs/twilight_times.csv"):
-        print("Yes semester is prepped.")
-    else:
-        print("Semester not prepped, doing so now.")
-        args1 = Namespace(config_file=config_path)
-        dr.kpfcc_prep(args1)
-
-    if os.path.exists(path2dir +"/outputs/" + current_day + "/request_set.json"):
-        print("Pulling previously generated toy_model.json")
-    else:
-        print("request_set.json file not found, generating a new one.")
-        print("Note: this could take some time, depending on your machine's specs.")
-        args2 = Namespace(config_file=config_path)
-        dr.kpfcc_build(args2)
-        print("request_set.json file is written. Proceed with benchmarking")
-
-    return path2dir# + "outputs/toy_model.json"
-
 def getDec(maxDec=75, minDec=-30):
     '''
     Randomly draw a declination from cosine i distribution between two values.
@@ -115,9 +81,7 @@ def set_nSlots_singles(nslot, request_set, start_row=250):
     request_set.strategy.loc[request_set.strategy.iloc[start_row:].index, 't_visit'] = nslot
     return request_set
 
-
 def build_toy_model_from_paper(hours_per_program = 100, plot = False, savepath = "", shortcut=0):
-
     if not os.path.exists(savepath):
         os.makedirs(savepath)
 
@@ -260,10 +224,11 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False, savepath =
         pt.xlim(0,360)
         pt.ylim(-40,90)
         pt.show()
-
-    if shortcut > 0:
+    import pdb;pdb.set_trace()
+    if shortcut is not None:
         toy_requests = toy_requests[:shortcut]
-    toy_requests.to_csv(savepath + "Requests_all.csv", index=False)
-    toy_requests.to_csv(savepath + "Requests.csv", index=False)
+
+    # need to create for manager object, can delete later
+    toy_requests.to_csv(savepath  + "Requests.csv", index=False)
 
     print("The toy model is defined! Happy benchmarking.")
