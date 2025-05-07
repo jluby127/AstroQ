@@ -98,14 +98,6 @@ def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_f
 
             nonqueue_map_file_slots_ints = construct_nonqueue_arr(manager)
 
-            # print("allocation: ", np.shape(manager.allocation_map_1D))
-            # print("twilight: ", np.shape(manager.twilight_map_remaining_2D.flatten()))
-            # print("nonqueue: ", np.shape(nonqueue_map_file_slots_ints))
-            # print("access: ", np.shape(access))
-            # print("custom: ", np.shape(custom_map))
-            # print("zeros: ", np.shape(zero_out_map))
-            # print("past: ", np.shape(respect_past_cadence))
-
             # Construct the penultimate intersection of maps for the given request.
             penultimate_map = manager.allocation_map_1D & manager.twilight_map_remaining_2D.flatten() & \
                 nonqueue_map_file_slots_ints & access & custom_map & zero_out_map & \

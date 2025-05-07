@@ -11,8 +11,9 @@ import kpfcc.management as mn
 import kpfcc.benchmarking as bn
 import kpfcc.blocks as ob
 import kpfcc.plot as pl
-import kpfcc.tracking as tk
 import kpfcc.onsky as sk
+import kpfcc.history as hs
+
 
 def bench(args):
     print("Running benchmark test.")
@@ -130,3 +131,21 @@ def ttp(args):
     manager.run_admin()
 
     sk.run_ttp(manager)
+
+def backups(args):
+
+    cf = args.config_file
+    print(f'    kpfcc_schedule function: config_file is {cf}')
+
+    manager = mn.data_admin(cf)
+    manager.run_admin()
+
+    sk.produce_bright_backups(manager)
+
+def get_history(args):
+
+    cf = args.config_file
+    print(f'    kpfcc_schedule function: config_file is {cf}')
+
+    manager = mn.data_admin(cf)
+    database_info_dict = hs.build_past_history(manager.past_database_file, manager.requests_frame, manager.twilight_frame)

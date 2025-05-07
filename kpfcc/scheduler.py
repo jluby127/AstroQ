@@ -42,7 +42,7 @@ class Scheduler(object):
         self.joiner['id2'] = self.joiner['id']
         self.joiner['d2'] = self.joiner['d']
         self.joiner['s2'] = self.joiner['s']
-        self.joiner['tau_intra'] *= 12 # convert hours to slots
+        self.joiner['tau_intra'] *= int(60/self.manager.slot_size) # convert hours to slots
         self.joiner['tau_intra'] += self.joiner['t_visit'] # start the minimum intracadence time from the end of the previous exposure, not the beginning
 
         # Prepare information by construction observability_nights (Wset) and schedulable_requests
@@ -558,6 +558,7 @@ class Scheduler(object):
         io.build_fullness_report(self.human_read_schedule, self.manager, self.round_info)
         io.write_out_results(self.manager, self.theta, self.round_info, self.start_the_clock)
         mn.get_gap_filler_targets(self.manager)
+        io.serialize_schedule(self.Yrds, self.manager,)
 
     def retrieve_ois_solution(self):
         print("Retrieving results of Optimal Instrument Allocation set of nights.")

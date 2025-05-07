@@ -19,6 +19,8 @@ import pickle
 import kpfcc.management as mn
 import kpfcc.history as hs
 
+labelsize = 38
+
 class StarPlotter(object):
     """
         Define the StarPlotter class, which contains all information about a single star and its program.
@@ -93,7 +95,7 @@ class StarPlotter(object):
         observations_future = {}
         for i in range(len(forecast)):
             if self.starname in forecast[i]:
-                observations_future[all_dates_array[i]] = (list(forecast[i]).count(self.starname)/self.slots_per_visit)*self.n_exp*self.n_intra_max
+                observations_future[all_dates_array[i]] = (list(forecast[i]).count(self.starname)/self.slots_per_visit)/self.n_intra_max#*self.n_exp*self.n_intra_max
         self.observations_future = observations_future
 
     def get_map(self, forecast, semester_length):
@@ -104,8 +106,7 @@ class StarPlotter(object):
             starname (str): the name of the star in question
 
         Returns:
-            observations_future (dict): a dictionary where keys are the dates of an observation and
-                                       the values are number of observations to be taken that night
+            None
         """
         starmap = (forecast == self.starname).astype(int).to_numpy()
         starmap =  np.array(pad_rows_top(starmap, semester_length)).T
@@ -151,6 +152,11 @@ def process_stars(manager):
         # Create COF arrays for each request
         combined_set = set(list(newstar.observations_past.keys()) + list(newstar.observations_future.keys()))
         newstar.dates_observe = [newstar.n_exp*newstar.n_intra_max if date in combined_set else 0 for date in manager.all_dates_array]
+        # don't assume that all future observations forecast for getting all desired n_intra_max
+        for b in range(len(newstar.dates_observe)):
+            if manager.all_dates_array[b] in list(newstar.observations_future.keys()):
+                index = list(newstar.observations_future.keys()).index(manager.all_dates_array[b])
+                newstar.dates_observe[b] *= list(newstar.observations_future.values())[index]
         newstar.cume_observe = np.cumsum(newstar.dates_observe)
         newstar.cume_observe_pct = np.round((np.cumsum(newstar.dates_observe)/newstar.total_observations_requested)*100.,3)
 
@@ -219,7 +225,7 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
     fig = go.Figure()
     fig.add_trace(go.Heatmap(
         z=availablity,
-        colorscale=[[0, 'rgba(0,0,0,0)'], [1, f"rgb(0, 0, 0)"]],
+        colorscale=[[0, 'rgba(0,0,0,0)'], [1, f"rgb(200, 200, 200)"]],
         zmin=0, zmax=1,
         opacity=1.0,
         showscale=False,
@@ -277,27 +283,29 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
             layer="below"
         )
 
-    labelsize2 = 28
     fig.update_layout(
         title="Birds Eye View Semester Schedule",
         yaxis_title="Slot in Night",
         xaxis_title="Night in Semester",
         xaxis=dict(
-            title_font=dict(size=labelsize2),
-            tickfont=dict(size=labelsize2 - 4),
-            tickvals=np.arange(0, manager.semester_length, 12),
+            title_font=dict(size=labelsize),
+            tickfont=dict(size=labelsize - 4),
+            tickvals=np.arange(0, manager.semester_length, 21),
             tickmode='array',
             showgrid=False,  # Turn off native grid
         ),
         yaxis=dict(
-            title_font=dict(size=labelsize2),
-            tickfont=dict(size=labelsize2 - 4),
+            title_font=dict(size=labelsize),
+            tickfont=dict(size=labelsize - 4),
             tickvals=np.arange(0, manager.n_slots_in_night, 12),
             tickmode='array',
             showgrid=False,  # Turn off native grid
         ),
         template="plotly_white",
         showlegend=True,
+        legend=dict(
+            font=dict(size=labelsize-10)
+        )
     )
     if filename != '':
         fileout_path = manager.reports_directory + filename
@@ -305,7 +313,6 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
     return fig
 
 def cof_builder(all_stars, manager, filename='', flag=False):
-    labelsize = 20
 
     fig = go.Figure()
     burn_line = np.linspace(0, 100, len(manager.all_dates_array))
@@ -364,6 +371,9 @@ def cof_builder(all_stars, manager, filename='', flag=False):
         xaxis_title="Calendar Date",
         yaxis_title="Request % Complete",
         showlegend=True,
+        legend=dict(
+            font=dict(size=labelsize-10)
+        ),
         xaxis=dict(
             title_font=dict(size=labelsize),
             tickfont=dict(size=labelsize-4)
