@@ -81,18 +81,32 @@ def set_nSlots_singles(nslot, request_set, start_row=250):
     request_set.strategy.loc[request_set.strategy.iloc[start_row:].index, 't_visit'] = nslot
     return request_set
 
-def build_toy_model_from_paper(hours_per_program = 100, plot = False, shortcut=0):
-    # order: cadences, exptime, nobs, visits
-    program0 = [1, 300, 40, 1] # APF-50
-    program1 = [5, 600, 20, 1] # TKS
-    program2 = [15, 1200, 10, 1] # bi-weekly
-    program3 = [1, 300, 8, 5] # Intra
-    program4 = [1, 300, 40, 1] # Constrained
-    program5 = [1, 3600, 1, 1] # Singles
-    program6 = [1, 300, 1, 1] # Singles to serve as extra; one slot as placeholder, later will edit.
+def build_toy_model_from_paper(hours_per_program = 100, plot = False):
+    """
+    Generate a synthetic request set based on the paper's toy model.
+    Returns a pandas DataFrame with the request information.
+    """
+    # Define programs with their characteristics
+    program0 = [1, 300, 40, 1]  # APF-50
+    program1 = [5, 600, 20, 1]  # TKS
+    program2 = [15, 1200, 10, 1]  # bi-weekly
+    program3 = [1, 300, 8, 5]  # Intra
+    program4 = [1, 300, 40, 1]  # Constrained
+    program5 = [1, 3600, 1, 1]  # Singles
+    program6 = [1, 300, 1, 1]  # Singles to serve as extra
     all_programs = [program0, program1, program2, program3, program4, program5, program6]
 
-    # Compute stats for the paper's table
+    # Calculate number of stars per program
+    stars_per_program = []
+    for p in range(len(all_programs)):
+        if p <= 5:
+            n_stars = stars_in_program(all_programs[p], hours_per_program)
+        else:
+            n_stars = 1350
+        stars_per_program.append(n_stars)
+        all_programs[p].append(n_stars)
+
+   # Compute stats for the paper's table
     stars_per_program = []
     total_stars = 0
     prog_numb = []
@@ -135,7 +149,8 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False, shortcut=0
         prog_award.append(np.round((n_stars*viz*nights*exptime)/3600,1))
         all_programs[p].append(n_stars)
         total_stars += n_stars
-
+        
+        # Metadata about toy model, currently not returned
     prog_info = pd.DataFrame({"Program #":prog_numb,
                             "# Nights":prog_nobs,
                             "Inter Cadence":prog_inter,
@@ -148,8 +163,7 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False, shortcut=0
                             "Total Slots":prog_nslots,
                             "Award":prog_award,
                             })
-
-    # Randomly generate the RA/Decs for these stars
+    # Generate request data
     starname = []
     program_code = []
     RA = []
@@ -161,55 +175,61 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False, shortcut=0
     visits_per_night_min = []
     unique_nights = []
     exposures_per_visit = []
-    timecounter = 0
-    slotcounter = 0
-    starcounter = 0
-    for p in range(len(all_programs)):
-        for s in range(all_programs[p][4]):
-            starname.append("Star" + f"{starcounter:04d}")
-            starcounter += 1
-            program_code.append("Program" + str(p))
-            # Program 4 is the constrained to roughly the Kepler field
-            if p==4:
-                tmpra = np.random.uniform(18*15, 20*15)
-                tmpdec = np.random.uniform(40, 50)
+    n_intra_max = []
+    tau_inter = []
+    priority = []
+
+    star_idx = 0
+    for p, program in enumerate(all_programs):
+        n_stars = program[4]  # Number of stars for this program
+        for s in range(n_stars):
+            starname.append(f"Star{star_idx:04d}")
+            program_code.append(f"Program{p}")
+            
+            # Generate RA/Dec following original logic
+            if p == 4:  # Constrained to Kepler field
+                tmpra = np.random.uniform(18*15, 20*15)  # RA between 270-300 degrees
+                tmpdec = np.random.uniform(40, 50)       # Dec between 40-50 degrees
             else:
-                tmpra = np.random.uniform(18*15, ((20*15)+180))
-                tmpdec = getDec()
+                tmpra = np.random.uniform(18*15, ((20*15)+180))  # RA between 270-450 degrees
+                tmpdec = getDec()  # Uses cosine distribution
             if tmpra > 360:
                 tmpra -= 360
             RA.append(tmpra)
             Dec.append(tmpdec)
-            exposure_times.append(all_programs[p][1])
+            
+            exposure_times.append(program[1])
+            internight_cadences.append(program[0])
+            intranight_cadences.append(0 if program[3] == 1 else 1)
+            visits_per_night_max.append(program[3])
+            visits_per_night_min.append(program[3])
+            unique_nights.append(program[2])
             exposures_per_visit.append(1)
-            visits_per_night_max.append(all_programs[p][3])
-            if all_programs[p][3] == 5:
-                visits_per_night_min.append(3)
-            else:
-                visits_per_night_min.append(1)
-            unique_nights.append(all_programs[p][2])
-            internight_cadences.append(all_programs[p][0])
-            if all_programs[p][3] == 1:
-                intranight_cadences.append(0)
-            else:
-                intranight_cadences.append(1)
-            timecounter += ((all_programs[p][1]*all_programs[p][3]*all_programs[p][2])/3600)
-            slotcounter += ((all_programs[p][1]*all_programs[p][3]*all_programs[p][2])/300)
+            n_intra_max.append(program[3])
+            tau_inter.append(program[0])
+            priority.append(np.random.randint(1, 5))
+            star_idx += 1
 
-    toy_requests = pd.DataFrame({'starname':starname, 'program':program_code, 'ra':RA, 'dec':Dec,
-                                'exptime':exposure_times,
-                                'n_exp':exposures_per_visit,
-                                'n_intra_max':visits_per_night_max,
-                                'n_intra_min':visits_per_night_min,
-                                'n_inter_max':unique_nights,
-                                'tau_inter':internight_cadences,
-                                'tau_intra':intranight_cadences
-                                })
+    # Create DataFrame
+    requests_data = {
+        'starname': starname,
+        'program': program_code,
+        'ra': RA,
+        'dec': Dec,
+        'exptime': exposure_times,
+        'n_exp': exposures_per_visit,
+        'n_intra_max': visits_per_night_max,
+        'n_intra_min': visits_per_night_min,
+        'n_inter_max': unique_nights,
+        'tau_inter': internight_cadences,
+        'tau_intra': intranight_cadences
+    }
+    requests_data = pd.DataFrame(requests_data)
 
     if plot:
         # Plot out the stars on the sky
         for i in range(len(all_programs), 0, -1):
-            filt = toy_requests[toy_requests['program'] == 'Program' + str(i)]
+            filt = requests_data[requests_data['program'] == 'Program' + str(i)]
             if i < 5 and i != 4:
                 c = 'b'
             elif i == 4:
@@ -221,7 +241,6 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False, shortcut=0
         pt.ylim(-40,90)
         pt.show()
 
-    if shortcut > 0:
-        toy_requests = toy_requests[:shortcut]
     print("The toy model is defined! Happy benchmarking.")
-    return toy_requests
+    return requests_data
+
