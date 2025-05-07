@@ -18,6 +18,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as pt
 
+import kpfcc.history as hs
+
 def build_fullness_report(combined_semester_schedule, manager, round_info):
     """
     Determine how full the schedule is: slots available, slots scheduled, and slots required
@@ -390,6 +392,47 @@ def write_available_human_readable(manager):
         combined_semester_schedule, delimiter=',', fmt="%s")
     return combined_semester_schedule
 
+def serialize_schedule(Yrds, manager):
+    """
+    Turns the non-square matrix of the solution into a square matrix and starts the human readable
+    solution by filling in the slots where a star's exposre is started.
+
+    Args:
+        combined_semester_schedule (array): the human readable solution
+        Yns (array): the Gurobi solution with keys of (starname, slot_number) and values 1 or 0.
+        manager (obj): a data_admin object
+
+    Returns:
+        None
+    """
+    all_days = []
+    all_slots = []
+    all_star_strings = []
+    for d in range(manager.n_nights_in_semester):
+        for s in range(manager.n_slots_in_night):
+            stars_string = ""
+            for name in list(manager.requests_frame['starname']):
+                try:
+                    value = int(np.round(Yrds[name, d, s].x))
+                    if value == 1:
+                        stars_string += name
+                except KeyError:
+                    pass
+                except:
+                    print("Error: io.py line 416: ", name, d, s)
+            all_star_strings.append(stars_string)
+            all_days.append(d)
+            all_slots.append(s)
+
+    serial_output = pd.DataFrame({"d":all_days, "s":all_slots, "r":all_star_strings,
+                                "isNight":np.array(manager.twilight_map_remaining_2D).flatten(),
+                                "isAlloc":np.array(manager.allocation_map_2D).flatten(),
+                                "isClear":np.array(manager.weathered_map).flatten(),
+                                })
+    print("making all strings")
+    serial_output["r"] = serial_output["r"].fillna("").astype(str)
+    serial_output.to_csv(manager.output_directory + "serialized_outputs_dense.csv", index=False, na_rep="")
+
 def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars, current_day,
                     outputdir):
     """
@@ -480,7 +523,8 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
     if updated_dec[0] != "-":
         updated_dec = "+" + updated_dec
 
-    namestring = ' '*(16-len(row['starname'][0][:16])) + row['starname'][0][:16]
+    cpsname = hs.cps_star_name(row['starname'][0])
+    namestring = ' '*(16-len(cpsname[:16])) + cpsname[:16]
 
     jmagstring = ('jmag=' + str(np.round(float(row['jmag'][0]),1)) + ' '* \
         (4-len(str(np.round(row['jmag'][0],1)))))

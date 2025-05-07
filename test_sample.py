@@ -40,3 +40,9 @@ class TestClass:
 
     def test_ttp(self):
         dr.ttp(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
+
+    def test_history(self):
+        dr.get_history(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
+
+    def test_backups(self):
+        dr.backups(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))

@@ -210,6 +210,19 @@ def real_star_name(name):
     else:
         return name
 
+def cps_star_name(name):
+    if name.startswith('HD'):
+        name2 = name.replace(" ", "")
+        return name2[2:]
+    elif name.startswith('KIC'):
+        name2 = name.replace(" ", "")
+        return name2
+    elif name.startswith('TYC'):
+        name2 = name.replace(" ", "-")
+        return name2
+    else:
+        return name
+
 def build_past_history(past_observations_file, requests_frame, twilight_frame):
     """
     Construct the past history dictionary having pulled a table of observations from Jump.
