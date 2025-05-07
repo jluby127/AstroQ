@@ -163,30 +163,53 @@ class Scheduler(object):
     def constraint_reserve_multislot_exposures(self):
         """
         According to Eq X in Lubin et al. 2025.
+
+        Get requests that are valid in (d,s+t_visit) pair for a given (d,s,1...t_visit)
+        Note: earlier we had a full query and merge of an outer join via pandas but found that this quickly
+        # ballooned in size in terms of memory required to complete the merge. This is an equal shortcut.
+
+        # The Yr,d,s matrix represents the day/slot pairs where an exposure r will begin. Therefore, when a re-
+        # quest's exposure time exceeds the length of time repre-
+        # sented by a single slot, then multiple consecutive slots
+        # must be reserved for the request. In this case, no re-
+        # quest, including the one being scheduled, may be sched-
+        # uled into the required consecutive slots
         """
         print("Constraint 2: Reserve slots for for multi-slot exposures.")
-        # Get requests that are valid in (d,s+t_visit) pair for a given (d,s,1...t_visit)
-        # Note: earlier we had a full query and merge of an outer join via pandas but found that this quickly
-        # ballooned in size in terms of memory required to complete the merge. This is an equal shortcut.
-        frame_holder = []
-        for day in range(self.manager.n_nights_in_semester):
-            today_mask = self.joiner.d==day
-            frame_holder.append(pd.merge(self.joiner[today_mask&self.multislot_mask]['id d s t_visit'.split()] \
-                ,self.joiner['id d s'.split()],on=['d'],suffixes=['','2']) \
-                .query('s < s2 < s + t_visit').groupby('id d s'.split()).agg(list))
-        requests_valid_in_reserved_slots = pd.concat(frame_holder)
+        obs = self.request_set.observability
+        ms = self.multi_slot_frame
         # If request requires only 1 slot to complete, then no constraint on reserving additional slots
-        for i, row in self.multi_slot_frame.iterrows():
-            # construct list of (r,d,s) indices to be constrained. These are all requests that are
-            # valid in slots (d, s+1) through (d, s + e)
-            # Ensuring slot (d, s) is not double filled already taken care of in Constraint 1.
-            if (row.id, row.d, row.s) in requests_valid_in_reserved_slots.index:
-                allr = list(requests_valid_in_reserved_slots.loc[row.id, row.d, row.s]['id2'])
-                alls = list(requests_valid_in_reserved_slots.loc[row.id, row.d, row.s]['s2'])
-                all_reserved_slots = list(zip(allr, [row.d]*len(allr), alls))
-                self.model.addConstr((row.t_visit*(1 - self.Yrds[row.id,row.d,row.s])) >= gp.quicksum(self.Yrds[c]
-                                                                for c in all_reserved_slots),
-                                'reserve_multislot_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
+
+        for d in ms.d.drop_duplicates():
+            obs_day = obs[obs.d == d]
+            ms_day = ms[ms.d == d]
+
+            # Precompute all requests that are valid on day d, and slot s.
+            valid_requests = obs_day.groupby('s')['id'].apply(set).to_dict()
+
+            # Loop over all multi-slot requests on day d and enforce no other request in 
+            # slots within t_visit from slot starting slot
+            ids = ms_day.id.values
+            ss = ms_day.s.values
+            t_visits = ms_day.t_visit.values
+            for i in range(len(ids)):
+                id = ids[i]
+                s = ss[i]
+                t_visit = t_visits[i]
+                lhs = t_visit * (1 - self.Yrds[id,d,s])
+                rhs = []       
+                for delta in range(1,t_visit):
+                    s_shift = s + delta
+                    if s_shift in valid_requests:
+                        rhs.extend(self.Yrds[r,d,s_shift] for r in valid_requests[s_shift])
+
+                if len(rhs) > 0:  # Only add constraint if there are slots to reserve
+                    name = f'reserve_multislot_{id}_{d}d_{s}s'
+                    constr = (lhs >= gp.quicksum(rhs))
+                    self.model.addConstr(constr, name)
+    
+
+      
 
     # this function can likely be deleted - Jack 4/28/25
     def constraint_max_visits_per_night(self):
@@ -479,6 +502,7 @@ class Scheduler(object):
         self.model.params.MIPGap = self.manager.solve_max_gap
         # More aggressive presolve gives better solution in shorter time
         self.model.params.Presolve = 2
+        #self.model.params.Presolve = 0
         self.model.update()
         self.model.optimize()
 

@@ -24,6 +24,7 @@ def bench(args):
     # Initialize manager and compute request set on the fly
     # This is a hacky workaround. run_admin needs this file to exist. This can
     # lead to race conditions if benchmarking is run in parallel.
+
     config = ConfigParser()
     config.read(cf)
     upstream_path = eval(config.get('required', 'folder'), {"os": os})
@@ -41,7 +42,6 @@ def bench(args):
     meta = rq.build_meta(cf)
     request_set = rq.RequestSet(meta, strategy, observable)
     current_day = str(config.get('required', 'current_day'))
-
     # Run the schedule
     schedule = sch.Scheduler(request_set, cf)
     schedule.run_model()
