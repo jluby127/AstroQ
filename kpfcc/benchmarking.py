@@ -17,6 +17,7 @@ import kpfcc.driver as dr
 
 # In the paper, we used random seed = 24.
 np.random.seed(24)
+
 def getDec(maxDec=75, minDec=-30):
     '''
     Randomly draw a declination from cosine i distribution between two values.
@@ -226,6 +227,8 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False, savepath =
     import pdb;pdb.set_trace()
     if shortcut is not None:
         toy_requests = toy_requests[:shortcut]
+
+    # need to create for manager object, can delete later
     toy_requests.to_csv(savepath  + "Requests.csv", index=False)
 
     print("The toy model is defined! Happy benchmarking.")

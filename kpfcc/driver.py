@@ -1,4 +1,7 @@
 import os
+import json
+import numpy as np
+import pandas as pd
 from configparser import ConfigParser
 from argparse import Namespace
 
@@ -6,6 +9,10 @@ import kpfcc.scheduler as sch
 import kpfcc.request as rq
 import kpfcc.management as mn
 import kpfcc.benchmarking as bn
+import kpfcc.blocks as ob
+import kpfcc.plot as pl
+import kpfcc.onsky as sk
+import kpfcc.history as hs
 
 def bench(args):
     print("Running benchmark test.")
@@ -60,6 +67,36 @@ def kpfcc_prep(args):
     mn.prepare_new_semester(cf)
     return
 
+def kpfcc_data(args):
+
+    pull_file = args.pull_file
+    print(f'    kpfcc_data function: using pull info from {pull_file}')
+
+    savepath = args.database_file
+    print(f'    kpfcc_data function: saving to {savepath}')
+
+    with open(pull_file, "r") as f:
+        data = json.load(f)
+    semester = data["semester"]
+    awarded_programs = data["awarded_programs"]
+
+    if not os.path.exists(savepath):
+        os.makedirs(savepath)
+
+    OBs = ob.refresh_local_data(semester)
+    good_obs, bad_obs_values, bad_obs_hasFields = ob.get_request_sheet(OBs, awarded_programs, savepath + "/Requests.csv")
+
+    send_emails_with = []
+    for i in range(len(bad_obs_values)):
+        if bad_obs_values['metadata.semid'][i] in awarded_programs:
+            send_emails_with.append(ob.inspect_row(bad_obs_hasFields, bad_obs_values, i))
+
+    '''
+    this is where code to automatically send emails will go.
+    '''
+
+    return
+
 def schedule(args):
 
     rf = args.request_file
@@ -75,8 +112,41 @@ def schedule(args):
 
 def plot(args):
 
-    so = args.schedule_object
-    tp = type(so)
-    print(f'    kpfcc_plot function: schedule object is {so} and type is {tp}')
-    print("this function doesn't do anything yet.")
+    # so = args.schedule_object
+    # tp = type(so)
+    # print(f'    kpfcc_plot function: schedule object is {so} and type is {tp}')
+    # print("this function doesn't do anything yet.")
+
+    cf = args.config_file
+    print(f'    kpfcc_schedule function: config_file is {cf}')
+    pl.run_plot_suite(cf)
+
     return
+
+def ttp(args):
+
+    cf = args.config_file
+    print(f'    kpfcc_schedule function: config_file is {cf}')
+
+    manager = mn.data_admin(cf)
+    manager.run_admin()
+
+    sk.run_ttp(manager)
+
+def backups(args):
+
+    cf = args.config_file
+    print(f'    kpfcc_schedule function: config_file is {cf}')
+
+    manager = mn.data_admin(cf)
+    manager.run_admin()
+
+    sk.produce_bright_backups(manager)
+
+def get_history(args):
+
+    cf = args.config_file
+    print(f'    kpfcc_schedule function: config_file is {cf}')
+
+    manager = mn.data_admin(cf)
+    database_info_dict = hs.build_past_history(manager.past_database_file, manager.requests_frame, manager.twilight_frame)
