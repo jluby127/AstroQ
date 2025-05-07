@@ -133,18 +133,22 @@ def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_f
     is_night = manager.twilight_map_remaining_2D.astype(bool) # shape = (nnights, nslots)
     is_night = np.ones_like(is_altaz, dtype=bool) & is_night[np.newaxis,:,:]
 
+    is_alloc = manager.allocation_map_2D.astype(bool) # shape = (nnights, nslots)
+    is_alloc = np.ones_like(is_altaz, dtype=bool) & is_alloc[np.newaxis,:,:] # shape = (ntargets, nnights, nslots)
+
     is_observable_now = np.logical_and.reduce([
         is_altaz,
         is_moon,
         is_night,
         is_inter,
-        is_future
-
+        is_future,
+        is_alloc
     ])
+
 
     # the target does not viloate any of the observability limits in that specific slot, but
     # it does not mean it can be started at the slot. retroactively grow mask to accomodate multishot exposures. 
-    #import pdb;pdb.set_trace()
+
     # Is observable now, 
     is_observable = is_observable_now.copy()
     for itarget in range(ntargets):
@@ -156,9 +160,6 @@ def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_f
             # shifts the is_observable_now array to the left by shift
             # for is_observable to be true, it must be true for all shifts
             is_observable[itarget, :, :-shift] &= is_observable_now[itarget, :, shift:]
-
-    # Convert back to DataFrame
-
 
     # specify indeces of 3D observability array
     itarget, inight, islot = np.mgrid[:ntargets,:nnights,:nslots]
