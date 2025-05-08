@@ -42,9 +42,11 @@ class Scheduler(object):
         self.joiner['id2'] = self.joiner['id']
         self.joiner['d2'] = self.joiner['d']
         self.joiner['s2'] = self.joiner['s']
+        self.joiner['tau_intra'] *= int(60/self.manager.slot_size) # convert hours to slots
+        self.joiner['tau_intra'] += self.joiner['t_visit'] # start the minimum intracadence time from the end of the previous exposure, not the beginning
 
         # Prepare information by construction observability_nights (Wset) and schedulable_requests
-        self.observability_nights = self.joiner[self.joiner['n_intra_min'] > 1][['id', 'd']].drop_duplicates().copy()
+        self.observability_nights = self.joiner[self.joiner['n_intra_max'] > 1][['id', 'd']].drop_duplicates().copy()
         self.multi_visit_requests = list(self.observability_nights['id'].unique())
 
         self.all_requests = list(manager.requests_frame['starname'])
@@ -75,9 +77,9 @@ class Scheduler(object):
         valid_s_for_rd = pd.merge(
             self.joiner.drop_duplicates(['id','d',]),
             self.joiner[['id','d','s']],
-            suffixes=['','2'],on=['id']
-        ).query('d == d2')
-        self.slots_on_day_for_r = valid_s_for_rd.groupby(['id','d'])[['s2']].agg(list)
+            suffixes=['','3'],on=['id']
+        ).query('d == d3')
+        self.slots_on_day_for_r = valid_s_for_rd.groupby(['id','d'])[['s3']].agg(list)
         # Get all request id's that are valid on a given day
         self.unique_request_on_day_pairs = self.joiner.copy().drop_duplicates(['id','d'])
 
@@ -166,7 +168,7 @@ class Scheduler(object):
     def constraint_reserve_multislot_exposures(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Round 1:
         
         Reserve multiple time slots for exposures that require
@@ -174,29 +176,42 @@ class Scheduler(object):
         no other observations are scheduled during these slots.
         """
         print("Constraint 2: Reserve slots for for multi-slot exposures.")
-        # Get requests that are valid in (d,s+t_visit) pair for a given (d,s,1...t_visit)
-        # Note: earlier we had a full query and merge of an outer join via pandas but found that this quickly
-        # ballooned in size in terms of memory required to complete the merge. This is an equal shortcut.
-        frame_holder = []
-        for day in range(self.manager.n_nights_in_semester):
-            today_mask = self.joiner.d==day
-            frame_holder.append(pd.merge(self.joiner[today_mask&self.multislot_mask]['id d s t_visit'.split()] \
-                ,self.joiner['id d s'.split()],on=['d'],suffixes=['','2']) \
-                .query('s < s2 < s + t_visit').groupby('id d s'.split()).agg(list))
-        requests_valid_in_reserved_slots = pd.concat(frame_holder)
+        obs = self.request_set.observability
+        ms = self.multi_slot_frame
         # If request requires only 1 slot to complete, then no constraint on reserving additional slots
-        for i, row in self.multi_slot_frame.iterrows():
-            # construct list of (r,d,s) indices to be constrained. These are all requests that are
-            # valid in slots (d, s+1) through (d, s + e)
-            # Ensuring slot (d, s) is not double filled already taken care of in Constraint 1.
-            if (row.id, row.d, row.s) in requests_valid_in_reserved_slots.index:
-                allr = list(requests_valid_in_reserved_slots.loc[row.id, row.d, row.s]['id2'])
-                alls = list(requests_valid_in_reserved_slots.loc[row.id, row.d, row.s]['s2'])
-                all_reserved_slots = list(zip(allr, [row.d]*len(allr), alls))
-                self.model.addConstr((row.t_visit*(1 - self.Yrds[row.id,row.d,row.s])) >= gp.quicksum(self.Yrds[c]
-                                                                for c in all_reserved_slots),
-                                'reserve_multislot_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
 
+        for d in ms.d.drop_duplicates():
+            obs_day = obs[obs.d == d]
+            ms_day = ms[ms.d == d]
+
+            # Precompute all requests that are valid on day d, and slot s.
+            valid_requests = obs_day.groupby('s')['id'].apply(set).to_dict()
+
+            # Loop over all multi-slot requests on day d and enforce no other request in 
+            # slots within t_visit from slot starting slot
+            ids = ms_day.id.values
+            ss = ms_day.s.values
+            t_visits = ms_day.t_visit.values
+            for i in range(len(ids)):
+                id = ids[i]
+                s = ss[i]
+                t_visit = t_visits[i]
+                lhs = t_visit * (1 - self.Yrds[id,d,s])
+                rhs = []       
+                for delta in range(1,t_visit):
+                    s_shift = s + delta
+                    if s_shift in valid_requests:
+                        rhs.extend(self.Yrds[r,d,s_shift] for r in valid_requests[s_shift])
+
+                if len(rhs) > 0:  # Only add constraint if there are slots to reserve
+                    name = f'reserve_multislot_{id}_{d}d_{s}s'
+                    constr = (lhs >= gp.quicksum(rhs))
+                    self.model.addConstr(constr, name)
+    
+
+      
+
+    # this function can likely be deleted - Jack 4/28/25
     def constraint_max_visits_per_night(self):
         """
         According to Eq X in Lubin et al. 2025.
@@ -229,7 +244,7 @@ class Scheduler(object):
             self.joiner[['id','d','s']],
             suffixes=['','3'],on=['id']
         ).query('d + 0 < d3 < d + tau_inter')
-        self.intercadence_tracker = intercadence.groupby(['id','d'])[['d2','s2']].agg(list)
+        self.intercadence_tracker = intercadence.groupby(['id','d'])[['d3','s3']].agg(list)
         # When inter-night cadence is 1, there will be no keys to constrain so skip
         # While the if/else statement would catch these, by shrinking the list here we do fewer
         # total steps in the loop.
@@ -241,9 +256,10 @@ class Scheduler(object):
         for i, row in intercadence_valid_tuples.iterrows():
             constrained_slots_tonight = np.array(self.slots_on_day_for_r.loc[(row.id2, row.d2)][0])
             # Get all slots for pair (r, d) where valid
+            # print(row.id, row.d)
             if (row.id, row.d) in self.intercadence_tracker.index:
                 slots_to_constrain_future = self.intercadence_tracker.loc[(row.id2, row.d2)]
-                ds_pairs = zip(list(np.array(slots_to_constrain_future.d2).flatten()), list(np.array(slots_to_constrain_future.s2).flatten()))
+                ds_pairs = zip(list(np.array(slots_to_constrain_future.d3).flatten()), list(np.array(slots_to_constrain_future.s3).flatten()))
                 self.model.addConstr((gp.quicksum(self.Yrds[row.id,row.d,s2] for s2 in constrained_slots_tonight)/row.n_intra_max \
                      <= (1 - (gp.quicksum(self.Yrds[row.id,d3,s3] for d3, s3 in ds_pairs)))), \
                     'enforce_internight_cadence_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
@@ -500,6 +516,11 @@ class Scheduler(object):
             self.model.addConstr(gp.quicksum(self.Wrd[name, d] for d in all_d) <=
                         self.desired_max_obs_allowed_dict[name],
                         'max_desired_unique_nights_for_request_' + str(name))
+        for name in self.single_visit_requests:
+            available = list(zip(list(self.all_valid_ds_for_request.loc[name].d), list(self.all_valid_ds_for_request.loc[name].s)))
+            self.model.addConstr(gp.quicksum(self.Yrds[name, d, s] for d, s in available) <=
+                        self.desired_max_obs_allowed_dict[name],
+                        'max_desired_unique_nights_for_request_' + str(name))
 
     def remove_constraint_set_max_desired_unique_nights_Wrd(self):
         """
@@ -544,13 +565,13 @@ class Scheduler(object):
         print("Constraint 6: Enforce intra-night cadence.")
         # get all combos of slots that must be constrained if given slot is scheduled
         # # When intra-night cadence is 0, there will be no keys to constrain so skip
-        intracadence_valid_tuples = self.joiner.copy()[self.joiner['tau_intra'] > 1]
+        intracadence_valid_tuples = self.joiner.copy()[self.joiner['n_intra_max'] > 1]
         intracadence_frame = pd.merge(
             intracadence_valid_tuples.drop_duplicates(['id','d','s']),
             intracadence_valid_tuples[['id','d','s']],
-            suffixes=['','2'],on=['id', 'd']
-            ).query('s + 0 < s2 <= s + tau_intra')
-        intracadence_frame = intracadence_frame.groupby(['id','d','s'])[['s2']].agg(list)
+            suffixes=['','3'],on=['id', 'd']
+            ).query('s + 0 < s3 <= s + tau_intra')
+        intracadence_frame = intracadence_frame.groupby(['id','d','s'])[['s3']].agg(list)
         for i, row in intracadence_valid_tuples.iterrows():
             if (row.id, row.d, row.s) in intracadence_frame.index:
                 # Get all slots tonight which are too soon after given slot for another visit
@@ -591,6 +612,7 @@ class Scheduler(object):
         self.model.params.MIPGap = self.manager.solve_max_gap
         # More aggressive presolve gives better solution in shorter time
         self.model.params.Presolve = 2
+        #self.model.params.Presolve = 0
         self.model.update()
         self.model.optimize()
 
@@ -669,6 +691,8 @@ class Scheduler(object):
         self.human_read_schedule = io.write_stars_schedule_human_readable(self.human_read_available, self.Yrds, self.manager, self.round_info)
         io.build_fullness_report(self.human_read_schedule, self.manager, self.round_info)
         io.write_out_results(self.manager, self.theta, self.round_info, self.start_the_clock)
+        mn.get_gap_filler_targets(self.manager)
+        io.serialize_schedule(self.Yrds, self.manager,)
 
     def retrieve_ois_solution(self):
         print("Retrieving results of Optimal Instrument Allocation set of nights.")

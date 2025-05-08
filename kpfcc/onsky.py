@@ -17,6 +17,7 @@ from astropy.time import TimeDelta
 import gurobipy as gp
 from gurobipy import GRB
 
+sys.path.append('/Users/jack/Documents/github/ttp/')
 import ttp.formatting as formatting
 import ttp.telescope as telescope
 import ttp.plotting as plotting
@@ -51,7 +52,7 @@ def run_ttp(manager):
         os.makedirs(observers_path)
 
     observatory = telescope.Keck1()
-    the_schedule = np.loadtxt(manager.schedule_file, delimiter=',', dtype=str)
+    the_schedule = np.loadtxt(manager.upstream_path + "/outputs/" + str(manager.current_day) + "/raw_combined_semester_schedule_Round2.txt", delimiter=',', dtype=str)
     nightly_start_stop_times = pd.read_csv(manager.nightly_start_stop_times_file)
 
     # Determine time bounds of the night
@@ -59,7 +60,7 @@ def run_ttp(manager):
     idx = nightly_start_stop_times[nightly_start_stop_times['Date'] == str(manager.current_day)].index[0]
     night_start_time = nightly_start_stop_times['Start'][idx]
     night_stop_time = nightly_start_stop_times['Stop'][idx]
-    observation_start_time = Time(str(mangaer.current_day) + "T" + str(night_start_time),
+    observation_start_time = Time(str(manager.current_day) + "T" + str(night_start_time),
         format='isot')
     observation_stop_time = Time(str(manager.current_day) + "T" + str(night_stop_time),
         format='isot')
@@ -67,10 +68,10 @@ def run_ttp(manager):
     print("Time in Night for Observations: " + str(total_time) + " hours.")
 
     # Prepare relevant files
-    round_two_requests = np.loadtxt(output_path + 'Round2_Requests.txt', dtype=str)
-    send_to_ttp = prepare_for_ttp(manager.request_frame, the_schedule[day_in_semester],
+    round_two_requests = np.loadtxt(manager.upstream_path + "/outputs/" + str(manager.current_day) + '/Round2_Requests.txt', dtype=str)
+    send_to_ttp = prepare_for_ttp(manager.requests_frame, the_schedule[day_in_semester],
                                         round_two_requests)
-    filename = output_path + 'Selected_' + str(manager.current_day) + ".txt"
+    filename = manager.upstream_path + "/outputs/" + str(manager.current_day) + '/Selected_' + str(manager.current_day) + ".txt"
     send_to_ttp.to_csv(filename, index=False)
     target_list = formatting.theTTP(filename)
 
@@ -84,7 +85,7 @@ def run_ttp(manager):
     plotting.plot_path_2D(solution,outputdir=observers_path)
     plotting.nightPlan(solution.plotly, manager.current_day, outputdir=observers_path)
     obs_and_times = pd.read_csv(observers_path + 'ObserveOrder_' + str(manager.current_day) + ".txt")
-    io.write_starlist(manager.request_frame, solution.plotly, observation_start_time, solution.extras,
+    io.write_starlist(manager.requests_frame, solution.plotly, observation_start_time, solution.extras,
                         round_two_requests, str(manager.current_day), observers_path)
     print("The optimal path through the sky for the selected stars is found. Clear skies!")
 
@@ -166,14 +167,14 @@ def prepare_for_ttp(request_frame, night_plan, round_two_targets):
     cadences = []
     priorities = []
     for j, item in enumerate(selected_stars):
-        idx = request_frame.index[request_frame['Starname']==str(selected_stars[j])][0]
-        starnames.append(str(request_frame['Starname'][idx]))
-        ras.append(request_frame['RA'][idx])
-        decs.append(request_frame['Dec'][idx])
-        exposure_times.append(int(request_frame['Nominal Exposure Time [s]'][idx]))
-        exposures_per_visit.append(int(request_frame['# of Exposures per Visit'][idx]))
-        visits_in_night.append(int(request_frame['# Visits per Night'][idx]))
-        cadences.append(int(request_frame['Minimum Intra-Night Cadence'][idx]))
+        idx = request_frame.index[request_frame['starname']==str(selected_stars[j])][0]
+        starnames.append(str(request_frame['starname'][idx]))
+        ras.append(request_frame['ra'][idx])
+        decs.append(request_frame['dec'][idx])
+        exposure_times.append(int(request_frame['exptime'][idx]))
+        exposures_per_visit.append(int(request_frame['n_exp'][idx]))
+        visits_in_night.append(int(request_frame['n_intra_max'][idx]))
+        cadences.append(int(request_frame['tau_intra'][idx]))
         # higher numbers are higher priorities, filler targets get low priority
         if str(selected_stars[j]) in round_two_targets:
             prior = 1

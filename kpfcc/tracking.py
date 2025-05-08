@@ -39,7 +39,7 @@ class StarTracker:
         self.first_forecast_dir = manager.folder_forecasts
         self.cadence_files_dir = manager.folder_cadences
 
-        self.programs = self.manager.requests_frame['Program_Code'].unique()
+        self.programs = self.manager.requests_frame['program_code'].unique()
         account_types = ["admin"]
         account_types.extend(self.programs)
         styles = ["birds_eyes", "cofs", "cadences"]
@@ -49,7 +49,12 @@ class StarTracker:
             self.past = pd.read_csv(self.manager.past_database_file)
         except:
             self.past = pd.DataFrame(columns=['star_id', 'utctime'])
-        self.nonqueue = pd.read_csv(self.manager.nonqueue_file)
+
+        try:
+            self.nonqueue = pd.read_csv(self.manager.nonqueue_file)
+        except:
+            self.nonqueue = pd.DataFrame(columns=['Starname','Start','Stop','Comment','ProgramID'])
+
         forecast_by_day = []
         with open(self.forecast, 'r') as file:
             for line in file:
@@ -99,17 +104,17 @@ class StarTracker:
             slots_per_night (int): number of slots required to complete all exposures in a night
             program (str): the program code
         """
-        index = self.manager.requests_frame.loc[self.manager.requests_frame['Starname'] == starname].index
-        program = str(self.manager.requests_frame['Program_Code'][index].values[0])
-        exposure_time = int(self.manager.requests_frame['Nominal Exposure Time [s]'][index].values[0])
+        index = self.manager.requests_frame.loc[self.manager.requests_frame['starname'] == starname].index
+        program = str(self.manager.requests_frame['program_code'][index].values[0])
+        exposure_time = int(self.manager.requests_frame['exptime'][index].values[0])
         slots_per_night = mn.compute_slots_required_for_exposure(
-                        exposure_time, self.slot_size, False)*self.manager.requests_frame['Desired Visits per Night'][index].values[0]
+                        exposure_time, self.slot_size, False)*self.manager.requests_frame['n_intra_max'][index].values[0]
         slots_per_visit = mn.compute_slots_required_for_exposure(
                         exposure_time, self.slot_size, False)
-        expected_nobs_per_night = int(self.manager.requests_frame['# of Exposures per Visit'][index]) * \
-                        int(self.manager.requests_frame['Desired Visits per Night'][index])
+        expected_nobs_per_night = int(self.manager.requests_frame['n_exp'][index]) * \
+                        int(self.manager.requests_frame['n_intra_max'][index])
         total_observations_requested = expected_nobs_per_night * \
-                        int(self.manager.requests_frame['# of Nights Per Semester'][index])
+                        int(self.manager.requests_frame['n_inter_max'][index])
 
         return expected_nobs_per_night, total_observations_requested, exposure_time, \
                 slots_per_night, program, slots_per_visit
@@ -148,7 +153,7 @@ class StarTracker:
             observations_future (dict): a dictionary where keys are the dates of an observation and
                                        the values are number of observations to be taken that night
         """
-        index = self.manager.requests_frame.loc[self.manager.requests_frame['Starname'] == starname].index
+        index = self.manager.requests_frame.loc[self.manager.requests_frame['starname'] == starname].index
         requested_nobs_per_night, total_observations_requested, exposure_time, slots_per_night, \
                     program, slots_per_visit = self.get_star_stats(starname)
         observations_future = {}
