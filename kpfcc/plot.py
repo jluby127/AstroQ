@@ -315,6 +315,7 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
 def cof_builder(all_stars, manager, filename='', flag=False):
 
     fig = go.Figure()
+    fig.update_layout(width=1200, height=800) 
     burn_line = np.linspace(0, 100, len(manager.all_dates_array))
     for b in range(len(burn_line)):
         burn_line[b] = np.round(burn_line[b],2)
@@ -338,7 +339,7 @@ def cof_builder(all_stars, manager, filename='', flag=False):
             line=dict(color=all_stars[i].star_color_rgb, width=2),
             name=all_stars[i].starname,
             hovertemplate= 'Date: %{x}' + '<br>% Complete: %{y}' + '<br># Obs Requested: ' + \
-                str('test') + '<br>'
+                str(all_stars[i].total_observations_requested) + '<br>'
         ))
         lines.append(str(all_stars[i].starname) + "," + str(np.round(all_stars[i].cume_observe_pct[-1],2)))
         # Compute the COF data for all stars in the given program and plot total
@@ -353,7 +354,7 @@ def cof_builder(all_stars, manager, filename='', flag=False):
         line=dict(color=all_stars[0].program_color_rgb, width=2),
         name="Total",
         hovertemplate= 'Date: %{x}' + '<br>% Complete: %{y}' + '<br># Obs Requested: ' + \
-            str('test') + '<br>'
+            str(max_value) + '<br>'
     ))
 
     fig.add_vrect(

@@ -142,14 +142,14 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False):
         if p <= 5:
             n_stars = stars_in_program(all_programs[p], hours_per_program)
         else:
-            n_stars = 1350
+            n_stars = 1600
         prog_nstars.append(n_stars)
         prog_nexpos.append(n_stars*viz*nights)
         prog_nslots.append(n_stars*viz*nights*int(exptime/300))
         prog_award.append(np.round((n_stars*viz*nights*exptime)/3600,1))
         all_programs[p].append(n_stars)
         total_stars += n_stars
-        
+
         # Metadata about toy model, currently not returned
     prog_info = pd.DataFrame({"Program #":prog_numb,
                             "# Nights":prog_nobs,
@@ -185,7 +185,7 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False):
         for s in range(n_stars):
             starname.append(f"Star{star_idx:04d}")
             program_code.append(f"Program{p}")
-            
+
             # Generate RA/Dec following original logic
             if p == 4:  # Constrained to Kepler field
                 tmpra = np.random.uniform(18*15, 20*15)  # RA between 270-300 degrees
@@ -197,7 +197,7 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False):
                 tmpra -= 360
             RA.append(tmpra)
             Dec.append(tmpdec)
-            
+
             exposure_times.append(program[1])
             internight_cadences.append(program[0])
             intranight_cadences.append(0 if program[3] == 1 else 1)
@@ -213,7 +213,7 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False):
     # Create DataFrame
     requests_data = {
         'starname': starname,
-        'program': program_code,
+        'program_code': program_code,
         'ra': RA,
         'dec': Dec,
         'exptime': exposure_times,
@@ -243,4 +243,3 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False):
 
     print("The toy model is defined! Happy benchmarking.")
     return requests_data
-
