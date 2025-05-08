@@ -39,13 +39,13 @@ def main():
                             required=True,
                             help="Run benchmark with given number of slots required to complete the extra single shot requests."
                             )
-    
+
     psr_bench.add_argument('-sc', '--shortcut',
                             type=int,
-                            required=True,
+                            required=False,
                             help="Run benchmark with a small request set, for testing purposes only."
                             )
-    
+
     psr_bench.add_argument('-cf', '--config_file',
                               type=str,
                               required=True,
@@ -55,10 +55,15 @@ def main():
 
     ## subcommand of astroq: plot -- run the plotting suite
     psr_plot = subpsr.add_parser('plot', parents=[psr_parent],
-                                  description='Conduct benchmark tests',
+                                  description='Run the plotting suite',
                                   prefix_chars='-'
                                   )
-    psr_plot.set_defaults(func='kpfcc.driver.plot')
+    psr_plot.add_argument('-cf', '--config_file',
+                              type=str,
+                              required=True,
+                              help="Relative path of config file."
+                              )
+    psr_plot.set_defaults(func=kpfcc.driver.plot)
 
     ## subcommand of astroq: schedule -- Schedule observation requests
     psr_schedule = subpsr.add_parser('schedule', parents=[psr_parent],
@@ -98,7 +103,7 @@ def main():
                                 )
     psr_kpfcc_build.set_defaults(func=kpfcc.driver.kpfcc_build)
 
-    ## subcommand of kpfcc: prepare -- Prep for a new semester 
+    ## subcommand of kpfcc: prepare -- Prep for a new semester
     psr_kpfcc_prep = kpfcc_subpsr.add_parser('prep', #parents=[psr_parent],
                                                description="Prepare for a new semester",
                                                prefix_chars="-"
@@ -121,20 +126,31 @@ def main():
                               required=True,
                               help="Path to the file that determines how to pull from the database."
                                 )
-    
+
     psr_kpfcc_data.add_argument('-df', '--database_file',
                               type=str,
                               required=True,
                               help="Path to save the good OBs request sheet."
                                 )
-    
+
     psr_kpfcc_data.set_defaults(func=kpfcc.driver.kpfcc_data)
+
+    ## subcommand of astroq: ttp -- run the ttp
+    psr_ttp = subpsr.add_parser('ttp', parents=[psr_parent],
+                                  description='Run the ttp',
+                                  prefix_chars='-'
+                                  )
+    psr_ttp.add_argument('-cf', '--config_file',
+                              type=str,
+                              required=True,
+                              help="Relative path of config file."
+                              )
+    psr_ttp.set_defaults(func=kpfcc.driver.ttp)
 
     # If no arguments are provided, print help message and exit
     if len(sys.argv)==1:
         psr.print_help(sys.stderr)
         sys.exit(1)
-
 
     args = psr.parse_args()
     args.func(args)
