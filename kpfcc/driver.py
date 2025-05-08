@@ -16,11 +16,11 @@ import kpfcc.history as hs
 
 def bench(args):
     print("Running benchmark test.")
- 
+
     nR = args.number_requests
     nS = args.number_slots
     cf = args.config_file
- 
+
     # Initialize manager and compute request set on the fly
     # This is a hacky workaround. run_admin needs this file to exist. This can
     # lead to race conditions if benchmarking is run in parallel.
@@ -31,11 +31,11 @@ def bench(args):
     semester_directory = upstream_path
     requests_frame = bn.build_toy_model_from_paper(hours_per_program = 100)
     if nR is not None:
-        requests_frame = requests_frame.iloc[:nR][::10]
+        requests_frame = requests_frame.iloc[:nR]#[::10]
     requests_frame.to_csv(os.path.join(semester_directory, "inputs/Requests.csv"))
     manager = mn.data_admin(cf)
     manager.run_admin()
-    
+
     # Build observability maps and request set
     print("Building valid indices.")
     strategy, observable = rq.define_indices_for_requests(manager)
