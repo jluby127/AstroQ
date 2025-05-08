@@ -1,0 +1,7 @@
+# Readme
+
+How to run the examples.
+
+To recreate Figure 5 in the paper, run the following command.
+1. cd to the top of the AstroQ directory 
+2. "python bin/generate_night_plan.py -d 2024-08-02 -f <your path>/AstroQ/examples/recreate_paper/real_2024B_allocation/ -s 5 -ttp"

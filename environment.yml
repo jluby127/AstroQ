@@ -6,13 +6,16 @@ dependencies:
   - astroplan==0.8
   - astropy==5.0.1
   - beautifulsoup4==4.12.3
+  - coverage
   - matplotlib==3.8.4
   - numpy==1.22.1
   - pandas==1.4.1
   - pip
   - plotly==5.24.1
+  - pytest==8.3.5
   - python==3.9
   - requests==2.32.3
+  - seaborn==0.13.2
   - pip:
      - gurobipy==11.0
      - kaleido==0.2.1
