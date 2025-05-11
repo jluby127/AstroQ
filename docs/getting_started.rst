@@ -136,14 +136,20 @@ Here are the new files in ``examples/hello_world/outputs/2024-08-01``:
 
     .. code-block:: bash
         
-        -rw-r--r--  1 judahvz  staff   32652 May 11 09:23 raw_combined_semester_schedule_Round1.txt
-        -rw-r--r--  1 judahvz  staff   31447 May 11 09:23 raw_combined_semester_schedule_available.txt
-        -rw-r--r--  1 judahvz  staff   32652 May 11 09:23 raw_combined_semester_schedule_Round2.txt
-        -rw-r--r--  1 judahvz  staff       0 May 11 09:23 Round2_Requests.txt
-        -rw-r--r--  1 judahvz  staff  206459 May 11 09:23 serialized_outputs_dense.csv
+        -rw-r--r--  1  staff   32652 May 11 09:23 raw_combined_semester_schedule_Round1.txt
+        -rw-r--r--  1  staff   31447 May 11 09:23 raw_combined_semester_schedule_available.txt
+        -rw-r--r--  1  staff   32652 May 11 09:23 raw_combined_semester_schedule_Round2.txt
+        -rw-r--r--  1  staff       0 May 11 09:23 Round2_Requests.txt
+        -rw-r--r--  1  staff  206459 May 11 09:23 serialized_outputs_dense.csv
 
+- ``raw_combined_semester_schedule_Round1.txt``, ``raw_combined_semester_schedule_Round2.txt``, and ``raw_combined_semester_schedule_available.txt`` give visual representations of the scheduling output. In these files, each line represents one night of the semester and each column represents a single *10-minute* slot. Slots populated with any combination of an ``X``, ``*``, or ``W`` are unavailable for observation, indicating respectively that the telescope is allocated to another group, the sky is not sufficiently dark, or that the weather simulation has predicted that slot will be weathered out. Slots allocated to a specific target are populated with that target's name. Here are a few example rows from ``raw_combined_semester_schedule_Round2.txt``:
 
+    .. image:: plots/schedule_Round2_screenshot.png
 
+- Each night begins and ends with an interval of un-allocated bright time, corresponding to twilight.
+- ``Line 70`` shows a first-half-only night, during which three observations of `Kepler-10` are scheduled.
+- No time is allocated to our program on the night corresponding to ``Line 71``.
+- The night of ``Line 79`` is entirely weathered out.
         
         
         
