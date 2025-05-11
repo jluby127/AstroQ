@@ -36,4 +36,4 @@ formats:
 python:
   version: 3.9
   install:
-    - requirements: environment.yml
+    - requirements: docs/requirements.txt
