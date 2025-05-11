@@ -119,19 +119,28 @@ Let's take a look at the outputs produced:
         -rw-r--r--@ 1 staff    4904 May 11 08:54 Weather_Simulation_Results.csv
         -rw-r--r--  1 staff  729964 May 11 08:54 request_set.json
       
-- `request_set.json` contains the PI-provided target observation criteria used to generate the observing schedule
-- `Weather_Simulation_Results.csv` contains the results of a simulation to estimate the number of nights lost due to poor weather.
-- `weather_loss_visualization.png` provides a visual display of the information in `Weather_Simulation_Results.csv`
+- ``request_set.json`` contains the PI-provided target observation criteria used to generate the observing schedule
+- ``Weather_Simulation_Results.csv`` contains the results of a simulation to estimate the number of nights lost due to poor weather.
+- ``weather_loss_visualization.png`` provides a visual display of the information in ``Weather_Simulation_Results.csv``. Here is an example of what it might look like:
+
+    .. image:: plots/weather_loss_visualization.png
 - `runReport.txt`: <DESCRIPTION HERE>
         
+Next, use ``request_set.json`` to generate an observing schedule:
 
+    .. code-block:: bash
         $ astroq schedule -cf examples/hello_world/config_hello_world.ini -rf examples/hello_world/outputs/2024-08-01/request_set.json
-        $ PUT PLOT COMMAND HERE WHEN IT WORKS
         
-Let's take a look at the outputs 
-This will produce a set of files in the `examples/hello_world/outputs/2024-08-01/` directory including a plot called `weather_loss_visualization.png` that looks this:
 
-.. image:: plots/weather_loss_visualization.png
+Here are the new files in ``examples/hello_world/outputs/2024-08-01``:
+
+    .. code-block:: bash
+        
+        -rw-r--r--  1 judahvz  staff   32652 May 11 09:23 raw_combined_semester_schedule_Round1.txt
+        -rw-r--r--  1 judahvz  staff   31447 May 11 09:23 raw_combined_semester_schedule_available.txt
+        -rw-r--r--  1 judahvz  staff   32652 May 11 09:23 raw_combined_semester_schedule_Round2.txt
+        -rw-r--r--  1 judahvz  staff       0 May 11 09:23 Round2_Requests.txt
+        -rw-r--r--  1 judahvz  staff  206459 May 11 09:23 serialized_outputs_dense.csv
 
 
 
