@@ -86,6 +86,7 @@ Example Usage
 Test your installation further by running some of the commands below. We will use ``AstroQ``'s command line interface to mock up a toy observing schedule. After performing the steps in the :ref:`installation` section, you should have access to the ``astroq`` binary at the command line. If not, ensure that you have run ``pip install -e .`` in the top-level directory of the repository.
 
 Let's see which subcommands are available using ``astroq --help``:
+
     .. code-block:: bash
 
         $ astroq --help
@@ -101,15 +102,34 @@ Let's see which subcommands are available using ``astroq --help``:
               {bench,plot,schedule,kpfcc}
 
 
-To create your mock observing schedule, first run the ``kpfcc build`` command given below.
+To create your mock observing schedule, first run ``kpfcc build``:
 
     .. code-block:: bash
     
         $ astroq kpfcc build -cf examples/hello_world/config_hello_world.ini
+        
+Let's take a look at the outputs produced:
+
+    .. code-block:: bash
+    
+        $ ls -ltr examples/hello_world/outputs/2024-08-01
+        
+        -rw-r--r--@ 1 staff       0 May 11 08:54 runReport.txt
+        -rw-r--r--  1 staff   35685 May 11 08:54 weather_loss_visualization.png
+        -rw-r--r--@ 1 staff    4904 May 11 08:54 Weather_Simulation_Results.csv
+        -rw-r--r--  1 staff  729964 May 11 08:54 request_set.json
+      
+- `request_set.json` contains the PI-provided target observation criteria used to generate the observing schedule
+- `Weather_Simulation_Results.csv` contains the results of a simulation to estimate the number of nights lost due to poor weather.
+- `weather_loss_visualization.png` provides a visual display of the information in `Weather_Simulation_Results.csv`
+- `runReport.txt`: <DESCRIPTION HERE>
+        
+
         $ astroq schedule -cf examples/hello_world/config_hello_world.ini -rf examples/hello_world/outputs/2024-08-01/request_set.json
         $ PUT PLOT COMMAND HERE WHEN IT WORKS
         
-This will produce a set of files in the `<FILL THIS IN>` directory, including a plot called `weather_loss_visualization.png` that looks this:
+Let's take a look at the outputs 
+This will produce a set of files in the `examples/hello_world/outputs/2024-08-01/` directory including a plot called `weather_loss_visualization.png` that looks this:
 
 .. image:: plots/weather_loss_visualization.png
 
