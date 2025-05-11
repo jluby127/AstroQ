@@ -146,11 +146,23 @@ Here are the new files in ``examples/hello_world/outputs/2024-08-01``:
 
     .. image:: plots/schedule_Round2_screenshot.png
 
-- Each night begins and ends with an interval of un-allocated bright time, corresponding to twilight.
-- ``Line 70`` shows a first-half-only night, during which three observations of `Kepler-10` are scheduled.
-- No time is allocated to our program on the night corresponding to ``Line 71``.
-- The night of ``Line 79`` is entirely weathered out.
-        
+    - Each night begins and ends with an interval of un-allocated bright time, corresponding to twilight.
+    - ``Line 70`` shows a first-half-only night, during which three observations of `Kepler-10` are scheduled.
+    - No time is allocated to our program on the night corresponding to ``Line 71``.
+    - The night of ``Line 79`` is entirely weathered out.
+    
+- ``Round2_Requests.txt``: <EXPLANATION HERE>
+- ``serialized_outputs_dense.csv`` presents the information in the ``raw_combined`` files (which one specifically?) in a machine-readable format. There is one row for every slot of every night in the semester, and six columns:
+    - ``d``: The day of the semester, beginning at 0
+    - ``s``: The slot of a given night, beginning at 0
+    - ``r``: The target requested during a given slot (empty if none)
+    - ``isNight``: Whether it is night (1 if yes, 0 if no)
+    - ``isAlloc``: Whether the telescope is allocated to your program (1 if yes, 0 if no)
+    - ``isClear``: Whether the weather is conducive to observing (1 if yes, 0 if no)
+    
+    .. image:: plots/schedule_Round2_screenshot.png
+    
+    - The image above shows 11 slots during the 21st night of the semester. `HAT-P-11` is scheduled during slots 53-XX (update with dense version that shows all filled slots), followed by `219134` in slots 62-XX. The sky is dark, the telescope is allocated to our program, and the weather is good during all of these slots.      
         
         
         
