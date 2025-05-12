@@ -154,6 +154,7 @@ Here are the new files in ``examples/hello_world/outputs/2024-08-01``:
     
 - ``Round2_Requests.txt``: <EXPLANATION HERE>
 - ``serialized_outputs_dense.csv`` presents the information in the ``raw_combined`` files (which one specifically?) in a machine-readable format. There is one row for every slot of every night in the semester, and six columns:
+
     - ``d``: The day of the semester, beginning at 0
     - ``s``: The slot of a given night, beginning at 0
     - ``r``: The target requested during a given slot (empty if none)
