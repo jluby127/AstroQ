@@ -160,7 +160,7 @@ Here are the new files in ``examples/hello_world/outputs/2024-08-01``:
     - ``r``: The target requested during a given slot (empty if none)
     - ``isNight``: Whether it is night (1 if yes, 0 if no)
     - ``isAlloc``: Whether the telescope is allocated to your program (1 if yes, 0 if no)
-    - ``isClear``: Whether the weather is conducive to observing (1 if yes, 0 if no)
+    - ``isClear``: Whether the weather is conducive to observing (0 if yes, 1 if no)
     
     .. image:: plots/outputs_dense_screenshot.png
     
