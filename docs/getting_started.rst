@@ -129,6 +129,7 @@ Let's take a look at the outputs produced:
 Next, use ``request_set.json`` to generate an observing schedule:
 
     .. code-block:: bash
+    
         $ astroq schedule -cf examples/hello_world/config_hello_world.ini -rf examples/hello_world/outputs/2024-08-01/request_set.json
         
 
