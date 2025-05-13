@@ -24,14 +24,11 @@ def bench(args):
     # Initialize manager and compute request set on the fly
     # This is a hacky workaround. run_admin needs this file to exist. This can
     # lead to race conditions if benchmarking is run in parallel.
-
     config = ConfigParser()
     config.read(cf)
     upstream_path = eval(config.get('required', 'folder'), {"os": os})
     semester_directory = upstream_path
-    requests_frame = bn.build_toy_model_from_paper(hours_per_program = 100)
-    if nR is not None:
-        requests_frame = requests_frame.iloc[:nR]#[::10]
+    requests_frame = bn.build_toy_model_from_paper(nS, hours_per_program = 100)
     requests_frame.to_csv(os.path.join(semester_directory, "inputs/Requests.csv"))
     manager = mn.data_admin(cf)
     manager.run_admin()
@@ -41,15 +38,14 @@ def bench(args):
     strategy, observable = rq.define_indices_for_requests(manager)
     meta = rq.build_meta(cf)
     request_set = rq.RequestSet(meta, strategy, observable)
+    # print out the last rows of strategy to ensure the size of the model looks right
+    print(request_set.strategy[-10:])
     current_day = str(config.get('required', 'current_day'))
     # Run the schedule
     schedule = sch.Scheduler(request_set, cf)
     schedule.run_model()
     print("Done solving the schedule.")
     return
-
-
-
 
 def kpfcc(args):
     print('    Entering kpfcc function in driver.py')
