@@ -9,6 +9,7 @@ import numpy as np
 import matplotlib.pyplot as pt
 import pandas as pd
 import math
+import random
 from configparser import ConfigParser
 from argparse import Namespace
 
@@ -41,47 +42,7 @@ def stars_in_program(program, total_hours):
     n_stars = int(np.round(total_hours/total_time,0))
     return n_stars
 
-def firstN_Requests(nstar, request_set, request_file):
-    '''
-    Cut down the large RequestSet's number of requests into a smaller number.
-    Useful for benchmarking astroq's performance as a function of number of requests.
-    Note: Setting nstar < 250 will remove requests that are part of the standard toy model. This
-          set of requests is designed to mimic a real semester and is paired to match the total "awarded" time
-          in the Real2024B and Random allocation maps.
-    '''
-
-    unique_stars = list(set(request_set.observability.id))
-    unique_stars.sort()
-    keep_stars = unique_stars[:nstar]
-
-    mask1 = request_set.observability['id'].isin(keep_stars)
-    mask2 = request_set.strategy['id'].isin(keep_stars)
-
-    request_set.observability = request_set.observability[mask1]
-    request_set.observability.reset_index(inplace=True, drop=True)
-    request_set.strategy = request_set.strategy[mask2]
-    request_set.strategy.reset_index(inplace=True, drop=True)
-
-    request_frame = pd.read_csv(request_file)
-    request_frame.sort_values(by='starname', inplace=True)
-    request_frame.reset_index(inplace=True, drop=True)
-    request_frame = request_frame[:nstar]
-    request_frame.to_csv(request_file[:-8] + ".csv", index=False)
-
-    return request_set
-
-def set_nSlots_singles(nslot, request_set, start_row=250):
-    '''
-    Change the number of slots required to complete one request of the extra single shot requests.
-    Useful for benchmarking astroq's performance as a function of # of Slots to Complete Request
-
-    star_row is set to 250 because this is the first row of the extra single shot requests. We don't
-    want to apply this logic to any of the standard toy model requests.
-    '''
-    request_set.strategy.loc[request_set.strategy.iloc[start_row:].index, 't_visit'] = nslot
-    return request_set
-
-def build_toy_model_from_paper(hours_per_program = 100, plot = False):
+def build_toy_model_from_paper(ns, hours_per_program = 100, plot = False):
     """
     Generate a synthetic request set based on the paper's toy model.
     Returns a pandas DataFrame with the request information.
@@ -92,17 +53,14 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False):
     program2 = [15, 1200, 10, 1]  # bi-weekly
     program3 = [1, 300, 8, 5]  # Intra
     program4 = [1, 300, 40, 1]  # Constrained
-    program5 = [1, 3600, 1, 1]  # Singles
-    program6 = [1, 300, 1, 1]  # Singles to serve as extra
-    all_programs = [program0, program1, program2, program3, program4, program5, program6]
+    dynamic_exptime = ns*300
+    program5 = [1, dynamic_exptime, 1, 1]  # Singles
+    all_programs = [program0, program1, program2, program3, program4, program5]
 
     # Calculate number of stars per program
     stars_per_program = []
     for p in range(len(all_programs)):
-        if p <= 5:
-            n_stars = stars_in_program(all_programs[p], hours_per_program)
-        else:
-            n_stars = 1350
+        n_stars = stars_in_program(all_programs[p], hours_per_program)
         stars_per_program.append(n_stars)
         all_programs[p].append(n_stars)
 
@@ -137,12 +95,7 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False):
         prog_nexp.append(1)
         prog_exptime.append(exptime)
 
-        # First six programs get a number of stars to fill their allocation and observing strategy
-        # Program 6 is the extra requests
-        if p <= 5:
-            n_stars = stars_in_program(all_programs[p], hours_per_program)
-        else:
-            n_stars = 1600
+        n_stars = stars_in_program(all_programs[p], hours_per_program)
         prog_nstars.append(n_stars)
         prog_nexpos.append(n_stars*viz*nights)
         prog_nslots.append(n_stars*viz*nights*int(exptime/300))
@@ -191,10 +144,11 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False):
                 tmpra = np.random.uniform(18*15, 20*15)  # RA between 270-300 degrees
                 tmpdec = np.random.uniform(40, 50)       # Dec between 40-50 degrees
             else:
-                tmpra = np.random.uniform(18*15, ((20*15)+180))  # RA between 270-450 degrees
+                # only allow RAs that are somewhat favorable to a B semester, exclude hour anges between 14 and 18
+                exclude_start = 14*15
+                exclude_end = 18*15
+                tmpra = random.uniform(0, exclude_start) if random.random() < (exclude_start / (360 - (exclude_end - exclude_start))) else random.uniform(exclude_end, 360)
                 tmpdec = getDec()  # Uses cosine distribution
-            if tmpra > 360:
-                tmpra -= 360
             RA.append(tmpra)
             Dec.append(tmpdec)
 
@@ -227,7 +181,6 @@ def build_toy_model_from_paper(hours_per_program = 100, plot = False):
     requests_data = pd.DataFrame(requests_data)
 
     if plot:
-        # Plot out the stars on the sky
         for i in range(len(all_programs), 0, -1):
             filt = requests_data[requests_data['program'] == 'Program' + str(i)]
             if i < 5 and i != 4:

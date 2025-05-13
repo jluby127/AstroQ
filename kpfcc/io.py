@@ -408,6 +408,13 @@ def serialize_schedule(Yrds, manager):
     all_days = []
     all_slots = []
     all_star_strings = []
+    isNight = np.array(manager.twilight_map_remaining_2D).flatten()
+    isAlloc = np.array(manager.allocation_map_2D).flatten()
+    isClear = np.array(manager.weathered_map).flatten()
+
+    isNight_dense = []
+    isAlloc_dense = []
+    isClear_dense = []
     for d in range(manager.n_nights_in_semester):
         for s in range(manager.n_slots_in_night):
             stars_string = ""
@@ -416,22 +423,38 @@ def serialize_schedule(Yrds, manager):
                     value = int(np.round(Yrds[name, d, s].x))
                     if value == 1:
                         stars_string += name
+                        for t in range(0, manager.slots_needed_for_exposure_dict[name]):
+                            # print("in the t: ", name, manager.slots_needed_for_exposure_dict[name], t)
+                            all_star_strings.append(name)
+                            all_days.append(d)
+                            all_slots.append(s+t)
+                            isNight_dense.append(isNight[d*manager.n_slots_in_night + s])
+                            isAlloc_dense.append(isAlloc[d*manager.n_slots_in_night + s])
+                            isClear_dense.append(isClear[d*manager.n_slots_in_night + s])
+
                 except KeyError:
                     pass
                 except:
                     print("Error: io.py line 416: ", name, d, s)
-            all_star_strings.append(stars_string)
-            all_days.append(d)
-            all_slots.append(s)
+            if stars_string == "":
+                all_star_strings.append(stars_string)
+                all_days.append(d)
+                all_slots.append(s)
+                isNight_dense.append(isNight[d*manager.n_slots_in_night + s])
+                isAlloc_dense.append(isAlloc[d*manager.n_slots_in_night + s])
+                isClear_dense.append(isClear[d*manager.n_slots_in_night + s])
+            # now make the matrix "dense" by adding rows for multi-slot observations
 
     serial_output = pd.DataFrame({"d":all_days, "s":all_slots, "r":all_star_strings,
-                                "isNight":np.array(manager.twilight_map_remaining_2D).flatten(),
-                                "isAlloc":np.array(manager.allocation_map_2D).flatten(),
-                                "isClear":np.array(manager.weathered_map).flatten(),
+                                "isNight":isNight_dense,
+                                "isAlloc":isAlloc_dense,
+                                "isClear":isClear_dense,
                                 })
     print("making all strings")
     serial_output["r"] = serial_output["r"].fillna("").astype(str)
     serial_output.to_csv(manager.output_directory + "serialized_outputs_dense.csv", index=False, na_rep="")
+
+
 
 def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars, current_day,
                     outputdir):
