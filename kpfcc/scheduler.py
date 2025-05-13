@@ -107,7 +107,7 @@ class Scheduler(object):
             self.Wrd = self.model.addVars(observability_array_onsky, vtype = GRB.BINARY, name = 'OnSky')
 
         # theta is the "shortfall" variable, continous in natural numbers.
-        self.theta = self.model.addVars(self.all_requests, name = 'Shortfall')
+        self.theta = self.model.addVars(self.all_requests, name = 'Shortfall', vtype = GRB.INTEGER)
 
         if self.manager.run_optimal_allocation:
             # Anq is a 2D matrix of N_nights_in_semester by N_quarters_in_night
@@ -502,6 +502,7 @@ class Scheduler(object):
         self.model.params.MIPGap = self.manager.solve_max_gap
         # More aggressive presolve gives better solution in shorter time
         self.model.params.Presolve = 2
+        self.model.params.Symmetry = 2
         #self.model.params.Presolve = 0
         self.model.update()
         self.model.optimize()

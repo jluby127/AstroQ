@@ -51,6 +51,13 @@ def main():
                               required=True,
                               help="Relative path of config file."
                             )
+
+    psr_bench.add_argument('-ds', '--downsample',
+                          type=int,
+                          required=False,
+                          default=1,
+                          help="Relative path of config file."
+                        )
     psr_bench.set_defaults(func=kpfcc.driver.bench)
 
     ## subcommand of astroq: plot -- run the plotting suite

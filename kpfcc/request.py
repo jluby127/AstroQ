@@ -29,7 +29,7 @@ class RequestSet(object):
         strategy = strategy[strategy_cols]
         self.strategy = strategy
         self.observability = observable
-
+        import pdb; pdb.set_trace()
     def __str__(self, n=10):
         s = "# Request Set # \n"
         s += "## Meta Data ## \n"
