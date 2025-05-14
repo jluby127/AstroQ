@@ -207,6 +207,9 @@ def real_star_name(name):
         return 'TOI-' + name[3:]
     elif name.startswith('T0') and name[2:].isdigit() and len(name[2:]) == 4:
         return 'TOI-' + name[2:]
+    elif name.startswith('KEPLER'):
+        name2 = name.replace("KEPLER", "Kepler")
+        return name2
     else:
         return name
 
@@ -219,6 +222,9 @@ def cps_star_name(name):
         return name2
     elif name.startswith('TYC'):
         name2 = name.replace(" ", "-")
+        return name2
+    elif name.startswith('Kepler'):
+        name2 = name.replace("Kepler", "KEPLER")
         return name2
     else:
         return name

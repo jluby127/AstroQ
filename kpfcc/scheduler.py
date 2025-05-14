@@ -187,7 +187,7 @@ class Scheduler(object):
             # Precompute all requests that are valid on day d, and slot s.
             valid_requests = obs_day.groupby('s')['id'].apply(set).to_dict()
 
-            # Loop over all multi-slot requests on day d and enforce no other request in 
+            # Loop over all multi-slot requests on day d and enforce no other request in
             # slots within t_visit from slot starting slot
             ids = ms_day.id.values
             ss = ms_day.s.values
@@ -196,8 +196,8 @@ class Scheduler(object):
                 id = ids[i]
                 s = ss[i]
                 t_visit = t_visits[i]
-                lhs = t_visit * (1 - self.Yrds[id,d,s])
-                rhs = []       
+                lhs = (t_visit - 1) * (1 - self.Yrds[id,d,s])
+                rhs = []
                 for delta in range(1,t_visit):
                     s_shift = s + delta
                     if s_shift in valid_requests:
@@ -207,9 +207,9 @@ class Scheduler(object):
                     name = f'reserve_multislot_{id}_{d}d_{s}s'
                     constr = (lhs >= gp.quicksum(rhs))
                     self.model.addConstr(constr, name)
-    
 
-      
+
+
 
     # this function can likely be deleted - Jack 4/28/25
     def constraint_max_visits_per_night(self):
@@ -328,8 +328,7 @@ class Scheduler(object):
         # if quarter is not allocated, all slots in quarter must be zero
         # note that the twilight times at the front and end of the night have to be respected
         for id, d, s in zip(self.request_set.observability['id'], self.request_set.observability['d'], self.request_set.observability['s']):
-        # for id, d, s in self.request_set.observability:
-            q = rq.convert_slot_to_quarter(d, s, twilight_map_remaining_2D)
+            q = rq.convert_slot_to_quarter(d, s, twilight_map_remaining_2D[d])
             self.model.addConstr(self.Yrds[id, d, s] <= self.Anq[d, q], "dontSched_ifNot_Allocated_"+ str(d) + "d_" + str(q) + "q_" + str(s) + "s_" + id, d, id)
 
     def constraint_max_consecutive_onsky(self):
@@ -497,12 +496,13 @@ class Scheduler(object):
         print("Begin model solve.")
         t1 = time.time()
         self.model.params.TimeLimit = self.manager.solve_time_limit
+        self.model.params.TimeLimit = 900
         self.model.Params.OutputFlag = self.manager.gurobi_output
         # Allow stop at 5% gap to prevent from spending lots of time on marginally better solution
         self.model.params.MIPGap = self.manager.solve_max_gap
         # More aggressive presolve gives better solution in shorter time
-        self.model.params.Presolve = 2
-        self.model.params.Symmetry = 2
+        self.model.params.Presolve = 1
+#        self.model.params.Symmetry = 2
         #self.model.params.Presolve = 0
         self.model.update()
         self.model.optimize()
@@ -595,6 +595,11 @@ class Scheduler(object):
                 allocation_schedule_1d.append(0)
         allocation_schedule = np.reshape(allocation_schedule_1d, (self.manager.n_nights_in_semester, self.manager.n_quarters_in_night))
         self.manager.allocation_map_2D_NQ = allocation_schedule
+        print("Printing quicklook optimal instrument allocation statistics.")
+        print(self.manager.allocation_map_2D_NQ)
+        print(np.sum(self.manager.allocation_map_2D_NQ))
+        print(np.sum(self.manager.allocation_map_2D_NQ, axis=1))
+        print(np.sum(self.manager.allocation_map_2D_NQ, axis=0))
         weather_holder = np.zeros(np.shape(allocation_schedule))
         allocation_map_1D, allocation_map_2D, weathered_map = mp.build_allocation_map(self.manager, allocation_schedule, weather_holder)
         mp.convert_allocation_array_to_binary(self.manager)

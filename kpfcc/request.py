@@ -29,7 +29,7 @@ class RequestSet(object):
         strategy = strategy[strategy_cols]
         self.strategy = strategy
         self.observability = observable
-        import pdb; pdb.set_trace()
+
     def __str__(self, n=10):
         s = "# Request Set # \n"
         s += "## Meta Data ## \n"
@@ -127,24 +127,11 @@ def convert_slot_to_quarter(d, s, twilight_map_remaining_2D_d):
 
     n_available_slots_in_quarter_tonight = int(np.sum(twilight_map_remaining_2D_d)/4)
     extra_slots = np.sum(twilight_map_remaining_2D_d)%4
-    first_slot = np.argmax(twilight_map_remaining_2D_d)
 
-    if extra_slots == 0:
-        # when night is naturally divided into 4, accept as is
-        split_1st2nd = first_slot + n_available_slots_in_quarter_tonight
-        split_2nd3rd = split_1st2nd + n_available_slots_in_quarter_tonight
-        split_3rd4th = split_2nd3rd + n_available_slots_in_quarter_tonight
-    elif extra_slots == 1 or extra_slots == 2:
-        # when night has 1 extra slot, we place it into the 1st quarter
-        # when night has 2 extra slots, we place one into 1st, and one into 4th
-        split_1st2nd = first_slot + n_available_slots_in_quarter_tonight + 1
-        split_2nd3rd = split_1st2nd + n_available_slots_in_quarter_tonight
-        split_3rd4th = split_2nd3rd + n_available_slots_in_quarter_tonight
-    elif extra_slots == 3:
-        # when night has 3 extra slots, we place one into 1st, one into 3rd, and one into 4th
-        split_1st2nd = first_slot + n_available_slots_in_quarter_tonight + 1
-        split_2nd3rd = split_1st2nd + n_available_slots_in_quarter_tonight
-        split_3rd4th = split_2nd3rd + n_available_slots_in_quarter_tonight + 1
+    edge_slot = np.argmax(twilight_map_remaining_2D_d)
+    split_2nd3rd = int(len(twilight_map_remaining_2D_d)/2) - 1
+    split_1st2nd = int((split_2nd3rd - edge_slot)/2) + edge_slot
+    split_3rd4th = int((len(twilight_map_remaining_2D_d) - edge_slot - split_2nd3rd)/2) + split_2nd3rd
 
     if s < split_1st2nd:
         q = 0
