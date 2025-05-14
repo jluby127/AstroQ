@@ -196,20 +196,15 @@ class Scheduler(object):
                 id = ids[i]
                 s = ss[i]
                 t_visit = t_visits[i]
-                lhs = (t_visit - 1) * (1 - self.Yrds[id,d,s])
                 rhs = []
                 for delta in range(1,t_visit):
                     s_shift = s + delta
                     if s_shift in valid_requests:
-                        rhs.extend(self.Yrds[r,d,s_shift] for r in valid_requests[s_shift])
-
-                if len(rhs) > 0:  # Only add constraint if there are slots to reserve
-                    name = f'reserve_multislot_{id}_{d}d_{s}s'
-                    constr = (lhs >= gp.quicksum(rhs))
-                    self.model.addConstr(constr, name)
-
-
-
+                        lhs = 1 - self.Yrds[id,d,s]
+                        rhs = gp.quicksum(self.Yrds[r,d,s_shift] for r in valid_requests[s_shift])
+                        name = ""
+                        constr = (lhs >= rhs)
+                        self.model.addConstr(constr, name)
 
     # this function can likely be deleted - Jack 4/28/25
     def constraint_max_visits_per_night(self):
@@ -501,7 +496,7 @@ class Scheduler(object):
         # Allow stop at 5% gap to prevent from spending lots of time on marginally better solution
         self.model.params.MIPGap = self.manager.solve_max_gap
         # More aggressive presolve gives better solution in shorter time
-        self.model.params.Presolve = 1
+        self.model.params.Presolve = 0
 #        self.model.params.Symmetry = 2
         #self.model.params.Presolve = 0
         self.model.update()
