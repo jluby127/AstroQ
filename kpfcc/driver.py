@@ -28,7 +28,7 @@ def bench(args):
     config.read(cf)
     upstream_path = eval(config.get('required', 'folder'), {"os": os})
     semester_directory = upstream_path
-    requests_frame = bn.build_toy_model_from_paper(nS, hours_per_program = 100)
+    requests_frame = bn.build_toy_model_from_paper(nS)
     requests_frame.to_csv(os.path.join(semester_directory, "inputs/Requests.csv"))
     manager = mn.data_admin(cf)
     manager.run_admin()
