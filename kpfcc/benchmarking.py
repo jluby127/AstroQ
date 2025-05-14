@@ -19,7 +19,7 @@ import kpfcc.driver as dr
 # In the paper, we used random seed = 24.
 np.random.seed(24)
 
-def getDec(maxDec=75, minDec=-30):
+def getDec(maxDec=70, minDec=-20):
     '''
     Randomly draw a declination from cosine i distribution between two values.
     The default min/max declination values are chosen based on favorable viewing from Hawaii.
@@ -42,20 +42,20 @@ def stars_in_program(program, total_hours):
     n_stars = int(np.round(total_hours/total_time,0))
     return n_stars
 
-def build_toy_model_from_paper(ns, hours_per_program = 100, plot = False):
+def build_toy_model_from_paper(ns, hours_per_program = 80, plot = False):
     """
     Generate a synthetic request set based on the paper's toy model.
     Returns a pandas DataFrame with the request information.
     """
     # Define programs with their characteristics
-    program0 = [1, 300, 40, 1]  # APF-50
-    program1 = [5, 600, 20, 1]  # TKS
-    program2 = [15, 1200, 10, 1]  # bi-weekly
-    program3 = [1, 300, 8, 5]  # Intra
-    program4 = [1, 300, 40, 1]  # Constrained
+    program1 = [1, 300, 40, 1]  # APF-50
+    program2 = [3, 600, 20, 1]  # TKS
+    program3 = [10, 1200, 10, 1]  # bi-weekly
+    program4 = [1, 300, 8, 5]  # Intra
+    program5 = [1, 300, 40, 1]  # Constrained
     dynamic_exptime = ns*300
-    program5 = [1, dynamic_exptime, 1, 1]  # Singles
-    all_programs = [program0, program1, program2, program3, program4, program5]
+    program6 = [1, dynamic_exptime, 1, 1]  # Singles
+    all_programs = [program1, program2, program3, program4, program5, program6]
 
     # Calculate number of stars per program
     stars_per_program = []
@@ -116,6 +116,7 @@ def build_toy_model_from_paper(ns, hours_per_program = 100, plot = False):
                             "Total Slots":prog_nslots,
                             "Award":prog_award,
                             })
+    prog_info.to_csv("/Users/jack/Desktop/prog_info.csv", index=False)
     # Generate request data
     starname = []
     program_code = []
@@ -137,7 +138,7 @@ def build_toy_model_from_paper(ns, hours_per_program = 100, plot = False):
         n_stars = program[4]  # Number of stars for this program
         for s in range(n_stars):
             starname.append(f"Star{star_idx:04d}")
-            program_code.append(f"Program{p}")
+            program_code.append(f"Program{p+1}")
 
             # Generate RA/Dec following original logic
             if p == 4:  # Constrained to Kepler field
@@ -145,9 +146,9 @@ def build_toy_model_from_paper(ns, hours_per_program = 100, plot = False):
                 tmpdec = np.random.uniform(40, 50)       # Dec between 40-50 degrees
             else:
                 # only allow RAs that are somewhat favorable to a B semester, exclude hour anges between 14 and 18
-                exclude_start = 14*15
+                exclude_start = 12*15
                 exclude_end = 18*15
-                tmpra = random.uniform(0, exclude_start) if random.random() < (exclude_start / (360 - (exclude_end - exclude_start))) else random.uniform(exclude_end, 360)
+                tmpra = np.random.uniform(0, exclude_start) if np.random.random() < (exclude_start / (360 - (exclude_end - exclude_start))) else np.random.uniform(exclude_end, 360)
                 tmpdec = getDec()  # Uses cosine distribution
             RA.append(tmpra)
             Dec.append(tmpdec)
@@ -156,7 +157,10 @@ def build_toy_model_from_paper(ns, hours_per_program = 100, plot = False):
             internight_cadences.append(program[0])
             intranight_cadences.append(0 if program[3] == 1 else 1)
             visits_per_night_max.append(program[3])
-            visits_per_night_min.append(program[3])
+            if program[3] == 5:
+                visits_per_night_min.append(program[3]-2) # make min visits equal to 3 when max visits is 5
+            else:
+                visits_per_night_min.append(program[3]) # make min visits equal to max visists
             unique_nights.append(program[2])
             exposures_per_visit.append(1)
             n_intra_max.append(program[3])

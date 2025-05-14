@@ -232,7 +232,6 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
         showscale=False,
         name="Not On Sky",
         showlegend=True,
-        visible='legendonly',
     ))
 
     for i in range(len(all_stars)):
