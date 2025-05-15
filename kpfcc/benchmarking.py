@@ -116,7 +116,6 @@ def build_toy_model_from_paper(ns, hours_per_program = 80, plot = False):
                             "Total Slots":prog_nslots,
                             "Award":prog_award,
                             })
-    prog_info.to_csv("/Users/jack/Desktop/prog_info.csv", index=False)
     # Generate request data
     starname = []
     program_code = []

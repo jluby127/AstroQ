@@ -274,15 +274,15 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
             layer="below"
         )
 
-    # Add horizontal grid lines every slot (y)
-    for y in np.arange(0.5, all_stars[i].starmap.shape[0], 1):
-        fig.add_shape(
-            type="line",
-            x0=0, x1=all_stars[i].starmap.shape[1] - 1,
-            y0=y, y1=y,
-            line=dict(color="lightgray", width=1),
-            layer="below"
-        )
+    # # Add horizontal grid lines every slot (y)
+    # for y in np.arange(0.5, all_stars[i].starmap.shape[0], 1):
+    #     fig.add_shape(
+    #         type="line",
+    #         x0=0, x1=all_stars[i].starmap.shape[1] - 1,
+    #         y0=y, y1=y,
+    #         line=dict(color="lightgray", width=1),
+    #         layer="below"
+    #     )
 
     fig.update_layout(
         title="Birds Eye View Semester Schedule",
@@ -514,7 +514,7 @@ def generate_single_star_maps(manager, starname):
             font=dict(size=labelsize-10)
         )
     )
-    # if filename != '':
-    #     fileout_path = manager.reports_directory + filename
-    fig.write_html('/Users/jack/Desktop/test_map_plotter.html')
+    if filename != '':
+        fileout_path = manager.reports_directory + filename
+        fig.write_html(fileout_path)
     return fig
