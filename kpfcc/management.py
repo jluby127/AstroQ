@@ -61,6 +61,8 @@ class data_admin(object):
         self.nonqueue_map_file = os.path.join(self.semester_directory, "inputs//NonQueueMap"  + str(self.slot_size) + ".txt")
         self.nonqueue_file = os.path.join(self.semester_directory, "inputs/NonQueueMap.csv")
 
+        self.random_seed = int(config.get('options', 'random_seed'))
+        np.random.seed(self.random_seed)
         self.run_weather_loss = eval(config.get('options', 'run_weather_loss'))#.strip().lower() == "true"
 
         self.run_optimal_allocation = config.get('oia', 'run_optimal_allocation').strip().lower() == "true"
