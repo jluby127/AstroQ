@@ -8,6 +8,7 @@ import time
 import os
 import warnings
 warnings.filterwarnings('ignore')
+import logging
 
 import numpy as np
 import pandas as pd
@@ -18,6 +19,9 @@ import kpfcc.io as io
 import kpfcc.management as mn
 import kpfcc.request as rq
 import kpfcc.maps as mp
+
+
+log = logging.getLogger(__name__)
 
 class Scheduler(object):
     """A Scheduler object, from which we can define a Gurobi model, build constraints, and solve."""
@@ -157,7 +161,12 @@ class Scheduler(object):
         Ensure that at most one request is scheduled
         per available slot.
         """
-        print("Constraint 1: Enforce one request per slot.")
+        log.debug("Debug message")
+        log.info("Info message")
+        log.warning("Warning message here")
+        log.error("Error message")
+        log.critical("Critical message")
+        #print("Constraint 1: Enforce one request per slot.")
         # Construct the constraint
         tmpjoiner = self.joiner.drop_duplicates(subset=['d', 's'])
         for i, row in tmpjoiner.iterrows():

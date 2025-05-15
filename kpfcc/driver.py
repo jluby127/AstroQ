@@ -14,6 +14,7 @@ import kpfcc.plot as pl
 import kpfcc.onsky as sk
 import kpfcc.history as hs
 
+
 def bench(args):
     print("Running benchmark test.")
 
