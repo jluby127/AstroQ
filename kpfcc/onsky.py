@@ -77,7 +77,7 @@ def run_ttp(manager):
 
     print("Initializing the optimizer.")
     solution = model.TTPModel(observation_start_time, observation_stop_time, target_list,
-                                observatory, observers_path)
+                                observatory, observers_path, runtime=300, optgap=0.01, useHighEl=False)
 
     print("Processing the solution.")
     plotting.writeStarList(solution.plotly, observation_start_time, manager.current_day,

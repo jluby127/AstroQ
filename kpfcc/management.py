@@ -61,15 +61,17 @@ class data_admin(object):
         self.nonqueue_map_file = os.path.join(self.semester_directory, "inputs//NonQueueMap"  + str(self.slot_size) + ".txt")
         self.nonqueue_file = os.path.join(self.semester_directory, "inputs/NonQueueMap.csv")
 
+        self.random_seed = int(config.get('options', 'random_seed'))
+        np.random.seed(self.random_seed)
         self.run_weather_loss = eval(config.get('options', 'run_weather_loss'))#.strip().lower() == "true"
 
         self.run_optimal_allocation = config.get('oia', 'run_optimal_allocation').strip().lower() == "true"
         self.include_aesthetic = config.get('oia', 'run_with_aesthetics').strip().lower() == "true"
         self.max_quarters = int(config.get('oia', 'maximum_allocated_quarters'))
         self.max_unique_nights = int(config.get('oia', 'maximum_allocated_nights'))
-        self.min_represented = 1
-        self.whiteout_file = os.path.join(self.semester_directory, "inputs/whiteout_dates.txt")
-        self.blackout_file = os.path.join(self.semester_directory, "inputs/blackout_dates.txt")
+        self.min_represented = 5
+        self.whiteout_file = os.path.join(self.semester_directory, "inputs/whiteout_dates.csv")
+        self.blackout_file = os.path.join(self.semester_directory, "inputs/blackout_dates.csv")
         self.allow_single_quarters = config.get('oia', 'allow_single_quarter_allocations').strip().lower() == "true"
         self.max_consecutive = int(config.get('oia', 'maximum_consecutive_onsky'))
         self.min_consecutive = int(config.get('oia', 'minimum_consecutive_offsky'))
