@@ -211,9 +211,6 @@ def requests_vs_schedule(args):
         n_intra_groupby = star_schedule.groupby(['d']).size()/t_visit # Should be integers
         n_intra_min_sch, n_intra_max_sch = n_intra_groupby.min(), n_intra_groupby.max()
         
-        # if star=='TOI-1670':
-        #     import pdb; pdb.set_trace()
-        
         
         # Ensure the target is never scheduled too few/many times in one night
         n_intra_min_err = ("n_intra_min violated: "
