@@ -18,6 +18,7 @@ import pickle
 
 import kpfcc.management as mn
 import kpfcc.history as hs
+import kpfcc.maps as mp
 
 labelsize = 38
 
@@ -273,15 +274,15 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
             layer="below"
         )
 
-    # Add horizontal grid lines every slot (y)
-    for y in np.arange(0.5, all_stars[i].starmap.shape[0], 1):
-        fig.add_shape(
-            type="line",
-            x0=0, x1=all_stars[i].starmap.shape[1] - 1,
-            y0=y, y1=y,
-            line=dict(color="lightgray", width=1),
-            layer="below"
-        )
+    # # Add horizontal grid lines every slot (y)
+    # for y in np.arange(0.5, all_stars[i].starmap.shape[0], 1):
+    #     fig.add_shape(
+    #         type="line",
+    #         x0=0, x1=all_stars[i].starmap.shape[1] - 1,
+    #         y0=y, y1=y,
+    #         line=dict(color="lightgray", width=1),
+    #         layer="below"
+    #     )
 
     fig.update_layout(
         title="Birds Eye View Semester Schedule",
@@ -315,7 +316,7 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
 def cof_builder(all_stars, manager, filename='', flag=False):
 
     fig = go.Figure()
-    fig.update_layout(width=1200, height=800) 
+    fig.update_layout(width=1200, height=800)
     burn_line = np.linspace(0, 100, len(manager.all_dates_array))
     for b in range(len(burn_line)):
         burn_line[b] = np.round(burn_line[b],2)
@@ -423,9 +424,97 @@ def run_plot_suite(config_file):
     cof_builder(all_stars_list, manager, 'admin/' + manager.current_day + '/all_stars_COF.html')
     cof_builder(list(data[1].values()), manager, 'admin/' + manager.current_day + '/all_programs_COF.html', flag=True)
     generate_birds_eye(manager, data[2], all_stars_list, 'admin/' + manager.current_day + '/all_stars_birdseye.html')
-
+    # generate_single_star_maps(manager, 'your star name here')
     # # build plots for each program
     # program_names = data[0].keys()
     # for p in program_names:
     #     cof_builder(data[0][p], manager, 'admin/'+ manager.current_day + "/" + p + "_COF.html")
     #     generate_birds_eye(manager, data[2], [data[1][p]], 'admin/'+ manager.current_day + "/" + p +"_birdseye.html")
+
+def generate_single_star_maps(manager, starname):
+
+    is_altaz, is_moon, is_night, is_inter, is_future, is_alloc = mp.mod_produce_ultimate_map(manager, starname)
+    all_maps = [is_altaz, is_alloc, is_night, is_moon, is_inter, is_future]
+    mapnames = ['is_altaz', 'is_alloc', 'is_night', 'is_moon', 'is_inter', 'is_future', ]
+
+    forecast = pd.read_csv(manager.future_forecast, header=None).astype(str)
+    forecastT = np.array(forecast)
+    starmap = (forecast == starname).astype(int).to_numpy()
+    starmap =  np.array(pad_rows_top(starmap, manager.semester_length)).T
+
+    colors = sns.color_palette("deep", len(mapnames) + 1)
+    rgb_strings = [f"rgb({int(r*255)}, {int(g*255)}, {int(b*255)})" for r, g, b in colors]
+    fig = go.Figure()
+
+    for i in range(len(all_maps)):
+        # import pdb; pdb.set_trace()
+        int_array = all_maps[i][0].astype(int).T
+        int_array = 1 - int_array
+        fig.add_trace(go.Heatmap(
+            z=int_array,
+            colorscale=[[0, 'rgba(0,0,0,0)'], [1, 'rgba(211, 211, 211, 1.0)']],
+            zmin=0, zmax=1,
+            opacity=0.5,
+            showscale=False,
+            name=mapnames[i],
+            showlegend=True,
+        ))
+
+    fig.add_trace(go.Heatmap(
+        z=starmap,
+        colorscale=[[0, 'rgba(0,0,0,0)'], [1, 'rgba(255, 0, 0, 1.0)']],
+        zmin=0, zmax=1,
+        opacity=1.0,
+        showscale=False,
+        name=starname,
+        showlegend=True,
+    ))
+
+    # Add vertical grid lines every slot (x)
+    for x in np.arange(0.5, starmap.shape[1], 1):
+        fig.add_shape(
+            type="line",
+            x0=x, x1=x,
+            y0=0, y1=starmap.shape[0] - 1,
+            line=dict(color="lightgray", width=1),
+            layer="below"
+        )
+
+    # Add horizontal grid lines every slot (y)
+    for y in np.arange(0.5, starmap.shape[0], 1):
+        fig.add_shape(
+            type="line",
+            x0=0, x1=starmap.shape[1] - 1,
+            y0=y, y1=y,
+            line=dict(color="lightgray", width=1),
+            layer="below"
+        )
+
+    fig.update_layout(
+        title="Birds Eye View Semester Schedule",
+        yaxis_title="Slot in Night",
+        xaxis_title="Night in Semester",
+        xaxis=dict(
+            title_font=dict(size=labelsize),
+            tickfont=dict(size=labelsize - 4),
+            tickvals=np.arange(0, manager.semester_length, 21),
+            tickmode='array',
+            showgrid=False,  # Turn off native grid
+        ),
+        yaxis=dict(
+            title_font=dict(size=labelsize),
+            tickfont=dict(size=labelsize - 4),
+            tickvals=np.arange(0, manager.n_slots_in_night, 12),
+            tickmode='array',
+            showgrid=False,  # Turn off native grid
+        ),
+        template="plotly_white",
+        showlegend=True,
+        legend=dict(
+            font=dict(size=labelsize-10)
+        )
+    )
+    if filename != '':
+        fileout_path = manager.reports_directory + filename
+        fig.write_html(fileout_path)
+    return fig
