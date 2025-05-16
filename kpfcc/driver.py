@@ -138,15 +138,6 @@ def ttp(args):
     manager.run_admin()
 
     sk.run_ttp(manager)
-
-def backups(args):
-
-    cf = args.config_file
-    print(f'    kpfcc_schedule function: config_file is {cf}')
-
-    manager = mn.data_admin(cf)
-    manager.run_admin()
-
     sk.produce_bright_backups(manager)
 
 def get_history(args):

@@ -36,37 +36,39 @@ def build_fullness_report(combined_semester_schedule, manager, round_info):
     Returns:
         None
     """
-    file = open(manager.output_directory + "runReport.txt", "a")
-    file.write("Stats for " + str(round_info) + "\n")
-    file.write("------------------------------------------------------" + "\n")
-    listnames = list(manager.requests_frame['starname'])
-    unavailable = 0
-    unused = 0
-    used = 0
-    for b, item1 in enumerate(combined_semester_schedule):
-        for c, item2 in enumerate(combined_semester_schedule[b]):
-            if "X" in combined_semester_schedule[b][c] or "*" in combined_semester_schedule[b][c] \
-                    or "W" in combined_semester_schedule[b][c]:
-                unavailable += 1
-            if combined_semester_schedule[b][c] == "":
-                unused += 1
-            if combined_semester_schedule[b][c] in listnames or "RM___" in combined_semester_schedule[b][c]:
-                used += 1
-    available = unused + used
-    allocated = np.sum(manager.allocation_map_2D.flatten())
-    file.write("N slots in semester:" + str(np.prod(combined_semester_schedule.shape)) + "\n")
-    file.write("N available slots:" + str(allocated) + "\n")
-    file.write("N slots scheduled: " + str(used) + "\n")
-    file.write("N slots left empty: " + str(allocated-used) + "\n")
+    file_path = manager.output_directory + "runReport.txt"
+    print(f"Writing to: {file_path}")
+    with open(manager.output_directory + "runReport.txt", "a") as file:
+        file.write("Stats for " + str(round_info) + "\n")
+        file.write("------------------------------------------------------" + "\n")
+        listnames = list(manager.requests_frame['starname'])
+        unavailable = 0
+        unused = 0
+        used = 0
+        for b, item1 in enumerate(combined_semester_schedule):
+            for c, item2 in enumerate(combined_semester_schedule[b]):
+                if "X" in combined_semester_schedule[b][c] or "*" in combined_semester_schedule[b][c] \
+                        or "W" in combined_semester_schedule[b][c]:
+                    unavailable += 1
+                if combined_semester_schedule[b][c] == "":
+                    unused += 1
+                if combined_semester_schedule[b][c] in listnames or "RM___" in combined_semester_schedule[b][c]:
+                    used += 1
+        available = unused + used
+        allocated = np.sum(manager.allocation_map_2D.flatten())
+        file.write("N slots in semester:" + str(np.prod(combined_semester_schedule.shape)) + "\n")
+        file.write("N available slots:" + str(allocated) + "\n")
+        file.write("N slots scheduled: " + str(used) + "\n")
+        file.write("N slots left empty: " + str(allocated-used) + "\n")
 
-    total_slots_requested = 0
-    for i in range(len(manager.requests_frame)):
-        total_slots_requested += manager.requests_frame['n_inter_max'][i]* \
-            math.ceil(manager.requests_frame['exptime'][i]/(manager.slot_size*60.))
-    file.write("N slots requested (total): " + str(total_slots_requested) + "\n")
-    percentage = np.round((used*100)/allocated,3)
-    file.write("Percent full: " + str(percentage) + "%." + "\n")
-    file.close()
+        total_slots_requested = 0
+        for i in range(len(manager.requests_frame)):
+            total_slots_requested += manager.requests_frame['n_inter_max'][i]* \
+                math.ceil(manager.requests_frame['exptime'][i]/(manager.slot_size*60.))
+        file.write("N slots requested (total): " + str(total_slots_requested) + "\n")
+        percentage = np.round((used*100)/allocated,3)
+        file.write("Percent full: " + str(percentage) + "%." + "\n")
+        file.close()
 
 def report_allocation_stats(manager):
     """
@@ -405,59 +407,46 @@ def serialize_schedule(Yrds, manager):
     Returns:
         None
     """
-    all_days = []
-    all_slots = []
-    all_star_strings = []
+
+    df = pd.DataFrame(Yrds.keys(),columns=['r','d','s'])
+    df['value'] = [Yrds[k].x for k in Yrds.keys()]
+    sparse = df.query('value>0')
+    sparse.drop(columns=['value'], inplace=True)
+    # sparse only has keys from Yrds that have values = 1, so only scheduled slots and only the starting slot of the observation
+    sparse.to_csv(manager.output_directory + "serialized_outputs_sparse.csv", index=False, na_rep="")
+    day, slot = np.mgrid[:manager.semester_length,:manager.n_slots_in_night]
+    dense1 = pd.DataFrame(dict(d=day.flatten(), s=slot.flatten()))
+    dense1 = pd.merge(dense1, sparse, left_on=['d','s'],right_on=['d','s'],how='left')
+    dense1['r'] = dense1['r'].fillna('')
+    # dense1 has keys for all days and slots, where no star was scheduled to start its observation, the r column is blank
+    dense1.to_csv(manager.output_directory + "serialized_outputs_dense_v1.csv", index=False, na_rep="")
+
+    dense2 = dense1.copy()
     isNight = np.array(manager.twilight_map_remaining_2D).flatten()
     isAlloc = np.array(manager.allocation_map_2D).flatten()
     isClear = np.array(manager.weathered_map).flatten()
+    # have to go backwards otherwise you're adding stars into slots and then testing if the star is in the next slot
+    for slot in range(manager.n_slots_in_semester-1, -1, -1):
+        name_string = ""
+        if isNight[slot] == 0:
+            name_string += "*"
+        if isAlloc[slot] == 0:
+            name_string += "X"
+        if isClear[slot] == 1:
+            name_string += "W"
+        dense2['r'][slot] = name_string + str(dense2['r'][slot])
 
-    isNight_dense = []
-    isAlloc_dense = []
-    isClear_dense = []
-    for d in range(manager.n_nights_in_semester):
-        for s in range(manager.n_slots_in_night):
-            stars_string = ""
-            for name in list(manager.requests_frame['starname']):
-                try:
-                    value = int(np.round(Yrds[name, d, s].x))
-                    if value == 1:
-                        stars_string += name
-                        for t in range(0, manager.slots_needed_for_exposure_dict[name]):
-                            # print("in the t: ", name, manager.slots_needed_for_exposure_dict[name], t)
-                            all_star_strings.append(name)
-                            all_days.append(d)
-                            all_slots.append(s+t)
-                            isNight_dense.append(isNight[d*manager.n_slots_in_night + s])
-                            isAlloc_dense.append(isAlloc[d*manager.n_slots_in_night + s])
-                            isClear_dense.append(isClear[d*manager.n_slots_in_night + s])
+        if dense2['r'][slot] in list(manager.requests_frame['starname']):
+            slots_needed = manager.slots_needed_for_exposure_dict[dense2['r'][slot]]
+            if slots_needed > 1:
+                for t in range(1, slots_needed):
+                    dense2['r'][slot + t] = str(dense2['r'][slot + t]) + str(dense2['r'][slot])
 
-                except KeyError:
-                    pass
-                except:
-                    print("Error: io.py line 416: ", name, d, s)
-            if stars_string == "":
-                all_star_strings.append(stars_string)
-                all_days.append(d)
-                all_slots.append(s)
-                isNight_dense.append(isNight[d*manager.n_slots_in_night + s])
-                isAlloc_dense.append(isAlloc[d*manager.n_slots_in_night + s])
-                isClear_dense.append(isClear[d*manager.n_slots_in_night + s])
-            # now make the matrix "dense" by adding rows for multi-slot observations
-
-    serial_output = pd.DataFrame({"d":all_days, "s":all_slots, "r":all_star_strings,
-                                "isNight":isNight_dense,
-                                "isAlloc":isAlloc_dense,
-                                "isClear":isClear_dense,
-                                })
-    print("making all strings")
-    serial_output["r"] = serial_output["r"].fillna("").astype(str)
-    serial_output.to_csv(manager.output_directory + "serialized_outputs_dense.csv", index=False, na_rep="")
-
-
+    # dense2 has keys for all days and slots, manually fill in the reserved slots for each observation and fill in Past/Twilight/Weather info
+    dense2.to_csv(manager.output_directory + "serialized_outputs_dense_v2.csv", index=False, na_rep="")
 
 def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars, current_day,
-                    outputdir):
+                    outputdir, version='nominal'):
     """
     Generate the nightly script in the correct format.
 
@@ -477,7 +466,7 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
     total_exptime = 0
     if not os.path.isdir(outputdir):
         os.mkdir(outputdir)
-    script_file = os.path.join(outputdir,'script_{}_{}.txt'.format(current_day,'nominal'))
+    script_file = os.path.join(outputdir,'script_{}_{}.txt'.format(current_day, version))
     print('Writing starlist to ' + script_file)
 
     lines = []
