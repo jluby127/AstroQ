@@ -20,7 +20,6 @@ import kpfcc.management as mn
 import kpfcc.request as rq
 import kpfcc.maps as mp
 
-
 log = logging.getLogger(__name__)
 
 class Scheduler(object):
