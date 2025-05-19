@@ -175,7 +175,7 @@ def requests_vs_schedule(args):
                              "the same day and slot.")
     assert sch.groupby(['d','s']).size().max()<=1, no_duplicate_slot_err
 
-    import pdb; pdb.set_trace()
+    #import pdb; pdb.set_trace()
     for star in req.id:
         star_request = req.query(f"id=='{star}'")
         star_schedule = sch.query(f"r=='{star}'") # Only the slots with the star listed
