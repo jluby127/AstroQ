@@ -14,6 +14,10 @@ import kpfcc.plot as pl
 import kpfcc.onsky as sk
 import kpfcc.history as hs
 
+import logging
+log = logging.getLogger(__name__)
+log.setLevel(logging.ERROR)
+
 
 def bench(args):
     print("Running benchmark test.")
@@ -105,6 +109,12 @@ def kpfcc_data(args):
     return
 
 def schedule(args):
+    
+    log.debug("Debug message")
+    log.info("Info message")
+    log.warning("Warning message here")
+    log.error("Error message")
+    log.critical("Critical message")
 
     rf = args.request_file
     print(f'    kpfcc_schedule function: request_file is {rf}')
