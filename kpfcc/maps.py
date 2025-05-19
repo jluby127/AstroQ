@@ -20,31 +20,22 @@ from astropy.time import TimeDelta
 import astropy as apy
 import astropy.units as u
 import astroplan as apl
+from matplotlib.pylab import *
+import gzip
+import pickle
+def save_dict_compressed(dictionary, filename):
+    with gzip.open(filename, 'wb') as f:
+        pickle.dump(dictionary, f)
+            # Load compressed
+def load_dict_compressed(filename):
+    with gzip.open(filename, 'rb') as f:
+        return pickle.load(f)
+from scipy.interpolate import interp1d
 
 import kpfcc.access as ac
 import kpfcc.weather as wh
 
-# Define list of observatories which are currently supported.
-# To add an obseratory/telescope, add the Astroplan resolvable name to the list in generate_night_plan
-# Then add the same name to the appropriate element of the locations dictionary.
-# If necessary, add a location to the locations dictionary, if so, add the location to each of the
-# pre_sunrise and post_sunrise dictionaries. Ensure times are 14 hours apart, at least one hour
-# before the earliest sunset and one hour after the latest sunrise of the year.
-locations = {'Hawaii':['Keck Observatory'], 'Arizona':['Kitt Peak National Observatory']}
-pre_sunset = {'Hawaii':'07:30', 'Arizona':'05:00'}
-post_sunrise = {'Hawaii':'17:30', 'Arizona':'14:00'}
-# each telescope's pointing limits are defined by list with elements in following order:
-# maximum altitude
-# minimum azimuth of nasmyth deck (when no nasmyth deck, use 0)
-# maximum azimuth of nasmyth deck (when no nasmyth deck, use 360)
-# minimum altitude of nasmyth deck (when no nasmyth deck, use same as below)
-# minimum alitude of non-nasmyth deck (when no nasmyth deck, use same as above)
-# preferred minimum altitude
-# maximum northern declination to enforce preferred minimum altitude
-# maximum southern declination to enforce preferred minimum altitude
-pointing_limits = {'Keck Observatory': [85.0, 5.3, 146.2, 33.3, 18.0, 30.0, 75.0, -35.0]}
-
-def produce_ultimate_map(manager, allocation_map_1D, twilight_map_remaining_flat):
+def produce_ultimate_map(manager, running_backup_stars=False):
     """
     Combine all maps for a target to produce the final map
 
@@ -52,96 +43,255 @@ def produce_ultimate_map(manager, allocation_map_1D, twilight_map_remaining_flat
         requests_frame (dataframe): the pandas dataframe containing request information
 
     Returns:
-        available_slots_for_request (dictionary): keys are the starnames and values are the 1D array
-                                                  of the final map
         available_indices_for_request (dictionary): keys are the starnames and values are a 1D array
                                                   the indices where available_slots_for_request is 1.
 
     """
-    print("Build unique star available slot indices.")
-    default_access_maps = ac.construct_access_dict(manager)
-    custom_access_maps = construct_custom_map_dict(manager.special_map_file)
-    zero_out_names = construct_zero_out_arr(manager.zero_out_file)
+    # Prepatory work
+    rs = manager.requests_frame
+    date_formal = Time(manager.current_day,format='iso',scale='utc')
+    date = str(date_formal)[:10]
 
-    available_slots_for_request = {}
+    # Define size of grid
+    ntargets = len(rs)
+    nnights = manager.n_nights_in_semester
+    nslots = manager.n_slots_in_night
+
+    # Determine observability
+    coords = apy.coordinates.SkyCoord(rs.ra * u.deg, rs.dec * u.deg, frame='icrs')
+    targets = apl.FixedTarget(name=rs.starname, coord=coords)
+    keck = apl.Observer.at_site(manager.observatory)
+
+    # Set up time grid for one night, first night of the semester
+    start = date + "T" + manager.daily_starting_time
+    daily_start = Time(start, location=keck.location)
+    daily_end = daily_start + TimeDelta(1.0, format='jd') # full day from start of first night
+    tmp_slot_size = TimeDelta(5.0*u.min)
+    t = Time(np.arange(daily_start.jd, daily_end.jd, tmp_slot_size.jd), format='jd',location=keck.location)
+    t = t[np.argsort(t.sidereal_time('mean'))] # sort by lst
+
+    # Compute base alt/az pattern, shape = (ntargets, nslots)
+    coord0 = keck.altaz(t, targets, grid_times_targets=True)
+    alt0 = coord0.alt.deg
+    az0 = coord0.az.deg
+
+    # 2D mask (n targets, n slots))
+    is_altaz0 = np.ones_like(alt0, dtype=bool)
+    is_altaz0 &= ~((5.3 < az0 ) & (az0 < 146.2) & (alt0 < 33.3)) # remove nasymth deck
+    # remove min elevation for mid declination stars
+    ismiddec = ((-30 < targets.dec.deg) & (targets.dec.deg < 75))
+    fail = ismiddec[:,np.newaxis] & (alt0 < 30) # broadcast declination array
+    is_altaz0 &= ~fail
+    # all stars must be between 18 and 85 deg
+    fail = (alt0 < 18) | (alt0 > 85)
+    is_altaz0 &= ~fail
+    # computing slot midpoint for all nights in semester 2D array (slots, nights)
+    slotmidpoint0 = daily_start + (np.arange(nslots) + 0.5) *  manager.slot_size * u.min
+    # days = np.arange(manager.n_nights_in_semester) * u.day
+    days = np.arange(nnights) * u.day
+    slotmidpoint = (slotmidpoint0[np.newaxis,:] + days[:,np.newaxis])
+    # 3D mask
+    is_altaz = np.empty((ntargets, nnights, nslots),dtype=bool)
+
+    # Pre-compute the sidereal times for interpolation
+    x = t.sidereal_time('mean').value
+    x_new = slotmidpoint.sidereal_time('mean').value
+    idx = np.searchsorted(x, x_new, side='left')
+    idx = np.clip(idx, 0, len(x)-1) # Handle edge cases
+    is_altaz = is_altaz0[:,idx]
+
+    is_future = np.ones((ntargets, nnights, nslots),dtype=bool)
+    # inight_current = manager.all_dates_dict[manager.current_day]
+    # is_future[:,:inight_current,:] = False
+
+    # Compute moon accessibility
+    is_moon = np.ones_like(is_altaz, dtype=bool)
+    moon = apy.coordinates.get_moon(slotmidpoint[:,0] , keck.location)
+    # Reshaping uses broadcasting to achieve a (ntarget, night) array
+    ang_dist = apy.coordinates.angular_separation(
+        targets.ra.reshape(-1,1), targets.dec.reshape(-1,1),
+        moon.ra.reshape(1,-1), moon.dec.reshape(1,-1),
+    ) # (ntargets)
+    is_moon = is_moon & (ang_dist.to(u.deg) > 30*u.deg)[:, :, np.newaxis]
+
+    # TODO add in logic for custom maps
+
+    # TODO add in logic to remove stars that are not observable, currently code is a no-op
+    # Set to False if internight cadence is violated
+
+    is_inter = np.ones((ntargets, nnights, nslots),dtype=bool)
+    for itarget in range(ntargets):
+        name = rs.iloc[itarget]['starname']
+        if name in manager.database_info_dict:
+            if manager.database_info_dict[name][0] != '0000-00-00': # default value if no history
+                # inight_start = manager.all_dates_dict[manager.database_info_dict[name][0]]
+                inight_start = manager.all_dates_dict[manager.current_day] - manager.today_starting_night
+                inight_stop = min(inight_start + rs.iloc[itarget]['tau_inter'],nnights)
+                is_inter[itarget,inight_start:inight_stop,:] = False
+
+    # True if obseravtion occurs at night
+    is_night = manager.twilight_map_remaining_2D.astype(bool) # shape = (nnights, nslots)
+    is_night = np.ones_like(is_altaz, dtype=bool) & is_night[np.newaxis,:,:]
+
+    is_alloc = manager.allocation_map_2D.astype(bool) # shape = (nnights, nslots)
+    is_alloc = np.ones_like(is_altaz, dtype=bool) & is_alloc[np.newaxis,:,:] # shape = (ntargets, nnights, nslots)
+
+    is_observable_now = np.logical_and.reduce([
+        is_altaz,
+        is_moon,
+        is_night,
+        is_inter,
+        is_future,
+        is_alloc
+    ])
+
+    # the target does not violate any of the observability limits in that specific slot, but
+    # it does not mean it can be started at the slot. retroactively grow mask to accomodate multishot exposures.
+
+    # Is observable now,
+    is_observable = is_observable_now.copy()
+    if running_backup_stars == False:
+        for itarget in range(ntargets):
+            e_val = manager.slots_needed_for_exposure_dict[rs.iloc[itarget]['starname']]
+            if e_val == 1:
+                continue
+
+            for shift in range(1, e_val):
+                # shifts the is_observable_now array to the left by shift
+                # for is_observable to be true, it must be true for all shifts
+                is_observable[itarget, :, :-shift] &= is_observable_now[itarget, :, shift:]
+
+    # specify indeces of 3D observability array
+    itarget, inight, islot = np.mgrid[:ntargets,:nnights,:nslots]
+
+    # define flat table to access maps
+    df = pd.DataFrame(
+        {'itarget':itarget.flatten(),
+         'inight':inight.flatten(),
+         'islot':islot.flatten()}
+    )
+    df['is_observable'] = is_observable.flatten()
     available_indices_for_request = {}
-    for i,row in manager.requests_frame.iterrows():
-        name = row['Starname']
-        accessibility_r = default_access_maps[name]
-        access = accessibility_r[manager.today_starting_slot:]
+    for itarget in range(ntargets):
+        temp = []
+        for inight in range(nnights):
+            temp.append(list(islot[itarget,inight,is_observable[itarget,inight,:]]))
 
-        if name in list(custom_access_maps.keys()):
-            custom_map = custom_access_maps[name][manager.today_starting_slot:]
-        else:
-            custom_map = np.array([1]*manager.n_slots_in_semester)
-
-        zero_out_map = np.array([1]*manager.n_slots_in_semester)
-        if name in zero_out_names:
-            zero_out_map[:manager.n_slots_in_night] = np.array([0]*manager.n_slots_in_night)
-
-        respect_past_cadence = np.ones(manager.n_slots_in_semester, dtype=np.int64)
-        if manager.database_info_dict != {}:
-            date_last_observed = manager.database_info_dict[name][0]
-            if date_last_observed != '0000-00-00':
-                date_last_observed_number = manager.all_dates_dict[date_last_observed]
-                today_number = manager.all_dates_dict[manager.current_day]
-                diff = today_number - date_last_observed_number
-                if diff < int(row['Minimum Inter-Night Cadence']):
-                    block_upcoming_days = int(row['Minimum Inter-Night Cadence']) - diff
-                    respect_past_cadence[:block_upcoming_days*manager.n_slots_in_night] = 0
-
-        # Determine which nights a multi-visit request is allowed to be attempted to be scheduled.
-        # This equation is a political decision and can be modified.
-        # It states that for each visit, after the intra-night cadence time has elapsed,
-        # we require a 90 minute window within which to allow for scheduling the next visit.
-        # We then assume the next visit is scheduled at the very end of this 90 minute window,
-        # which then restarts the clock for any additional visits.
-        minimum_time_required = ((int(row['# Visits per Night']) - 1)* \
-            (int(row['Minimum Intra-Night Cadence']) + 1.5))*3600 #convert hours to seconds
-        minimum_slots_required = manager.slots_needed_for_exposure_dict[name]
-        no_multi_visit_observations = []
-        for d in range(manager.n_nights_in_semester):
-            start = d*manager.n_slots_in_night
-            end = start + manager.n_slots_in_night
-            possible_open_slots = np.sum(allocation_map_1D[start:end] & \
-                                        twilight_map_remaining_flat[start:end] & access[start:end])
-            if possible_open_slots < minimum_slots_required:
-                no_multi_visit_observations.append([0]*manager.n_slots_in_night)
-            else:
-                no_multi_visit_observations.append([1]*manager.n_slots_in_night)
-        no_multi_visit_observations = np.array(no_multi_visit_observations)
-
-        nonqueue_map_file_slots_ints = construct_nonqueue_arr(manager)
-
-        # Construct the penultimate intersection of maps for the given request.
-        penultimate_map = allocation_map_1D & twilight_map_remaining_flat & \
-            nonqueue_map_file_slots_ints & access & custom_map & zero_out_map & \
-            respect_past_cadence
-
-        # find when target goes from available to unavailable, for any reason is not available a
-        fit_within_night = np.array([1]*manager.n_slots_in_semester)
-        slots_needed = manager.slots_needed_for_exposure_dict[name]
-        if slots_needed > 1:
-            for s in range(manager.n_slots_in_semester - 1):
-                if penultimate_map[s] == 1 and penultimate_map[s+1] == 0:
-                    # The -1 below is because target can be started if just fits before unavailable
-                    for e in range(slots_needed - 1):
-                        fit_within_night[s - e] = 0
-
-        # Construct the ultimate intersection of maps for the given request.
-        # Define the slot indices that are available to the request for scheduling.
-        available_slots_for_request[name] = penultimate_map & fit_within_night
-
-        # reshape into n_nights_in_semester by n_slots_in_night
-        available_slots_for_request[name] = np.reshape(available_slots_for_request[name], \
-                                                    (manager.n_nights_in_semester, manager.n_slots_in_night))
-        nightly_available_slots = []
-        for d in range(len(available_slots_for_request[name])):
-             nightly_available_slots.append(list(np.where( \
-                                                    available_slots_for_request[name][d] == 1)[0]))
-        available_indices_for_request[name] = nightly_available_slots
-
+        available_indices_for_request[rs.iloc[itarget]['starname']] = temp
     return available_indices_for_request
+
+
+def mod_produce_ultimate_map(manager, starname):
+    """
+    Compute maps quickly for plotting purposes only
+
+    Args:
+        manager
+        starname
+
+    Returns:
+        the maps
+
+    """
+    # Prepatory work
+    rs = manager.requests_frame
+    ind = rs.index[rs['starname'] == starname].tolist()
+
+    date_formal = Time(manager.current_day,format='iso',scale='utc')
+    date = str(date_formal)[:10]
+
+    # Define size of grid
+    ntargets = 1
+    nnights = manager.semester_length
+    nslots = manager.n_slots_in_night
+
+    # Determine observability
+    coords = apy.coordinates.SkyCoord(rs.ra[ind] * u.deg, rs.dec[ind] * u.deg, frame='icrs')
+    targets = apl.FixedTarget(name=rs.starname[ind], coord=coords)
+    keck = apl.Observer.at_site(manager.observatory)
+
+    # Set up time grid for one night, first night of the semester
+    start = date + "T" + manager.daily_starting_time
+    daily_start = Time(start, location=keck.location)
+    daily_end = daily_start + TimeDelta(1.0, format='jd') # full day from start of first night
+    tmp_slot_size = TimeDelta(5.0*u.min)
+    t = Time(np.arange(daily_start.jd, daily_end.jd, tmp_slot_size.jd), format='jd',location=keck.location)
+    t = t[np.argsort(t.sidereal_time('mean'))] # sort by lst
+
+    # Compute base alt/az pattern, shape = (ntargets, nslots)
+    coord0 = keck.altaz(t, targets, grid_times_targets=True)
+    alt0 = coord0.alt.deg
+    az0 = coord0.az.deg
+
+    # 2D mask (n targets, n slots))
+    is_altaz0 = np.ones_like(alt0, dtype=bool)
+    is_altaz0 &= ~((5.3 < az0 ) & (az0 < 146.2) & (alt0 < 33.3)) # remove nasymth deck
+    # remove min elevation for mid declination stars
+    ismiddec = ((-30 < targets.dec.deg) & (targets.dec.deg < 75))
+    fail = ismiddec[:,np.newaxis] & (alt0 < 30) # broadcast declination array
+    is_altaz0 &= ~fail
+    # all stars must be between 18 and 85 deg
+    fail = (alt0 < 18) | (alt0 > 85)
+    is_altaz0 &= ~fail
+    # computing slot midpoint for all nights in semester 2D array (slots, nights)
+    slotmidpoint0 = daily_start + (np.arange(nslots) + 0.5) *  manager.slot_size * u.min
+    days = np.arange(manager.n_nights_in_semester) * u.day
+    slotmidpoint = (slotmidpoint0[np.newaxis,:] + days[:,np.newaxis])
+    # 3D mask
+    is_altaz = np.empty((ntargets, nnights, nslots),dtype=bool)
+
+    # Pre-compute the sidereal times for interpolation
+    x = t.sidereal_time('mean').value
+    x_new = slotmidpoint.sidereal_time('mean').value
+    idx = np.searchsorted(x, x_new, side='left')
+    idx = np.clip(idx, 0, len(x)-1) # Handle edge cases
+    is_altaz = is_altaz0[:,idx]
+
+    is_future = np.ones((ntargets, nnights, nslots),dtype=bool)
+    inight_current = manager.all_dates_dict[manager.current_day]
+    is_future[:,:inight_current,:] = False
+
+    # Compute moon accessibility
+    is_moon = np.ones_like(is_altaz, dtype=bool)
+    moon = apy.coordinates.get_moon(slotmidpoint[:,0] , keck.location)
+    # Reshaping uses broadcasting to achieve a (ntarget, night) array
+    ang_dist = apy.coordinates.angular_separation(
+        targets.ra.reshape(-1,1), targets.dec.reshape(-1,1),
+        moon.ra.reshape(1,-1), moon.dec.reshape(1,-1),
+    ) # (ntargets)
+    is_moon = is_moon & (ang_dist.to(u.deg) > 30*u.deg)[:, :, np.newaxis]
+
+    # TODO add in logic for custom maps
+
+    # TODO add in logic to remove stars that are not observable, currently code is a no-op
+    # Set to False if internight cadence is violated
+
+    is_inter = np.ones((ntargets, nnights, nslots),dtype=bool)
+    for itarget in range(ntargets):
+        name = rs.iloc[itarget]['starname']
+        if name in manager.database_info_dict:
+            if manager.database_info_dict[name][0] != '0000-00-00': # default value if no history
+                inight_start = manager.all_dates_dict[manager.database_info_dict[name][0]]
+                inight_stop = min(inight_start + rs.iloc[itarget]['tau_inter'],nnights)
+                is_inter[itarget,inight_start:inight_stop,:] = False
+
+    # True if obseravtion occurs at night
+    is_night = manager.twilight_map_remaining_2D.astype(bool) # shape = (nnights, nslots)
+    is_night = np.ones_like(is_altaz, dtype=bool) & is_night[np.newaxis,:,:]
+
+    is_alloc = manager.allocation_map_2D.astype(bool) # shape = (nnights, nslots)
+    is_alloc = np.ones_like(is_altaz, dtype=bool) & is_alloc[np.newaxis,:,:] # shape = (ntargets, nnights, nslots)
+
+    is_observable_now = np.logical_and.reduce([
+        is_altaz,
+        is_moon,
+        is_night,
+        is_inter,
+        is_future,
+        is_alloc
+    ])
+
+    return is_altaz, is_moon, is_night, is_inter, is_future, is_alloc
 
 def construct_custom_map_dict(special_map_file):
     """
@@ -186,9 +336,9 @@ def construct_nonqueue_arr(manager):
     Returns:
         nonqueue_map_file_slots_ints (array): the 1D array of 1's and 0's indicating nonqueue map
     """
-    print("Incorporating non-queue observations.")
+    #print("Incorporating non-queue observations.")
     if os.path.exists(manager.nonqueue_map_file):
-        print("Accommodating time-sensative non-queue observations.")
+        #print("Accommodating time-sensative non-queue observations.")
         nonqueue_map_file_slots_strs = np.loadtxt(manager.nonqueue_map_file, delimiter=',', dtype=str)
         nonqueue_map_file_slots_ints = []
         for i, item in enumerate(nonqueue_map_file_slots_strs):
@@ -202,11 +352,11 @@ def construct_nonqueue_arr(manager):
         nonqueue_map_file_slots_ints = np.array(nonqueue_map_file_slots_ints).flatten()
         nonqueue_map_file_slots_ints = nonqueue_map_file_slots_ints[manager.today_starting_slot:]
     else:
-        nonqueue_map_file_slots_ints = np.array(n_slots_in_semester)
-        print("No non-queue observations are scheduled.")
+        nonqueue_map_file_slots_ints = np.array([1]*manager.n_slots_in_semester)
+        #print("No non-queue observations are scheduled.")
     return nonqueue_map_file_slots_ints
 
-def prepare_allocation_map(manager, available_slots_in_each_night):
+def prepare_allocation_map(manager):
     """
     When not in optimal allocation mode, prepare and construct the allocation map, as well as
     perform the weather loss modeling.
@@ -236,7 +386,6 @@ def prepare_allocation_map(manager, available_slots_in_each_night):
                                     n_slots_in_night where 1's are nights that were
                                     allocated but weathered out (for plotting purposes)
     """
-    print("Preparing allocation map.")
     # Convert allocation info from human to computer-readable
     allocation_raw = np.loadtxt(manager.allocation_file, dtype=str)
     allocation_remaining = []
@@ -247,22 +396,24 @@ def prepare_allocation_map(manager, available_slots_in_each_night):
         if a >= manager.all_dates_dict[manager.current_day]:
             allocation_remaining.append(convert)
     manager.allocation_all = allocation_all
+    allocation_schedule_all = np.reshape(allocation_all, (manager.semester_length, manager.n_quarters_in_night))
+    manager.allocation_map_2D_NQ = allocation_schedule_all
+    manager.allocation_remaining = allocation_remaining
 
     # Sample out future allocated nights to simulate weather loss based on empirical weather data.
     print("Sampling out weather losses")
     loss_stats_remaining = wh.get_loss_stats(manager)
     allocation_remaining_post_weather_loss, weather_diff_remaining, weather_diff_remaining_1D, \
-        days_lost = wh.simulate_weather_losses(allocation_remaining, loss_stats_remaining, \
-        covariance=0.14, dont_lose_nights=manager.run_weather_loss, plot=True, outputdir=manager.output_directory)
+        days_lost = wh.simulate_weather_losses(manager.allocation_remaining, loss_stats_remaining, \
+        covariance=0.14, run_weather_loss=manager.run_weather_loss, plot=True, outputdir=manager.output_directory)
     allocation_map_1D, allocation_map_2D, weathered_map = \
-        build_allocation_map(allocation_remaining_post_weather_loss, weather_diff_remaining,
-        available_slots_in_each_night[manager.today_starting_night:], manager.n_slots_in_night)
+        build_allocation_map(manager, allocation_remaining_post_weather_loss, weather_diff_remaining)
 
-    wh.write_out_weather_stats(manager, days_lost, allocation_remaining)
+    manager.weather_diff_remaining = weather_diff_remaining
+    wh.write_out_weather_stats(manager, days_lost, manager.allocation_remaining)
     return weather_diff_remaining, allocation_map_1D, allocation_map_2D, weathered_map
 
-def build_allocation_map(allocation_schedule, weather_diff, available_slots_in_night,
-                        n_slots_in_night):
+def build_allocation_map(manager, allocation_schedule, weather_diff):
     """
     Create the 1D allocation map where allocated slots are designated with a 1
     and non-allocated slots designated with a 0.
@@ -289,23 +440,25 @@ def build_allocation_map(allocation_schedule, weather_diff, available_slots_in_n
     """
     allocation_map_1D = []
     allocation_map_weathered = []
-    for n, item in enumerate(available_slots_in_night):
+    manager.available_slots_in_each_night_short = manager.available_slots_in_each_night[manager.today_starting_night:]
+
+    for n in range(len(manager.available_slots_in_each_night_short)):
         allo_night_map = ac.single_night_allocated_slots(allocation_schedule[n],
-                                                available_slots_in_night[n], n_slots_in_night)
+                                                manager.available_slots_in_each_night_short[n], manager.n_slots_in_night)
         allocation_map_1D.append(allo_night_map)
         weather_night_map = ac.single_night_allocated_slots(weather_diff[n],
-                                                available_slots_in_night[n], n_slots_in_night)
+                                                manager.available_slots_in_each_night_short[n], manager.n_slots_in_night)
         allocation_map_weathered.append(weather_night_map)
 
     allocation_map_2D = np.reshape(allocation_map_1D,
-                                                (len(available_slots_in_night), n_slots_in_night))
+                                                (len(manager.available_slots_in_each_night_short), manager.n_slots_in_night))
     allocation_map_weather_diff_2D = np.reshape(allocation_map_weathered,
-                                                (len(available_slots_in_night), n_slots_in_night))
+                                                (len(manager.available_slots_in_each_night_short), manager.n_slots_in_night))
     allocation_map_1D = np.array(allocation_map_1D).flatten()
 
     return allocation_map_1D, allocation_map_2D, allocation_map_weather_diff_2D
 
-def convert_allocation_array_to_binary(allocation_map_2D, all_dates_array, filename):
+def convert_allocation_array_to_binary(manager):
     """
     Used in optimal allocation, write out the results of the calendar to human readable format.
 
@@ -317,9 +470,9 @@ def convert_allocation_array_to_binary(allocation_map_2D, all_dates_array, filen
     Returns:
         None
     """
-    file = open(filename, 'w')
-    for i in range(len(all_dates_array)):
-        line = all_dates_array[i] + " : " + str(" ".join(map(str, allocation_map_2D[i])))
+    file = open(manager.output_directory + "optimal_allocation_binary_schedule.txt", 'w')
+    for i in range(len(manager.all_dates_array)):
+        line = manager.all_dates_array[i] + " : " + str(" ".join(map(str, manager.allocation_map_2D_NQ[i-manager.today_starting_night])))
         file.write(str(line) + "\n")
     file.close()
 
@@ -412,6 +565,75 @@ def format_keck_allocation_info(allocation_file):
             allocation['Stop'].iloc[i]  = 1
 
     return allocation
+
+def convert_allocation_info_to_binary(manager, allocation):
+    # Generate the binary map for allocations this semester
+    # -----------------------------------------------------------------------------------------
+    print("Generating binary map of allocated nights/quarters.")
+    allocationMap = []
+    allocationMap_ints = []
+    uniqueDays = 0
+    for j in range(len(manager.all_dates_array)):
+        datemask = allocation['Date'] == manager.all_dates_array[j]
+        oneNight = allocation[datemask]
+        if np.sum(datemask) == 0:
+            # for night that is not allocated
+            map1 = "0 0 0 0"
+            map2 = [0, 0, 0, 0]
+        elif np.sum(datemask) == 1:
+            # for night where only one program is allocated (regardless of length of allocation)
+            oneNight.reset_index(inplace=True)
+            map1 = quarter_translator(oneNight['Start'][0], oneNight['Stop'][0])
+            map2 = [int(map1[0]), int(map1[2]), int(map1[4]), int(map1[6])]
+            uniqueDays += 1
+        elif np.sum(datemask) >= 1:
+            # for night where multiple programs are allocated (regardless of their lengths)
+            oneNight.reset_index(inplace=True)
+            last = len(oneNight)
+            map1 = quarter_translator(oneNight['Start'][0], oneNight['Stop'][last-1])
+            map2 = [int(map1[0]), int(map1[2]), int(map1[4]), int(map1[6])]
+            uniqueDays += 1
+        else:
+            print("We have a problem, error code 5.")
+            map1 = "0 0 0 0"
+            map2 = [0, 0, 0, 0]
+        allocationMap.append(map1)
+        allocationMap_ints.append(map2)
+    print("Total number of quarters allocated: ", np.sum(allocationMap_ints))
+    print("Total unique nights allocated: ", uniqueDays)
+
+    # Write the binary allocation map to file
+    filename = manager.upstream_path + "inputs/allocation_schedule.txt"
+    file = open(filename, 'w')
+    for a in range(len(allocationMap)):
+        line = manager.all_dates_array[a] + " : " + str(allocationMap[a])
+        file.write(str(line) + "\n")
+    file.close()
+
+    # Produce and write the start and stop times of each night to file.
+    # For the TTP.
+    # -----------------------------------------------------------------------------------------
+    print("Generate the nightly start/stop times for observing.")
+    listdates = list(allocation['Date'])
+    processed_dates = []
+    starts = []
+    stops = []
+    for t in range(len(allocation)):
+        date = allocation['Date'][t]
+        if date in processed_dates:
+            continue
+        start = allocation['Time'][t][:5]
+        datecount = listdates.count(date)
+        if datecount > 1:
+            stop = allocation['Time'][t+datecount-1][8:13]
+        else:
+            stop = allocation['Time'][t][8:13]
+        processed_dates.append(date)
+        starts.append(start)
+        stops.append(stop)
+    allocation_frame = pd.DataFrame({'Date':processed_dates, 'Start':starts, 'Stop':stops})
+    allocation_frame.to_csv(manager.upstream_path + 'inputs/nightly_start_stop_times.csv', index=False)
+
 
 def quarter_translator(start, stop):
     """

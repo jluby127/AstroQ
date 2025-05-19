@@ -10,11 +10,17 @@ import math
 import time
 from astropy.time import Time
 from astropy.time import TimeDelta
+from astropy.coordinates import Angle
+from astropy.coordinates import SkyCoord
+from astropy import units as u
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as pt
 
-def build_fullness_report(combined_semester_schedule, allocation_map_2D, manager, round_info):
+import kpfcc.history as hs
+
+def build_fullness_report(combined_semester_schedule, manager, round_info):
     """
     Determine how full the schedule is: slots available, slots scheduled, and slots required
 
@@ -30,39 +36,41 @@ def build_fullness_report(combined_semester_schedule, allocation_map_2D, manager
     Returns:
         None
     """
-    file = open(manager.output_directory + "runReport.txt", "a")
-    file.write("Stats for " + str(round_info) + "\n")
-    file.write("------------------------------------------------------" + "\n")
-    listnames = list(manager.requests_frame['Starname'])
-    unavailable = 0
-    unused = 0
-    used = 0
-    for b, item1 in enumerate(combined_semester_schedule):
-        for c, item2 in enumerate(combined_semester_schedule[b]):
-            if "X" in combined_semester_schedule[b][c] or "*" in combined_semester_schedule[b][c] \
-                    or "W" in combined_semester_schedule[b][c]:
-                unavailable += 1
-            if combined_semester_schedule[b][c] == "":
-                unused += 1
-            if combined_semester_schedule[b][c] in listnames or "RM___" in combined_semester_schedule[b][c]:
-                used += 1
-    available = unused + used
-    allocated = np.sum(allocation_map_2D.flatten())
-    file.write("N slots in semester:" + str(np.prod(combined_semester_schedule.shape)) + "\n")
-    file.write("N available slots:" + str(allocated) + "\n")
-    file.write("N slots scheduled: " + str(used) + "\n")
-    file.write("N slots left empty: " + str(allocated-used) + "\n")
+    file_path = manager.output_directory + "runReport.txt"
+    print(f"Writing to: {file_path}")
+    with open(manager.output_directory + "runReport.txt", "a") as file:
+        file.write("Stats for " + str(round_info) + "\n")
+        file.write("------------------------------------------------------" + "\n")
+        listnames = list(manager.requests_frame['starname'])
+        unavailable = 0
+        unused = 0
+        used = 0
+        for b, item1 in enumerate(combined_semester_schedule):
+            for c, item2 in enumerate(combined_semester_schedule[b]):
+                if "X" in combined_semester_schedule[b][c] or "*" in combined_semester_schedule[b][c] \
+                        or "W" in combined_semester_schedule[b][c]:
+                    unavailable += 1
+                if combined_semester_schedule[b][c] == "":
+                    unused += 1
+                if combined_semester_schedule[b][c] in listnames or "RM___" in combined_semester_schedule[b][c]:
+                    used += 1
+        available = unused + used
+        allocated = np.sum(manager.allocation_map_2D.flatten())
+        file.write("N slots in semester:" + str(np.prod(combined_semester_schedule.shape)) + "\n")
+        file.write("N available slots:" + str(allocated) + "\n")
+        file.write("N slots scheduled: " + str(used) + "\n")
+        file.write("N slots left empty: " + str(allocated-used) + "\n")
 
-    total_slots_requested = 0
-    for i in range(len(manager.requests_frame)):
-        total_slots_requested += manager.requests_frame['# of Nights Per Semester'][i]* \
-            math.ceil(manager.requests_frame['Nominal Exposure Time [s]'][i]/(manager.slot_size*60.))
-    file.write("N slots requested (total): " + str(total_slots_requested) + "\n")
-    percentage = np.round((used*100)/allocated,3)
-    file.write("Percent full: " + str(percentage) + "%." + "\n")
-    file.close()
+        total_slots_requested = 0
+        for i in range(len(manager.requests_frame)):
+            total_slots_requested += manager.requests_frame['n_inter_max'][i]* \
+                math.ceil(manager.requests_frame['exptime'][i]/(manager.slot_size*60.))
+        file.write("N slots requested (total): " + str(total_slots_requested) + "\n")
+        percentage = np.round((used*100)/allocated,3)
+        file.write("Percent full: " + str(percentage) + "%." + "\n")
+        file.close()
 
-def report_allocation_stats(manager, allocation_map_2D):
+def report_allocation_stats(manager):
     """
     Return the number of Q1, Q2, Q3, and Q4 nights, as well as single, half, three quarter
     and full nights. Further produce a plot showing the allocation.
@@ -77,7 +85,9 @@ def report_allocation_stats(manager, allocation_map_2D):
         None
     """
     current_day_number = manager.all_dates_dict[manager.current_day]
-    ff = open(outputdir + "allocation_stats.txt", "w")
+    ff = open(manager.output_directory + "allocation_stats.txt", "w")
+
+    fig = pt.figure(figsize=(10,6))
 
     q1s = 0
     q2s = 0
@@ -88,29 +98,34 @@ def report_allocation_stats(manager, allocation_map_2D):
     count2 = 0
     count3 = 0
     count4 = 0
-    for j, item in enumerate(allocation_map_2D):
+    for j, item in enumerate(manager.allocation_map_2D_NQ):
         holder = [0, 0, 0, 0]
-        if allocation_map_2D[j][0] == 1.:
+        if manager.allocation_map_2D_NQ[j][0] == 1:
             q1s += 1
-            date_info = manager.all_dates_array[manager.current_day_number + j] + " - q0"
-            ff.write(date_info + "\n")
+            # Note: I recently had to add the "-1" to each of these lines. Not sure why, but it broke when doing optimal allocation.
+            date_info = manager.all_dates_array[current_day_number + j - 1] + " - q0"
+            #ff.write(date_info + "\n")
             holder[0] = 1
-        if allocation_map_2D[j][1] == 1.:
+            pt.axvline(current_day_number + j, ymin=0, ymax=0.25, color='b')
+        if manager.allocation_map_2D_NQ[j][1] == 1:
             q2s += 1
-            date_info = manager.all_dates_array[manager.current_day_number + j] + " - q1"
-            ff.write(date_info + "\n")
+            date_info = manager.all_dates_array[current_day_number + j - 1] + " - q1"
+            #ff.write(date_info + "\n")
             holder[1] = 1
-        if allocation_map_2D[j][2] == 1.:
+            pt.axvline(current_day_number + j, ymin=0.25, ymax=0.5, color='b')
+        if manager.allocation_map_2D_NQ[j][2] == 1:
             q3s += 1
-            date_info = manager.all_dates_array[manager.current_day_number + j] + " - q2"
-            ff.write(date_info + "\n")
+            date_info = manager.all_dates_array[current_day_number + j - 1] + " - q2"
+            #ff.write(date_info + "\n")
             holder[2] = 1
-        if allocation_map_2D[j][3] == 1.:
+            pt.axvline(current_day_number + j, ymin=0.5, ymax=0.75, color='b')
+        if manager.allocation_map_2D_NQ[j][3] == 1:
             q4s += 1
-            date_info = manager.all_dates_array[manager.current_day_number + j] + " - q3"
-            ff.write(date_info + "\n")
+            date_info = manager.all_dates_array[current_day_number + j - 1] + " - q3"
+            #ff.write(date_info + "\n")
             holder[3] = 1
-        allocated_quarters = np.sum(allocation_map_2D[j])
+            pt.axvline(current_day_number + j, ymin=0.75, ymax=1.0, color='b')
+        allocated_quarters = np.sum(manager.allocation_map_2D_NQ[j])
         if allocated_quarters == 0:
             count0 += 1
         if allocated_quarters == 1:
@@ -121,6 +136,13 @@ def report_allocation_stats(manager, allocation_map_2D):
             count3 += 1
         if allocated_quarters == 4:
             count4 += 1
+
+    size=20
+    pt.ylim(0,1)
+    pt.ylabel('Quarter of Night', fontsize=size)
+    pt.xlabel('Day in Semester', fontsize=size)
+    pt.tick_params(axis='both', labelsize=size)
+    pt.savefig(manager.output_directory + "allocation_visualization.png", dpi=200, bbox_inches='tight', facecolor='w')
 
     ff.write("\n")
     ff.write("There are " + str(q1s) + " first quarters." + "\n")
@@ -140,12 +162,12 @@ def report_allocation_stats(manager, allocation_map_2D):
     ff.write("Total unique nights allocated: " + str(total_nights) + "\n")
     ff.close()
 
-def write_out_results(manager, model, round, start_the_clock):
+def write_out_results(manager, theta, round, start_the_clock):
     """
     Write the Run Report
     Args:
         manager (obj): a data_admin object
-        model (obj): a GurobiModel object
+        theta (obj): a Scheduler.theta object
         rount (str): "Round1" or "Round2"
         start_the_clock (obj): time object of when the scheduler code began
 
@@ -156,7 +178,7 @@ def write_out_results(manager, model, round, start_the_clock):
     filename = open(manager.output_directory + "runReport.txt", "a")
     theta_n_var = []
     counter = 0
-    for v in model.theta.values():
+    for v in theta.values():
         varname = v.VarName
         varval = v.X
         counter += varval
@@ -269,7 +291,7 @@ def write_stars_schedule_human_readable(combined_semester_schedule, Yrds, manage
 
     end_past = manager.all_dates_dict[manager.current_day]*manager.n_slots_in_night
     all_star_schedules = {}
-    for name in list(manager.requests_frame['Starname']):
+    for name in list(manager.requests_frame['starname']):
         star_schedule = []
         # buffer the past with zeros
         for p in range(end_past):
@@ -288,19 +310,20 @@ def write_stars_schedule_human_readable(combined_semester_schedule, Yrds, manage
     combined_semester_schedule = combined_semester_schedule.flatten()
     for s in range(manager.n_slots_in_semester):
         slotallocated = ''
-        for name in list(manager.requests_frame['Starname']):
-            if all_star_schedules[name][s] == 1:
+        for name in list(manager.requests_frame['starname']):
+            if all_star_schedules[name][manager.today_starting_slot+s] == 1:
                 slotallocated += str(name)
-        combined_semester_schedule[s] += str(slotallocated)
+                # print(s, combined_semester_schedule[s], "update: " + str(combined_semester_schedule[manager.today_starting_slot+s]), slotallocated)
+        combined_semester_schedule[manager.today_starting_slot+s] += str(slotallocated)
     combined_semester_schedule = np.reshape(combined_semester_schedule,
             (manager.semester_length, manager.n_slots_in_night))
 
     # The semester solver puts a 1 only in the slot that starts the exposure for a target.
     # Therefore, many slots are empty because they are part of a multi-slot visit.
     # Here fill in the multi-slot exposures appropriately for ease of human reading and accounting.
-    for n in range(manager.n_nights_in_semester-1-manager.all_dates_dict[manager.current_day], -1, -1):
+    for n in range(manager.semester_length -1-manager.all_dates_dict[manager.current_day], -1, -1):
         for s in range(manager.n_slots_in_night-1, -1, -1):
-            if combined_semester_schedule[n+manager.all_dates_dict[manager.current_day]][s] in list(manager.requests_frame['Starname']):
+            if combined_semester_schedule[n+manager.all_dates_dict[manager.current_day]][s] in list(manager.requests_frame['starname']):
                 target_name = combined_semester_schedule[n+manager.all_dates_dict[manager.current_day]][s]
                 slots_needed_for_exposure = manager.slots_needed_for_exposure_dict[target_name]
                 if slots_needed_for_exposure > 1:
@@ -317,7 +340,7 @@ def write_stars_schedule_human_readable(combined_semester_schedule, Yrds, manage
         combined_semester_schedule, delimiter=',', fmt="%s")
     return combined_semester_schedule
 
-def write_available_human_readable(manager, twilight_map, allocation_map_2D, weathered_map):
+def write_available_human_readable(manager):
     """
     Fill in the human readable solution with the non-observation information: non-allocated slots,
     weather loss slots, non-queue slots, twilight slots.
@@ -357,11 +380,11 @@ def write_available_human_readable(manager, twilight_map, allocation_map_2D, wea
             slotallocated = ''
             # remember that twilight map is "inverted": the 1's are time where it is night and the
             # 0's are time where it is day/twilight.
-            if twilight_map[n][s] == 0:
+            if manager.twilight_map_remaining_2D[n][s] == 0:
                 slotallocated += '*'
-            if allocation_map_2D[n][s] == 0:
+            if manager.allocation_map_2D[n][s] == 0:
                 slotallocated += 'X'
-            if weathered_map[n][s] == 1:# and slotallocated == '':
+            if manager.weathered_map[n][s] == 1:# and slotallocated == '':
                 slotallocated += 'W'
             if os.path.exists(manager.nonqueue_map_file):
                 slotallocated += str(nonqueuemap_slots_strs[n + manager.all_dates_dict[manager.current_day], ][s])
@@ -371,8 +394,59 @@ def write_available_human_readable(manager, twilight_map, allocation_map_2D, wea
         combined_semester_schedule, delimiter=',', fmt="%s")
     return combined_semester_schedule
 
+def serialize_schedule(Yrds, manager):
+    """
+    Turns the non-square matrix of the solution into a square matrix and starts the human readable
+    solution by filling in the slots where a star's exposre is started.
+
+    Args:
+        combined_semester_schedule (array): the human readable solution
+        Yns (array): the Gurobi solution with keys of (starname, slot_number) and values 1 or 0.
+        manager (obj): a data_admin object
+
+    Returns:
+        None
+    """
+
+    df = pd.DataFrame(Yrds.keys(),columns=['r','d','s'])
+    df['value'] = [Yrds[k].x for k in Yrds.keys()]
+    sparse = df.query('value>0')
+    sparse.drop(columns=['value'], inplace=True)
+    # sparse only has keys from Yrds that have values = 1, so only scheduled slots and only the starting slot of the observation
+    sparse.to_csv(manager.output_directory + "serialized_outputs_sparse.csv", index=False, na_rep="")
+    day, slot = np.mgrid[:manager.semester_length,:manager.n_slots_in_night]
+    dense1 = pd.DataFrame(dict(d=day.flatten(), s=slot.flatten()))
+    dense1 = pd.merge(dense1, sparse, left_on=['d','s'],right_on=['d','s'],how='left')
+    dense1['r'] = dense1['r'].fillna('')
+    # dense1 has keys for all days and slots, where no star was scheduled to start its observation, the r column is blank
+    dense1.to_csv(manager.output_directory + "serialized_outputs_dense_v1.csv", index=False, na_rep="")
+
+    dense2 = dense1.copy()
+    isNight = np.array(manager.twilight_map_remaining_2D).flatten()
+    isAlloc = np.array(manager.allocation_map_2D).flatten()
+    isClear = np.array(manager.weathered_map).flatten()
+    # have to go backwards otherwise you're adding stars into slots and then testing if the star is in the next slot
+    for slot in range(manager.n_slots_in_semester-1, -1, -1):
+        name_string = ""
+        if isNight[slot] == 0:
+            name_string += "*"
+        if isAlloc[slot] == 0:
+            name_string += "X"
+        if isClear[slot] == 1:
+            name_string += "W"
+        dense2['r'][slot] = name_string + str(dense2['r'][slot])
+
+        if dense2['r'][slot] in list(manager.requests_frame['starname']):
+            slots_needed = manager.slots_needed_for_exposure_dict[dense2['r'][slot]]
+            if slots_needed > 1:
+                for t in range(1, slots_needed):
+                    dense2['r'][slot + t] = str(dense2['r'][slot + t]) + str(dense2['r'][slot])
+
+    # dense2 has keys for all days and slots, manually fill in the reserved slots for each observation and fill in Past/Twilight/Weather info
+    dense2.to_csv(manager.output_directory + "serialized_outputs_dense_v2.csv", index=False, na_rep="")
+
 def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars, current_day,
-                    outputdir):
+                    outputdir, version='nominal'):
     """
     Generate the nightly script in the correct format.
 
@@ -392,15 +466,15 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
     total_exptime = 0
     if not os.path.isdir(outputdir):
         os.mkdir(outputdir)
-    script_file = os.path.join(outputdir,'script_{}_{}.txt'.format(current_day,'nominal'))
+    script_file = os.path.join(outputdir,'script_{}_{}.txt'.format(current_day, version))
     print('Writing starlist to ' + script_file)
 
     lines = []
     for i, item in enumerate(solution_frame['Starname']):
         filler_flag = solution_frame['Starname'][i] in filler_stars
-        row = frame.loc[frame['Starname'] == solution_frame['Starname'][i]]
+        row = frame.loc[frame['starname'] == solution_frame['Starname'][i]]
         row.reset_index(inplace=True)
-        total_exptime += float(row['Nominal Exposure Time [s]'][0])
+        total_exptime += float(row['exptime'][0])
 
         start_exposure_hst = str(TimeDelta(solution_frame['Start Exposure'][i]*60,format='sec') + \
                                                 night_start_time)[11:16]
@@ -421,7 +495,7 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
             filler_flag = True
         else:
             filler_flag = False
-        row = frame.loc[frame['Starname'] == extras['Starname'][j]]
+        row = frame.loc[frame['starname'] == extras['Starname'][j]]
         row.reset_index(inplace=True)
         lines.append(format_kpf_row(row, '56:78', extras['First Available'][j],
                     extras['Last Available'][j], current_day, filler_flag, True))
@@ -455,39 +529,38 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
         line (str): the properly formatted string to be included in the script file
     """
 
-    epochstr = '2024'
-    updated_ra, updated_dec = pm_correcter(row['RA'][0], row['Dec'][0],
-                                row['Proper Motion in RA [miliarcseconds/year]'][0],
-                                row['Proper Motion in Dec [miliarcseconds/year]'][0],
-                                epochstr, current_day, verbose=False)
+    equinox = '2000'
+    updated_ra, updated_dec = pm_correcter(row['ra'][0], row['dec'][0],
+                                row['pmra'][0], row['pmdec'][0], current_day, equinox=equinox)
     if updated_dec[0] != "-":
         updated_dec = "+" + updated_dec
 
-    namestring = ' '*(16-len(row['Starname'][0][:16])) + row['Starname'][0][:16]
+    cpsname = hs.cps_star_name(row['starname'][0])
+    namestring = ' '*(16-len(cpsname[:16])) + cpsname[:16]
 
-    jmagstring = ('jmag=' + str(np.round(float(row['J Magnitude'][0]),1)) + ' '* \
-        (4-len(str(np.round(row['J Magnitude'][0],1)))))
-    exposurestring = (' '*(4-len(str(int(row['Nominal Exposure Time [s]'][0])))) + \
-        str(int(row['Nominal Exposure Time [s]'][0])) + '/' + \
-        str(int(row['Maximum Exposure Time [s]'][0])) + ' '* \
-        (4-len(str(int(row['Maximum Exposure Time [s]'][0])))))
+    jmagstring = ('jmag=' + str(np.round(float(row['jmag'][0]),1)) + ' '* \
+        (4-len(str(np.round(row['jmag'][0],1)))))
+    exposurestring = (' '*(4-len(str(int(row['exptime'][0])))) + \
+        str(int(row['exptime'][0])) + '/' + \
+        str(int(row['exptime'][0])) + ' '* \
+        (4-len(str(int(row['exptime'][0])))))
 
-    ofstring = ('1of' + str(int(row['# Visits per Night'][0])))
+    ofstring = ('1of' + str(int(row['n_intra_max'][0])))
 
-    if row['Simucal'][0]:
-        scval = 'T'
-    else:
-        scval = 'F'
-    scstring = 'sc=' + scval
+    # if row['Simucal'][0]:
+    #     scval = 'T'
+    # else:
+    #     scval = 'F'
+    scstring = 'sc=' + 'T'
 
-    numstring = str(int(row['# of Exposures per Visit'][0])) + "x"
-    gmagstring = 'gmag=' + str(np.round(float(row['G Magnitude'][0]),1)) + \
-                                                ' '*(4-len(str(np.round(row['G Magnitude'][0],1))))
-    teffstr = 'Teff=' + str(int(row['Effective Temperature [Kelvin]'][0])) + \
-                                    ' '*(4-len(str(int(row['Effective Temperature [Kelvin]'][0]))))
+    numstring = str(int(row['n_exp'][0])) + "x"
+    gmagstring = 'gmag=' + str(np.round(float(row['gmag'][0]),1)) + \
+                                                ' '*(4-len(str(np.round(row['gmag'][0],1))))
+    teffstr = 'Teff=' + str(int(row['teff'][0])) + \
+                                    ' '*(4-len(str(int(row['teff'][0]))))
 
-    gaiastring = str(row['GAIA Identifier'][0]) + ' '*(25-len(str(row['GAIA Identifier'][0])))
-    programstring = row['Program_Code'][0]
+    gaiastring = str(row['gaia_id'][0]) + ' '*(25-len(str(row['gaia_id'][0])))
+    programstring = row['program_code'][0]
 
     if filler_flag:
         # All targets added in round 2 bonus round are lower priority
@@ -501,48 +574,46 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
         # designate a nonsense time
         timestring2 = "56:78"
 
-    line = (namestring + ' ' + updated_ra + ' ' + updated_dec + ' ' + str(epochstr) + ' '
+    line = (namestring + ' ' + updated_ra + ' ' + updated_dec + ' ' + str(equinox) + ' '
                 + jmagstring + ' ' + exposurestring + ' ' + ofstring + ' ' + scstring +  ' '
                 + numstring + ' '+ gmagstring + ' ' + teffstr + ' ' + gaiastring + ' CC '
                         + priostring + ' ' + programstring + ' ' + timestring2 +
                          ' ' + first_available  + ' ' + last_available )
 
-    if not pd.isnull(row['Observing Notes'][0]):
-        line += (' ' + str(row['Observing Notes'][0]))
+    # if not pd.isnull(row['Observing Notes'][0]):
+    #     line += (' ' + str(row['Observing Notes'][0]))
 
     return line
 
-def pm_correcter(ra, dec, pmra, pmdec, epochstr, current_day, verbose=False):
+def pm_correcter(ra, dec, pmra, pmdec, current_day, equinox="2000"):
     """
-    Update a star's coordinates due to proper motion
+    Update a star's coordinates due to proper motion.
 
     Args:
-        ra (str): star's old coordinate RA in units of degrees
-        dec (str): star's old coordinate Dec in units of degrees
-        pmra (str): star's proper motion in the RA dimension, units of millearcseconds per year
-        pmdec (str): star's proper motion in the Dec dimension, units of millearcseconds per year
-        epochstr (str): a string of the year those coordinates are updated to
-        verbose (boolean): True to print out to command line
+        ra (float): RA in degrees
+        dec (float): Dec in degrees
+        pmra (float): proper motion in RA (mas/yr), including cos(Dec)
+        pmdec (float): proper motion in Dec (mas/yr)
+        equinox (str): original epoch (e.g. '2000.0')
+        current_day (str): date to which to propagate (e.g. '2025-04-30')
 
     Returns:
-        formatted_ra (str): the updated RA position in units of degrees
-        formatted_dec (str):  the updated Dec position in units of degrees
+        formatted_ra (str), formatted_dec (str): updated coordinates as strings
     """
-    # requires giving RA and Dec in degrees
-    # example: RA = 321.5 and Dec = 15.6
-    # note that degrees are not hour angles!
-    # this code converts RA from degrees to hourangle at the end
+    start_time = Time(f'J{equinox}')
+    current_time = Time(current_day)
 
-    current_time = Time(current_day)  # You can adjust the date as needed
-    ra_deg = Angle(ra, unit=u.deg)  # RA in degrees
-    dec_deg = Angle(dec, unit=u.deg)  # Dec in degrees
-    pm_ra = pmra * u.mas/u.yr
-    pm_dec = pmdec * u.mas/u.yr
-    epochtime = Time('J' + epochstr)
-    ra_advanced_deg = (ra_deg + (pm_ra * (current_time - epochtime).to(u.yr)).to(u.deg))/15
-    dec_advanced_deg = dec_deg + (pm_dec * (current_time - epochtime).to(u.yr)).to(u.deg)
+    coord = SkyCoord(
+        ra=ra * u.deg,
+        dec=dec * u.deg,
+        pm_ra_cosdec=pmra * u.mas/u.yr,
+        pm_dec=pmdec * u.mas/u.yr,
+        obstime=start_time
+    )
 
-    formatted_ra = ra_advanced_deg.to_string(unit=u.deg, sep=' ', pad=True, precision=1)
-    formatted_dec = dec_advanced_deg.to_string(unit=u.deg, sep=' ', pad=True, precision=0)
+    new_coord = coord.apply_space_motion(new_obstime=current_time)
+
+    formatted_ra = new_coord.ra.to_string(unit=u.hourangle, sep=' ', pad=True, precision=1)
+    formatted_dec = new_coord.dec.to_string(unit=u.deg, sep=' ', pad=True, precision=0)
 
     return formatted_ra, formatted_dec
