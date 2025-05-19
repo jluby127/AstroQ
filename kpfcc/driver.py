@@ -209,7 +209,7 @@ def requests_vs_schedule(args):
         n_intra_min, n_intra_max = star_request[['n_intra_min', 'n_intra_max']].values[0]
         
         # Scheduled min/max number of obs per day
-        n_intra_groupby = star_schedule.groupby(['d']).size()/t_visit # Should be integers
+        n_intra_groupby = star_schedule.groupby(['d']).size()/t_visit # The numerator gives the sum of all slots in which the target is observed in a day. Dividing by the number of slots per observation gives the number of observations on each day. Should be integers.
         n_intra_min_sch, n_intra_max_sch = n_intra_groupby.min(), n_intra_groupby.max()
         
         
