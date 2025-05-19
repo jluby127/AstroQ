@@ -23,10 +23,9 @@ import ttp.telescope as telescope
 import ttp.plotting as plotting
 import ttp.model as model
 
-# path2modules = os.path.dirname(os.path.abspath(__file__))
-# sys.path.append(path2modules)
 import kpfcc.weather as wt
 import kpfcc.io as io
+import kpfcc.maps as mp
 
 named_colors = ['blue', 'red', 'green', 'gold', 'maroon', 'gray', 'orange', 'magenta', 'purple']
 
@@ -68,7 +67,7 @@ def run_ttp(manager):
     print("Time in Night for Observations: " + str(total_time) + " hours.")
 
     # Prepare relevant files
-    round_two_requests = np.loadtxt(manager.upstream_path + "/outputs/" + str(manager.current_day) + '/Round2_Requests.txt', dtype=str)
+    round_two_requests = np.loadtxt(manager.upstream_path + "/outputs/" + str(manager.current_day) + '/Round2_Requests.txt', dtype=str, delimiter="\n")
     send_to_ttp = prepare_for_ttp(manager.requests_frame, the_schedule[day_in_semester],
                                         round_two_requests)
     filename = manager.upstream_path + "/outputs/" + str(manager.current_day) + '/Selected_' + str(manager.current_day) + ".txt"
@@ -89,53 +88,66 @@ def run_ttp(manager):
                         round_two_requests, str(manager.current_day), observers_path)
     print("The optimal path through the sky for the selected stars is found. Clear skies!")
 
-def produce_bright_backups(backup_file, backup_observability_file, observatory,
-                            observation_start_time, observation_stop_time,
-                            current_day, output_dir):
+
+def produce_bright_backups(manager, nstars_max=100):
     """
     Produce the TTP solution given the results of the autoscheduler
 
     Args:
-        backup_file (str) - the path and filename request sheet equivalent for bright backups
-        backup_observability_file (str) - the path and filename to the spreadsheet of how many
-                                         hours each night each backup star is observable for
-        observation_start_time (str) - the start time of the night in format HH:MM
-        observation_stop_time (str) - the stop time of the night in format HH:MM
-        current_day (str) - today's date in format YYYY-MM-DD
-        output_dir (str) - the path to save the results
+        manager (obj) - an instance of the manager object
 
     Returns:
         None
     """
     print("Generating bright star backup weather script.")
-    backups_path = output_dir + 'outputs/' + current_day + '/Backups/'
+    backups_path = manager.reports_directory + '/observer/' + manager.current_day + "/backups/"
     check = os.path.isdir(backups_path)
     if not check:
         os.makedirs(backups_path)
 
-    backup_starlist = pd.read_csv(backup_file)
-    backup_observability_frame = pd.read_csv(backup_observability_file)
+    nightly_start_stop_times = pd.read_csv(manager.nightly_start_stop_times_file)
+    # Determine time bounds of the night
+    day_in_semester = manager.all_dates_dict[manager.current_day]
+    idx = nightly_start_stop_times[nightly_start_stop_times['Date'] == str(manager.current_day)].index[0]
+    night_start_time = nightly_start_stop_times['Start'][idx]
+    observation_start_time = Time(str(manager.current_day) + "T" + str(night_start_time),
+        format='isot')
+    night_stop_time = nightly_start_stop_times['Stop'][idx]
+    observation_stop_time = Time(str(manager.current_day) + "T" + str(night_stop_time),
+        format='isot')
+    diff_minutes = int(abs((observation_stop_time - observation_start_time).to('min').value))
+    print("Minutes on sky: ", diff_minutes)
 
-    backups = wt.get_stars_for_tonight(backup_starlist, backup_observability_frame,
-            current_day[5:], minimum_up_time=4.0)
-    backups.drop(columns='index', inplace=True)
+    backup_starlist = pd.read_csv(manager.backup_file)
 
-    filename_backups = backups_path + '/Backups_' + str(current_day) + ".txt"
-    backups_full = wt.get_times_worth(backups, total_time+1)
-    backups_full.to_csv(filename_backups, index=False)
-    targlist_backups = formatting.theTTP(filename_backups)
+    manager.requests_frame = backup_starlist
+    available_indices = mp.produce_ultimate_map(manager,running_backup_stars=True)
+    slots_available_tonight_for_star = {k: len(v[0]) for k, v in available_indices.items()}
+    stars_with_sufficient_availability_tonight = [k for k, v in slots_available_tonight_for_star.items() if v > int(0.25*int(diff_minutes/5))]
 
+    manager.requests_frame = backup_starlist
+    isTonight = backup_starlist['starname'].isin(stars_with_sufficient_availability_tonight)
+    hasDR3name = backup_starlist['gaia_id'].str.startswith('Gaia DR2')
+    pool_tonight = manager.requests_frame[isTonight&hasDR3name]
+    pool_tonight = pool_tonight.sample(frac=1).reset_index(drop=True)
+    pool_tonight = pool_tonight[:nstars_max]
+
+    ready_for_ttp = prepare_for_ttp(pool_tonight, list(pool_tonight['starname']), [])
+    ready_for_ttp.to_csv(backups_path + "selected_stars.csv", index=False)
+    target_list = formatting.theTTP(backups_path + "selected_stars.csv")
+
+    observatory = telescope.Keck1()
     solution_b = model.TTPModel(observation_start_time, observation_stop_time,
-                                targlist_backups, observatory, backups_path,
-                                runtime=300, optgap=0.05)
+                                target_list, observatory, backups_path,
+                                runtime=120, optgap=0.05)
 
-    plotting.writeStarList(solution_b.plotly, observation_start_time, current_day,
+    plotting.writeStarList(solution_b.plotly, observation_start_time, manager.current_day,
                                 outputdir = backups_path)
     plotting.plot_path_2D(solution_b, outputdir = backups_path)
-    plotting.nightPlan(solution_b.plotly, current_day, outputdir = backups_path)
-    obs_and_times_b = pd.read_csv(backups_path + 'ObserveOrder_' + current_day + ".txt")
-    io.write_starlist(backup_starlist, solution_b.plotly, observation_start_time,
-                        solution_b.extras, [], str(current_day), backups_path)
+    plotting.nightPlan(solution_b.plotly, manager.current_day, outputdir = backups_path)
+    obs_and_times_b = pd.read_csv(backups_path + 'ObserveOrder_' + manager.current_day + ".txt")
+    io.write_starlist(pool_tonight, solution_b.plotly, observation_start_time,
+                        solution_b.extras, [], manager.current_day, backups_path, "backups")
     print("Bright backups script created.")
 
 def prepare_for_ttp(request_frame, night_plan, round_two_targets):
