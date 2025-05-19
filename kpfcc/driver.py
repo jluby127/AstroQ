@@ -175,7 +175,7 @@ def requests_vs_schedule(args):
                              "the same day and slot.")
     assert sch.groupby(['d','s']).size().max()<=1, no_duplicate_slot_err
 
-    
+    import pdb; pdb.set_trace()
     for star in req.id:
         star_request = req.query(f"id=='{star}'")
         star_schedule = sch.query(f"r=='{star}'") # Only the slots with the star listed
@@ -206,7 +206,7 @@ def requests_vs_schedule(args):
         n_inter_max_err = ("n_inter_max violated: "
                           f"{star} is scheduled too many times in the semester "
                           f"({n_inter_sch} > {n_inter_max})")
-        assert n_inter_sch <= n_inter_max, nim_err
+        assert n_inter_sch <= n_inter_max, n_inter_max_err
         
         
     # 3) n_intra_min, n_intra_max: N obs per day is between n_intra_min and n_intra_max
