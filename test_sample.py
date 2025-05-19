@@ -57,8 +57,8 @@ class TestClass:
     """
 
 
-    # def test_plot(self):
-    #     dr.plot(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
+    def test_plot(self):
+        dr.plot(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
 
     # need environment variable to run
     """
@@ -84,7 +84,7 @@ class TestClass:
     
     def test_requests_vs_schedule(self):
         req = 'examples/hello_world/outputs/2024-08-01/request_set.json'
-        sch = 'examples/hello_world/outputs/2024-08-01/serialized_outputs_dense.csv'
+        sch = 'examples/hello_world/outputs/2024-08-01/serialized_outputs_sparse.csv'
         
         dr.requests_vs_schedule(argparse.Namespace(request_file=req, schedule_file=sch))
             
