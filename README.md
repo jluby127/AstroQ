@@ -1,5 +1,5 @@
-# KPF-CC Autoscheduler
-This software represents Version 2.0 of the KPF-CC autoscheduler. The algorithm is now more granular, working on the timescale of "slots" and trying to schedule targets into specific slots within the semester. This new framework allows additional features as well.
+# AstroQ
+This software represents Version 2.0 of the KPF-CC autoscheduler, known as AstroQ.
 
 This package contains the code for solving two related problems:
 1. Optimal Semester Scheduler -- Determine which targets should be observed on which nights
@@ -11,8 +11,8 @@ The installation of this package is not straight-forward. Please read carefully 
 
 We _*highly recommend*_ (though optional) setting up within a new Conda environment first. To do so, run this command and then be sure to activate the environment:
 ```
-conda create -n kpfcc python=3.9
-conda activate kpfcc
+conda env create --name astroq --file <LOCAL PATH>/environment.yml
+conda activate astroq
 ```
 
 ### Installing Gurobi
@@ -28,59 +28,45 @@ Before doing anything else, you must obtain a license for Gurobi.
 grbgetkey 253e22f3...
 ```
 
-### Install optimalAllocation
+(Add info on setting your environment variable to the correct license)
+
+### Install AstroQ
 
 Only once you have obtained a Gurobi license can clone this repository:
 ```
-git clone https://github.com/jluby127/optimalAllocation.git
+git clone https://github.com/jluby127/astroq.git
 ```
 
 And then install via:
 ```
-pip install .
+pip install . (you may want include a "-e" flag if you intend to be editing the code)
 ```
 
 This will set up the environment and all dependency packages. Once again, it is very important that you _**do not**_ run the pip installer until you have obtained a Gurobi license. I cannot stress this enough.
 
 ### Install ttpsolver
-One of the optimalAllocation dependencies is a package we co-developed, the TTP Solver (Traveling Telescope Problem). While the optimalAllocation autoscheduler decides which requests should be observed on a given night, the TTP solves for the optimal slew path to observe all those targets within the night. When pip installing the optimalAllocation package, the ttpsolver will be cloned from its repo as well. You must navigate to its local path and similarly pip install the package. For more information on installation and documentation of the TTP, see its Github Repo at: https://github.com/lukehandley/ttp. Since you have obtained a Gurobi license as part of the installation instructions above, you may skip that section of the TTP's installation instructions. Be sure to update your environment variables to include the path to the TTP.
+One of the optimalAllocation dependencies is a package we co-developed, the TTP Solver (Traveling Telescope Problem). While the AstroQ autoscheduler decides which requests should be observed on a given night, the TTP solves for the optimal slew path to observe all those targets within the night. This package is automatically installed via pip from the environment.yml; however, you must navigate to its local path update your environment variables. For more information on installation and documentation of the TTP, see its Github Repo at: https://github.com/lukehandley/ttp. 
 
 # Run instructions
 
 To test installation and practice the workflow of running the autoscheduler, use the supplied example. From your terminal, run the following command:
 ```
-python <LOCAL_DIR>/bin/generate_night_plan.py -d 2024-08-02 -f <LOCAL_DIR>/examples/
+astroq schedule -rf examples/hello-world.json -cf examples/config_hello_world.ini
 ```
 
 ## Flags
 
 ### Required
 
--f specifies the folder containing the inputs and outputs directory (can be defaulted to an environment variable: key name "KPFCC_SAVE_PATH")
+-rf 
 
--d specifies the date for which to produce a script, format YYYY-MM-DD (No Default)
+-cf
 
 ### Advanced
 
--a specifies to run the autoscheduler (Default: True)
-
--p specifies to run the plotting/reporting suite (Default: True)
-
--ttp specifies to turn off the ttp solver (Default: False)
-
--r specifies to run the "bonus" round (Default: False)
-
--w specifies to turn off the weather loss simulations. Now no nights will be lost to weather. (Default: False)
 
 ### Optional
 
--s specifies the slot size, in minutes (Default: 5)
-
--b specifies to turn on the back up bright star list script. Now we will produce an additional night plan of only bright (V < 8) stars. (Default: False)
-
--t specifies the maximum time to solve the model (Default: 300s)
-
--g specifies to print the gorubi output to terminal (Default: True)
 
 
 # More Info
