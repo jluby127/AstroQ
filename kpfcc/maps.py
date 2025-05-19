@@ -35,7 +35,7 @@ from scipy.interpolate import interp1d
 import kpfcc.access as ac
 import kpfcc.weather as wh
 
-def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_flat):
+def produce_ultimate_map(manager, running_backup_stars=False):
     """
     Combine all maps for a target to produce the final map
 
@@ -43,8 +43,6 @@ def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_f
         requests_frame (dataframe): the pandas dataframe containing request information
 
     Returns:
-        available_slots_for_request (dictionary): keys are the starnames and values are the 1D array
-                                                  of the final map
         available_indices_for_request (dictionary): keys are the starnames and values are a 1D array
                                                   the indices where available_slots_for_request is 1.
 
@@ -126,7 +124,8 @@ def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_f
         name = rs.iloc[itarget]['starname']
         if name in manager.database_info_dict:
             if manager.database_info_dict[name][0] != '0000-00-00': # default value if no history
-                inight_start = manager.all_dates_dict[manager.database_info_dict[name][0]]
+                # inight_start = manager.all_dates_dict[manager.database_info_dict[name][0]]
+                inight_start = manager.all_dates_dict[manager.current_day] - manager.today_starting_night
                 inight_stop = min(inight_start + rs.iloc[itarget]['tau_inter'],nnights)
                 is_inter[itarget,inight_start:inight_stop,:] = False
 
@@ -151,15 +150,16 @@ def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_f
 
     # Is observable now,
     is_observable = is_observable_now.copy()
-    for itarget in range(ntargets):
-        e_val = manager.slots_needed_for_exposure_dict[rs.iloc[itarget]['starname']]
-        if e_val == 1:
-            continue
+    if running_backup_stars == False:
+        for itarget in range(ntargets):
+            e_val = manager.slots_needed_for_exposure_dict[rs.iloc[itarget]['starname']]
+            if e_val == 1:
+                continue
 
-        for shift in range(1, e_val):
-            # shifts the is_observable_now array to the left by shift
-            # for is_observable to be true, it must be true for all shifts
-            is_observable[itarget, :, :-shift] &= is_observable_now[itarget, :, shift:]
+            for shift in range(1, e_val):
+                # shifts the is_observable_now array to the left by shift
+                # for is_observable to be true, it must be true for all shifts
+                is_observable[itarget, :, :-shift] &= is_observable_now[itarget, :, shift:]
 
     # specify indeces of 3D observability array
     itarget, inight, islot = np.mgrid[:ntargets,:nnights,:nslots]
@@ -178,7 +178,6 @@ def produce_ultimate_map(manager):#, allocation_map_1D, twilight_map_remaining_f
             temp.append(list(islot[itarget,inight,is_observable[itarget,inight,:]]))
 
         available_indices_for_request[rs.iloc[itarget]['starname']] = temp
-    #np.testing.assert_equal(available_indices_for_request, available_indices_for_request2)
     return available_indices_for_request
 
 
@@ -188,7 +187,7 @@ def mod_produce_ultimate_map(manager, starname):
 
     Args:
         manager
-        starname 
+        starname
 
     Returns:
         the maps
