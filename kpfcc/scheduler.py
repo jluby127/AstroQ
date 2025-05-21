@@ -176,40 +176,26 @@ class Scheduler(object):
         # uled into the required consecutive slots
         """
         print("Constraint 2: Reserve slots for for multi-slot exposures.")
-        obs = self.request_set.observability
-        ms = self.multi_slot_frame
-        # If request requires only 1 slot to complete, then no constraint on reserving additional slots
+        max_t_visit = self.request_set.strategy.t_visit.max() # longest exposure time
+        R_ds = self.request_set.observability.groupby(['d','s'])['id'].apply(set).to_dict()
+        R_geq_t_visit = {} # dictionary of requests where t_visit is greater than or equal to t_visit
+        strategy = self.request_set.strategy
+        for t_visit in range(1,max_t_visit+1):
+            R_geq_t_visit[t_visit] = set(strategy[strategy.t_visit >= t_visit]['id'])
 
-        for d in ms.d.drop_duplicates():
-            obs_day = obs[obs.d == d]
-            ms_day = ms[ms.d == d]
+        for d,s in self.request_set.observability.drop_duplicates(['d','s'])[['d','s']].itertuples(index=False, name=None):
+            rhs = []
+            for delta in range(1,max_t_visit):
+                s_shift = s - delta
+                if (d,s_shift) in R_ds:
+                    rhs.extend(self.Yrds[r,d,s_shift] for r in R_ds[d,s_shift] & R_geq_t_visit[delta+1])
 
-            # Precompute all requests that are valid on day d, and slot s.
-            valid_requests = obs_day.groupby('s')['id'].apply(set).to_dict()
+            #import pdb; pdb.set_trace()
+            lhs = 1 - gp.quicksum(self.Yrds[r,d,s] for r in R_ds[d,s])
+            rhs = gp.quicksum(rhs)
+            self.model.addConstr(lhs >= rhs, f'reserve_multislot_{d}d_{s}s')
 
-            # Loop over all multi-slot requests on day d and enforce no other request in
-            # slots within t_visit from slot starting slot
-            ids = ms_day.id.values
-            ss = ms_day.s.values
-            t_visits = ms_day.t_visit.values
-            for i in range(len(ids)):
-                id = ids[i]
-                s = ss[i]
-                t_visit = t_visits[i]
-                lhs = t_visit * (1 - self.Yrds[id,d,s])
-                rhs = []
-                for delta in range(1,t_visit):
-                    s_shift = s + delta
-                    if s_shift in valid_requests:
-                        rhs.extend(self.Yrds[r,d,s_shift] for r in valid_requests[s_shift])
-
-                if len(rhs) > 0:  # Only add constraint if there are slots to reserve
-                    name = f'reserve_multislot_{id}_{d}d_{s}s'
-                    constr = (lhs >= gp.quicksum(rhs))
-                    self.model.addConstr(constr, name)
-
-
-
+        import pdb; pdb.set_trace()
 
     # this function can likely be deleted - Jack 4/28/25
     def constraint_max_visits_per_night(self):
@@ -536,7 +522,7 @@ class Scheduler(object):
     def build_model_round1(self):
         t1 = time.time()
 
-        self.constraint_one_request_per_slot()
+        #self.constraint_one_request_per_slot()
         self.constraint_reserve_multislot_exposures()
         self.constraint_enforce_internight_cadence()
 
