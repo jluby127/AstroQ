@@ -205,8 +205,6 @@ class Scheduler(object):
             rhs = gp.quicksum(rhs)
             self.model.addConstr(lhs >= rhs, f'reserve_multislot_{d}d_{s}s')
 
-        import pdb; pdb.set_trace()
-
     # this function can likely be deleted - Jack 4/28/25
     def constraint_max_visits_per_night(self):
         """
