@@ -44,8 +44,7 @@ def bench(args):
     meta = rq.build_meta(cf)
     request_set = rq.RequestSet(meta, strategy, observable)
     # print out the last rows of strategy to ensure the size of the model looks right
-    print(request_set.strategy[-10:])
-    current_day = str(config.get('required', 'current_day'))
+    request_set.to_json(os.path.join(manager.output_directory, "request_set.json"))
     # Run the schedule
     schedule = sch.Scheduler(request_set, cf)
     schedule.run_model()
