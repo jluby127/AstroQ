@@ -1,5 +1,5 @@
 """
-Module for processin the inputs and outputs of the autoscheduler to/from various sources.
+Module for processing the inputs and outputs of the autoscheduler to/from various sources.
 Designed to be only run as a function call from the generateScript.py script.
 
 Example usage:
