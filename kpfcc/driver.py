@@ -164,7 +164,8 @@ def requests_vs_schedule(args):
     rf = args.request_file
     sf = args.schedule_file
     
-    req = rq.read_json(rf).strategy
+    req_object = rq.read_json(rf)
+    req = req_object.strategy
     sch = pd.read_csv(sf)
     sch = sch.sort_values(by=['d', 's']).reset_index(drop=True) # Re-order into the real schedule
     
@@ -190,10 +191,16 @@ def requests_vs_schedule(args):
             
         day_slot_diffs = day_slot.iloc[star_inds+1].reset_index() - day_slot.iloc[star_inds].reset_index()
 
-        if len(day_slot_diffs.query('d==0'))==0: # If the target is always the last obs of the night, pass
+            
+        if len(day_slot_diffs.query('d==0'))==0: # d==0 when next obs is on the same day. If the target is always the last obs of the night, pass
             pass
         else:
-            assert day_slot_diffs.query('d==0').s.min() >= t_visit-1, f"{star}"
+            closest_slot_separation = day_slot_diffs.query('d==0').s.min()
+            t_visit_err = ("t_visit violated: "
+                           "Two stars are scheduled too close together: "
+                          f"{star} requires {t_visit} slots but another "
+                          f"star is scheduled after only {closest_slot_separation}.")
+            assert closest_slot_separation >= t_visit, t_visit_err
         
 
     # 2) n_inter_max: Total number of nights a target is scheduled in the semester is less than n_inter_max
@@ -203,7 +210,7 @@ def requests_vs_schedule(args):
         # Now make sure the number of visits is less than the limit
         n_inter_max_err = ("n_inter_max violated: "
                           f"{star} is scheduled too many times in the semester "
-                          f"({n_inter_sch} > {n_inter_max})")
+                          f"(scheduled: {n_inter_sch} obs; required: {n_inter_max} obs)")
         assert n_inter_sch <= n_inter_max, n_inter_max_err
         
         
@@ -223,17 +230,17 @@ def requests_vs_schedule(args):
         # Ensure the target is never scheduled too few/many times in one night
         n_intra_min_err = ("n_intra_min violated: "
                           f"{star} is scheduled too few times in one night "
-                          f"({n_intra_min_sch} obs vs {n_intra_min} obs)")
+                          f"(scheduled: {n_intra_min_sch} obs; required: {n_intra_min} obs)")
         assert n_intra_min <= n_intra_min_sch, n_intra_min_err
         
         n_intra_max_err = ("n_intra_max violated: "
                           f"{star} is scheduled too many times in one night "
-                          f"({n_intra_max_sch} obs vs {n_intra_max} obs)")
+                          f"(scheduled: {n_intra_max_sch} obs; required: {n_intra_max} obs)")
         assert n_intra_max_sch <= n_intra_max, n_intra_max_err
         
         
-    # 4) tau_inter: There must be at least tau_inter nights between successive observations of a target over the semester
-        tau_inter = star_request[['tau_inter']].values[0] # min num of nights before another obs
+    # 4) tau_inter: There must be at least tau_inter nights between successive nights during which a target is observed
+        tau_inter = star_request['tau_inter'].values[0] # min num of nights before another obs
 
         unique_days = np.sort(np.array(list(set(star_schedule.d))))
         min_day_gaps = np.min(unique_days[1:] - unique_days[:-1])
@@ -245,13 +252,18 @@ def requests_vs_schedule(args):
             # Require that all gaps are greater than the min gap 
             tau_inter_err = ("tau_inter violated: "
                             f"two obs of {star} are not spaced by enough days "
-                            f"({min_day_gaps} days vs {tau_inter} days)")
+                            f"(scheduled: {min_day_gaps} days; required: {tau_inter} days)")
             assert min_day_gaps >= tau_inter, tau_inter_err
     
     
     # 5) tau_intra: There must be at least tau_intra slots between successive observations of a target in a single night
-        tau_intra = star_request[['tau_intra']].values[0] # min num of slots before another obs
+        slot_duration = req_object.meta.slot_duration # Slot duration in minutes
+        slots_per_hour = 60/slot_duration
+        tau_intra_hrs = star_request['tau_intra'].values[0] # min num of hours before another obs
+        tau_intra_slots = tau_intra_hrs * slots_per_hour
         
+        # if star=='Kepler-10':
+        #     import pdb; pdb.set_trace()
         min_slot_diffs = star_schedule.groupby('d').s.diff().min() # Group by day, then find successive differences between slot numbers in the same day. Differences are not computed between the last slot of one night and the first slot of the next night (those values are NaN). The differences must all be AT LEAST tau_intra.
         
         if n_intra_max <= 1: # If only 1 obs per night, no risk of spacing obs too closely
@@ -259,9 +271,9 @@ def requests_vs_schedule(args):
         else:
             tau_intra_err = ("tau_intra_violated: "
                             f"two obs of {star} are not spaced by enough slots "
-                            f"({min_slot_diffs} vs {tau_intra})")
+                            f"(scheduled: {min_slot_diffs} slots; required: {tau_intra_slots} slots)")
 
-            assert min_slot_diffs >= tau_intra, tau_intra_err
+            assert min_slot_diffs >= tau_intra_slots, tau_intra_err
             
             
 
