@@ -243,7 +243,7 @@ def requests_vs_schedule(args):
         tau_inter = star_request['tau_inter'].values[0] # min num of nights before another obs
 
         unique_days = np.sort(np.array(list(set(star_schedule.d))))
-        min_day_gaps = np.min(unique_days[1:] - unique_days[:-1])
+        min_day_gaps = np.min(unique_days[1:] - unique_days[:-1]) # Minimum difference between obs nights
         
         
         if n_inter_max <= 1: # If only 1 obs per semester, no risk of spacing obs too closely
