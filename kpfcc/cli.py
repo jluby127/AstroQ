@@ -146,6 +146,23 @@ def main():
                               help="Relative path of config file."
                               )
     psr_ttp.set_defaults(func=kpfcc.driver.ttp)
+    
+    ## subcommand of astroq: compare -- compare request set and schedule file
+    psr_compare = subpsr.add_parser('comp', parents=[psr_parent],
+                                    description='Compare request set and schedule for consistency',
+                                    prefix_chars='-'
+                                    )
+    psr_compare.add_argument('-rf', '--request_file',
+                              type=str,
+                              required=True,
+                              help="Relative path of request set file."
+                              )
+    psr_compare.add_argument('-sf', '--schedule_file',
+                              type=str,
+                              required=True,
+                              help="Relative path of schedule file."
+                              )
+    psr_compare.set_defaults(func=kpfcc.driver.requests_vs_schedule)
 
     # If no arguments are provided, print help message and exit
     if len(sys.argv)==1:
