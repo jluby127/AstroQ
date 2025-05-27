@@ -177,6 +177,7 @@ def requests_vs_schedule(args):
         star_request = req.query(f"id=='{star}'")
         star_schedule = sch.query(f"r=='{star}'") # Only the slots with the star listed
 
+        # A star might not be scheduled at all. This does not violate constraints, but should be noted.
         if len(star_schedule)==0:
             print(f"{star} not scheduled" )
             continue 
