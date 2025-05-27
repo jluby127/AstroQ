@@ -48,13 +48,14 @@ def build_toy_model_from_paper(ns, hours_per_program = 80, plot = False):
     Returns a pandas DataFrame with the request information.
     """
     # Define programs with their characteristics
+    # [tau_inter, t_exp [seconds], n_inter_max, n_intra_max]
     program1 = [1, 300, 40, 1]  # APF-50
     program2 = [3, 600, 20, 1]  # TKS
     program3 = [10, 1200, 10, 1]  # bi-weekly
     program4 = [1, 300, 8, 5]  # Intra
     program5 = [1, 300, 40, 1]  # Constrained
     dynamic_exptime = ns*300
-    program6 = [1, dynamic_exptime, 1, 1]  # Singles
+    program6 = [0, dynamic_exptime, 1, 1]  # Singles
     all_programs = [program1, program2, program3, program4, program5, program6]
 
     # Calculate number of stars per program

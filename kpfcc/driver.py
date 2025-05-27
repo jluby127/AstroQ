@@ -168,17 +168,18 @@ def requests_vs_schedule(args):
     req = req_object.strategy
     sch = pd.read_csv(sf)
     sch = sch.sort_values(by=['d', 's']).reset_index(drop=True) # Re-order into the real schedule
-    
     # First, ensure no repeated day/slot pairs (does allow missing pairs)
     no_duplicate_slot_err = ("'No duplicate slot' condition violated: "
                              "At least one pair of rows corresponds to "
                              "the same day and slot.")
     assert sch.groupby(['d','s']).size().max()<=1, no_duplicate_slot_err
-
     for star in req.id:
         star_request = req.query(f"id=='{star}'")
         star_schedule = sch.query(f"r=='{star}'") # Only the slots with the star listed
-        
+
+        if len(star_schedule)==0:
+            print(f"{star} not scheduled" )
+            continue 
     # 1) t_visit: No stars scheduled during another star's slot
 
         t_visit = star_request.t_visit.values[0] # Number of slots needed to complete observation
@@ -241,19 +242,18 @@ def requests_vs_schedule(args):
         
     # 4) tau_inter: There must be at least tau_inter nights between successive nights during which a target is observed
         tau_inter = star_request['tau_inter'].values[0] # min num of nights before another obs
-
-        unique_days = np.sort(np.array(list(set(star_schedule.d))))
-        min_day_gaps = np.min(unique_days[1:] - unique_days[:-1]) # Minimum difference between obs nights
-        
-        
-        if n_inter_max <= 1: # If only 1 obs per semester, no risk of spacing obs too closely
-            pass
-        else:
-            # Require that all gaps are greater than the min gap 
-            tau_inter_err = ("tau_inter violated: "
-                            f"two obs of {star} are not spaced by enough days "
-                            f"(scheduled: {min_day_gaps} days; required: {tau_inter} days)")
-            assert min_day_gaps >= tau_inter, tau_inter_err
+        if tau_inter > 0: # only run this test if the intention is to schedule more than once
+            unique_days = np.sort(np.array(list(set(star_schedule.d))))
+            min_day_gaps = np.min(unique_days[1:] - unique_days[:-1])
+               
+            if n_inter_max <= 1: # If only 1 obs per semester, no risk of spacing obs too closely
+                pass
+            else:
+                # Require that all gaps are greater than the min gap 
+                tau_inter_err = ("tau_inter violated: "
+                                f"two obs of {star} are not spaced by enough days "
+                                f"(scheduled: {min_day_gaps} days; required: {tau_inter} days)")
+                assert min_day_gaps >= tau_inter, tau_inter_err
     
     
     # 5) tau_intra: There must be at least tau_intra slots between successive observations of a target in a single night
