@@ -468,7 +468,28 @@ class Scheduler(object):
         of observations, weighted by the time needed
         to complete one observation.
         """
-        self.model.setObjective(gp.quicksum(self.theta[name]*self.manager.slots_needed_for_exposure_dict[name] for name in self.schedulable_requests), GRB.MINIMIZE)
+        sxo = pd.merge(self.request_set.strategy, self.request_set.observability)
+        g = sxo.groupby('id')
+        print("Constraint 0: Build theta variable")
+        for r, group in g:
+            # Set of accessible day slot pairs for request r
+            DS = list(group[['d','s']].itertuples(index=False,name=None))
+            Pr = self.past_nights_observed_dict[r]
+            n_inter_max = group['n_inter_max'].iloc[0]
+            n_intra_max = group['n_intra_max'].iloc[0]
+            t_visit = group['t_visit'].iloc[0]
+            lhs = self.theta[r]
+            rhs = n_inter_max * n_intra_max - Pr - gp.quicksum(self.Yrds[r,d,s] for d,s in DS) # visits
+            rhs *= t_visit # convert visits to slots
+
+            # must be both greater than zero and greater than the shortfall
+            name = f'greater_than_zero_shortfall_{r}'
+            self.model.addConstr(lhs >= 0, name)
+            name = f"greater_than_nobs_shortfall_{r}"
+            self.model.addConstr(lhs >= rhs, name)
+
+        self.model.setObjective(gp.quicksum(self.theta[r] for r, group in g), GRB.MINIMIZE)
+
 
     def constraint_build_theta_multivisit(self):
         """
@@ -481,16 +502,22 @@ class Scheduler(object):
         and the sum of the past and future scheduled 
         observations of that target.
         """
+        sxo = pd.merge(self.request_set.strategy, self.request_set.observability)
         print("Constraint 0: Build theta variable")
-        for name in self.schedulable_requests:
-            idx = self.manager.requests_frame.index[self.manager.requests_frame['starname']==name][0]
-            self.model.addConstr(self.theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
-            # Get all (d,s) pairs for which this request is valid.
-            all_d = list(set(list(self.all_valid_ds_for_request.loc[name].d)))
-            available = list(zip(list(self.all_valid_ds_for_request.loc[name].d), list(self.all_valid_ds_for_request.loc[name].s)))
-            self.model.addConstr(self.theta[name] >= ((self.manager.requests_frame['n_inter_max'][idx] - \
-                        self.past_nights_observed_dict[name]) - (gp.quicksum(self.Yrds[name, d, s] for d, s in available))/self.manager.requests_frame['n_intra_max'][idx]), \
-                        'greater_than_nobs_shortfall_' + str(name))
+        for r, group in sxo.groupby('id'):
+            # Set of accessible day slot pairs for request r
+            DS = list(group[['d','s']].itertuples(index=False,name=None))
+            Pr = self.past_nights_observed_dict[r]
+            n_inter_max = group['n_inter_max'].iloc[0]
+            n_intra_max = group['n_intra_max'].iloc[0]
+            lhs = self.theta[r]
+            rhs = n_inter_max - Pr - gp.quicksum(self.Yrds[r,d,s] for d,s in DS)/n_intra_max
+
+            # must be both greater than zero and greater than the shortfall
+            name = f'greater_than_zero_shortfall_{r}'
+            self.model.addConstr(lhs >= 0, name)
+            name = f"greater_than_nobs_shortfall_{r}"
+            self.model.addConstr(lhs >= rhs, name)
 
     def constraint_set_max_desired_unique_nights_Wrd(self):
         """
@@ -647,7 +674,7 @@ class Scheduler(object):
         self.constraint_set_max_desired_unique_nights_Wrd()
         self.constraint_build_enforce_intranight_cadence()
         self.constraint_set_min_max_visits_per_night()
-        self.constraint_build_theta_multivisit()
+        #self.constraint_build_theta_multivisit()
 
         if self.manager.run_optimal_allocation:
             self.constraint_set_max_quarters_allocated()
