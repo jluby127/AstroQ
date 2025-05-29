@@ -20,7 +20,12 @@ from astropy.coordinates import Angle
 import astroplan as apl
 import astropy.units as u
 
+import logging
+log = logging.getLogger(__name__)
+log.setLevel(logging.WARNING)
+
 import kpfcc.access as ac
+
 
 def get_loss_stats(manager):
     """
@@ -88,14 +93,14 @@ def simulate_weather_losses(allocation_remaining, loss_stats, covariance=0.14, \
                 if plot:
                     pt.axvline(i, color='k')
     else:
-        print('Pretending weather is always good!')
+        log.info('Pretending weather is always good!')
         days_lost = [0]*(len(allocation_remaining_post_losses)-1)
 
     weather_diff_remaining_2D = np.array(allocation_remaining) - \
                                 np.array(allocation_remaining_post_losses)
     weather_diff_remaining_1D = weather_diff_remaining_2D.flatten()
-    print("Total nights simulated as weathered out: " + str(counter) + " of " + \
-                str(len(allocation_remaining_post_losses)) + " nights remaining.")
+    log.info("Total nights simulated as weathered out: " + str(counter) + " of " + \
+                str(len(allocation_remaining_post_losses)) + " nights remaining.") # info
     if plot:
         size=15
         pt.xlabel("Days in Semester from Current Day", fontsize=size)
@@ -250,9 +255,9 @@ def get_stars_for_tonight(manager, minimum_up_time=4):
     stars_for_tonight.sort_values(by='Exposure Time', ascending=False, inplace=True)
     stars_for_tonight.reset_index(inplace=True)
 
-    print("There are " + str(len(stars_for_tonight)) + " available backup stars for tonight.")
-    print("Amounting to total possible time added (not accounting for slew) of " + \
-        str(np.round(total_time/3600,1)) + " hours.")
+    log.info("There are " + str(len(stars_for_tonight)) + " available backup stars for tonight.") # info
+    log.info("Amounting to total possible time added (not accounting for slew) of " + \
+        str(np.round(total_time/3600,1)) + " hours.") # info
     return stars_for_tonight
 
 def get_times_worth(backup_list_tonight, n_hours_needed):
