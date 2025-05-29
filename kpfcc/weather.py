@@ -11,6 +11,8 @@ import pandas as pd
 import matplotlib.pyplot as pt
 import warnings
 warnings.filterwarnings('ignore')
+import logging
+log = logging.getLogger(__name__)
 
 from astropy.time import Time
 from astropy.time import TimeDelta
