@@ -15,6 +15,10 @@ from astropy.time import TimeDelta
 from configparser import ConfigParser
 from types import SimpleNamespace
 
+import logging
+log = logging.getLogger(__name__)
+log.setLevel(logging.WARNING)
+
 # from kpfcc import DATADIR
 DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')
 import kpfcc.history as hs
@@ -51,7 +55,7 @@ class data_admin(object):
 
         # self.allocation_file = os.path.join(self.semester_directory, "inputs/allocation_schedule.txt")
         self.allocation_file = str(config.get('oia', 'allocation_file'))
-        print("Using allocation map as defined in: ", self.allocation_file)
+        log.debug("Using allocation map as defined in: ", self.allocation_file)
         self.requests_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/Requests.csv"))
         self.twilight_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/twilight_times.csv"), parse_dates=True)
         self.past_database_file = os.path.join(self.semester_directory, "inputs/queryJumpDatabase.csv")
@@ -123,8 +127,8 @@ class data_admin(object):
             get_semester_info(self.current_day)
         all_dates_dict, all_dates_array = build_date_dictionary(semester_start_date, semester_length)
         n_nights_in_semester = len(all_dates_dict) - all_dates_dict[self.current_day]
-        print("Total semester length: ", semester_length)
-        print("There are " + str(n_nights_in_semester) + " calendar nights remaining in the semester.")
+        log.debug("Total semester length: ", semester_length)
+        log.debug("There are " + str(n_nights_in_semester) + " calendar nights remaining in the semester.")
 
         # Compute slot grid sizes
         n_slots_in_quarter = int(((self.n_hours_in_night*60)/self.n_quarters_in_night)/self.slot_size)
@@ -134,7 +138,7 @@ class data_admin(object):
         # Define the slot and night represents the today's date
         today_starting_slot = all_dates_dict[self.current_day]*n_slots_in_night
         today_starting_night =  all_dates_dict[self.current_day]
-        print("There are " + str(n_slots_in_semester) + " slots remaining in the semester.")
+        log.debug("There are " + str(n_slots_in_semester) + " slots remaining in the semester.")
 
         self.semester_start_date = semester_start_date
         self.semester_length = semester_length
@@ -186,7 +190,7 @@ class data_admin(object):
             manager (obj): a data_admin object
             always_round_up_flag (boolean): if true, slots needed is always larger than exposure_time
         """
-        print("Determining slots needed for exposures.")
+        log.info("Determining slots needed for exposures.")
         # schedule multi-shots and multi-visits as if a single, long exposure.
         # When n_shots and n_visits are both 1, this reduces down to just the stated exposure time.
         slots_needed_for_exposure_dict = {}
@@ -214,7 +218,7 @@ def get_semester_info(current_day):
         if current_day[5:7] == '01':
             year_flag = True
     else:
-        print("Invalid date. Exiting.")
+        log.critical("Invalid date. Exiting.") # critical
         return None
     semester_year = current_day[:4]
 
@@ -239,7 +243,7 @@ def get_semester_info(current_day):
         # 2074 - your_name_here
         # --------------------------
         if int(semester_year) > year_limit:
-            print("Time to update the leap year array!!! See line 255 in management.py!!!")
+            log.critical("Time to update the leap year array!!! See line 255 in management.py!!!")
             semester_length = 0
         elif int(semester_year) in np.arange(this_year, year_limit, 4):
             semester_length = 182
@@ -254,7 +258,7 @@ def get_semester_info(current_day):
             semester_end_date = str(int(semester_year) + 1) + '-01-31'
         semester_length = 184
     else:
-        print("Unrecognized semester letter designation!")
+        log.critical("Unrecognized semester letter designation!")
         semester_start_date = semester_year + '-01-01'
         semester_end_date = str(semester_year)+ '-01-01'
         semester_length = 0
@@ -339,13 +343,11 @@ def prepare_new_semester(config_path):
     little_manager.daily_starting_time = str(config.get('other', 'daily_starting_time'))
     little_manager.daily_ending_time  = f"{(int(little_manager.daily_starting_time.split(':')[0]) + little_manager.n_hours_in_night) % 24:02d}:{int(little_manager.daily_starting_time.split(':')[1]):02d}"
 
-    print(little_manager.upstream_path)
-    print(os.path.join(little_manager.upstream_path, "inputs/Requests.csv"))
     little_manager.requests_frame = pd.read_csv(os.path.join(little_manager.upstream_path, "inputs/Requests.csv"))
     try:
         little_manager.nonqueue_frame = pd.read_csv(os.path.join(little_manager.upstream_path, "inputs/NonQueueMap"  + str(little_manager.slot_size) + ".csv"))
     except:
-        print("There are no times reserved for non-queue observations.")
+        log.warning("There are no times reserved for non-queue observations.")
         little_manager.nonqueue_frame = None
 
     little_manager.semester_start_date, little_manager.semester_end_date, little_manager.semester_length, little_manager.semester_year, little_manager.semester_letter = get_semester_info(little_manager.current_day)
@@ -354,7 +356,7 @@ def prepare_new_semester(config_path):
 
     # Create the template file for the cadence plots including true weather map
     # -----------------------------------------------------------------------------------------
-    print("Generate the cadence plot template file.")
+    log.info("Generate the cadence plot template file.")
     dateslist = []
     quarterlist = []
     for d in range(len(little_manager.all_dates_array)):
@@ -367,14 +369,13 @@ def prepare_new_semester(config_path):
 
     # Create the template file for the cadence plots including true weather map
     # -----------------------------------------------------------------------------------------
-    print("Computing twilight times for the semester.")
+    log.info("Computing twilight times for the semester.")
     twilight_frame = ac.generate_twilight_times(little_manager.all_dates_array)
     twilight_frame.to_csv(little_manager.upstream_path + 'inputs/twilight_times.csv', index=False)
 
     # Create the json file containing the accessiblity for each target (elevation + moon safe)
     # -----------------------------------------------------------------------------------------
-    print("Computing access maps for all stars.")
-    print("This could take some time.")
+    log.info("Computing access maps for all stars.")
     little_manager.accessibilities_file = os.path.join(little_manager.upstream_path, "inputs/accessibilities_" + str(little_manager.slot_size) + "minSlots.json")
     default_access_maps = ac.construct_access_dict(little_manager)
 
@@ -389,4 +390,4 @@ def prepare_new_semester(config_path):
             allocation = mp.format_keck_allocation_info(little_manager.allocation_file)
             allocation_binary = mp.convert_allocation_info_to_binary(little_manager, allocation)
         else:
-            print("No Keck Observatory instruments schedule found. See https://www2.keck.hawaii.edu/observing/keckSchedule/queryForm.php to download and then try again.")
+            log.critical("No Keck Observatory instruments schedule found. See https://www2.keck.hawaii.edu/observing/keckSchedule/queryForm.php to download and then try again.")

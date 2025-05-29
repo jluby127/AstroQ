@@ -32,6 +32,10 @@ def load_dict_compressed(filename):
         return pickle.load(f)
 from scipy.interpolate import interp1d
 
+import logging
+log = logging.getLogger(__name__)
+log.setLevel(logging.WARNING)
+
 import kpfcc.access as ac
 import kpfcc.weather as wh
 
@@ -401,7 +405,7 @@ def prepare_allocation_map(manager):
     manager.allocation_remaining = allocation_remaining
 
     # Sample out future allocated nights to simulate weather loss based on empirical weather data.
-    print("Sampling out weather losses")
+    log.info("Sampling out weather losses")
     loss_stats_remaining = wh.get_loss_stats(manager)
     allocation_remaining_post_weather_loss, weather_diff_remaining, weather_diff_remaining_1D, \
         days_lost = wh.simulate_weather_losses(manager.allocation_remaining, loss_stats_remaining, \
@@ -519,8 +523,8 @@ def format_keck_allocation_info(allocation_file):
                 allocation['Start'].iloc[i] = 0
                 allocation['Stop'].iloc[i]  = 0.75
             else:
-                print("We have a problem, error code 1.")
-                print(allocation['Date'].iloc[i],
+                log.error("We have a problem, error code 1.")
+                log.error(allocation['Date'].iloc[i],
                             allocation['Start'].iloc[i], allocation['Stop'].iloc[i])
 
         elif item == '50':
@@ -534,8 +538,8 @@ def format_keck_allocation_info(allocation_file):
                 allocation['Start'].iloc[i] = 0.5
                 allocation['Stop'].iloc[i]  = 1
             else:
-                print("We have a problem, error code 2.")
-                print(allocation['Date'].iloc[i],
+                log.error("We have a problem, error code 2.")
+                log.error(allocation['Date'].iloc[i],
                             allocation['Start'].iloc[i], allocation['Stop'].iloc[i])
 
         elif item == '25':
@@ -554,13 +558,13 @@ def format_keck_allocation_info(allocation_file):
                 allocation['Start'].iloc[i] = 0.75
                 allocation['Stop'].iloc[i]  = 1
             else:
-                print("We have a problem, error code 3.")
-                print(allocation['Date'].iloc[i],
+                log.error("We have a problem, error code 3.")
+                log.error(allocation['Date'].iloc[i],
                                 allocation['Start'].iloc[i], allocation['Stop'].iloc[i])
         else:
-            print("Non-25% of night increment. Implementing whole night as precaution.")
-            print("Date: ", allocation['Date'].iloc[i])
-            print("True allocation amount: ", item)
+            log.error("Non-25% of night increment. Implementing whole night as precaution.")
+            log.error("Date: ", allocation['Date'].iloc[i])
+            log.error("True allocation amount: ", item)
             allocation['Start'].iloc[i] = 0
             allocation['Stop'].iloc[i]  = 1
 
@@ -569,7 +573,7 @@ def format_keck_allocation_info(allocation_file):
 def convert_allocation_info_to_binary(manager, allocation):
     # Generate the binary map for allocations this semester
     # -----------------------------------------------------------------------------------------
-    print("Generating binary map of allocated nights/quarters.")
+    log.info("Generating binary map of allocated nights/quarters.")
     allocationMap = []
     allocationMap_ints = []
     uniqueDays = 0
@@ -594,13 +598,13 @@ def convert_allocation_info_to_binary(manager, allocation):
             map2 = [int(map1[0]), int(map1[2]), int(map1[4]), int(map1[6])]
             uniqueDays += 1
         else:
-            print("We have a problem, error code 5.")
+            log.error("We have a problem, error code 5.")
             map1 = "0 0 0 0"
             map2 = [0, 0, 0, 0]
         allocationMap.append(map1)
         allocationMap_ints.append(map2)
-    print("Total number of quarters allocated: ", np.sum(allocationMap_ints))
-    print("Total unique nights allocated: ", uniqueDays)
+    log.info("Total number of quarters allocated: ", np.sum(allocationMap_ints))
+    log.info("Total unique nights allocated: ", uniqueDays)
 
     # Write the binary allocation map to file
     filename = manager.upstream_path + "inputs/allocation_schedule.txt"
@@ -613,7 +617,7 @@ def convert_allocation_info_to_binary(manager, allocation):
     # Produce and write the start and stop times of each night to file.
     # For the TTP.
     # -----------------------------------------------------------------------------------------
-    print("Generate the nightly start/stop times for observing.")
+    log.info("Generate the nightly start/stop times for observing.")
     listdates = list(allocation['Date'])
     processed_dates = []
     starts = []
@@ -674,7 +678,7 @@ def quarter_translator(start, stop):
 
     else:
         night_map = "0 0 0 0"
-        print("We have a problem, error code 4.")
+        log.error("We have a problem, error code 4.")
 
     return night_map
 

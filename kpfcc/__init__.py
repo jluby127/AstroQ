@@ -9,7 +9,7 @@ DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
 )
 formatter = logging.Formatter('%(levelname)s - %(name)s - %(message)s')
 file_handler = logging.FileHandler('my_log_file.log')
