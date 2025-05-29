@@ -14,10 +14,6 @@ import pandas as pd
 import gurobipy as gp
 from gurobipy import GRB
 
-import logging
-log = logging.getLogger(__name__)
-log.setLevel(logging.WARNING)
-
 import kpfcc.io as io
 import kpfcc.management as mn
 import kpfcc.request as rq

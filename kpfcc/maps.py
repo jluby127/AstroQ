@@ -32,10 +32,6 @@ def load_dict_compressed(filename):
         return pickle.load(f)
 from scipy.interpolate import interp1d
 
-import logging
-log = logging.getLogger(__name__)
-log.setLevel(logging.WARNING)
-
 import kpfcc.access as ac
 import kpfcc.weather as wh
 

@@ -20,10 +20,6 @@ from astropy.coordinates import Angle
 import astroplan as apl
 import astropy.units as u
 
-import logging
-log = logging.getLogger(__name__)
-log.setLevel(logging.WARNING)
-
 import kpfcc.access as ac
 
 
