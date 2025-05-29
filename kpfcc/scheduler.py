@@ -8,6 +8,8 @@ import time
 import os
 import warnings
 warnings.filterwarnings('ignore')
+import logging
+log = logging.getLogger(__name__)
 
 import numpy as np
 import pandas as pd

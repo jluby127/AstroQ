@@ -14,6 +14,8 @@ from astropy.time import Time
 from astropy.time import TimeDelta
 from configparser import ConfigParser
 from types import SimpleNamespace
+import logging
+log = logging.getLogger(__name__)
 
 # from kpfcc import DATADIR
 DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')

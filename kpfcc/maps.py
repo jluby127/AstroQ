@@ -14,6 +14,8 @@ import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as pt
+import logging
+log = logging.getLogger(__name__)
 
 from astropy.time import Time
 from astropy.time import TimeDelta
