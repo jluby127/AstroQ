@@ -224,6 +224,7 @@ def pad_rows_top(arr, target_rows):
 def generate_birds_eye(manager, availablity, all_stars, filename=''):
 
     fig = go.Figure()
+    fig.update_layout(width=1200, height=800)
     fig.add_trace(go.Heatmap(
         z=availablity,
         colorscale=[[0, 'rgba(0,0,0,0)'], [1, f"rgb(200, 200, 200)"]],
@@ -231,7 +232,7 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
         opacity=1.0,
         showscale=False,
         name="Not On Sky",
-        showlegend=True,
+        showlegend=False,
     ))
 
     for i in range(len(all_stars)):
@@ -246,7 +247,7 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
             hovertemplate='<b>' + str(all_stars[i].starname) +
                 '</b><br><b>Date: %{x}</b><br><b>Slot: %{y}</b><br>Forecasted N_Obs: ' + \
                 str(all_stars[i].total_observations_requested) + '<extra></extra>',
-            showlegend=True,
+            showlegend=False,
         ))
 
         if all_stars[i].draw_lines:
@@ -374,7 +375,14 @@ def cof_builder(all_stars, manager, filename='', flag=False):
         yaxis_title="Request % Complete",
         showlegend=True,
         legend=dict(
-            font=dict(size=labelsize-10)
+            x=0.98,              # far right
+            y=0.05,              # bottom
+            xanchor='right',  # anchor legend box to the right side
+            yanchor='bottom', # anchor legend box to the bottom
+            bgcolor='rgba(255,255,255,0.7)',  # semi-transparent white background for readability
+            bordercolor='black',
+            borderwidth=1,
+            font=dict(size=labelsize-18)
         ),
         xaxis=dict(
             title_font=dict(size=labelsize),
