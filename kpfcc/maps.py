@@ -130,7 +130,9 @@ def produce_ultimate_map(manager, running_backup_stars=False):
                 is_inter[itarget,inight_start:inight_stop,:] = False
 
     # True if obseravtion occurs at night
-    is_night = manager.twilight_map_remaining_2D.astype(bool) # shape = (nnights, nslots)
+    evening = Time(manager.twilight_frame['12_evening'], format='jd')[:, None]  
+    morning = Time(manager.twilight_frame['12_morning'], format='jd')[:, None] 
+    is_night = (evening < slotmidpoint) & (slotmidpoint < morning)
     is_night = np.ones_like(is_altaz, dtype=bool) & is_night[np.newaxis,:,:]
 
     is_alloc = manager.allocation_map_2D.astype(bool) # shape = (nnights, nslots)

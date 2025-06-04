@@ -415,6 +415,8 @@ class Scheduler(object):
                         self.past_nights_observed_dict[name]) - (gp.quicksum(self.Yrds[name, d, s] for d, s in available))/self.manager.requests_frame['n_intra_max'][idx]), \
                         'greater_than_nobs_shortfall_' + str(name))
 
+# n_inter_max * n_intra_max
+# then can eliminate the W matrix sum
     def constraint_set_max_desired_unique_nights_Wrd(self):
         """
         According to Eq X in Lubin et al. 2025.
