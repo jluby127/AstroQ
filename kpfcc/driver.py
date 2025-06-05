@@ -13,6 +13,7 @@ import kpfcc.blocks as ob
 import kpfcc.plot as pl
 import kpfcc.onsky as sk
 import kpfcc.history as hs
+import kpfcc.webapp as app
 
 import logging
 log = logging.getLogger(__name__)
@@ -106,14 +107,22 @@ def kpfcc_data(args):
     '''
 
     return
+    
+def kpfcc_webapp(args):
+    """
+    Launch web app to view interactive
+    plots.
+    """
+    
+    pickle_path = args.pickle_path
+    config_file = args.config_file
+    
+    
+    app.launch_app(pickle_path, config_file)
+    
+    return
 
 def schedule(args):
-    
-    log.debug("Debug message")
-    log.info("Info message")
-    log.warning("Warning message here")
-    log.error("Error message")
-    log.critical("Critical message")
 
     rf = args.request_file
     print(f'    kpfcc_schedule function: request_file is {rf}')
@@ -149,6 +158,8 @@ def ttp(args):
 
     sk.run_ttp(manager)
     sk.produce_bright_backups(manager)
+    
+    return
 
 def get_history(args):
 
@@ -276,5 +287,16 @@ def requests_vs_schedule(args):
 
             assert min_slot_diffs >= tau_intra_slots, tau_intra_err
             
-            
+    return
+
+
+
+
+
+
+
+
+
+
+
 
