@@ -144,7 +144,7 @@ def main():
     psr_kpfcc_webapp.add_argument('-pp', '--pickle_path',
                               type=str,
                               required=True,
-                              help="Path to directory containing star_objects.pkl containing data to plot stellar observing info."
+                              help="Path to directory containing star_objects.pkl, which has info. fior stellar plotting"
                                 )
 
     psr_kpfcc_webapp.add_argument('-cf', '--config_file',
