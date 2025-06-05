@@ -58,7 +58,7 @@ def launch_app(pkl_path, config_file):
 if __name__ == "__main__":
     
     from kpfcc import _ROOT
-    # template_path = os.path.join(_ROOT, "../templates/index2.html")
+
     pkl_path = os.path.join(_ROOT, "../examples/hello_world/reports/admin/2024-08-01/")
     config_file = os.path.join(_ROOT, "../examples/hello_world/config_hello_world.ini")
     
