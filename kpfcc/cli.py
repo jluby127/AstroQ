@@ -134,6 +134,26 @@ def main():
                                 )
 
     psr_kpfcc_data.set_defaults(func=kpfcc.driver.kpfcc_data)
+    
+    ## subcommand of kpfcc: webapp -- launch web app to view interactive plots
+    psr_kpfcc_webapp = kpfcc_subpsr.add_parser('webapp', #parents=[psr_parent],
+                                               description="Launch web app to view interactive plots",
+                                               prefix_chars="-"
+                                               )
+
+    psr_kpfcc_webapp.add_argument('-pp', '--pickle_path',
+                              type=str,
+                              required=True,
+                              help="Path to directory containing star_objects.pkl containing data to plot stellar observing info."
+                                )
+
+    psr_kpfcc_webapp.add_argument('-cf', '--config_file',
+                              type=str,
+                              required=True,
+                              help="Path to config file."
+                                )
+
+    psr_kpfcc_webapp.set_defaults(func=kpfcc.driver.kpfcc_webapp)
 
     ## subcommand of astroq: ttp -- run the ttp
     psr_ttp = subpsr.add_parser('ttp', parents=[psr_parent],

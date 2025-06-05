@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>All Plots</title>
+    <!-- Load Plotly.js library -->
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 2rem;
+            background-color: #f9f9f9;
+        }
+        .plot-container {
+            margin-bottom: 3rem;
+            background-color: white;
+            padding: 1rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <h1>All Plots</h1>
+
+    {% for fig_html in figure_htmls %}
+        <div class="plot-container">
+            {{ fig_html|safe }}
+        </div>
+    {% endfor %}
+
+</body>
+</html>

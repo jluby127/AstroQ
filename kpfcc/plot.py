@@ -308,8 +308,15 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
             font=dict(size=labelsize-10)
         )
     )
+    # import pdb; pdb.set_trace()
     if filename != '':
+        
         fileout_path = manager.reports_directory + filename
+        
+        # If it's a file, get its directory
+        dir_path = fileout_path if os.path.isdir(fileout_path) else os.path.dirname(fileout_path)
+        os.makedirs(dir_path, exist_ok=True) # Make sure the directory exists
+        
         fig.write_html(fileout_path)
     return fig
 
@@ -385,12 +392,21 @@ def cof_builder(all_stars, manager, filename='', flag=False):
             tickfont=dict(size=labelsize-4)
         ),
     )
+    # import pdb; pdb.set_trace()
     if filename != '':
-        fig.write_html(manager.reports_directory + filename)
+        
+        fileout_path = manager.reports_directory + filename
+        
+        # If it's a file, get its directory
+        dir_path = fileout_path if os.path.isdir(fileout_path) else os.path.dirname(fileout_path)
+        os.makedirs(dir_path, exist_ok=True) # Make sure the directory exists
+        
+        fig.write_html(fileout_path)
         if flag:
             file = open(manager.reports_directory + "admin/" + manager.current_day + "/completion_Report.txt", "w")
             for l in lines:
                 file.write(l + "\n")
+            print("JUST wrote figure to {}".format(manager.reports_directory, filename))
             file.close()
     return fig
 
