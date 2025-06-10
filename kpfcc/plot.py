@@ -13,6 +13,8 @@ import json
 import seaborn as sns
 import plotly.graph_objects as go
 import plotly.express as px
+import plotly.io as pio
+
 from collections import defaultdict
 import pickle
 
@@ -123,7 +125,7 @@ def process_stars(manager):
     nulltime = np.array(nulltime).T
 
     try:
-        past = pd.read_csv(self.manager.past_database_file)
+        past = pd.read_csv(manager.past_database_file)
     except:
         past = pd.DataFrame(columns=['star_id', 'utctime'])
 
@@ -221,13 +223,17 @@ def pad_rows_top(arr, target_rows):
     padded_arr = np.vstack((padding, arr))
     return padded_arr
 
+gray = 'rgb(210,210,210)'
+clear = 'rgba(0,0,0,0)'
+clear = 'rgba(255,255,255,1)'
+
 def generate_birds_eye(manager, availablity, all_stars, filename=''):
 
     fig = go.Figure()
-    fig.update_layout(width=1200, height=800)
+    fig.update_layout(width=1200, height=800, plot_bgcolor=clear, paper_bgcolor=clear)
     fig.add_trace(go.Heatmap(
         z=availablity,
-        colorscale=[[0, 'rgba(0,0,0,0)'], [1, f"rgb(200, 200, 200)"]],
+        colorscale=[[0, 'rgba(0,0,0,0)'], [1, gray]],
         zmin=0, zmax=1,
         opacity=1.0,
         showscale=False,
@@ -284,22 +290,26 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
     #         line=dict(color="lightgray", width=1),
     #         layer="below"
     #     )
-
+    # print("manager.n_slots_in_night: " ,manager.n_slots_in_night)
     fig.update_layout(
-        title="Birds Eye View Semester Schedule",
+        # title="Birds Eye View Semester Schedule",
         yaxis_title="Slot in Night",
         xaxis_title="Night in Semester",
         xaxis=dict(
             title_font=dict(size=labelsize),
             tickfont=dict(size=labelsize - 4),
-            tickvals=np.arange(0, manager.semester_length, 21),
+            tickvals=np.append(np.arange(0, manager.semester_length, 23), 183),
+            ticktext=np.append(np.arange(0, manager.semester_length, 23), 184),
             tickmode='array',
             showgrid=False,  # Turn off native grid
         ),
         yaxis=dict(
             title_font=dict(size=labelsize),
             tickfont=dict(size=labelsize - 4),
-            tickvals=np.arange(0, manager.n_slots_in_night, 12),
+            # tickvals=np.arange(0, manager.n_slots_in_night, 20),
+            # ticktext=manager.n_slots_in_night - np.arange(0, manager.n_slots_in_night, 20) - 1,
+            tickvals=[0, 28, 56, 84, 112, 140, 167],
+            ticktext=[manager.n_slots_in_night - x for x in [0, 28, 56, 84, 112, 140, 168]],
             tickmode='array',
             showgrid=False,  # Turn off native grid
         ),
@@ -312,12 +322,20 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
     if filename != '':
         fileout_path = manager.reports_directory + filename
         fig.write_html(fileout_path)
+        pio.write_image(
+            fig,
+            manager.reports_directory + "admin/" + manager.current_day + '/birdseye_static.png',
+            format="png",
+            width=1200,           # fixed width
+            height=800,          # fixed height
+            scale=1,              # no scaling (you can increase for higher res)
+        )
     return fig
 
 def cof_builder(all_stars, manager, filename='', flag=False):
 
     fig = go.Figure()
-    fig.update_layout(width=1200, height=800)
+    fig.update_layout(width=1200, height=800, plot_bgcolor=gray, paper_bgcolor=clear)
     burn_line = np.linspace(0, 100, len(manager.all_dates_array))
     for b in range(len(burn_line)):
         burn_line[b] = np.round(burn_line[b],2)
@@ -370,7 +388,7 @@ def cof_builder(all_stars, manager, filename='', flag=False):
             annotation_position="bottom left"
         )
     fig.update_layout(
-        title="Cumulative Observation Function (COF)",
+        # title="Cumulative Observation Function (COF)",
         xaxis_title="Calendar Date",
         yaxis_title="Request % Complete",
         showlegend=True,
@@ -386,11 +404,15 @@ def cof_builder(all_stars, manager, filename='', flag=False):
         ),
         xaxis=dict(
             title_font=dict(size=labelsize),
-            tickfont=dict(size=labelsize-4)
+            tickfont=dict(size=labelsize-4),
+            showgrid=False,
+            zeroline=False
         ),
         yaxis=dict(
             title_font=dict(size=labelsize),
-            tickfont=dict(size=labelsize-4)
+            tickfont=dict(size=labelsize-4),
+            showgrid=False,
+            zeroline=False
         ),
     )
     if filename != '':
@@ -400,6 +422,15 @@ def cof_builder(all_stars, manager, filename='', flag=False):
             for l in lines:
                 file.write(l + "\n")
             file.close()
+
+        pio.write_image(
+            fig,
+            manager.reports_directory + "admin/" + manager.current_day + '/cof_static.png',
+            format="png",
+            width=1200,           # fixed width
+            height=800,          # fixed height
+            scale=1,              # no scaling (you can increase for higher res)
+        )
     return fig
 
 

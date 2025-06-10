@@ -148,9 +148,9 @@ class data_admin(object):
         self.semester_grid = np.arange(0, self.n_nights_in_semester, 1)
         self.quarters_grid = np.arange(0, self.n_quarters_in_night, 1)
 
-        twilight_map_remaining_2D, available_slots_in_each_night = ac.construct_twilight_map(self)
-        self.twilight_map_remaining_2D = twilight_map_remaining_2D
-        self.available_slots_in_each_night = available_slots_in_each_night
+        self.twilight_map_remaining_2D = mp.compute_twilight_map(self)
+        self.available_slots_in_each_night = np.sum(self.twilight_map_remaining_2D, axis=1)
+
         # When running a normal schedule, include the observatory's allocation map
         if self.run_optimal_allocation == False:
                 weather_diff_remaining, allocation_map_1D, allocation_map_2D, weathered_map = \
@@ -165,7 +165,6 @@ class data_admin(object):
             allocation_map_1D = np.ones(self.n_slots_in_semester, dtype='int')
             allocation_map_2D = np.ones((self.n_nights_in_semester, self.n_slots_in_night), dtype='int')
 
-        self.available_slots_in_each_night = available_slots_in_each_night
         self.weather_diff_remaining = weather_diff_remaining
         self.allocation_map_1D = allocation_map_1D
         self.allocation_map_2D = allocation_map_2D

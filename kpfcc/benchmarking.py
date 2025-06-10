@@ -19,7 +19,7 @@ import kpfcc.driver as dr
 # In the paper, we used random seed = 24.
 np.random.seed(24)
 
-def getDec(maxDec=70, minDec=-20):
+def getDec(maxDec=90, minDec=-20):
     '''
     Randomly draw a declination from cosine i distribution between two values.
     The default min/max declination values are chosen based on favorable viewing from Hawaii.
@@ -142,10 +142,10 @@ def build_toy_model_from_paper(ns, hours_per_program = 80, plot = False):
 
             # Generate RA/Dec following original logic
             if p == 4:  # Constrained to Kepler field
-                tmpra = np.random.uniform(18*15, 20*15)  # RA between 270-300 degrees
-                tmpdec = np.random.uniform(40, 50)       # Dec between 40-50 degrees
+                tmpra = np.random.uniform(19*15, 19.66*15)  # RA between 285-295 degrees
+                tmpdec = np.random.uniform(40, 50)          # Dec between 40-50 degrees
             else:
-                # only allow RAs that are somewhat favorable to a B semester, exclude hour anges between 14 and 18
+                # only allow RAs that are somewhat favorable to a B semester, exclude hour anges between 12 and 18
                 exclude_start = 12*15
                 exclude_end = 18*15
                 tmpra = np.random.uniform(0, exclude_start) if np.random.random() < (exclude_start / (360 - (exclude_end - exclude_start))) else np.random.uniform(exclude_end, 360)

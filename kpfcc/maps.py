@@ -123,17 +123,25 @@ def produce_ultimate_map(manager, running_backup_stars=False):
     for itarget in range(ntargets):
         name = rs.iloc[itarget]['starname']
         if name in manager.database_info_dict:
-            if manager.database_info_dict[name][0] != '0000-00-00': # default value if no history
+            if manager.database_info_dict[name][0] != '0000-00-00' and rs.iloc[itarget]['tau_inter'] > 1: # default value if no history
                 # inight_start = manager.all_dates_dict[manager.database_info_dict[name][0]]
                 inight_start = manager.all_dates_dict[manager.current_day] - manager.today_starting_night
                 inight_stop = min(inight_start + rs.iloc[itarget]['tau_inter'],nnights)
                 is_inter[itarget,inight_start:inight_stop,:] = False
 
+                if name == 'Kepler-48':
+                    print(manager.database_info_dict[name][0])
+                    print(inight_start)
+                    print(inight_stop)
+                    print(is_inter[itarget])
+
     # True if obseravtion occurs at night
     is_night = manager.twilight_map_remaining_2D.astype(bool) # shape = (nnights, nslots)
+    # is_night = np.repeat(is_night[np.newaxis, :, :], ntargets, axis=0)
     is_night = np.ones_like(is_altaz, dtype=bool) & is_night[np.newaxis,:,:]
 
     is_alloc = manager.allocation_map_2D.astype(bool) # shape = (nnights, nslots)
+    # is_alloc = np.repeat(is_alloc[np.newaxis, :, :], ntargets, axis=0)
     is_alloc = np.ones_like(is_altaz, dtype=bool) & is_alloc[np.newaxis,:,:] # shape = (ntargets, nnights, nslots)
 
     is_observable_now = np.logical_and.reduce([
@@ -144,6 +152,25 @@ def produce_ultimate_map(manager, running_backup_stars=False):
         is_future,
         is_alloc
     ])
+
+    is_altaz_sums = np.sum(is_altaz, axis=2)
+    is_moon_sums = np.sum(is_moon, axis=2)
+    is_night_sums = np.sum(is_night, axis=2)
+    is_inter_sums = np.sum(is_inter, axis=2)
+    is_future_sums = np.sum(is_future, axis=2)
+    is_alloc_sums = np.sum(is_alloc, axis=2)
+    is_intersection = np.sum(is_observable_now, axis=2)
+    summed_array_names = ['is_altaz', 'is_moon', 'is_inter', 'is_future', 'is_alloc', 'is_night', 'intersection']
+    summed_arrays = [is_altaz_sums, is_moon_sums, is_inter_sums, is_future_sums, is_alloc_sums, is_night_sums, is_intersection]
+    summing_data = {
+        str(summed_array_names[i]): arr[:, 0]
+        for i, arr in enumerate(summed_arrays)
+    }
+    sumframe = pd.DataFrame(summing_data, index=list(rs.starname))
+    sumframe['Starname'] = list(rs.starname)
+    sumframe.index.name = 'starname'
+    sumframe.to_csv(manager.output_directory + "/tonight_map_values.csv", index=False)
+
 
     # the target does not violate any of the observability limits in that specific slot, but
     # it does not mean it can be started at the slot. retroactively grow mask to accomodate multishot exposures.
@@ -180,6 +207,27 @@ def produce_ultimate_map(manager, running_backup_stars=False):
         available_indices_for_request[rs.iloc[itarget]['starname']] = temp
     return available_indices_for_request
 
+def compute_twilight_map(manager):
+    date_formal = Time(manager.current_day,format='iso',scale='utc')
+    date = str(date_formal)[:10]
+    date_number = manager.all_dates_dict[manager.current_day]
+
+    keck = apl.Observer.at_site(manager.observatory)
+    # Set up time grid for one night, first night of the semester
+    daily_start = Time(date + "T" + manager.daily_starting_time, location=keck.location)
+    # slotmidpoint0 = daily_start + (np.arange(manager.semester_length) + 0.5) *  manager.slot_size * u.min
+    slotmidpoint0 = daily_start + (np.arange(manager.n_slots_in_night) + 0.5) *  manager.slot_size * u.min
+    # days = np.arange(manager.semester_length) * u.day
+    days = np.arange(manager.n_nights_in_semester) * u.day
+
+    slotmidpoint = (slotmidpoint0[np.newaxis,:] + days[:,np.newaxis])
+
+    evening = Time(manager.twilight_frame['12_evening'][date_number:], format='jd')[:, None]
+    morning = Time(manager.twilight_frame['12_morning'][date_number:], format='jd')[:, None]
+    is_night = (evening < slotmidpoint) & (slotmidpoint < morning)
+    # is_night = np.ones_like(is_altaz, dtype=bool) & is_night[np.newaxis,:,:]
+    twilight_2D = is_night.astype(int)
+    return twilight_2D
 
 def mod_produce_ultimate_map(manager, starname):
     """
@@ -440,13 +488,13 @@ def build_allocation_map(manager, allocation_schedule, weather_diff):
     """
     allocation_map_1D = []
     allocation_map_weathered = []
-    manager.available_slots_in_each_night_short = manager.available_slots_in_each_night[manager.today_starting_night:]
+    manager.available_slots_in_each_night_short = manager.available_slots_in_each_night#[manager.today_starting_night:]
 
     for n in range(len(manager.available_slots_in_each_night_short)):
-        allo_night_map = ac.single_night_allocated_slots(allocation_schedule[n],
+        allo_night_map = ac.single_night_allocated_slots(manager.twilight_map_remaining_2D[n], allocation_schedule[n],
                                                 manager.available_slots_in_each_night_short[n], manager.n_slots_in_night)
         allocation_map_1D.append(allo_night_map)
-        weather_night_map = ac.single_night_allocated_slots(weather_diff[n],
+        weather_night_map = ac.single_night_allocated_slots(manager.twilight_map_remaining_2D[n], weather_diff[n],
                                                 manager.available_slots_in_each_night_short[n], manager.n_slots_in_night)
         allocation_map_weathered.append(weather_night_map)
 
