@@ -281,18 +281,7 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
             layer="below"
         )
 
-    # # Add horizontal grid lines every slot (y)
-    # for y in np.arange(0.5, all_stars[i].starmap.shape[0], 1):
-    #     fig.add_shape(
-    #         type="line",
-    #         x0=0, x1=all_stars[i].starmap.shape[1] - 1,
-    #         y0=y, y1=y,
-    #         line=dict(color="lightgray", width=1),
-    #         layer="below"
-    #     )
-    # print("manager.n_slots_in_night: " ,manager.n_slots_in_night)
     fig.update_layout(
-        # title="Birds Eye View Semester Schedule",
         yaxis_title="Slot in Night",
         xaxis_title="Night in Semester",
         xaxis=dict(
@@ -301,7 +290,7 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
             tickvals=np.append(np.arange(0, manager.semester_length, 23), 183),
             ticktext=np.append(np.arange(0, manager.semester_length, 23), 184),
             tickmode='array',
-            showgrid=False,  # Turn off native grid
+            showgrid=False,
         ),
         yaxis=dict(
             title_font=dict(size=labelsize),
@@ -311,7 +300,7 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
             tickvals=[0, 28, 56, 84, 112, 140, 167],
             ticktext=[manager.n_slots_in_night - x for x in [0, 28, 56, 84, 112, 140, 168]],
             tickmode='array',
-            showgrid=False,  # Turn off native grid
+            showgrid=False,
         ),
         template="plotly_white",
         showlegend=True,
@@ -326,9 +315,9 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
             fig,
             manager.reports_directory + "admin/" + manager.current_day + '/birdseye_static.png',
             format="png",
-            width=1200,           # fixed width
-            height=800,          # fixed height
-            scale=1,              # no scaling (you can increase for higher res)
+            width=1200,
+            height=800,
+            scale=1,
         )
     return fig
 
@@ -393,11 +382,11 @@ def cof_builder(all_stars, manager, filename='', flag=False):
         yaxis_title="Request % Complete",
         showlegend=True,
         legend=dict(
-            x=0.98,              # far right
-            y=0.05,              # bottom
-            xanchor='right',  # anchor legend box to the right side
-            yanchor='bottom', # anchor legend box to the bottom
-            bgcolor='rgba(255,255,255,0.7)',  # semi-transparent white background for readability
+            x=0.98,
+            y=0.05,
+            xanchor='right',
+            yanchor='bottom',
+            bgcolor='rgba(255,255,255,0.7)',
             bordercolor='black',
             borderwidth=1,
             font=dict(size=labelsize-18)
@@ -427,9 +416,9 @@ def cof_builder(all_stars, manager, filename='', flag=False):
             fig,
             manager.reports_directory + "admin/" + manager.current_day + '/cof_static.png',
             format="png",
-            width=1200,           # fixed width
-            height=800,          # fixed height
-            scale=1,              # no scaling (you can increase for higher res)
+            width=1200,
+            height=800,
+            scale=1,
         )
     return fig
 
@@ -437,7 +426,7 @@ def cof_builder(all_stars, manager, filename='', flag=False):
 def write_star_objects(savepath, data):
     with open(savepath + "star_objects.pkl", "wb") as f:
         pickle.dump(data, f)
-    print("Saved to " + savepath + "star_objects.pkl")
+    print("Plotting objects saved to " + savepath + "star_objects.pkl")
 
 def read_star_objects(savepath):
     with open(savepath + "star_objects.pkl", "rb") as f:
@@ -454,8 +443,6 @@ def run_plot_suite(config_file):
     manager = mn.data_admin(config_file)
     manager.run_admin()
     build_plot_file(manager)
-
-    print("Generating the full suite of plots. All under admin.")
     data = read_star_objects(manager.reports_directory + "admin/" + manager.current_day + '/')
 
     # build global plots
@@ -486,7 +473,6 @@ def generate_single_star_maps(manager, starname):
     fig = go.Figure()
 
     for i in range(len(all_maps)):
-        # import pdb; pdb.set_trace()
         int_array = all_maps[i][0].astype(int).T
         int_array = 1 - int_array
         fig.add_trace(go.Heatmap(
@@ -538,14 +524,14 @@ def generate_single_star_maps(manager, starname):
             tickfont=dict(size=labelsize - 4),
             tickvals=np.arange(0, manager.semester_length, 21),
             tickmode='array',
-            showgrid=False,  # Turn off native grid
+            showgrid=False,
         ),
         yaxis=dict(
             title_font=dict(size=labelsize),
             tickfont=dict(size=labelsize - 4),
             tickvals=np.arange(0, manager.n_slots_in_night, 12),
             tickmode='array',
-            showgrid=False,  # Turn off native grid
+            showgrid=False,
         ),
         template="plotly_white",
         showlegend=True,

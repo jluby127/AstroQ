@@ -55,10 +55,10 @@ class data_admin(object):
         self.requests_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/Requests.csv"))
         self.twilight_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/twilight_times.csv"), parse_dates=True)
         self.past_database_file = os.path.join(self.semester_directory, "inputs/queryJumpDatabase.csv")
-        self.accessibilities_file = os.path.join(self.semester_directory, "inputs/accessibilities_" + str(self.slot_size) + "minSlots.json")
+        # self.accessibilities_file = os.path.join(self.semester_directory, "inputs/accessibilities_" + str(self.slot_size) + "minSlots.json")
         self.special_map_file = os.path.join(self.semester_directory, "inputs/specialMaps_" + str(self.slot_size) + "minSlots.txt")
         self.zero_out_file = os.path.join(self.semester_directory, "inputs/zero_out.csv")
-        self.nonqueue_map_file = os.path.join(self.semester_directory, "inputs//NonQueueMap"  + str(self.slot_size) + ".txt")
+        self.nonqueue_map_file = os.path.join(self.semester_directory, "inputs/NonQueueMap"  + str(self.slot_size) + ".txt")
         self.nonqueue_file = os.path.join(self.semester_directory, "inputs/NonQueueMap.csv")
 
         self.random_seed = int(config.get('options', 'random_seed'))
@@ -112,8 +112,8 @@ class data_admin(object):
         check = os.path.isdir(self.output_directory)
         if not check:
             os.makedirs(self.output_directory)
-        file = open(self.output_directory + "runReport.txt", "w") # later append to this file
-        file.close()
+            file = open(self.output_directory + "runReport.txt", "w") # later append to this file
+            file.close()
 
         # Get semester parameters and define important quantities
         self.database_info_dict = hs.build_past_history(self.past_database_file, self.requests_frame, self.twilight_frame)
@@ -123,7 +123,7 @@ class data_admin(object):
             get_semester_info(self.current_day)
         all_dates_dict, all_dates_array = build_date_dictionary(semester_start_date, semester_length)
         n_nights_in_semester = len(all_dates_dict) - all_dates_dict[self.current_day]
-        print("Total semester length: ", semester_length)
+        print("Total semester length (days): ", semester_length)
         print("There are " + str(n_nights_in_semester) + " calendar nights remaining in the semester.")
 
         # Compute slot grid sizes
@@ -185,14 +185,12 @@ class data_admin(object):
             manager (obj): a data_admin object
             always_round_up_flag (boolean): if true, slots needed is always larger than exposure_time
         """
-        print("Determining slots needed for exposures.")
         # schedule multi-shots and multi-visits as if a single, long exposure.
         # When n_shots and n_visits are both 1, this reduces down to just the stated exposure time.
         slots_needed_for_exposure_dict = {}
         for n,row in self.requests_frame.iterrows():
             name = row['starname']
-            exposure_time = row['exptime']*row['n_exp'] + \
-                45*(row['n_exp'] - 1)
+            exposure_time = row['exptime']*row['n_exp'] + 45*(row['n_exp'] - 1)
             slots_needed_for_exposure_dict[name] = compute_slots_required_for_exposure(exposure_time, self.slot_size, always_round_up_flag)
         return slots_needed_for_exposure_dict
 
@@ -222,11 +220,11 @@ def get_semester_info(current_day):
         semester_end_date = semester_year + '-07-31'
         # check if this is a leap year
         this_year = 2024
-        year_limit = 2074
-        # Note from Jack Lubin in the year 2024: The year 2074 is arbitrary. In this year,
-        # you, the current queue manager, will have to update this line for another 50 years.
+        year_limit = 2034
+        # Note from Jack Lubin in the year 2024: The year 2034 is arbitrary. In this year,
+        # you, the current queue manager, will have to update this line for another 10 years.
         # I could have extended this thousands of years in the future, but thought it would be more
-        # fun if one day this line breaks, and every 50 years and someone manually updates it.
+        # fun if one day this line breaks, and every 10 years and someone manually updates it.
         # If/when you need to update it, please send me an email because I'd like to know that Keck
         # is still using this software! Also when you update the line, please sign the list of
         # queue managers below:
@@ -235,10 +233,10 @@ def get_semester_info(current_day):
         # KPF-CC Queue Managers:
         # --------------------------
         # 2024 - Jack Lubin
-        # 2074 - your_name_here
+        # 2034 - your_name_here
         # --------------------------
         if int(semester_year) > year_limit:
-            print("Time to update the leap year array!!! See line 255 in management.py!!!")
+            print("Time to update the leap year array!!! See the get_semester_info function in management.py!!!")
             semester_length = 0
         elif int(semester_year) in np.arange(this_year, year_limit, 4):
             semester_length = 182
@@ -277,11 +275,8 @@ def build_date_dictionary(semester_start_date, semester_length):
         date = str(date_formal)[:10]
         all_dates[date] = i
     return all_dates, list(all_dates.keys())
-    # manager.all_dates_dict = all_dates
-    # manager.all_dates_array = list(all_dates.keys())
 
 def compute_slots_required_for_exposure(exposure_time, slot_size, always_round_up_flag):
-
     slot_size = slot_size * 60 # converting to seconds
     if always_round_up_flag:
         slots_needed_for_exposure = math.ceil(exposure_time/slot_size)
@@ -315,14 +310,11 @@ def get_gap_filler_targets(manager):
         gap_fillers = []
     np.savetxt(manager.output_directory + 'Round2_Requests.txt', gap_fillers, delimiter=',', fmt="%s")
 
-
 def prepare_new_semester(config_path):
 
     config = ConfigParser()
     config.read(config_path)
-
     little_manager = SimpleNamespace()
-
 
     # Set up important variables
     # -----------------------------------------------------------------------------------------
@@ -337,9 +329,6 @@ def prepare_new_semester(config_path):
     little_manager.n_hours_in_night = int(config.get('other', 'hours_in_night'))
     little_manager.daily_starting_time = str(config.get('other', 'daily_starting_time'))
     little_manager.daily_ending_time  = f"{(int(little_manager.daily_starting_time.split(':')[0]) + little_manager.n_hours_in_night) % 24:02d}:{int(little_manager.daily_starting_time.split(':')[1]):02d}"
-
-    print(little_manager.upstream_path)
-    print(os.path.join(little_manager.upstream_path, "inputs/Requests.csv"))
     little_manager.requests_frame = pd.read_csv(os.path.join(little_manager.upstream_path, "inputs/Requests.csv"))
     try:
         little_manager.nonqueue_frame = pd.read_csv(os.path.join(little_manager.upstream_path, "inputs/NonQueueMap"  + str(little_manager.slot_size) + ".csv"))
@@ -364,28 +353,20 @@ def prepare_new_semester(config_path):
     template_frame = pd.DataFrame({'Date':dateslist, 'Quarter':quarterlist,'Allocated':falselist,'Weathered':falselist})
     template_frame.to_csv(little_manager.upstream_path + 'inputs/cadenceTemplateFile.csv', index=False)
 
-    # Create the template file for the cadence plots including true weather map
+    # Compute twilight times for this semester once and save as csv
     # -----------------------------------------------------------------------------------------
     print("Computing twilight times for the semester.")
     twilight_frame = ac.generate_twilight_times(little_manager.all_dates_array)
     twilight_frame.to_csv(little_manager.upstream_path + 'inputs/twilight_times.csv', index=False)
-
-    # Create the json file containing the accessiblity for each target (elevation + moon safe)
-    # -----------------------------------------------------------------------------------------
-    print("Computing access maps for all stars.")
-    print("This could take some time.")
-    little_manager.accessibilities_file = os.path.join(little_manager.upstream_path, "inputs/accessibilities_" + str(little_manager.slot_size) + "minSlots.json")
-    default_access_maps = ac.construct_access_dict(little_manager)
 
     # Create the csv file containing the turn on and turn off dates for each target in each quarter
     # -----------------------------------------------------------------------------------------
     ########### code goes here, use the separation slots between quarters and sum access maps
 
     if little_manager.run_optimal_allocation == False:
-
         little_manager.allocation_file = os.path.join(little_manager.upstream_path, "inputs/Observatory_Allocation.csv")
         if os.path.exists(little_manager.allocation_file):
             allocation = mp.format_keck_allocation_info(little_manager.allocation_file)
             allocation_binary = mp.convert_allocation_info_to_binary(little_manager, allocation)
         else:
-            print("No Keck Observatory instruments schedule found. See https://www2.keck.hawaii.edu/observing/keckSchedule/queryForm.php to download and then try again.")
+            print("No Keck Observatory instruments schedule found. See https://www2.keck.hawaii.edu/observing/keckSchedule/queryForm.php to download, then save as filename /inputs/Observatory_Allocation.csv, and then try to prepare again.")

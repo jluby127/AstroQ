@@ -123,21 +123,13 @@ def produce_ultimate_map(manager, running_backup_stars=False):
     for itarget in range(ntargets):
         name = rs.iloc[itarget]['starname']
         if name in manager.database_info_dict:
-            if manager.database_info_dict[name][0] != '0000-00-00' and rs.iloc[itarget]['tau_inter'] > 1: # default value if no history
-                # inight_start = manager.all_dates_dict[manager.database_info_dict[name][0]]
+            if manager.database_info_dict[name][0] != '0000-00-00' and rs.iloc[itarget]['tau_inter'] > 1: # default value if no history, and only valid for cadences beyond every night
                 inight_start = manager.all_dates_dict[manager.current_day] - manager.today_starting_night
                 inight_stop = min(inight_start + rs.iloc[itarget]['tau_inter'],nnights)
                 is_inter[itarget,inight_start:inight_stop,:] = False
 
-                if name == 'Kepler-48':
-                    print(manager.database_info_dict[name][0])
-                    print(inight_start)
-                    print(inight_stop)
-                    print(is_inter[itarget])
-
     # True if obseravtion occurs at night
     is_night = manager.twilight_map_remaining_2D.astype(bool) # shape = (nnights, nslots)
-    # is_night = np.repeat(is_night[np.newaxis, :, :], ntargets, axis=0)
     is_night = np.ones_like(is_altaz, dtype=bool) & is_night[np.newaxis,:,:]
 
     is_alloc = manager.allocation_map_2D.astype(bool) # shape = (nnights, nslots)
@@ -170,7 +162,6 @@ def produce_ultimate_map(manager, running_backup_stars=False):
     sumframe['Starname'] = list(rs.starname)
     sumframe.index.name = 'starname'
     sumframe.to_csv(manager.output_directory + "/tonight_map_values.csv", index=False)
-
 
     # the target does not violate any of the observability limits in that specific slot, but
     # it does not mean it can be started at the slot. retroactively grow mask to accomodate multishot exposures.
@@ -401,7 +392,6 @@ def construct_nonqueue_arr(manager):
         nonqueue_map_file_slots_ints = nonqueue_map_file_slots_ints[manager.today_starting_slot:]
     else:
         nonqueue_map_file_slots_ints = np.array([1]*manager.n_slots_in_semester)
-        #print("No non-queue observations are scheduled.")
     return nonqueue_map_file_slots_ints
 
 def prepare_allocation_map(manager):
@@ -449,7 +439,6 @@ def prepare_allocation_map(manager):
     manager.allocation_remaining = allocation_remaining
 
     # Sample out future allocated nights to simulate weather loss based on empirical weather data.
-    print("Sampling out weather losses")
     loss_stats_remaining = wh.get_loss_stats(manager)
     allocation_remaining_post_weather_loss, weather_diff_remaining, weather_diff_remaining_1D, \
         days_lost = wh.simulate_weather_losses(manager.allocation_remaining, loss_stats_remaining, \
@@ -682,7 +671,6 @@ def convert_allocation_info_to_binary(manager, allocation):
     allocation_frame = pd.DataFrame({'Date':processed_dates, 'Start':starts, 'Stop':stops})
     allocation_frame.to_csv(manager.upstream_path + 'inputs/nightly_start_stop_times.csv', index=False)
 
-
 def quarter_translator(start, stop):
     """
     Map the start/stop fractions to binary map.
@@ -694,7 +682,6 @@ def quarter_translator(start, stop):
     Returns:
         night_map (str): a string representation of the quarters of the night that are allocated
     """
-
     # Map start/stop to allocation
     if start == 0. and stop == 0.25:
         night_map = "1 0 0 0"

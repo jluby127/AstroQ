@@ -43,8 +43,6 @@ def run_ttp(manager):
     Returns:
         None
     """
-
-    print("Preparing for the TTP.")
     observers_path = manager.semester_directory + 'reports/observer/' + str(manager.current_day) + '/'
     check1 = os.path.isdir(observers_path)
     if not check1:
@@ -54,7 +52,6 @@ def run_ttp(manager):
     the_schedule = np.loadtxt(manager.upstream_path + "/outputs/" + str(manager.current_day) + "/raw_combined_semester_schedule_Round2.txt", delimiter=',', dtype=str)
     nightly_start_stop_times = pd.read_csv(manager.nightly_start_stop_times_file)
 
-    # Determine time bounds of the night
     day_in_semester = manager.all_dates_dict[manager.current_day]
     idx = nightly_start_stop_times[nightly_start_stop_times['Date'] == str(manager.current_day)].index[0]
     night_start_time = nightly_start_stop_times['Start'][idx]
@@ -74,11 +71,8 @@ def run_ttp(manager):
     send_to_ttp.to_csv(filename, index=False)
     target_list = formatting.theTTP(filename)
 
-    print("Initializing the optimizer.")
     solution = model.TTPModel(observation_start_time, observation_stop_time, target_list,
                                 observatory, observers_path, runtime=300, optgap=0.01, useHighEl=False)
-
-    print("Processing the solution.")
     plotting.writeStarList(solution.plotly, observation_start_time, manager.current_day,
                         outputdir=observers_path)
     plotting.plot_path_2D(solution,outputdir=observers_path)
@@ -99,7 +93,6 @@ def produce_bright_backups(manager, nstars_max=100):
     Returns:
         None
     """
-    print("Generating bright star backup weather script.")
     backups_path = manager.reports_directory + '/observer/' + manager.current_day + "/backups/"
     check = os.path.isdir(backups_path)
     if not check:
@@ -119,7 +112,6 @@ def produce_bright_backups(manager, nstars_max=100):
     print("Minutes on sky: ", diff_minutes)
 
     backup_starlist = pd.read_csv(manager.backup_file)
-
     manager.requests_frame = backup_starlist
     available_indices = mp.produce_ultimate_map(manager,running_backup_stars=True)
     slots_available_tonight_for_star = {k: len(v[0]) for k, v in available_indices.items()}

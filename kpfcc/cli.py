@@ -33,7 +33,6 @@ def main():
                             required=True,
                             help="Run benchmark with given number of slots required to complete the extra single shot requests."
                             )
-
     psr_bench.add_argument('-cf', '--config_file',
                               type=str,
                               required=True,
@@ -69,7 +68,6 @@ def main():
                               help="Relative path of config file."
                               )
     psr_schedule.set_defaults(func=kpfcc.driver.schedule)
-
 
     ## subcommand of astroq: kpfcc -- Do KPFCC stuff
     psr_kpfcc = subpsr.add_parser('kpfcc', parents=[psr_parent],
@@ -108,19 +106,16 @@ def main():
                                                description="Pull the OB database from Keck",
                                                prefix_chars="-"
                                                )
-
     psr_kpfcc_data.add_argument('-pf', '--pull_file',
                               type=str,
                               required=True,
                               help="Path to the file that determines how to pull from the database."
                                 )
-
     psr_kpfcc_data.add_argument('-df', '--database_file',
                               type=str,
                               required=True,
                               help="Path to save the good OBs request sheet."
                                 )
-
     psr_kpfcc_data.set_defaults(func=kpfcc.driver.kpfcc_data)
 
     ## subcommand of astroq: ttp -- run the ttp
@@ -152,18 +147,17 @@ def main():
                               )
     psr_compare.set_defaults(func=kpfcc.driver.requests_vs_schedule)
 
-    ## subcommand of astroq: compare -- compare request set and schedule file
-    psr_fakehistory = subpsr.add_parser('hist', parents=[psr_parent],
+    ## subcommand of astroq: simsemester -- simulate a semester with a given weather loss pattern.
+    psr_simsemester = subpsr.add_parser('simsemester', parents=[psr_parent],
                                     description='Compare request set and schedule for consistency',
                                     prefix_chars='-'
                                     )
-    psr_fakehistory.add_argument('-cf', '--config_file',
+    psr_simsemester.add_argument('-cf', '--config_file',
                               type=str,
                               required=True,
                               help="Relative path of config file."
                               )
-
-    psr_fakehistory.set_defaults(func=kpfcc.driver.make_simulated_history)
+    psr_simsemester.set_defaults(func=kpfcc.driver.make_simulated_history)
 
     # If no arguments are provided, print help message and exit
     if len(sys.argv)==1:
