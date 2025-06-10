@@ -28,22 +28,10 @@ def main():
                                   description='Conduct benchmark tests',
                                   prefix_chars='-'
                                   )
-    psr_bench.add_argument('-nr', '--number_requests',
-                            type=int,
-                            required=True,
-                            help="Run benchmark with given number of requests (strongly suggest value >= 250.)"
-                            )
-
     psr_bench.add_argument('-ns', '--number_slots',
                             type=int,
                             required=True,
                             help="Run benchmark with given number of slots required to complete the extra single shot requests."
-                            )
-
-    psr_bench.add_argument('-sc', '--shortcut',
-                            type=int,
-                            required=False,
-                            help="Run benchmark with a small request set, for testing purposes only."
                             )
 
     psr_bench.add_argument('-cf', '--config_file',
@@ -146,7 +134,7 @@ def main():
                               help="Relative path of config file."
                               )
     psr_ttp.set_defaults(func=kpfcc.driver.ttp)
-    
+
     ## subcommand of astroq: compare -- compare request set and schedule file
     psr_compare = subpsr.add_parser('comp', parents=[psr_parent],
                                     description='Compare request set and schedule for consistency',
@@ -163,6 +151,19 @@ def main():
                               help="Relative path of schedule file."
                               )
     psr_compare.set_defaults(func=kpfcc.driver.requests_vs_schedule)
+
+    ## subcommand of astroq: compare -- compare request set and schedule file
+    psr_fakehistory = subpsr.add_parser('hist', parents=[psr_parent],
+                                    description='Compare request set and schedule for consistency',
+                                    prefix_chars='-'
+                                    )
+    psr_fakehistory.add_argument('-cf', '--config_file',
+                              type=str,
+                              required=True,
+                              help="Relative path of config file."
+                              )
+
+    psr_fakehistory.set_defaults(func=kpfcc.driver.make_simulated_history)
 
     # If no arguments are provided, print help message and exit
     if len(sys.argv)==1:

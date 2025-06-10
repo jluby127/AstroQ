@@ -175,6 +175,8 @@ def write_out_results(manager, theta, round, start_the_clock):
         None
     """
     print("Writing Report.")
+    print(manager.output_directory + "runReport.txt")
+    print()
     filename = open(manager.output_directory + "runReport.txt", "a")
     theta_n_var = []
     counter = 0
