@@ -11,28 +11,30 @@ import numpy as np
 import os
 from astropy.time import Time
 
-exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', 'metadata.history', 
-                    'metadata.instruments', 'metadata.is_approved', 'metadata.last_modification', 
-                    'metadata.ob_feasible', 'metadata.observer_name', 'metadata.state', 'metadata.status', 
-                    'metadata.submitted', 'metadata.submitter', 'metadata.tags', 'observation.auto_exp_meter', 
-                    'observation.auto_nd_filters', 'observation.cal_n_d_1', 'observation.cal_n_d_2', 
-                    'observation.exp_meter_exp_time', 'observation.exp_meter_mode', 
-                    'observation.exp_meter_threshold', 'observation.guide_here', 
+exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', 'metadata.history',
+                    'metadata.instruments', 'metadata.is_approved', 'metadata.last_modification',
+                    'metadata.ob_feasible', 'metadata.observer_name', 'metadata.state', 'metadata.status',
+                    'metadata.submitted', 'metadata.submitter', 'metadata.tags', 'observation.auto_exp_meter',
+                    'observation.auto_nd_filters', 'observation.cal_n_d_1', 'observation.cal_n_d_2',
+                    'observation.exp_meter_exp_time', 'observation.exp_meter_mode',
+                    'observation.exp_meter_threshold', 'observation.guide_here',
                     'observation.object', 'observation.take_simulcal', 'observation.exp_meter_bin',
-                    'observation.trigger_ca_h_k', 'observation.trigger_green', 'observation.trigger_red', 
+                    'observation.trigger_ca_h_k', 'observation.trigger_green', 'observation.trigger_red',
                     'schedule.accessibility_map', 'schedule.days_observable', 'schedule.fast_read_mode_requested',
-                    'schedule.minimum_elevation', 'schedule.minimum_moon_separation',  
-                    'schedule.rise_semester_day', 'schedule.scheduling_mode', 'schedule.sets_semester_day', 
-                    'schedule.total_observations_requested', 'schedule.total_time_for_target', 
+                    'schedule.minimum_elevation', 'schedule.minimum_moon_separation',
+                    'schedule.rise_semester_day', 'schedule.scheduling_mode', 'schedule.sets_semester_day',
+                    'schedule.total_observations_requested', 'schedule.total_time_for_target',
                     'schedule.total_time_for_target_hours', 'target.isNew', 'target.parallax', 'target.equinox', 'target.systemic_velocity',
                     'target.tic_id', 'target.two_mass_id', 'schedule.weather_band', 'target.catalog_comment',
-                    'calibration.cal_n_d_1', 'calibration.cal_n_d_2', 'calibration.cal_source', 'calibration.exp_meter_bin', 
-                    'calibration.exp_meter_exp_time', 'calibration.exp_meter_mode', 'calibration.exp_meter_threshold', 
-                    'calibration.exposure_time', 'calibration.intensity_monitor', 'calibration.num_exposures', 'calibration.object', 
-                    'calibration.open_science_shutter', 'calibration.open_sky_shutter', 'calibration.take_simulcal', 
-                    'calibration.trigger_ca_h_k', 'calibration.trigger_green', 'calibration.trigger_red', 
-                    'calibration.wide_flat_pos', 'observation.block_sky', 'observation.nod_e', 'observation.nod_n', 
-                    'schedule.isNew'
+                    'calibration.cal_n_d_1', 'calibration.cal_n_d_2', 'calibration.cal_source', 'calibration.exp_meter_bin',
+                    'calibration.exp_meter_exp_time', 'calibration.exp_meter_mode', 'calibration.exp_meter_threshold',
+                    'calibration.exposure_time', 'calibration.intensity_monitor', 'calibration.num_exposures', 'calibration.object',
+                    'calibration.open_science_shutter', 'calibration.open_sky_shutter', 'calibration.take_simulcal',
+                    'calibration.trigger_ca_h_k', 'calibration.trigger_green', 'calibration.trigger_red',
+                    'calibration.wide_flat_pos', 'observation.block_sky', 'observation.nod_e', 'observation.nod_n',
+                    'schedule.isNew', 'observation.isNew', 'schedule.comment', 'target.d_ra', 'target.undefined',
+                    'schedule.num_internight_cadence', 'schedule.num_intranight_cadence',
+                    'schedule.desired_num_visits_per_night', 'schedule.minimum_num_visits_per_night',    # NOTE: last four will be removed
 ]
 
 def refresh_local_data(semester):
@@ -55,7 +57,7 @@ def refresh_local_data(semester):
     except:
         print("ERROR")
         return
-    
+
 def get_request_sheet(OBs, awarded_programs, savepath):
 
     good_obs, bad_obs_values, bad_obs_hasFields = sort_good_bad(OBs, awarded_programs)
@@ -63,7 +65,6 @@ def get_request_sheet(OBs, awarded_programs, savepath):
     good_obs.reset_index(inplace=True, drop=True)
     good_obs.to_csv(savepath, index=False)
     return good_obs, bad_obs_values, bad_obs_hasFields
-
 
 def is_observation_complete(ob, entry):
     """
@@ -201,21 +202,21 @@ def create_checks_dataframes(OBs, exception_fields):
 
     complete_presence_df = presence_df[all_true_mask]
     incomplete_presence_df = presence_df[some_false_mask]
-    
+
     return value_df, presence_df, all_true_mask
 
 def cast_columns(df):
-    
-    type_dict = {'observation.exposure_time':'Int64', 
+
+    type_dict = {'observation.exposure_time':'Int64',
                 'observation.num_exposures':'Int64',
                 'schedule.num_internight_cadence':'Int64',
                 'schedule.num_intranight_cadence':'Float64',
                 'schedule.num_nights_per_semester':'Int64',
                 'schedule.num_visits_per_night':'Int64',
                 }
-    
-    df = df.copy() 
-    
+
+    df = df.copy()
+
     for col, dtype in type_dict.items():
         if col in df.columns:
             if dtype in ['Int64', 'Float64']:
@@ -232,7 +233,7 @@ def sort_good_bad(OBs, awarded_programs):
     bad_OBs_values.reset_index(inplace=True, drop='True')
     bad_OBs_hasFields = OB_hasFields[~pass_OBs_mask]
     bad_OBs_hasFields.reset_index(inplace=True, drop='True')
-    
+
     good_OB_values = OB_values[pass_OBs_mask]
     good_OB_values.reset_index(inplace=True, drop='True')
     good_OBs = cast_columns(good_OB_values)
@@ -335,7 +336,7 @@ each day that the OB is not in compliance, you will receive this email. To effec
 The following OB id/target_name was rejected for the follwowing reason(s). These fields are missing or incorrectly formatted: \n
 {badparams}
 
-Note: for fields that begin with "target", you may just need to hit the bullseye button again on the webform and then resubmit. 
+Note: for fields that begin with "target", you may just need to hit the bullseye button again on the webform and then resubmit.
 
 If you have any questions about why this OB was rejected or on the process of remedy/resubmission, please reach out
 to KPF-CC Project Scientist Jack Lubin (jblubin@ucla.edu)
@@ -373,7 +374,7 @@ def send_email(receiver_email, subject, body):
     except Exception as e:
         print(f"Failed to send email to {receiver_email}: {e}")
 
-
+# This portion not ready yet. 
 # def define_email(bad_obs, i):
 #     badkeys = list(bad_obs.keys())
 #     email_address = bad_obs[badkeys[i]][4]

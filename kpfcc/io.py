@@ -174,9 +174,6 @@ def write_out_results(manager, theta, round, start_the_clock):
     Returns:
         None
     """
-    print("Writing Report.")
-    print(manager.output_directory + "runReport.txt")
-    print()
     filename = open(manager.output_directory + "runReport.txt", "a")
     theta_n_var = []
     counter = 0
@@ -186,11 +183,8 @@ def write_out_results(manager, theta, round, start_the_clock):
         counter += varval
     print("Sum of Theta: " + str(counter))
     filename.write("Sum of Theta: " + str(counter) + "\n")
-
     print("Total Time to complete " + round + ": " + str(np.round(time.time()-start_the_clock,3)))
     filename.write("Total Time to complete " + round +  ": " + str(np.round(time.time()-start_the_clock,3)) + "\n")
-    filename.write("\n")
-    filename.write("\n")
     filename.close()
 
 def build_observed_map_past(past_info, starmap_template_filename):
@@ -290,7 +284,6 @@ def write_stars_schedule_human_readable(combined_semester_schedule, Yrds, manage
     Returns:
         combined_semester_schedule (array): the updated human readable solution
     """
-
     end_past = manager.all_dates_dict[manager.current_day]*manager.n_slots_in_night
     all_star_schedules = {}
     for name in list(manager.requests_frame['starname']):
@@ -373,6 +366,7 @@ def write_available_human_readable(manager):
         # for some reason when adding strings within an array, the max length of new string is the
         # length of the longest string in the whole array. So choosing an arbitrary long word
         # as a placeholder. Later I post-process this out.
+        # For some reason this word had to be different than the one above...
         combined_semester_schedule[c] += 'supercalifragilisticexpialidocious'
     combined_semester_schedule = np.reshape(combined_semester_schedule,
             (manager.semester_length, manager.n_slots_in_night))
@@ -409,7 +403,6 @@ def serialize_schedule(Yrds, manager):
     Returns:
         None
     """
-
     df = pd.DataFrame(Yrds.keys(),columns=['r','d','s'])
     df['value'] = [Yrds[k].x for k in Yrds.keys()]
     sparse = df.query('value>0')
@@ -469,7 +462,6 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
     if not os.path.isdir(outputdir):
         os.mkdir(outputdir)
     script_file = os.path.join(outputdir,'script_{}_{}.txt'.format(current_day, version))
-    print('Writing starlist to ' + script_file)
 
     lines = []
     for i, item in enumerate(solution_frame['Starname']):
@@ -548,11 +540,6 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
         (4-len(str(int(row['exptime'][0])))))
 
     ofstring = ('1of' + str(int(row['n_intra_max'][0])))
-
-    # if row['Simucal'][0]:
-    #     scval = 'T'
-    # else:
-    #     scval = 'F'
     scstring = 'sc=' + 'T'
 
     numstring = str(int(row['n_exp'][0])) + "x"
@@ -604,7 +591,6 @@ def pm_correcter(ra, dec, pmra, pmdec, current_day, equinox="2000"):
     """
     start_time = Time(f'J{equinox}')
     current_time = Time(current_day)
-
     coord = SkyCoord(
         ra=ra * u.deg,
         dec=dec * u.deg,
@@ -612,9 +598,7 @@ def pm_correcter(ra, dec, pmra, pmdec, current_day, equinox="2000"):
         pm_dec=pmdec * u.mas/u.yr,
         obstime=start_time
     )
-
     new_coord = coord.apply_space_motion(new_obstime=current_time)
-
     formatted_ra = new_coord.ra.to_string(unit=u.hourangle, sep=' ', pad=True, precision=1)
     formatted_dec = new_coord.dec.to_string(unit=u.deg, sep=' ', pad=True, precision=0)
 

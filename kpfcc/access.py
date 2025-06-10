@@ -198,7 +198,6 @@ def get_accessibility_stats(access_map, time_up=30, slot_size=5):
 
     return days_observable, rise_day, set_day
 
-
 def construct_twilight_map(manager):
     """
     Compute the number of slots per night available, based on strictly twilight times
@@ -224,8 +223,7 @@ def construct_twilight_map(manager):
     for date in list(manager.all_dates_array):
         slots_tonight = determine_twilight_edge(date, manager.twilight_frame, manager.slot_size)
         available_slots_in_each_night.append(slots_tonight)
-    twilight_map_all = np.array(build_twilight_map(available_slots_in_each_night,
-                                manager.n_slots_in_night, invert=False))
+    twilight_map_all = np.array(build_twilight_map(available_slots_in_each_night,manager.n_slots_in_night, invert=False))
     twilight_map_remaining = twilight_map_all[manager.all_dates_dict[manager.current_day]:]
     twilight_map_remaining_1D = twilight_map_remaining.copy().flatten()
     twilight_map_remaining_2D = np.reshape(twilight_map_remaining_1D, (manager.n_nights_in_semester, manager.n_slots_in_night))
@@ -288,8 +286,7 @@ def get_available_slots_per_night(all_dates_array, twilight_frame, slot_size=5, 
     """
     available_slots_per_night = []
     for date in range(all_dates_array):
-        edge = determine_twilight_edge(date, twilight_frame, slot_size, start_time,
-                                       n_hours_in_night)
+        edge = determine_twilight_edge(date, twilight_frame, slot_size, start_time, n_hours_in_night)
         available_slots_per_night.append(edge)
     return available_slots_per_night
 

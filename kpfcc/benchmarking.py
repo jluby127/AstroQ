@@ -104,7 +104,7 @@ def build_toy_model_from_paper(ns, hours_per_program = 80, plot = False):
         all_programs[p].append(n_stars)
         total_stars += n_stars
 
-        # Metadata about toy model, currently not returned
+    # Metadata about toy model, currently not returned
     prog_info = pd.DataFrame({"Program #":prog_numb,
                             "# Nights":prog_nobs,
                             "Inter Cadence":prog_inter,
@@ -198,5 +198,4 @@ def build_toy_model_from_paper(ns, hours_per_program = 80, plot = False):
         pt.ylim(-40,90)
         pt.show()
 
-    print("The toy model is defined! Happy benchmarking.")
     return requests_data
