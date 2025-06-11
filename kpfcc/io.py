@@ -17,6 +17,7 @@ from astropy import units as u
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as pt
+import re
 
 import kpfcc.history as hs
 
@@ -501,6 +502,75 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
     with open(script_file, 'w') as f:
         f.write('\n'.join(lines))
     print("Total Open Shutter Time Scheduled: " + str(np.round((total_exptime/3600),2)) + " hours")
+    return lines
+
+# Define column names in advance
+columns = [
+    'star_name', 'ra', 'dec', 'equinox', 'jmag', 'gmag', 'teff',
+    'gaia_dr3_id', 'program_code', 'priority', 'semester',
+    'obs_time', 'first_avail', 'last_avail'
+]
+def parse_star_line(line):
+    line = line.strip()
+
+    # Case 1: blank line
+    if not line:
+        return {col: '' for col in columns}
+
+    # Case 2: line with Xs
+    if re.fullmatch(r'X+', line):  # line is only Xs
+        return {col: 'XX' for col in columns}
+
+    # Normal case: parse structured line
+    tokens = line.split()
+
+    try:
+        star_name = tokens[0]
+        ra = f"{tokens[1]}h{tokens[2]}m{tokens[3]}s"
+        dec = f"{tokens[4]}d{tokens[5]}m{tokens[6]}s"
+        equinox = tokens[7]
+
+        jmag = re.search(r'jmag=([\d.]+)', line)
+        gmag = re.search(r'gmag=([\d.]+)', line)
+        teff = re.search(r'Teff=([\d.]+)', line)
+
+        jmag = jmag.group(1) if jmag else ''
+        gmag = gmag.group(1) if gmag else ''
+        teff = teff.group(1) if teff else ''
+
+        gaia_id_match = re.search(r'DR[23]_\d+', line)
+        gaia_id = gaia_id_match.group(0) if gaia_id_match else ''
+
+        post_gaia_tokens = line.split(gaia_id)[-1].strip().split() if gaia_id else []
+
+        program_code = post_gaia_tokens[0] if len(post_gaia_tokens) > 0 else ''
+        priority = post_gaia_tokens[1] if len(post_gaia_tokens) > 1 else ''
+        semester = post_gaia_tokens[2] if len(post_gaia_tokens) > 2 else ''
+        obs_time      = str(post_gaia_tokens[3]) if len(post_gaia_tokens) > 3 else ''
+        first_avail   = str(post_gaia_tokens[4]) if len(post_gaia_tokens) > 4 else ''
+        last_avail    = str(post_gaia_tokens[5]) if len(post_gaia_tokens) > 5 else ''
+
+        return {
+            'star_name': star_name,
+            'ra': ra,
+            'dec': dec,
+            'equinox': equinox,
+            'jmag': jmag,
+            'gmag': gmag,
+            'teff': teff,
+            'gaia_dr3_id': gaia_id,
+            'program_code': program_code,
+            'priority': priority,
+            'semester': semester,
+            'obs_time': obs_time,
+            'first_avail': first_avail,
+            'last_avail': last_avail
+        }
+
+    except Exception as e:
+        # If parsing fails, return blank row (optional)
+        return {col: ' ' for col in columns}
+
 
 def format_kpf_row(row, obs_time, first_available, last_available, current_day,
                     filler_flag = False, extra=False):

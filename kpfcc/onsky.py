@@ -9,6 +9,7 @@ Example usage:
 """
 import sys
 import os
+import pickle
 
 import numpy as np
 import pandas as pd
@@ -73,6 +74,13 @@ def run_ttp(manager):
 
     solution = model.TTPModel(observation_start_time, observation_stop_time, target_list,
                                 observatory, observers_path, runtime=300, optgap=0.01, useHighEl=False)
+
+    gurobi_model_backup = solution.gurobi_model  # backup the attribute, probably don't need this
+    del solution.gurobi_model                   # remove attribute so pickle works
+    save_data = [solution]
+    with open(manager.reports_directory + '/observer/' + manager.current_day + '/ttp_data.pkl', 'wb') as f:
+        pickle.dump(save_data, f)
+
     plotting.writeStarList(solution.plotly, observation_start_time, manager.current_day,
                         outputdir=observers_path)
     plotting.plot_path_2D(solution,outputdir=observers_path)
