@@ -14,6 +14,8 @@ import seaborn as sns
 import plotly.graph_objects as go
 import plotly.express as px
 import plotly.io as pio
+from astropy.time import Time
+from astropy.time import TimeDelta
 
 from collections import defaultdict
 import pickle
@@ -21,6 +23,8 @@ import pickle
 import kpfcc.management as mn
 import kpfcc.history as hs
 import kpfcc.maps as mp
+import kpfcc.io as io
+import ttp.plotting as plotting
 
 labelsize = 38
 
@@ -465,14 +469,18 @@ def build_plot_file(manager):
 def run_plot_suite(config_file):
     manager = mn.data_admin(config_file)
     manager.run_admin()
+
     build_plot_file(manager)
     data = read_star_objects(manager.reports_directory + "admin/" + manager.current_day + '/')
-
     # build global plots
     all_stars_list = [obj for obj_list in data[0].values() for obj in obj_list]
     cof_builder(all_stars_list, manager, 'admin/' + manager.current_day + '/all_stars_COF.html')
     cof_builder(list(data[1].values()), manager, 'admin/' + manager.current_day + '/all_programs_COF.html', flag=True)
     generate_birds_eye(manager, data[2], all_stars_list, 'admin/' + manager.current_day + '/all_stars_birdseye.html')
+
+    # get TTP plots from pkl file with data
+    get_ttp_plots_dynamic(manager)
+
     # generate_single_star_maps(manager, 'your star name here')
     # # build plots for each program
     # program_names = data[0].keys()
@@ -568,3 +576,91 @@ def generate_single_star_maps(manager, starname):
         fileout_path = manager.reports_directory + filename
         fig.write_html(fileout_path)
     return fig
+
+def get_ttp_plots_dynamic(manager):
+    outputdir = manager.reports_directory + 'observer/' + manager.current_day + "/"
+    with open(manager.reports_directory + 'observer/' + manager.current_day + '/ttp_data.pkl', 'rb') as f:
+        data = pickle.load(f)
+        # note data[0] is the solution object, with the actual gorubi model having been deleted for pickling purposes
+
+    # slew_path_gif = plotting.animate_telescope(data[0], data[0].nightstarts.jd, data[0].nightends.jd, outputdir, animationStep=120)
+    # slew_path_gif = plotting.animate_telescope(data[0], outputdir, animationStep=120)
+    slew_path_2D = plotting.plot_path_2D(data[0], outputdir) #note this is still a static matplotlib fig object
+    ladder_plot = plotting.nightPlan(data[0].plotly, manager.current_day, outputdir)
+    round_two_requests = [] # just for now
+    nightly_start_stop_times = pd.read_csv(manager.nightly_start_stop_times_file)
+    day_in_semester = manager.all_dates_dict[manager.current_day]
+    idx = nightly_start_stop_times[nightly_start_stop_times['Date'] == str(manager.current_day)].index[0]
+    night_start_time = nightly_start_stop_times['Start'][idx]
+    night_stop_time = nightly_start_stop_times['Stop'][idx]
+    obs_start_time = Time(str(manager.current_day) + "T" + str(night_start_time))
+    lines = io.write_starlist(manager.requests_frame, data[0].plotly, obs_start_time, data[0].extras,round_two_requests, str(manager.current_day), outputdir)
+    observing_plan = pd.DataFrame([io.parse_star_line(line) for line in lines])
+    observing_plan[['obs_time', 'first_avail', 'last_avail']] = observing_plan[['obs_time', 'first_avail', 'last_avail']].astype(str)
+    observing_plan_html = save_interactive_observing_plan(observing_plan)
+
+    outputs = [observing_plan_html, ladder_plot, slew_path_2D]#slew_path_gif]
+
+    # observing_plan_html.write_html("/Users/jack/Desktop/tmpnightplantest.html")
+    # slew_path_2D.save_fig("/Users/jack/Desktop/tmpnightplantest.png", dpi=300, bbox_inches='tight', facecolor='w')
+    return outputs
+
+def save_interactive_observing_plan(observing_plan):
+    from pathlib import Path
+
+    # Generate the core HTML table (just the <table>...</table>)
+    observing_plan_html = observing_plan.to_html(
+        index=False,
+        border=0,
+        classes='display',
+        escape=False  # Set to True if you have HTML tags in data you want escaped
+    )
+
+    # Full HTML page with DataTables integration
+    full_html = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Observing Plan</title>
+
+    <!-- DataTables CSS -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+
+    <!-- jQuery and DataTables JS -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            padding: 2em;
+        }}
+        table {{
+            width: 100%;
+        }}
+    </style>
+</head>
+<body>
+
+<h2>Observing Plan</h2>
+
+{observing_plan_html}
+
+<script>
+    $(document).ready(function () {{
+        $('table.display').DataTable({{
+            paging: true,
+            searching: true,
+            responsive: true
+        }});
+    }});
+</script>
+
+</body>
+</html>
+"""
+
+    # Write to file
+    # Path(output_path).write_text(full_html, encoding='utf-8')
+    return full_html
