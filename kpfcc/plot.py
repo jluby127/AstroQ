@@ -323,7 +323,10 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
 def cof_builder(all_stars, manager, filename='', flag=False):
 
     fig = go.Figure()
-    fig.update_layout(width=1200, height=800)
+    fig.update_layout(
+        autosize=True,
+        margin=dict(l=40, r=40, t=40, b=40),
+    )
     burn_line = np.linspace(0, 100, len(manager.all_dates_array))
     for b in range(len(burn_line)):
         burn_line[b] = np.round(burn_line[b],2)
