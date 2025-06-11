@@ -57,6 +57,11 @@ def bench(args):
     schedule.run_model()
     return
 
+def kpfcc(args):
+    print('    Entering kpfcc function in driver.py')
+    print("this function doesn't do anything yet.")
+    return
+    
 def kpfcc_build(args):
     cf = args.config_file
     print(f'kpfcc_build function: config_file is {cf}')

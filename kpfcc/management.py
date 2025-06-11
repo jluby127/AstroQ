@@ -52,8 +52,6 @@ class data_admin(object):
         # self.allocation_file = os.path.join(self.semester_directory, "inputs/allocation_schedule.txt")
         self.allocation_file = str(config.get('oia', 'allocation_file'))
         print("Using allocation map as defined in: ", self.allocation_file)
-        self.requests_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/Requests.csv"))
-        self.twilight_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/twilight_times.csv"), parse_dates=True)
         self.past_database_file = os.path.join(self.semester_directory, "inputs/queryJumpDatabase.csv")
         # self.accessibilities_file = os.path.join(self.semester_directory, "inputs/accessibilities_" + str(self.slot_size) + "minSlots.json")
         self.special_map_file = os.path.join(self.semester_directory, "inputs/specialMaps_" + str(self.slot_size) + "minSlots.txt")
@@ -104,6 +102,10 @@ class data_admin(object):
         Given today's date, collate all important information about the semester.
         """
         # build out some paths here, so that if current_day changes due to request_set.json file, it is reflected properly
+        print("MANAGER.SEMESTER_DIRECTORY 2222: ", str(os.path.join(self.semester_directory, "inputs/Requests.csv")))
+        self.requests_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/Requests.csv"))
+        self.twilight_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/twilight_times.csv"), parse_dates=True)
+
         self.output_directory = self.upstream_path  + "outputs/" + str(self.current_day) + "/"
         self.folder_cadences = os.path.join(self.semester_directory, "/outputs/" + str(self.current_day) + "/cadences/")
         self.future_forecast = os.path.join(self.semester_directory, "outputs/" + str(self.current_day) + "/raw_combined_semester_schedule_Round2.txt")

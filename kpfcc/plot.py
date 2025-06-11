@@ -168,6 +168,11 @@ def process_stars(manager):
         newstar.star_color_rgb = rgb_strings[np.random.randint(0, len(rgb_strings)-1)]
         newstar.draw_lines = False
 
+        is_altaz, is_moon, is_night, is_inter, is_future, is_alloc = mp.mod_produce_ultimate_map(manager, name)
+        newstar.maps = [is_alloc, is_night, is_altaz, is_moon, is_inter, is_future]
+        newstar.maps_names = ['is_alloc', 'is_night', 'is_altaz', 'is_moon', 'is_inter', 'is_future']
+        newstar.allow_mapview = True
+
         all_stars.append(newstar)
 
     # Now create StarPlotter objects for each program, as it were one star.
@@ -199,6 +204,8 @@ def process_stars(manager):
         programmatic_star.starmap = super_map
         programmatic_star.total_observations_requested = np.sum([all_stars[k].total_observations_requested for k in prog_indices])
         programmatic_star.draw_lines = False
+        programmatic_star.allow_mapview = False
+
 
         # Set colors to match program color
         programmatic_star.program_color_rgb = all_stars[prog_indices[0]].program_color_rgb
@@ -230,16 +237,32 @@ clear = 'rgba(255,255,255,1)'
 def generate_birds_eye(manager, availablity, all_stars, filename=''):
 
     fig = go.Figure()
-    fig.update_layout(width=1200, height=800, plot_bgcolor=clear, paper_bgcolor=clear)
-    fig.add_trace(go.Heatmap(
-        z=availablity,
-        colorscale=[[0, 'rgba(0,0,0,0)'], [1, gray]],
-        zmin=0, zmax=1,
-        opacity=1.0,
-        showscale=False,
-        name="Not On Sky",
-        showlegend=False,
-    ))
+    # fig.update_layout(width=1200, height=800, plot_bgcolor=clear, paper_bgcolor=clear)
+    fig.update_layout(width=800, height=600, plot_bgcolor=clear, paper_bgcolor=clear)
+
+    if len(all_stars) > 1 or all_stars[0].allow_mapview == False:
+        fig.add_trace(go.Heatmap(
+            z=availablity,
+            colorscale=[[0, 'rgba(0,0,0,0)'], [1, gray]],
+            zmin=0, zmax=1,
+            opacity=1.0,
+            showscale=False,
+            name="Not On Sky",
+            showlegend=False,
+        ))
+    else:
+        colors = sns.color_palette("deep", len(all_stars[0].maps_names) + 1)
+        rgb_strings = [f"rgb({int(r*255)}, {int(g*255)}, {int(b*255)})" for r, g, b in colors]
+        for m in range(len(all_stars[0].maps_names)):
+            fig.add_trace(go.Heatmap(
+                z=all_stars[0].maps[m][0].astype(int).T,
+                colorscale=[[0, 'rgba(0,0,0,0)'], [1, rgb_strings[m]]],
+                zmin=0, zmax=1,
+                opacity=1.0,
+                showscale=False,
+                name=all_stars[0].maps_names[m],
+                showlegend=True,
+            ))
 
     for i in range(len(all_stars)):
 
@@ -253,7 +276,7 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
             hovertemplate='<b>' + str(all_stars[i].starname) +
                 '</b><br><b>Date: %{x}</b><br><b>Slot: %{y}</b><br>Forecasted N_Obs: ' + \
                 str(all_stars[i].total_observations_requested) + '<extra></extra>',
-            showlegend=False,
+            showlegend=True,
         ))
 
         if all_stars[i].draw_lines:
@@ -461,6 +484,8 @@ def generate_single_star_maps(manager, starname):
 
     is_altaz, is_moon, is_night, is_inter, is_future, is_alloc = mp.mod_produce_ultimate_map(manager, starname)
     all_maps = [is_altaz, is_alloc, is_night, is_moon, is_inter, is_future]
+    # return is_altaz, is_moon, is_night, is_inter, is_future, is_alloc
+
     mapnames = ['is_altaz', 'is_alloc', 'is_night', 'is_moon', 'is_inter', 'is_future', ]
 
     forecast = pd.read_csv(manager.future_forecast, header=None).astype(str)
