@@ -18,23 +18,18 @@ class TestClass:
         # override the tests of "do these files exist" and just run it all
         # but run a shortened version, so it doesn't take long, see shortcut=5
         nS = 12
-        cf = 'examples/bench/config_benchmark_pytest.ini'
+        cf = 'examples/bench/config_benchmark_pytest.ini' # need a separate file for this so that paths are correct 
 
         # Initialize manager and compute request set on the fly
         # This is a hacky workaround. run_admin needs this file to exist. This can
         # lead to race conditions if benchmarking is run in parallel.
         config = ConfigParser()
         config.read(cf)
-        # upstream_path = "examples/" + str(eval(config.get('required', 'folder'), {"os": os}))
         upstream_path = eval(config.get('required', 'folder'), {"os": os})
         requests_frame = bn.build_toy_model_from_paper(nS, hours_per_program = 100)
         requests_frame = requests_frame[::10]
         requests_frame.to_csv(os.path.join(upstream_path, "inputs/Requests.csv"))
         manager = mn.data_admin(cf)
-        # current_dir = os.path.dirname(os.path.abspath(__file__))
-        # manager.semester_directory = current_dir + '/examples/bench/'
-        # print("MANAGER.SEMESTER_DIRECTORY: ", str(os.path.join(manager.semester_directory, "inputs/Requests.csv")))
-        # manager.allocation_file = "examples/allocations/real_2018B.txt"
         manager.run_admin()
 
         # Build observability maps and request set
