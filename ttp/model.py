@@ -375,6 +375,7 @@ class TTPModel(object):
                 t2 = Time(self.nightstarts.jd + last_available_minutes_from_start/(24*60),format='jd')
                 extra_rises.append(str(t1.isot)[11:16])
                 extra_sets.append(str(t2.isot)[11:16])
+
         self.extras = {'Starname':extras, 'First Available':extra_rises, 'Last Available':extra_sets}
         self.num_scheduled = num_scheduled
 

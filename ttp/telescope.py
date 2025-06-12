@@ -40,7 +40,7 @@ class Keck1(object):
         self.deckAzLim1 = 5.3
         self.deckAzLim2 = 146.2
         self.deckAltLim = 33.3
-        self.vigLim = 30
+        self.vigLim = 18
         self.zenLim = 84 # Note, this cannot be 0 or no observations can be scheduled.
         self.nSlots = nSlots
 
