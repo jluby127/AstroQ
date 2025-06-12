@@ -33,8 +33,7 @@ exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', '
                     'calibration.trigger_ca_h_k', 'calibration.trigger_green', 'calibration.trigger_red',
                     'calibration.wide_flat_pos', 'observation.block_sky', 'observation.nod_e', 'observation.nod_n',
                     'schedule.isNew', 'observation.isNew', 'schedule.comment', 'target.d_ra', 'target.undefined',
-                    'schedule.num_internight_cadence', 'schedule.num_intranight_cadence',
-                    'schedule.desired_num_visits_per_night', 'schedule.minimum_num_visits_per_night',    # NOTE: last four will be removed
+                    'schedule.desired_num_visits_per_night', 'schedule.minimum_num_visits_per_night', # NOTE: last two will be removed
 ]
 
 def refresh_local_data(semester):
@@ -374,7 +373,7 @@ def send_email(receiver_email, subject, body):
     except Exception as e:
         print(f"Failed to send email to {receiver_email}: {e}")
 
-# This portion not ready yet. 
+# This portion not ready yet.
 # def define_email(bad_obs, i):
 #     badkeys = list(bad_obs.keys())
 #     email_address = bad_obs[badkeys[i]][4]
