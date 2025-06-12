@@ -91,9 +91,11 @@ def nightPlan(orderData, current_day, outputdir='plots'):
             ifixer -= 1
 
     fig.update_layout(xaxis_range=[0,orderData['Start Exposure'][0] + orderData["Total Exp Time (min)"][0]])
-    # Save as both a .html intereactive plot and a low-res png plot
-    fig.write_html(outputdir + "NightPlan_" + str(current_day) + ".html")
-    fig.write_image(outputdir + 'NightPlan_' + str(current_day) + ".png")
+
+    if outputdir != '':
+        # Save as both a .html intereactive plot and a low-res png plot
+        fig.write_html(outputdir + "NightPlan_" + str(current_day) + ".html")
+        fig.write_image(outputdir + 'NightPlan_' + str(current_day) + ".png")
     return fig
 
 # Old imported code from kpfautoscheduler repo
@@ -174,8 +176,8 @@ def plot_path_2D(model,outputdir='plots'):
     plt.title('Telescope Path Over Time')
     if outputdir != '':
         plt.savefig(os.path.join(outputdir,'Telescope_Path.png'))
-    else:
-        plt.show()
+    # else:
+    #     plt.show()
     plt.close()
     return fig
 
@@ -321,7 +323,7 @@ def animate_telescope(model, outputdir, animationStep=120):
             image = imageio.imread(os.path.join(tel_ims_dir,filename))
             writer.append_data(image)
 
-    with open(gif_path, 'rb') as f:
+    with open(os.path.join(outputdir,'Observing_Animation.gif'), 'rb') as f:
         gif_data = f.read()
     gif_base64 = base64.b64encode(gif_data).decode('utf-8')
     html = f'<img src="data:image/gif;base64,{gif_base64}" alt="Observing Animation"/>'
@@ -335,7 +337,6 @@ def animate_telescope(model, outputdir, animationStep=120):
         print('Cannot remove redundant tel_ims directory due to file permissions')
     print("Animation plot complete. Still frame files deleted.")
     return html
-
 
 
 def createTelSlewPath(stamps, changes, pointings, animationStep=120):
