@@ -102,7 +102,6 @@ class data_admin(object):
         Given today's date, collate all important information about the semester.
         """
         # build out some paths here, so that if current_day changes due to request_set.json file, it is reflected properly
-        print("MANAGER.SEMESTER_DIRECTORY 2222: ", str(os.path.join(self.semester_directory, "inputs/Requests.csv")))
         self.requests_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/Requests.csv"))
         self.twilight_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/twilight_times.csv"), parse_dates=True)
 

@@ -518,8 +518,10 @@ def parse_star_line(line):
         return {col: '' for col in columns}
 
     # Case 2: line with Xs
-    if re.fullmatch(r'X+', line):  # line is only Xs
-        return {col: 'XX' for col in columns}
+    if 'EXTRAS' in line and re.fullmatch(r'X*EXTRASX*', line):
+        row = {col: 'XX' for col in columns}
+        row['gaia_dr3_id'] = 'EXTRAS'
+        return row
 
     # Normal case: parse structured line
     tokens = line.split()
