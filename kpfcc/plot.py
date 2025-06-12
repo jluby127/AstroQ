@@ -52,6 +52,8 @@ class StarPlotter(object):
             program (str): the program code
         """
         index = requests_frame.loc[requests_frame['starname'] == self.starname].index
+        self.ra = float(requests_frame['ra'][index].values[0])
+        self.dec = float(requests_frame['dec'][index].values[0])
         self.program = str(requests_frame['program_code'][index].values[0])
         self.exptime = int(requests_frame['exptime'][index].values[0])
         self.n_exp = int(requests_frame['n_exp'][index])
@@ -466,6 +468,7 @@ def build_plot_file(manager):
     os.makedirs(save_path, exist_ok = True)
     write_star_objects(save_path, [stars_in_program, programs_as_stars, nulltime])
 
+import kpfcc.dynamic as dn
 def run_plot_suite(config_file):
     manager = mn.data_admin(config_file)
     manager.run_admin()
@@ -478,8 +481,27 @@ def run_plot_suite(config_file):
     cof_builder(list(data[1].values()), manager, 'admin/' + manager.current_day + '/all_programs_COF.html', flag=True)
     generate_birds_eye(manager, data[2], all_stars_list, 'admin/' + manager.current_day + '/all_stars_birdseye.html')
 
+    # skymap_html = dn.interactive_sky_with_static_heatmap(manager, 'Program1')
+    # with open("/Users/jack/Desktop/skymap.html", "w", encoding="utf-8") as f:
+    #     f.write(skymap_html)
+
     # get TTP plots from pkl file with data
-    get_ttp_plots_dynamic(manager)
+    # get_ttp_plots_dynamic(manager)
+    # ladder_html = dn.get_ladder(manager)
+    # with open("/Users/jack/Desktop/ladder.html", "w", encoding="utf-8") as f:
+    #     f.write(ladder_html)
+    #
+    # animation_html = dn.get_slew_animation(manager)
+    # with open("/Users/jack/Desktop/slewgif.html", "w", encoding="utf-8") as f:
+    #     f.write(animation_html)
+    #
+    # script_table_html = dn.get_script_plan(manager)
+    # with open("/Users/jack/Desktop/script_table.html", "w", encoding="utf-8") as f:
+    #     f.write(script_table_html)
+    #
+    # slew_path_html = dn.plot_path_2D_interactive(manager)
+    # with open("/Users/jack/Desktop/slewpath.html", "w", encoding="utf-8") as f:
+    #     f.write(slew_path_html)
 
     # generate_single_star_maps(manager, 'your star name here')
     # # build plots for each program
@@ -583,8 +605,12 @@ def get_ttp_plots_dynamic(manager):
         data = pickle.load(f)
         # note data[0] is the solution object, with the actual gorubi model having been deleted for pickling purposes
 
-    # slew_path_gif = plotting.animate_telescope(data[0], data[0].nightstarts.jd, data[0].nightends.jd, outputdir, animationStep=120)
     # slew_path_gif = plotting.animate_telescope(data[0], outputdir, animationStep=120)
+    slew_path_gif = plotting.animate_telescope(data[0], animationStep=120)
+    with open("/Users/jack/Desktop/slewgif.html", "w", encoding="utf-8") as f:
+        f.write(slew_path_gif)
+    print(slew_path_gif)
+
     slew_path_2D = plotting.plot_path_2D(data[0], outputdir) #note this is still a static matplotlib fig object
     ladder_plot = plotting.nightPlan(data[0].plotly, manager.current_day, outputdir)
     round_two_requests = [] # just for now
@@ -596,13 +622,16 @@ def get_ttp_plots_dynamic(manager):
     obs_start_time = Time(str(manager.current_day) + "T" + str(night_start_time))
     lines = io.write_starlist(manager.requests_frame, data[0].plotly, obs_start_time, data[0].extras,round_two_requests, str(manager.current_day), outputdir)
     observing_plan = pd.DataFrame([io.parse_star_line(line) for line in lines])
-    observing_plan[['obs_time', 'first_avail', 'last_avail']] = observing_plan[['obs_time', 'first_avail', 'last_avail']].astype(str)
+    # observing_plan[['obs_time', 'first_avail', 'last_avail']] = observing_plan[['obs_time', 'first_avail', 'last_avail']].astype(str)
+    observing_plan = observing_plan[observing_plan.iloc[:, 0].str.strip() != '']
     observing_plan_html = save_interactive_observing_plan(observing_plan)
+    with open("/Users/jack/Desktop/output.html", "w", encoding="utf-8") as f:
+        f.write(observing_plan_html)
 
-    outputs = [observing_plan_html, ladder_plot, slew_path_2D]#slew_path_gif]
-
-    # observing_plan_html.write_html("/Users/jack/Desktop/tmpnightplantest.html")
-    # slew_path_2D.save_fig("/Users/jack/Desktop/tmpnightplantest.png", dpi=300, bbox_inches='tight', facecolor='w')
+    outputs = [observing_plan_html, ladder_plot, slew_path_2D, slew_path_gif]
+    # print(ladder_plot)
+    # ladder_plot.write_html("/Users/jack/Desktop/tmpnightplantest.html")
+    # slew_path_2D.savefig("/Users/jack/Desktop/tmpnightplantest.png", dpi=300, bbox_inches='tight', facecolor='w')
     return outputs
 
 def save_interactive_observing_plan(observing_plan):
@@ -652,7 +681,9 @@ def save_interactive_observing_plan(observing_plan):
         $('table.display').DataTable({{
             paging: true,
             searching: true,
-            responsive: true
+            responsive: true,
+            pageLength: 100,
+            order: [[11, 'asc']]
         }});
     }});
 </script>

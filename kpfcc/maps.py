@@ -35,20 +35,20 @@ from scipy.interpolate import interp1d
 import kpfcc.access as ac
 import kpfcc.weather as wh
 
-def produce_ultimate_map(manager, running_backup_stars=False):
+def produce_ultimate_map(manager, rs, running_backup_stars=False, mod=False):
     """
     Combine all maps for a target to produce the final map
 
     Args:
         requests_frame (dataframe): the pandas dataframe containing request information
-
+        running_backup_stars (bool): if true, then do not run the extra map of stepping back in time to account for the starting slot fitting into the night
     Returns:
         available_indices_for_request (dictionary): keys are the starnames and values are a 1D array
                                                   the indices where available_slots_for_request is 1.
 
     """
     # Prepatory work
-    rs = manager.requests_frame
+    # rs = manager.requests_frame
     date_formal = Time(manager.current_day,format='iso',scale='utc')
     date = str(date_formal)[:10]
 
@@ -136,6 +136,12 @@ def produce_ultimate_map(manager, running_backup_stars=False):
     # is_alloc = np.repeat(is_alloc[np.newaxis, :, :], ntargets, axis=0)
     is_alloc = np.ones_like(is_altaz, dtype=bool) & is_alloc[np.newaxis,:,:] # shape = (ntargets, nnights, nslots)
 
+    if mod:
+        # turn these off when computing semesterly access for fishbowl plot
+        is_inter = np.ones_like(is_altaz, dtype=bool)
+        is_future = np.ones_like(is_altaz, dtype=bool)
+        is_alloc = np.ones_like(is_altaz, dtype=bool)
+        
     is_observable_now = np.logical_and.reduce([
         is_altaz,
         is_moon,
