@@ -13,7 +13,6 @@ import matplotlib.pyplot as plt
 import os
 import ttp.star as star
 import imageio
-import base64
 
 
 def writeStarList(orderData, starttime, current_day, outputdir=''):
@@ -91,12 +90,9 @@ def nightPlan(orderData, current_day, outputdir='plots'):
             ifixer -= 1
 
     fig.update_layout(xaxis_range=[0,orderData['Start Exposure'][0] + orderData["Total Exp Time (min)"][0]])
-
-    if outputdir != '':
-        # Save as both a .html intereactive plot and a low-res png plot
-        fig.write_html(outputdir + "NightPlan_" + str(current_day) + ".html")
-        fig.write_image(outputdir + 'NightPlan_' + str(current_day) + ".png")
-    return fig
+    # Save as both a .html intereactive plot and a low-res png plot
+    fig.write_html(outputdir + "NightPlan_" + str(current_day) + ".html")
+    fig.write_image(outputdir + 'NightPlan_' + str(current_day) + ".png")
 
 # Old imported code from kpfautoscheduler repo
 def plot_path_2D(model,outputdir='plots'):
@@ -176,10 +172,9 @@ def plot_path_2D(model,outputdir='plots'):
     plt.title('Telescope Path Over Time')
     if outputdir != '':
         plt.savefig(os.path.join(outputdir,'Telescope_Path.png'))
-    # else:
-    #     plt.show()
+    else:
+        plt.show()
     plt.close()
-    return fig
 
 def plot_slew_histogram(model,bins=30,outputdir='plots'):
     """Make histograms of the estimated/real slews in the schedule
@@ -226,11 +221,13 @@ def plot_slew_histogram(model,bins=30,outputdir='plots'):
     plt.savefig(filename,dpi=200)
 
 
-def animate_telescope(model, outputdir, animationStep=120):
+def animate_telescope(model, startObs, endObs, outputdir, animationStep=120):
     '''
     Produce the animation slew path GIF
 
     model (object) - the model object returned out from the TTP's model.py
+    startObs (Time) - the timestamp of the beginning of the night, in isot format
+    endObs (Time) - the timestamp of the end of the night, in isot format
     outputdir (str) - the path to save the animation
     animationStep (int) - the time, in seconds, between animation still frames. Default to 120s.
     '''
@@ -244,7 +241,7 @@ def animate_telescope(model, outputdir, animationStep=120):
     times = model.times
 
     # set the timestamps at which to generate a frame for the animation
-    t = np.arange(model.nightstarts.jd, model.nightends.jd, TimeDelta(animationStep,format='sec').jd)
+    t = np.arange(startObs.jd, endObs.jd, TimeDelta(animationStep,format='sec').jd)
     t = Time(t,format='jd')
 
     # we need the astropy target objects within the TTP's Star object and we need them in the order to be observed
@@ -323,11 +320,6 @@ def animate_telescope(model, outputdir, animationStep=120):
             image = imageio.imread(os.path.join(tel_ims_dir,filename))
             writer.append_data(image)
 
-    with open(os.path.join(outputdir,'Observing_Animation.gif'), 'rb') as f:
-        gif_data = f.read()
-    gif_base64 = base64.b64encode(gif_data).decode('utf-8')
-    html = f'<img src="data:image/gif;base64,{gif_base64}" alt="Observing Animation"/>'
-
     # Remove files
     for filename in set(filenames):
         os.remove(os.path.join(tel_ims_dir,filename))
@@ -336,7 +328,7 @@ def animate_telescope(model, outputdir, animationStep=120):
     except:
         print('Cannot remove redundant tel_ims directory due to file permissions')
     print("Animation plot complete. Still frame files deleted.")
-    return html
+
 
 
 def createTelSlewPath(stamps, changes, pointings, animationStep=120):
