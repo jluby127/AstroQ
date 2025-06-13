@@ -468,18 +468,21 @@ def build_plot_file(manager):
     os.makedirs(save_path, exist_ok = True)
     write_star_objects(save_path, [stars_in_program, programs_as_stars, nulltime])
 
-import kpfcc.dynamic as dn
+# import kpfcc.dynamic as dn
 def run_plot_suite(config_file):
     manager = mn.data_admin(config_file)
     manager.run_admin()
 
     build_plot_file(manager)
-    data = read_star_objects(manager.reports_directory + "admin/" + manager.current_day + '/')
-    # build global plots
-    all_stars_list = [obj for obj_list in data[0].values() for obj in obj_list]
-    cof_builder(all_stars_list, manager, 'admin/' + manager.current_day + '/all_stars_COF.html')
-    cof_builder(list(data[1].values()), manager, 'admin/' + manager.current_day + '/all_programs_COF.html', flag=True)
-    generate_birds_eye(manager, data[2], all_stars_list, 'admin/' + manager.current_day + '/all_stars_birdseye.html')
+    # commenting out all below which are calls to create static files. Above line creates the pickle file from which these
+    # other plots are generated from.
+
+    # data = read_star_objects(manager.reports_directory + "admin/" + manager.current_day + '/')
+    # # build global plots
+    # all_stars_list = [obj for obj_list in data[0].values() for obj in obj_list]
+    # cof_builder(all_stars_list, manager, 'admin/' + manager.current_day + '/all_stars_COF.html')
+    # cof_builder(list(data[1].values()), manager, 'admin/' + manager.current_day + '/all_programs_COF.html', flag=True)
+    # generate_birds_eye(manager, data[2], all_stars_list, 'admin/' + manager.current_day + '/all_stars_birdseye.html')
 
     # skymap_html = dn.interactive_sky_with_static_heatmap(manager, 'Program1')
     # with open("/Users/jack/Desktop/skymap.html", "w", encoding="utf-8") as f:
