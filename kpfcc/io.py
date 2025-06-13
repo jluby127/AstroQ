@@ -17,6 +17,7 @@ from astropy import units as u
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as pt
+import re
 
 import kpfcc.history as hs
 
@@ -174,7 +175,6 @@ def write_out_results(manager, theta, round, start_the_clock):
     Returns:
         None
     """
-    print("Writing Report.")
     filename = open(manager.output_directory + "runReport.txt", "a")
     theta_n_var = []
     counter = 0
@@ -184,11 +184,8 @@ def write_out_results(manager, theta, round, start_the_clock):
         counter += varval
     print("Sum of Theta: " + str(counter))
     filename.write("Sum of Theta: " + str(counter) + "\n")
-
     print("Total Time to complete " + round + ": " + str(np.round(time.time()-start_the_clock,3)))
     filename.write("Total Time to complete " + round +  ": " + str(np.round(time.time()-start_the_clock,3)) + "\n")
-    filename.write("\n")
-    filename.write("\n")
     filename.close()
 
 def build_observed_map_past(past_info, starmap_template_filename):
@@ -288,7 +285,6 @@ def write_stars_schedule_human_readable(combined_semester_schedule, Yrds, manage
     Returns:
         combined_semester_schedule (array): the updated human readable solution
     """
-
     end_past = manager.all_dates_dict[manager.current_day]*manager.n_slots_in_night
     all_star_schedules = {}
     for name in list(manager.requests_frame['starname']):
@@ -371,6 +367,7 @@ def write_available_human_readable(manager):
         # for some reason when adding strings within an array, the max length of new string is the
         # length of the longest string in the whole array. So choosing an arbitrary long word
         # as a placeholder. Later I post-process this out.
+        # For some reason this word had to be different than the one above...
         combined_semester_schedule[c] += 'supercalifragilisticexpialidocious'
     combined_semester_schedule = np.reshape(combined_semester_schedule,
             (manager.semester_length, manager.n_slots_in_night))
@@ -407,7 +404,6 @@ def serialize_schedule(Yrds, manager):
     Returns:
         None
     """
-
     df = pd.DataFrame(Yrds.keys(),columns=['r','d','s'])
     df['value'] = [Yrds[k].x for k in Yrds.keys()]
     sparse = df.query('value>0')
@@ -467,7 +463,6 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
     if not os.path.isdir(outputdir):
         os.mkdir(outputdir)
     script_file = os.path.join(outputdir,'script_{}_{}.txt'.format(current_day, version))
-    print('Writing starlist to ' + script_file)
 
     lines = []
     for i, item in enumerate(solution_frame['Starname']):
@@ -507,6 +502,77 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
     with open(script_file, 'w') as f:
         f.write('\n'.join(lines))
     print("Total Open Shutter Time Scheduled: " + str(np.round((total_exptime/3600),2)) + " hours")
+    return lines
+
+# Define column names in advance
+columns = [
+    'star_name', 'ra', 'dec', 'equinox', 'jmag', 'gmag', 'teff',
+    'gaia_dr3_id', 'program_code', 'priority', 'semester',
+    'obs_time', 'first_avail', 'last_avail'
+]
+def parse_star_line(line):
+    line = line.strip()
+
+    # Case 1: blank line
+    if not line:
+        return {col: '' for col in columns}
+
+    # Case 2: line with Xs
+    if 'EXTRAS' in line and re.fullmatch(r'X*EXTRASX*', line):
+        row = {col: 'XX' for col in columns}
+        row['gaia_dr3_id'] = 'EXTRAS'
+        return row
+
+    # Normal case: parse structured line
+    tokens = line.split()
+
+    try:
+        star_name = tokens[0]
+        ra = f"{tokens[1]}h{tokens[2]}m{tokens[3]}s"
+        dec = f"{tokens[4]}d{tokens[5]}m{tokens[6]}s"
+        equinox = tokens[7]
+
+        jmag = re.search(r'jmag=([\d.]+)', line)
+        gmag = re.search(r'gmag=([\d.]+)', line)
+        teff = re.search(r'Teff=([\d.]+)', line)
+
+        jmag = jmag.group(1) if jmag else ''
+        gmag = gmag.group(1) if gmag else ''
+        teff = teff.group(1) if teff else ''
+
+        gaia_id_match = re.search(r'DR[23]_\d+', line)
+        gaia_id = gaia_id_match.group(0) if gaia_id_match else ''
+
+        post_gaia_tokens = line.split(gaia_id)[-1].strip().split() if gaia_id else []
+
+        program_code = post_gaia_tokens[0] if len(post_gaia_tokens) > 0 else ''
+        priority = post_gaia_tokens[1] if len(post_gaia_tokens) > 1 else ''
+        semester = post_gaia_tokens[2] if len(post_gaia_tokens) > 2 else ''
+        obs_time      = str(post_gaia_tokens[3]) if len(post_gaia_tokens) > 3 else ''
+        first_avail   = str(post_gaia_tokens[4]) if len(post_gaia_tokens) > 4 else ''
+        last_avail    = str(post_gaia_tokens[5]) if len(post_gaia_tokens) > 5 else ''
+
+        return {
+            'star_name': star_name,
+            'ra': ra,
+            'dec': dec,
+            'equinox': equinox,
+            'jmag': jmag,
+            'gmag': gmag,
+            'teff': teff,
+            'gaia_dr3_id': gaia_id,
+            'program_code': program_code,
+            'priority': priority,
+            'semester': semester,
+            'obs_time': obs_time,
+            'first_avail': first_avail,
+            'last_avail': last_avail
+        }
+
+    except Exception as e:
+        # If parsing fails, return blank row (optional)
+        return {col: ' ' for col in columns}
+
 
 def format_kpf_row(row, obs_time, first_available, last_available, current_day,
                     filler_flag = False, extra=False):
@@ -546,11 +612,6 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
         (4-len(str(int(row['exptime'][0])))))
 
     ofstring = ('1of' + str(int(row['n_intra_max'][0])))
-
-    # if row['Simucal'][0]:
-    #     scval = 'T'
-    # else:
-    #     scval = 'F'
     scstring = 'sc=' + 'T'
 
     numstring = str(int(row['n_exp'][0])) + "x"
@@ -602,7 +663,6 @@ def pm_correcter(ra, dec, pmra, pmdec, current_day, equinox="2000"):
     """
     start_time = Time(f'J{equinox}')
     current_time = Time(current_day)
-
     coord = SkyCoord(
         ra=ra * u.deg,
         dec=dec * u.deg,
@@ -610,9 +670,7 @@ def pm_correcter(ra, dec, pmra, pmdec, current_day, equinox="2000"):
         pm_dec=pmdec * u.mas/u.yr,
         obstime=start_time
     )
-
     new_coord = coord.apply_space_motion(new_obstime=current_time)
-
     formatted_ra = new_coord.ra.to_string(unit=u.hourangle, sep=' ', pad=True, precision=1)
     formatted_dec = new_coord.dec.to_string(unit=u.deg, sep=' ', pad=True, precision=0)
 

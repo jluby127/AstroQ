@@ -8,15 +8,13 @@ import time
 import os
 import warnings
 warnings.filterwarnings('ignore')
+import logging
+logs = logging.getLogger(__name__)
 
 import numpy as np
 import pandas as pd
 import gurobipy as gp
 from gurobipy import GRB
-
-import logging
-log = logging.getLogger(__name__)
-log.setLevel(logging.WARNING)
 
 import kpfcc.io as io
 import kpfcc.management as mn
@@ -27,13 +25,13 @@ class Scheduler(object):
     """A Scheduler object, from which we can define a Gurobi model, build constraints, and solve."""
 
     def __init__(self, request_set, cf):
-        
-        log.debug("Building the Scheduler.")
+
+        logs.debug("Building the Scheduler.")
         self.start_the_clock = time.time()
 
         manager = mn.data_admin(cf)
         if manager.current_day != request_set.meta['d1_date']:
-            log.warning("Mismatch on 'current_date' between config file and request_set file! Using the request_set file's value.")
+            logs.warning("Mismatch on 'current_date' between config file and request_set file! Using the request_set file's value.")
             manager.current_day = request_set.meta['d1_date']
         manager.run_admin()
 
@@ -59,7 +57,7 @@ class Scheduler(object):
         self.single_visit_requests = [item for item in self.schedulable_requests if item not in self.multi_visit_requests]
         for name in list(manager.requests_frame['starname']):
             if name not in self.schedulable_requests:
-                log.warning("Target " + name + " has no valid day/slot pairs and therefore is effectively removed from the model.")
+                logs.warning("Target " + name + " has no valid day/slot pairs and therefore is effectively removed from the model.")
 
         # Construct a few useful joins
         # Get each request's full list of valid d/s pairs
@@ -90,9 +88,9 @@ class Scheduler(object):
 
         if self.manager.run_optimal_allocation:
             if self.manager.semester_grid == [] or self.manager.quarters_grid == []:
-                log.critical("Missing necessary parameters to run Optimal Allocation \n    ---- A semester grid and a quarters grid is required to run optimal allocation.")
+                logs.critical("Missing necessary parameters to run Optimal Allocation \n    ---- A semester grid and a quarters grid is required to run optimal allocation.")
             if self.manager.max_quarters == 0 or self.manager.max_unique_nights == 0:
-                log.critical("Missing necessary parameters to run Optimal Allocation \n    ---- Neither Max Quarters nor Max Unique Nights parameters can be zero.")
+                logs.critical("Missing necessary parameters to run Optimal Allocation \n    ---- Neither Max Quarters nor Max Unique Nights parameters can be zero.")
 
         self.model = gp.Model('Semester_Scheduler')
         # Yrs is technically a 1D matrix indexed by tuples.
@@ -149,14 +147,14 @@ class Scheduler(object):
             self.desired_max_obs_allowed_dict = desired_max_obs_allowed_dict
             self.absolute_max_obs_allowed_dict = absolute_max_obs_allowed_dict
             self.past_nights_observed_dict = past_nights_observed_dict
-        log.debug("Initializing complete.")
+        logs.debug("Initializing complete.")
 
     def constraint_one_request_per_slot(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Round 1:
-        
+
         Ensure that at most one request is scheduled
         per available slot.
         """
@@ -173,12 +171,12 @@ class Scheduler(object):
         According to Eq X in Lubin et al. 2025.
 
         Round 1:
-        
+
         Reserve multiple time slots for exposures that require
         more than one time slot to complete, and ensure that
         no other observations are scheduled during these slots.
         """
-        log.info("Constraint 2: Reserve slots for for multi-slot exposures.")
+        logs.info("Constraint 2: Reserve slots for for multi-slot exposures.")
         max_t_visit = self.request_set.strategy.t_visit.max() # longest exposure time
         R_ds = self.request_set.observability.groupby(['d','s'])['id'].apply(set).to_dict()
         R_geq_t_visit = {} # dictionary of requests where t_visit is greater than or equal to t_visit
@@ -198,20 +196,33 @@ class Scheduler(object):
             rhs = gp.quicksum(rhs)
             self.model.addConstr(lhs >= rhs, f'reserve_multislot_{d}d_{s}s')
 
+    # this function can likely be deleted - Jack 4/28/25
+    def constraint_max_visits_per_night(self):
+        """
+        According to Eq X in Lubin et al. 2025.
+
+        Judah: don't document
+        """
+        print("Constraint 3: Schedule request's maximum observations per night.")
+        for i, row in self.unique_request_on_day_pairs.iterrows():
+            constrained_slots_tonight = np.array(self.slots_on_day_for_r.loc[(row.id, row.d)][0])
+            print(row.id, row.n_intra_max)
+            self.model.addConstr((gp.quicksum(self.Yrds[row.id,row.d,ss] for ss in constrained_slots_tonight) <= row.n_intra_max),
+                    'max_observations_per_night_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
 
     def constraint_enforce_internight_cadence(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Round 1:
-        
+
         Ensure that the minimum number of days pass between
         consecutive observations of a given target. If a
-        target is scheduled for observation on a given date, 
+        target is scheduled for observation on a given date,
         prevent it from being scheduled again until the
         minimum number of days have passed.
         """
-        log.info("Constraint 4: Enforce inter-night cadence.")
+        logs.info("Constraint 4: Enforce inter-night cadence.")
         # Get all (d',s') pairs for a request that must be zero if a (d,s) pair is selected
         intercadence = pd.merge(
             self.joiner.drop_duplicates(['id','d',]),
@@ -246,13 +257,13 @@ class Scheduler(object):
     def constraint_set_max_quarters_allocated(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Attempt to allocate all time awarded to the
-        observing program. The total allocated time 
-        may be less than the time awarded due to practical 
+        observing program. The total allocated time
+        may be less than the time awarded due to practical
         considerations, but cannot exceed it.
         """
-        log.info("Constraint: setting max number of quarters that can be allocated.")
+        logs.info("Constraint: setting max number of quarters that can be allocated.")
         self.model.addConstr(gp.quicksum(self.Anq[d,q] for d in range(self.manager.n_nights_in_semester) \
                         for q in range(self.manager.n_quarters_in_night))
                         <= self.manager.max_quarters, "maximumQuartersAllocated")
@@ -263,22 +274,22 @@ class Scheduler(object):
         Set a limit on the number of unique nights
         during which observations may be scheduled.
         """
-        log.info("Constraint: setting max number of unique nights that can be allocated.")
+        logs.info("Constraint: setting max number of unique nights that can be allocated.")
         self.model.addConstr(gp.quicksum(self.Un[d] for d in range(self.manager.n_nights_in_semester))
                             <= self.manager.max_unique_nights, "maximumNightsAllocated")
 
     def constraint_relate_allocation_and_onsky(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Judah: not sure what role this equation plays
-        
+
         Ensure that for any night/quarter combination
-        during which an observation is scheduled, the 
+        during which an observation is scheduled, the
         telescope is allocated to the observing program
         for at least one quarter during that night.
         """
-        log.info("Constraint: relating allocation map and unique night allocation map.")
+        logs.info("Constraint: relating allocation map and unique night allocation map.")
         for d in range(self.manager.n_nights_in_semester):
             for q in range(self.manager.n_quarters_in_night):
                 self.model.addConstr(self.Un[d] >= self.Anq[d,q], "relatedUnique_andNonUnique_lowerbound_" + str(d) + "d_" + str(q) + "q")
@@ -287,11 +298,11 @@ class Scheduler(object):
     def constraint_all_portions_of_night_represented(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Enforce a minimum number of first, second, third,
         and fourth quarters in the final schedule.
         """
-        log.info("Constraint: setting minimum number of times each quarter to be allocated.")
+        logs.info("Constraint: setting minimum number of times each quarter to be allocated.")
         self.model.addConstr(gp.quicksum(self.Anq[d,0] for d in range(self.manager.n_nights_in_semester)) >= self.manager.min_represented, "minQuarterSelection_0q")
         self.model.addConstr(gp.quicksum(self.Anq[d,1] for d in range(self.manager.n_nights_in_semester)) >= self.manager.min_represented, "minQuarterSelection_1q")
         self.model.addConstr(gp.quicksum(self.Anq[d,2] for d in range(self.manager.n_nights_in_semester)) >= self.manager.min_represented, "minQuarterSelection_2q")
@@ -300,14 +311,14 @@ class Scheduler(object):
     def constraint_forbidden_quarter_patterns(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Prevent allocations of quarter nights that
         are not one of the following:
             - a full night
             - first half only
             - second half only
         """
-        log.info("Constraint: forbid certain patterns of quarter night allocations within night.")
+        logs.info("Constraint: forbid certain patterns of quarter night allocations within night.")
         for d in range(self.manager.n_nights_in_semester):
             # Cannot have 1st and 3rd quarter allocated without also allocating 2nd quarter (no gap), regardless of if 4th quarter is allocated or not
             self.model.addConstr(self.Anq[d,0] + (self.Un[d]-self.Anq[d,1]) + self.Anq[d,2] <= 2*self.Un[d], "NoGap2_" + str(d) + "d")
@@ -330,12 +341,12 @@ class Scheduler(object):
     def constraint_cannot_observe_if_not_allocated(self, twilight_map_remaining_2D):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Ensure that no observations are scheduled during quarters
         in which the telescope is not allocated to the observing
         program.
         """
-        log.info("Constraint: cannot observe if night/quarter is not allocated.")
+        logs.info("Constraint: cannot observe if night/quarter is not allocated.")
         # if quarter is not allocated, all slots in quarter must be zero
         # note that the twilight times at the front and end of the night have to be respected
         for id, d, s in zip(self.request_set.observability['id'], self.request_set.observability['d'], self.request_set.observability['s']):
@@ -345,23 +356,23 @@ class Scheduler(object):
     def constraint_max_consecutive_onsky(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Limit the maximum number of consecutive allocated nights
         to allow give other observing programs telescope access.
         """
-        log.info("Constraint: setting maximum number of consecutive unique nights allocated.")
+        logs.info("Constraint: setting maximum number of consecutive unique nights allocated.")
         for d in range(self.manager.n_nights_in_semester - self.manager.max_consecutive):
             self.model.addConstr(gp.quicksum(self.Un[d + t] for t in range(self.manager.max_consecutive)) <= self.manager.max_consecutive - 1, "consecutiveNightsMax_" + str(d) + "d")
 
     def constraint_minimum_consecutive_offsky(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Set an upper limit on the number of consecutive unallocated
         nights. This constraint prevents large gaps in the distribution
         of allocated nights.
         """
-        log.info("Constraint: setting minimum gap in days between allocated unique nights.")
+        logs.info("Constraint: setting minimum gap in days between allocated unique nights.")
         # Enforce at least one day allocated every X days (no large gaps)
         # Note you cannot run this when observatory/instrument has an extended shutdown
         for d in range(self.manager.n_nights_in_semester - self.manager.min_consecutive):
@@ -370,7 +381,7 @@ class Scheduler(object):
     def constraint_enforce_restricted_nights(self, limit):
         """
         According to Eq X and X in Lubin et al. 2025.
-        
+
         Enforce non-allocated nights AND enforce necessary nights
         Enforce two constraints:
             - Specify night/quarter pairs which may not be allocated
@@ -382,12 +393,12 @@ class Scheduler(object):
             limit (int): either 0 or 1 to enforce blackout and whiteout, respectively
         """
         if limit not in [0, 1]:
-            log.critical("Limit must be an integer, either 0 (blackout) or 1 (whiteout).")
+            logs.critical("Limit must be an integer, either 0 (blackout) or 1 (whiteout).")
         elif limit == 0:
             filename = self.manager.blackout_file
         else:
             filename = self.manager.whiteout_file
-        log.info("Constraint: enforcing quarters that cannot be chosen.")
+        logs.info("Constraint: enforcing quarters that cannot be chosen.")
         selections = pd.read_csv(filename)
         for s in range(len(selections)):
             night = self.manager.all_dates_dict[selections['Date'][s]]
@@ -397,21 +408,21 @@ class Scheduler(object):
     def constraint_maximize_baseline(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Require at least one observation early in the semester
         and at least one observation late in the semester, where "early"
         and "late" are defined by the user.
         """
-        log.info("Constraint: maximize the baseline of unique nights allocated.")
+        logs.info("Constraint: maximize the baseline of unique nights allocated.")
         self.model.addConstr(gp.quicksum(self.Un[0 + t] for t in range(self.manager.max_baseline)) >= 1, "maxBase_early")
         self.model.addConstr(gp.quicksum(self.Un[self.manager.n_nights_in_semester - self.manager.max_baseline + t] for t in range(self.manager.max_baseline)) >= 1, "maxBase_late")
 
     def constraint_fix_previous_objective(self, epsilon=5):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Round 2:
-        
+
         "Freeze" the value of the objective function
         calculated in Round 1, and require that the
         objective function value calculated during
@@ -420,20 +431,20 @@ class Scheduler(object):
         Round 2 result in only small changes to the
         optimal solution found in Round 1.
         """
-        log.info("Constraint: Fixing the previous solution's objective value.")
+        logs.info("Constraint: Fixing the previous solution's objective value.")
         self.model.addConstr(gp.quicksum(self.theta[name] for name in self.manager.requests_frame['starname']) <= \
                         self.model.objval + epsilon)
 
     def set_objective_maximize_slots_used(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Round 2:
-        
+
         In Round 2, maximize the number of filled slots,
         i.e., slots during which an exposure occurs.
         """
-        log.info("Objective: Maximize the number of slots used.")
+        logs.info("Objective: Maximize the number of slots used.")
         self.model.setObjective(gp.quicksum(self.manager.slots_needed_for_exposure_dict[id]*self.Yrds[id,d,s]
                             for id, d, s in self.observability_tuples), GRB.MAXIMIZE)
                             # for id, d, s in self.joiner), GRB.MAXIMIZE)
@@ -441,7 +452,7 @@ class Scheduler(object):
     def set_objective_minimize_theta_time_normalized(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Define the objective function for Round 1.
         Minimizing the objective maximizes the number
         of targets that receive their requested number
@@ -453,15 +464,15 @@ class Scheduler(object):
     def constraint_build_theta_multivisit(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Definition of the "shortfall" matrix, Theta.
         Elements of Theta are non-negative integers
-        giving for each target the difference between 
+        giving for each target the difference between
         the number of requested nights for that target
-        and the sum of the past and future scheduled 
+        and the sum of the past and future scheduled
         observations of that target.
         """
-        log.info("Constraint 0: Build theta variable")
+        logs.info("Constraint 0: Build theta variable")
         for name in self.schedulable_requests:
             idx = self.manager.requests_frame.index[self.manager.requests_frame['starname']==name][0]
             self.model.addConstr(self.theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
@@ -475,15 +486,15 @@ class Scheduler(object):
     def constraint_set_max_desired_unique_nights_Wrd(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Round 1:
-        
+
         Limit the number of observations scheduled for a given
-        target to the maximum value provided by the PI. This 
-        constraint may later be relaxed if Round 2 of scheduling 
+        target to the maximum value provided by the PI. This
+        constraint may later be relaxed if Round 2 of scheduling
         is invoked.
         """
-        log.info("Constraining desired maximum observations.")
+        logs.info("Constraining desired maximum observations.")
         for name in self.multi_visit_requests:
             all_d = list(set(list(self.all_valid_ds_for_request.loc[name].d)))
             self.model.addConstr(gp.quicksum(self.Wrd[name, d] for d in all_d) <=
@@ -498,13 +509,13 @@ class Scheduler(object):
     def remove_constraint_set_max_desired_unique_nights_Wrd(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Round 2:
-        
+
         Remove the maximum number of observations set by
         constraints_set_max_desired_unique_nights_Wrd.
         """
-        log.info("Removing previous maximum observations.")
+        logs.info("Removing previous maximum observations.")
         for name in self.multi_visit_requests:
             rm_const = self.model.getConstrByName("max_desired_unique_nights_for_request_" + str(name))
             self.model.remove(rm_const)
@@ -512,13 +523,13 @@ class Scheduler(object):
     def constraint_set_max_absolute_unique_nights_Wrd(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Round 2:
-        
+
         Set the maximum number of observations for a target to
         150% of the original requested number.
         """
-        log.info("Constraining absolute maximum observations.")
+        logs.info("Constraining absolute maximum observations.")
         for name in self.multi_visit_requests:
             all_d = list(set(list(self.all_valid_ds_for_request.loc[name].d)))
             self.model.addConstr(gp.quicksum(self.Wrd[name, d] for d in all_d) <=
@@ -528,14 +539,14 @@ class Scheduler(object):
     def constraint_build_enforce_intranight_cadence(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Ensure that the minimum number of hours pass between
-        consecutive observations of a given target on the same 
-        night. If a target is scheduled for observation at 
-        a given time, prevent it from being scheduled again 
+        consecutive observations of a given target on the same
+        night. If a target is scheduled for observation at
+        a given time, prevent it from being scheduled again
         until the minimum number of hours have passed.
         """
-        log.info("Constraint 6: Enforce intra-night cadence.")
+        logs.info("Constraint 6: Enforce intra-night cadence.")
         # get all combos of slots that must be constrained if given slot is scheduled
         # # When intra-night cadence is 0, there will be no keys to constrain so skip
         intracadence_valid_tuples = self.joiner.copy()[self.joiner['n_intra_max'] > 1]
@@ -556,12 +567,12 @@ class Scheduler(object):
     def constraint_set_min_max_visits_per_night(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Require that the number of scheduled visits to a target
         in a given night falls between the minimum and maximum
         values supplied by the PI.
         """
-        log.info("Constraint 7: Allow minimum and maximum visits.")
+        logs.info("Constraint 7: Allow minimum and maximum visits.")
         intracadence_frame_on_day = self.joiner.copy().drop_duplicates(subset=['id', 'd'])
         grouped_s = self.joiner.copy().groupby(['id', 'd'])['s'].unique().reset_index()
         grouped_s.set_index(['id', 'd'], inplace=True)
@@ -577,7 +588,7 @@ class Scheduler(object):
                     row.n_intra_max, 'enforce_min_visits_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
 
     def optimize_model(self):
-        log.debug("Begin model solve.")
+        logs.debug("Begin model solve.")
         t1 = time.time()
         self.model.params.TimeLimit = self.manager.solve_time_limit
         self.model.Params.OutputFlag = self.manager.gurobi_output
@@ -590,18 +601,18 @@ class Scheduler(object):
         self.model.optimize()
 
         if self.model.Status == GRB.INFEASIBLE:
-            log.critical('Model remains infeasible. Searching for invalid constraints.')
+            logs.critical('Model remains infeasible. Searching for invalid constraints.')
             search = self.model.computeIIS()
-            log.critical("Printing bad constraints:")
+            logs.critical("Printing bad constraints:")
             for c in self.model.getConstrs():
                 if c.IISConstr:
-                    log.critical('%s' % c.ConstrName)
-            for c in m.getGenConstrs():
+                    logs.critical('%s' % c.ConstrName)
+            for c in self.model.getGenConstrs():
                 if c.IISGenConstr:
-                    log.critical('%s' % c.GenConstrName)
+                    logs.critical('%s' % c.GenConstrName)
         else:
-            log.debug("Model Successfully Solved.")
-        log.info("Time to finish solver: {:.3f}".format(time.time()-t1))
+            logs.debug("Model Successfully Solved.")
+        logs.info("Time to finish solver: {:.3f}".format(time.time()-t1))
 
 
     def run_model(self):
@@ -615,7 +626,7 @@ class Scheduler(object):
             self.build_model_round2()
             self.optimize_model()
         self.serialize_results_csv()
-        log.info("Scheduling complete, clear skies!")
+        logs.info("Scheduling complete, clear skies!")
 
     def build_model_round1(self):
         t1 = time.time()
@@ -646,7 +657,7 @@ class Scheduler(object):
                 self.constraint_maximize_baseline()
 
         self.set_objective_minimize_theta_time_normalized()
-        log.info("Time to build constraints: ", np.round(time.time()-t1,3))
+        logs.info("Time to build constraints: ", np.round(time.time()-t1,3))
 
     def build_model_round2(self):
         t1 = time.time()
@@ -654,10 +665,10 @@ class Scheduler(object):
         self.constraint_set_max_absolute_unique_nights_Wrd()
         self.constraint_fix_previous_objective()
         self.set_objective_maximize_slots_used()
-        log.info("Time to build constraints: ", np.round(time.time()-t1,3))
+        logs.info("Time to build constraints: ", np.round(time.time()-t1,3))
 
     def serialize_results_csv(self):
-        log.debug("Building human readable schedule.")
+        logs.debug("Building human readable schedule.")
         if self.manager.run_optimal_allocation:
             self.retrieve_ois_solution()
         self.human_read_available = io.write_available_human_readable(self.manager)
@@ -668,7 +679,7 @@ class Scheduler(object):
         io.serialize_schedule(self.Yrds, self.manager,)
 
     def retrieve_ois_solution(self):
-        log.debug("Retrieving results of Optimal Instrument Allocation set of nights.")
+        logs.debug("Retrieving results of Optimal Instrument Allocation set of nights.")
         allocation_schedule_1d = []
         for v in self.Anq.values():
             if np.round(v.X,0) == 1:

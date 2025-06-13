@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Admin Dashboard</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+</head>
+<body>
+    <h1>Admin Dashboard</h1>
+    {% for fig in figures_html %}
+        <div class="plot-container">
+            {{ fig|safe }}
+        </div>
+    {% endfor %}
+</body>
+</html>
