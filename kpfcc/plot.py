@@ -13,12 +13,18 @@ import json
 import seaborn as sns
 import plotly.graph_objects as go
 import plotly.express as px
+import plotly.io as pio
+from astropy.time import Time
+from astropy.time import TimeDelta
+
 from collections import defaultdict
 import pickle
 
 import kpfcc.management as mn
 import kpfcc.history as hs
 import kpfcc.maps as mp
+import kpfcc.io as io
+import ttp.plotting as plotting
 
 labelsize = 38
 
@@ -46,6 +52,8 @@ class StarPlotter(object):
             program (str): the program code
         """
         index = requests_frame.loc[requests_frame['starname'] == self.starname].index
+        self.ra = float(requests_frame['ra'][index].values[0])
+        self.dec = float(requests_frame['dec'][index].values[0])
         self.program = str(requests_frame['program_code'][index].values[0])
         self.exptime = int(requests_frame['exptime'][index].values[0])
         self.n_exp = int(requests_frame['n_exp'][index])
@@ -123,7 +131,7 @@ def process_stars(manager):
     nulltime = np.array(nulltime).T
 
     try:
-        past = pd.read_csv(self.manager.past_database_file)
+        past = pd.read_csv(manager.past_database_file)
     except:
         past = pd.DataFrame(columns=['star_id', 'utctime'])
 
@@ -166,6 +174,11 @@ def process_stars(manager):
         newstar.star_color_rgb = rgb_strings[np.random.randint(0, len(rgb_strings)-1)]
         newstar.draw_lines = False
 
+        is_altaz, is_moon, is_night, is_inter, is_future, is_alloc = mp.mod_produce_ultimate_map(manager, name)
+        newstar.maps = [is_alloc, is_night, is_altaz, is_moon, is_inter, is_future]
+        newstar.maps_names = ['is_alloc', 'is_night', 'is_altaz', 'is_moon', 'is_inter', 'is_future']
+        newstar.allow_mapview = True
+
         all_stars.append(newstar)
 
     # Now create StarPlotter objects for each program, as it were one star.
@@ -197,6 +210,8 @@ def process_stars(manager):
         programmatic_star.starmap = super_map
         programmatic_star.total_observations_requested = np.sum([all_stars[k].total_observations_requested for k in prog_indices])
         programmatic_star.draw_lines = False
+        programmatic_star.allow_mapview = False
+
 
         # Set colors to match program color
         programmatic_star.program_color_rgb = all_stars[prog_indices[0]].program_color_rgb
@@ -221,18 +236,39 @@ def pad_rows_top(arr, target_rows):
     padded_arr = np.vstack((padding, arr))
     return padded_arr
 
+gray = 'rgb(210,210,210)'
+clear = 'rgba(0,0,0,0)'
+clear = 'rgba(255,255,255,1)'
+
 def generate_birds_eye(manager, availablity, all_stars, filename=''):
 
     fig = go.Figure()
-    fig.add_trace(go.Heatmap(
-        z=availablity,
-        colorscale=[[0, 'rgba(0,0,0,0)'], [1, f"rgb(200, 200, 200)"]],
-        zmin=0, zmax=1,
-        opacity=1.0,
-        showscale=False,
-        name="Not On Sky",
-        showlegend=True,
-    ))
+    # fig.update_layout(width=1200, height=800, plot_bgcolor=clear, paper_bgcolor=clear)
+    fig.update_layout(width=800, height=600, plot_bgcolor=clear, paper_bgcolor=clear)
+
+    if len(all_stars) > 1 or all_stars[0].allow_mapview == False:
+        fig.add_trace(go.Heatmap(
+            z=availablity,
+            colorscale=[[0, 'rgba(0,0,0,0)'], [1, gray]],
+            zmin=0, zmax=1,
+            opacity=1.0,
+            showscale=False,
+            name="Not On Sky",
+            showlegend=False,
+        ))
+    else:
+        colors = sns.color_palette("deep", len(all_stars[0].maps_names) + 1)
+        rgb_strings = [f"rgb({int(r*255)}, {int(g*255)}, {int(b*255)})" for r, g, b in colors]
+        for m in range(len(all_stars[0].maps_names)):
+            fig.add_trace(go.Heatmap(
+                z=all_stars[0].maps[m][0].astype(int).T,
+                colorscale=[[0, 'rgba(0,0,0,0)'], [1, rgb_strings[m]]],
+                zmin=0, zmax=1,
+                opacity=1.0,
+                showscale=False,
+                name=all_stars[0].maps_names[m],
+                showlegend=True,
+            ))
 
     for i in range(len(all_stars)):
 
@@ -274,33 +310,26 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
             layer="below"
         )
 
-    # # Add horizontal grid lines every slot (y)
-    # for y in np.arange(0.5, all_stars[i].starmap.shape[0], 1):
-    #     fig.add_shape(
-    #         type="line",
-    #         x0=0, x1=all_stars[i].starmap.shape[1] - 1,
-    #         y0=y, y1=y,
-    #         line=dict(color="lightgray", width=1),
-    #         layer="below"
-    #     )
-
     fig.update_layout(
-        title="Birds Eye View Semester Schedule",
         yaxis_title="Slot in Night",
         xaxis_title="Night in Semester",
         xaxis=dict(
             title_font=dict(size=labelsize),
             tickfont=dict(size=labelsize - 4),
-            tickvals=np.arange(0, manager.semester_length, 21),
+            tickvals=np.append(np.arange(0, manager.semester_length, 23), 183),
+            ticktext=np.append(np.arange(0, manager.semester_length, 23), 184),
             tickmode='array',
-            showgrid=False,  # Turn off native grid
+            showgrid=False,
         ),
         yaxis=dict(
             title_font=dict(size=labelsize),
             tickfont=dict(size=labelsize - 4),
-            tickvals=np.arange(0, manager.n_slots_in_night, 12),
+            # tickvals=np.arange(0, manager.n_slots_in_night, 20),
+            # ticktext=manager.n_slots_in_night - np.arange(0, manager.n_slots_in_night, 20) - 1,
+            tickvals=[0, 28, 56, 84, 112, 140, 167],
+            ticktext=[manager.n_slots_in_night - x for x in [0, 28, 56, 84, 112, 140, 168]],
             tickmode='array',
-            showgrid=False,  # Turn off native grid
+            showgrid=False,
         ),
         template="plotly_white",
         showlegend=True,
@@ -308,15 +337,34 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
             font=dict(size=labelsize-10)
         )
     )
+    # import pdb; pdb.set_trace()
     if filename != '':
+
         fileout_path = manager.reports_directory + filename
+
+        # If it's a file, get its directory
+        dir_path = fileout_path if os.path.isdir(fileout_path) else os.path.dirname(fileout_path)
+        os.makedirs(dir_path, exist_ok=True) # Make sure the directory exists
+
         fig.write_html(fileout_path)
+        pio.write_image(
+            fig,
+            manager.reports_directory + "admin/" + manager.current_day + '/birdseye_static.png',
+            format="png",
+            width=1200,
+            height=800,
+            scale=1,
+        )
     return fig
 
 def cof_builder(all_stars, manager, filename='', flag=False):
 
     fig = go.Figure()
-    fig.update_layout(width=1200, height=800)
+    fig.update_layout(
+        autosize=True,
+        margin=dict(l=40, r=40, t=40, b=40),
+        plot_bgcolor=gray, paper_bgcolor=clear
+    )
     burn_line = np.linspace(0, 100, len(manager.all_dates_array))
     for b in range(len(burn_line)):
         burn_line[b] = np.round(burn_line[b],2)
@@ -369,39 +417,68 @@ def cof_builder(all_stars, manager, filename='', flag=False):
             annotation_position="bottom left"
         )
     fig.update_layout(
-        title="Cumulative Observation Function (COF)",
+        # title="Cumulative Observation Function (COF)",
         xaxis_title="Calendar Date",
         yaxis_title="Request % Complete",
         showlegend=True,
         legend=dict(
-            font=dict(size=labelsize-10)
+            x=0.98,
+            y=0.05,
+            xanchor='right',
+            yanchor='bottom',
+            bgcolor='rgba(255,255,255,0.7)',
+            bordercolor='black',
+            borderwidth=1,
+            font=dict(size=labelsize-18)
         ),
         xaxis=dict(
             title_font=dict(size=labelsize),
-            tickfont=dict(size=labelsize-4)
+            tickfont=dict(size=labelsize-4),
+            showgrid=False,
+            zeroline=False
         ),
         yaxis=dict(
             title_font=dict(size=labelsize),
-            tickfont=dict(size=labelsize-4)
+            tickfont=dict(size=labelsize-4),
+            showgrid=False,
+            zeroline=False
         ),
     )
+    # import pdb; pdb.set_trace()
     if filename != '':
-        fig.write_html(manager.reports_directory + filename)
+
+        fileout_path = manager.reports_directory + filename
+
+        # If it's a file, get its directory
+        dir_path = fileout_path if os.path.isdir(fileout_path) else os.path.dirname(fileout_path)
+        os.makedirs(dir_path, exist_ok=True) # Make sure the directory exists
+
+        fig.write_html(fileout_path)
         if flag:
             file = open(manager.reports_directory + "admin/" + manager.current_day + "/completion_Report.txt", "w")
             for l in lines:
                 file.write(l + "\n")
+            print("JUST wrote figure to {}".format(manager.reports_directory, filename))
             file.close()
+
+        pio.write_image(
+            fig,
+            manager.reports_directory + "admin/" + manager.current_day + '/cof_static.png',
+            format="png",
+            width=1200,
+            height=800,
+            scale=1,
+        )
     return fig
 
 
 def write_star_objects(savepath, data):
     with open(savepath + "star_objects.pkl", "wb") as f:
         pickle.dump(data, f)
-    print("Saved to " + savepath + "star_objects.pkl")
+    print("Plotting objects saved to " + savepath + "star_objects.pkl")
 
 def read_star_objects(savepath):
-    with open(savepath + "star_objects.pkl", "rb") as f:
+    with open(savepath, "rb") as f:
         loaded_obj_list = pickle.load(f)
     return loaded_obj_list
 
@@ -411,19 +488,44 @@ def build_plot_file(manager):
     os.makedirs(save_path, exist_ok = True)
     write_star_objects(save_path, [stars_in_program, programs_as_stars, nulltime])
 
+# import kpfcc.dynamic as dn
 def run_plot_suite(config_file):
     manager = mn.data_admin(config_file)
     manager.run_admin()
+
     build_plot_file(manager)
+    # commenting out all below which are calls to create static files. Above line creates the pickle file from which these
+    # other plots are generated from.
 
-    print("Generating the full suite of plots. All under admin.")
-    data = read_star_objects(manager.reports_directory + "admin/" + manager.current_day + '/')
+    # data = read_star_objects(manager.reports_directory + "admin/" + manager.current_day + '/')
+    # # build global plots
+    # all_stars_list = [obj for obj_list in data[0].values() for obj in obj_list]
+    # cof_builder(all_stars_list, manager, 'admin/' + manager.current_day + '/all_stars_COF.html')
+    # cof_builder(list(data[1].values()), manager, 'admin/' + manager.current_day + '/all_programs_COF.html', flag=True)
+    # generate_birds_eye(manager, data[2], all_stars_list, 'admin/' + manager.current_day + '/all_stars_birdseye.html')
 
-    # build global plots
-    all_stars_list = [obj for obj_list in data[0].values() for obj in obj_list]
-    cof_builder(all_stars_list, manager, 'admin/' + manager.current_day + '/all_stars_COF.html')
-    cof_builder(list(data[1].values()), manager, 'admin/' + manager.current_day + '/all_programs_COF.html', flag=True)
-    generate_birds_eye(manager, data[2], all_stars_list, 'admin/' + manager.current_day + '/all_stars_birdseye.html')
+    # skymap_html = dn.interactive_sky_with_static_heatmap(manager, 'Program1')
+    # with open("/Users/jack/Desktop/skymap.html", "w", encoding="utf-8") as f:
+    #     f.write(skymap_html)
+
+    # get TTP plots from pkl file with data
+    # get_ttp_plots_dynamic(manager)
+    # ladder_html = dn.get_ladder(manager)
+    # with open("/Users/jack/Desktop/ladder.html", "w", encoding="utf-8") as f:
+    #     f.write(ladder_html)
+    #
+    # animation_html = dn.get_slew_animation(manager)
+    # with open("/Users/jack/Desktop/slewgif.html", "w", encoding="utf-8") as f:
+    #     f.write(animation_html)
+    #
+    # script_table_html = dn.get_script_plan(manager)
+    # with open("/Users/jack/Desktop/script_table.html", "w", encoding="utf-8") as f:
+    #     f.write(script_table_html)
+    #
+    # slew_path_html = dn.plot_path_2D_interactive(manager)
+    # with open("/Users/jack/Desktop/slewpath.html", "w", encoding="utf-8") as f:
+    #     f.write(slew_path_html)
+
     # generate_single_star_maps(manager, 'your star name here')
     # # build plots for each program
     # program_names = data[0].keys()
@@ -435,6 +537,8 @@ def generate_single_star_maps(manager, starname):
 
     is_altaz, is_moon, is_night, is_inter, is_future, is_alloc = mp.mod_produce_ultimate_map(manager, starname)
     all_maps = [is_altaz, is_alloc, is_night, is_moon, is_inter, is_future]
+    # return is_altaz, is_moon, is_night, is_inter, is_future, is_alloc
+
     mapnames = ['is_altaz', 'is_alloc', 'is_night', 'is_moon', 'is_inter', 'is_future', ]
 
     forecast = pd.read_csv(manager.future_forecast, header=None).astype(str)
@@ -447,7 +551,6 @@ def generate_single_star_maps(manager, starname):
     fig = go.Figure()
 
     for i in range(len(all_maps)):
-        # import pdb; pdb.set_trace()
         int_array = all_maps[i][0].astype(int).T
         int_array = 1 - int_array
         fig.add_trace(go.Heatmap(
@@ -499,14 +602,14 @@ def generate_single_star_maps(manager, starname):
             tickfont=dict(size=labelsize - 4),
             tickvals=np.arange(0, manager.semester_length, 21),
             tickmode='array',
-            showgrid=False,  # Turn off native grid
+            showgrid=False,
         ),
         yaxis=dict(
             title_font=dict(size=labelsize),
             tickfont=dict(size=labelsize - 4),
             tickvals=np.arange(0, manager.n_slots_in_night, 12),
             tickmode='array',
-            showgrid=False,  # Turn off native grid
+            showgrid=False,
         ),
         template="plotly_white",
         showlegend=True,
@@ -518,3 +621,100 @@ def generate_single_star_maps(manager, starname):
         fileout_path = manager.reports_directory + filename
         fig.write_html(fileout_path)
     return fig
+
+def get_ttp_plots_dynamic(manager):
+    outputdir = manager.reports_directory + 'observer/' + manager.current_day + "/"
+    with open(manager.reports_directory + 'observer/' + manager.current_day + '/ttp_data.pkl', 'rb') as f:
+        data = pickle.load(f)
+        # note data[0] is the solution object, with the actual gorubi model having been deleted for pickling purposes
+
+    # slew_path_gif = plotting.animate_telescope(data[0], outputdir, animationStep=120)
+    slew_path_gif = plotting.animate_telescope(data[0], animationStep=120)
+    with open("/Users/jack/Desktop/slewgif.html", "w", encoding="utf-8") as f:
+        f.write(slew_path_gif)
+    print(slew_path_gif)
+
+    slew_path_2D = plotting.plot_path_2D(data[0], outputdir) #note this is still a static matplotlib fig object
+    ladder_plot = plotting.nightPlan(data[0].plotly, manager.current_day, outputdir)
+    round_two_requests = [] # just for now
+    nightly_start_stop_times = pd.read_csv(manager.nightly_start_stop_times_file)
+    day_in_semester = manager.all_dates_dict[manager.current_day]
+    idx = nightly_start_stop_times[nightly_start_stop_times['Date'] == str(manager.current_day)].index[0]
+    night_start_time = nightly_start_stop_times['Start'][idx]
+    night_stop_time = nightly_start_stop_times['Stop'][idx]
+    obs_start_time = Time(str(manager.current_day) + "T" + str(night_start_time))
+    lines = io.write_starlist(manager.requests_frame, data[0].plotly, obs_start_time, data[0].extras,round_two_requests, str(manager.current_day), outputdir)
+    observing_plan = pd.DataFrame([io.parse_star_line(line) for line in lines])
+    # observing_plan[['obs_time', 'first_avail', 'last_avail']] = observing_plan[['obs_time', 'first_avail', 'last_avail']].astype(str)
+    observing_plan = observing_plan[observing_plan.iloc[:, 0].str.strip() != '']
+    observing_plan_html = save_interactive_observing_plan(observing_plan)
+    with open("/Users/jack/Desktop/output.html", "w", encoding="utf-8") as f:
+        f.write(observing_plan_html)
+
+    outputs = [observing_plan_html, ladder_plot, slew_path_2D, slew_path_gif]
+    # print(ladder_plot)
+    # ladder_plot.write_html("/Users/jack/Desktop/tmpnightplantest.html")
+    # slew_path_2D.savefig("/Users/jack/Desktop/tmpnightplantest.png", dpi=300, bbox_inches='tight', facecolor='w')
+    return outputs
+
+def save_interactive_observing_plan(observing_plan):
+    from pathlib import Path
+
+    # Generate the core HTML table (just the <table>...</table>)
+    observing_plan_html = observing_plan.to_html(
+        index=False,
+        border=0,
+        classes='display',
+        escape=False  # Set to True if you have HTML tags in data you want escaped
+    )
+
+    # Full HTML page with DataTables integration
+    full_html = f"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Observing Plan</title>
+
+    <!-- DataTables CSS -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+
+    <!-- jQuery and DataTables JS -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            padding: 2em;
+        }}
+        table {{
+            width: 100%;
+        }}
+    </style>
+</head>
+<body>
+
+<h2>Observing Plan</h2>
+
+{observing_plan_html}
+
+<script>
+    $(document).ready(function () {{
+        $('table.display').DataTable({{
+            paging: true,
+            searching: true,
+            responsive: true,
+            pageLength: 100,
+            order: [[11, 'asc']]
+        }});
+    }});
+</script>
+
+</body>
+</html>
+"""
+
+    # Write to file
+    # Path(output_path).write_text(full_html, encoding='utf-8')
+    return full_html

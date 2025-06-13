@@ -79,8 +79,7 @@ def define_indices_for_requests(manager):
     # Define the tuples of request and available slot for each request.
     # This becomes the grid over which the Gurobi variables are defined.
     # Now, slots that were never possible for scheduling are not included in the model.
-
-    available_indices_for_request = mp.produce_ultimate_map(manager)
+    available_indices_for_request = mp.produce_ultimate_map(manager, manager.requests_frame)
 
     observability_keys = []
     strategy_keys = []

@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{% if starname %}{{ starname }}{% else %}Star Page{% endif %}</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 2rem;
+            background-color: #f9f9f9;
+        }
+        h1 {
+            margin-bottom: 1rem;
+        }
+        .plot-container {
+            margin-top: 2rem;
+            background-color: white;
+            padding: 1rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>
+        {% if starname %}
+            Data for {{ starname }}
+        {% else %}
+            Select a star to view its plots
+        {% endif %}
+    </h1>
+
+    {% if figure_html %}
+        <div class="plot-container">
+            {% for fig in figure_html %}
+                {{ fig | safe }}
+            {% endfor %}
+        </div>
+    {% endif %}
+
+</body>
+</html>

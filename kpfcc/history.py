@@ -134,7 +134,6 @@ def access_jump():
     Returns:
         s (object): a session request
     """
-
     import requests
     import re
     from bs4 import BeautifulSoup
@@ -142,7 +141,7 @@ def access_jump():
     s = requests.session()
     s.get(login_url)
     csrftoken = s.cookies['csrftoken']
-    # you'll need to add your credentials for username and password
+    # you'll need to add your credentials for username and password, see environment variables above
     payload = {'action':'login', 'username':JUMP_USERNAME,'password':JUMP_PASSWORD,
                'csrfmiddlewaretoken': csrftoken}
     new_login = s.post(login_url, data = payload, headers = dict(Referer = login_url))
@@ -243,7 +242,6 @@ def build_past_history(past_observations_file, requests_frame, twilight_frame):
         database_info_dict (dictionary): contains keys of starnames and values are lists where
                     elements follow order described below.
     """
-    print("Compiling past observation history.")
     database_info_dict = {}
     if os.path.exists(past_observations_file):
         print("Pulled database of past observations this semester.")
