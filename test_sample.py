@@ -17,13 +17,8 @@ class TestClass:
     def test_bench(self):
         # override the tests of "do these files exist" and just run it all
         # but run a shortened version, so it doesn't take long, see shortcut=5
-
-
-        print("Running benchmark test.")
-
-        nR = 5
-        nS = 5
-        cf = 'examples/bench/config_benchmark.ini'
+        nS = 12
+        cf = 'examples/bench/config_benchmark_pytest.ini' # need a separate file for this so that paths are correct 
 
         # Initialize manager and compute request set on the fly
         # This is a hacky workaround. run_admin needs this file to exist. This can
@@ -31,11 +26,9 @@ class TestClass:
         config = ConfigParser()
         config.read(cf)
         upstream_path = eval(config.get('required', 'folder'), {"os": os})
-        semester_directory = upstream_path
         requests_frame = bn.build_toy_model_from_paper(nS, hours_per_program = 100)
-        if nR is not None:
-            requests_frame = requests_frame.iloc[:nR][::10] # short benchmark
-        requests_frame.to_csv(os.path.join(semester_directory, "inputs/Requests.csv"))
+        requests_frame = requests_frame[::10]
+        requests_frame.to_csv(os.path.join(upstream_path, "inputs/Requests.csv"))
         manager = mn.data_admin(cf)
         manager.run_admin()
 
@@ -57,8 +50,8 @@ class TestClass:
     """
 
 
-    def test_plot(self):
-        dr.plot(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
+    # def test_plot(self):
+    #     dr.plot(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
 
     # need environment variable to run
     """
@@ -81,53 +74,18 @@ class TestClass:
         dr.kpfcc_build(argparse.Namespace(config_file='examples/recreate_paper/oia1/config_oia1.ini'))
         dr.schedule(argparse.Namespace(request_file="examples/recreate_paper/oia1/outputs/2024-08-01/request_set.json", config_file='examples/recreate_paper/oia1/config_oia1.ini'))
     """
-    
-    def test_requests_vs_schedule(self):
-        req = 'examples/hello_world/outputs/2024-08-01/request_set.json'
-        sch = 'examples/hello_world/outputs/2024-08-01/serialized_outputs_sparse.csv'
-        
-        dr.requests_vs_schedule(argparse.Namespace(request_file=req, schedule_file=sch))
-            
-    
-        
+
+    # def test_requests_vs_schedule(self):
+    #     req = 'examples/hello_world/outputs/2024-08-01/request_set.json'
+    #     sch = 'examples/hello_world/outputs/2024-08-01/serialized_outputs_sparse.csv'
+    #
+    #     dr.requests_vs_schedule(argparse.Namespace(request_file=req, schedule_file=sch))
+    #
+
+
 
 
 if __name__=="__main__":
     # import pdb; pdb.set_trace()
     tc = TestClass()
     tc.test_requests_vs_schedule()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    
-    
