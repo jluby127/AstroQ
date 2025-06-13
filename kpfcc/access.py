@@ -38,7 +38,7 @@ def construct_access_dict(manager):
     rewrite_flag = False
     if os.path.exists(manager.accessibilities_file) == False:
         default_access_maps = {}
-        rewrite_flag = True 
+        rewrite_flag = True
     else:
         default_access_maps = read_accessibilty_map_dict(manager.accessibilities_file)
     for n,row in manager.requests_frame.iterrows():
@@ -59,7 +59,7 @@ def construct_access_dict(manager):
 
     return default_access_maps
 
-def single_night_allocated_slots(allocated_quarters_tonight, available_slots_in_night,
+def single_night_allocated_slots(twilight_tonight, allocated_quarters_tonight, available_slots_in_night,
                                 n_slots_in_night):
     """
     Determine the slots of a single night that are allocated.
@@ -80,17 +80,20 @@ def single_night_allocated_slots(allocated_quarters_tonight, available_slots_in_
     available_slots_in_tonights_quarter = int(available_slots_in_night/4)
     edge = int((n_slots_in_night - available_slots_in_night)/2)
 
+    edge_start = np.argmax(twilight_tonight)
+    edge_stop = np.argmax(twilight_tonight[::-1])
+
     allocated_slots_tonight = [0]*n_slots_in_night
     for i, item in enumerate(allocated_quarters_tonight):
         if allocated_quarters_tonight[i] == 1:
-            start = edge + i*int(available_slots_in_tonights_quarter)
+            start = edge_start + i*int(available_slots_in_tonights_quarter)
             stop = start + int(available_slots_in_tonights_quarter)
             if i == 3: # ensure allocation goes to up to twilight time at the end of the night.
-                stop = n_slots_in_night - edge
+                stop = n_slots_in_night - edge_stop
             for j in range(start, stop):
                 allocated_slots_tonight[j] = 1
         else:
-            start = edge + i*available_slots_in_tonights_quarter
+            start = edge_start + i*available_slots_in_tonights_quarter
             stop = start + available_slots_in_tonights_quarter
             if i == 3: # prevent the last slot from being scheduled (one too many)
                 stop -= 1
@@ -195,7 +198,6 @@ def get_accessibility_stats(access_map, time_up=30, slot_size=5):
 
     return days_observable, rise_day, set_day
 
-
 def construct_twilight_map(manager):
     """
     Compute the number of slots per night available, based on strictly twilight times
@@ -221,8 +223,7 @@ def construct_twilight_map(manager):
     for date in list(manager.all_dates_array):
         slots_tonight = determine_twilight_edge(date, manager.twilight_frame, manager.slot_size)
         available_slots_in_each_night.append(slots_tonight)
-    twilight_map_all = np.array(build_twilight_map(available_slots_in_each_night,
-                                manager.n_slots_in_night, invert=False))
+    twilight_map_all = np.array(build_twilight_map(available_slots_in_each_night,manager.n_slots_in_night, invert=False))
     twilight_map_remaining = twilight_map_all[manager.all_dates_dict[manager.current_day]:]
     twilight_map_remaining_1D = twilight_map_remaining.copy().flatten()
     twilight_map_remaining_2D = np.reshape(twilight_map_remaining_1D, (manager.n_nights_in_semester, manager.n_slots_in_night))
@@ -285,8 +286,7 @@ def get_available_slots_per_night(all_dates_array, twilight_frame, slot_size=5, 
     """
     available_slots_per_night = []
     for date in range(all_dates_array):
-        edge = determine_twilight_edge(date, twilight_frame, slot_size, start_time,
-                                       n_hours_in_night)
+        edge = determine_twilight_edge(date, twilight_frame, slot_size, start_time, n_hours_in_night)
         available_slots_per_night.append(edge)
     return available_slots_per_night
 

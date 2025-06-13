@@ -25,7 +25,7 @@ class Scheduler(object):
     """A Scheduler object, from which we can define a Gurobi model, build constraints, and solve."""
 
     def __init__(self, request_set, cf):
-        
+
         logs.debug("Building the Scheduler.")
         self.start_the_clock = time.time()
 
@@ -152,9 +152,9 @@ class Scheduler(object):
     def constraint_one_request_per_slot(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Round 1:
-        
+
         Ensure that at most one request is scheduled
         per available slot.
         """
@@ -171,7 +171,7 @@ class Scheduler(object):
         According to Eq X in Lubin et al. 2025.
 
         Round 1:
-        
+
         Reserve multiple time slots for exposures that require
         more than one time slot to complete, and ensure that
         no other observations are scheduled during these slots.
@@ -196,16 +196,29 @@ class Scheduler(object):
             rhs = gp.quicksum(rhs)
             self.model.addConstr(lhs >= rhs, f'reserve_multislot_{d}d_{s}s')
 
+    # this function can likely be deleted - Jack 4/28/25
+    def constraint_max_visits_per_night(self):
+        """
+        According to Eq X in Lubin et al. 2025.
+
+        Judah: don't document
+        """
+        print("Constraint 3: Schedule request's maximum observations per night.")
+        for i, row in self.unique_request_on_day_pairs.iterrows():
+            constrained_slots_tonight = np.array(self.slots_on_day_for_r.loc[(row.id, row.d)][0])
+            print(row.id, row.n_intra_max)
+            self.model.addConstr((gp.quicksum(self.Yrds[row.id,row.d,ss] for ss in constrained_slots_tonight) <= row.n_intra_max),
+                    'max_observations_per_night_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
 
     def constraint_enforce_internight_cadence(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Round 1:
-        
+
         Ensure that the minimum number of days pass between
         consecutive observations of a given target. If a
-        target is scheduled for observation on a given date, 
+        target is scheduled for observation on a given date,
         prevent it from being scheduled again until the
         minimum number of days have passed.
         """
@@ -244,10 +257,10 @@ class Scheduler(object):
     def constraint_set_max_quarters_allocated(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Attempt to allocate all time awarded to the
-        observing program. The total allocated time 
-        may be less than the time awarded due to practical 
+        observing program. The total allocated time
+        may be less than the time awarded due to practical
         considerations, but cannot exceed it.
         """
         logs.info("Constraint: setting max number of quarters that can be allocated.")
@@ -268,11 +281,11 @@ class Scheduler(object):
     def constraint_relate_allocation_and_onsky(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Judah: not sure what role this equation plays
-        
+
         Ensure that for any night/quarter combination
-        during which an observation is scheduled, the 
+        during which an observation is scheduled, the
         telescope is allocated to the observing program
         for at least one quarter during that night.
         """
@@ -285,7 +298,7 @@ class Scheduler(object):
     def constraint_all_portions_of_night_represented(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Enforce a minimum number of first, second, third,
         and fourth quarters in the final schedule.
         """
@@ -298,7 +311,7 @@ class Scheduler(object):
     def constraint_forbidden_quarter_patterns(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Prevent allocations of quarter nights that
         are not one of the following:
             - a full night
@@ -328,7 +341,7 @@ class Scheduler(object):
     def constraint_cannot_observe_if_not_allocated(self, twilight_map_remaining_2D):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Ensure that no observations are scheduled during quarters
         in which the telescope is not allocated to the observing
         program.
@@ -343,7 +356,7 @@ class Scheduler(object):
     def constraint_max_consecutive_onsky(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Limit the maximum number of consecutive allocated nights
         to allow give other observing programs telescope access.
         """
@@ -354,7 +367,7 @@ class Scheduler(object):
     def constraint_minimum_consecutive_offsky(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Set an upper limit on the number of consecutive unallocated
         nights. This constraint prevents large gaps in the distribution
         of allocated nights.
@@ -368,7 +381,7 @@ class Scheduler(object):
     def constraint_enforce_restricted_nights(self, limit):
         """
         According to Eq X and X in Lubin et al. 2025.
-        
+
         Enforce non-allocated nights AND enforce necessary nights
         Enforce two constraints:
             - Specify night/quarter pairs which may not be allocated
@@ -395,7 +408,7 @@ class Scheduler(object):
     def constraint_maximize_baseline(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Require at least one observation early in the semester
         and at least one observation late in the semester, where "early"
         and "late" are defined by the user.
@@ -407,9 +420,9 @@ class Scheduler(object):
     def constraint_fix_previous_objective(self, epsilon=5):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Round 2:
-        
+
         "Freeze" the value of the objective function
         calculated in Round 1, and require that the
         objective function value calculated during
@@ -425,9 +438,9 @@ class Scheduler(object):
     def set_objective_maximize_slots_used(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Round 2:
-        
+
         In Round 2, maximize the number of filled slots,
         i.e., slots during which an exposure occurs.
         """
@@ -439,7 +452,7 @@ class Scheduler(object):
     def set_objective_minimize_theta_time_normalized(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Define the objective function for Round 1.
         Minimizing the objective maximizes the number
         of targets that receive their requested number
@@ -451,12 +464,12 @@ class Scheduler(object):
     def constraint_build_theta_multivisit(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Definition of the "shortfall" matrix, Theta.
         Elements of Theta are non-negative integers
-        giving for each target the difference between 
+        giving for each target the difference between
         the number of requested nights for that target
-        and the sum of the past and future scheduled 
+        and the sum of the past and future scheduled
         observations of that target.
         """
         logs.info("Constraint 0: Build theta variable")
@@ -473,12 +486,12 @@ class Scheduler(object):
     def constraint_set_max_desired_unique_nights_Wrd(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Round 1:
-        
+
         Limit the number of observations scheduled for a given
-        target to the maximum value provided by the PI. This 
-        constraint may later be relaxed if Round 2 of scheduling 
+        target to the maximum value provided by the PI. This
+        constraint may later be relaxed if Round 2 of scheduling
         is invoked.
         """
         logs.info("Constraining desired maximum observations.")
@@ -496,9 +509,9 @@ class Scheduler(object):
     def remove_constraint_set_max_desired_unique_nights_Wrd(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Round 2:
-        
+
         Remove the maximum number of observations set by
         constraints_set_max_desired_unique_nights_Wrd.
         """
@@ -510,9 +523,9 @@ class Scheduler(object):
     def constraint_set_max_absolute_unique_nights_Wrd(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Round 2:
-        
+
         Set the maximum number of observations for a target to
         150% of the original requested number.
         """
@@ -526,11 +539,11 @@ class Scheduler(object):
     def constraint_build_enforce_intranight_cadence(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Ensure that the minimum number of hours pass between
-        consecutive observations of a given target on the same 
-        night. If a target is scheduled for observation at 
-        a given time, prevent it from being scheduled again 
+        consecutive observations of a given target on the same
+        night. If a target is scheduled for observation at
+        a given time, prevent it from being scheduled again
         until the minimum number of hours have passed.
         """
         logs.info("Constraint 6: Enforce intra-night cadence.")
@@ -554,7 +567,7 @@ class Scheduler(object):
     def constraint_set_min_max_visits_per_night(self):
         """
         According to Eq X in Lubin et al. 2025.
-        
+
         Require that the number of scheduled visits to a target
         in a given night falls between the minimum and maximum
         values supplied by the PI.
@@ -594,7 +607,7 @@ class Scheduler(object):
             for c in self.model.getConstrs():
                 if c.IISConstr:
                     logs.critical('%s' % c.ConstrName)
-            for c in m.getGenConstrs():
+            for c in self.model.getGenConstrs():
                 if c.IISGenConstr:
                     logs.critical('%s' % c.GenConstrName)
         else:
