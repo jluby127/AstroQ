@@ -48,7 +48,7 @@ def get_cof(manager, all_stars):
     '''
 
     fig = go.Figure()
-    fig.update_layout(plot_bgcolor=gray, paper_bgcolor=clear)
+    fig.update_layout(plot_bgcolor=gray, paper_bgcolor=clear) #autosize=True,margin=dict(l=40, r=40, t=40, b=40),
     burn_line = np.linspace(0, 100, len(manager.all_dates_array))
     for b in range(len(burn_line)):
         burn_line[b] = np.round(burn_line[b],2)
