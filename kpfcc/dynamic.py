@@ -38,8 +38,6 @@ import astroplan as apl
 import kpfcc.management as mn
 import kpfcc.io as io_mine
 import sys
-sys.path.append("/Users/jack/Documents/github/ttp/ttp/")
-import plotting
 
 gray = 'rgb(210,210,210)'
 clear = 'rgba(255,255,255,1)'
