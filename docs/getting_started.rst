@@ -165,6 +165,15 @@ Here are the new files in ``examples/hello_world/outputs/2024-08-01``:
     .. image:: plots/outputs_dense_screenshot.png
     
     - The image above shows 11 slots during night 21 of the semester. `HAT-P-11` is scheduled during slots 53-XX (update with dense version that shows all filled slots), followed by `219134` in slots 62-XX. The sky is dark, the telescope is allocated to our program, and the weather is good during all of these slots.      
+
+
+
+- Now run the plotting code
+
+    .. code-block:: bash
+    
+        $ astroq plot -cf examples/hello_world/config_hello_world.ini 
+
         
         
         
