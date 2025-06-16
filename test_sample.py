@@ -6,8 +6,9 @@ from configparser import ConfigParser
 import os
 import kpfcc.management as mn
 import kpfcc.scheduler as sch
+import unittest
 
-class TestClass:
+class TestClass(unittest.TestCase):
 
     def test_round2_weather(self):
         dr.kpfcc_prep(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
@@ -45,15 +46,13 @@ class TestClass:
         schedule = sch.Scheduler(request_set, cf)
         schedule.run_model()
 
-    """
     def test_prep(self):
         # test the creation of all upstream files, including the allocation map
         dr.kpfcc_prep(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
-    """
 
 
-    # def test_plot(self):
-    #     dr.plot(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
+    def test_plot(self):
+        dr.plot(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
 
     # need environment variable to run
     """
@@ -88,7 +87,4 @@ class TestClass:
 
 
 if __name__=="__main__":
-    # import pdb; pdb.set_trace()
-    tc = TestClass()
-    tc.test_bench()
-    # tc.test_requests_vs_schedule()
+    unittest.main()
