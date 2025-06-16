@@ -19,7 +19,7 @@ import pandas as pd
 import matplotlib.pyplot as pt
 import re
 
-import kpfcc.history as hs
+import astroq.history as hs
 
 def build_fullness_report(combined_semester_schedule, manager, round_info):
     """

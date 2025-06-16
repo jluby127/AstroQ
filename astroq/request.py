@@ -14,7 +14,7 @@ import pandas as pd
 import json
 from configparser import ConfigParser
 
-import kpfcc.maps as mp
+import astroq.maps as mp
 
 class RequestSet(object):
     """

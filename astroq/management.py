@@ -19,9 +19,9 @@ logs = logging.getLogger(__name__)
 
 # from kpfcc import DATADIR
 DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')
-import kpfcc.history as hs
-import kpfcc.access as ac
-import kpfcc.maps as mp
+import astroq.history as hs
+import astroq.access as ac
+import astroq.maps as mp
 
 class data_admin(object):
     """A Data Admin object, from which we can easily pass around information.

@@ -35,8 +35,8 @@ import astropy as apy
 import astropy.units as u
 import astroplan as apl
 
-import kpfcc.management as mn
-import kpfcc.io as io_mine
+import astroq.management as mn
+import astroq.io as io_mine
 import sys
 sys.path.append("/Users/jack/Documents/github/ttp/ttp/")
 #import plotting
@@ -49,7 +49,7 @@ def get_cof(manager, all_stars):
     '''
     Return the html string for a plotly figure showing the COF for a selection of stars
 
-    all_stars must be an array, even if only 1 element long. It is an array of StarPlotter objects, as defined in kpfcc.plot
+    all_stars must be an array, even if only 1 element long. It is an array of StarPlotter objects, as defined in astroq.plot
     '''
 
     fig = go.Figure()
@@ -139,7 +139,7 @@ def get_birdseye(manager, availablity, all_stars):
     '''
     Return the html string for a plotly figure showing the COF for a selection of stars
 
-    all_stars must be an array, even if only 1 element long. It is an array of StarPlotter objects, as defined in kpfcc.plot
+    all_stars must be an array, even if only 1 element long. It is an array of StarPlotter objects, as defined in astroq.plot
     availability is a 2D array of N_slots by N_nights, binary 1/0, it is the intersection of is_alloc and is_night
     '''
 

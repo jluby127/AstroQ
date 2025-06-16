@@ -2,7 +2,9 @@
 
 Onsky
 =================
-.. module:: kpfcc
+.. module:: astroq
 
-.. automodule:: kpfcc.onsky
+.. automodule:: astroq.onsky
    :members:
+   :undoc-members:
+   :show-inheritance:
