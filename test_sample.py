@@ -1,11 +1,11 @@
-import kpfcc.driver as dr
-import kpfcc.request as rq
-import kpfcc.benchmarking as bn
+import astroq.driver as dr
+import astroq.request as rq
+import astroq.benchmarking as bn
 import argparse
 from configparser import ConfigParser
 import os
-import kpfcc.management as mn
-import kpfcc.scheduler as sch
+import astroq.management as mn
+import astroq.scheduler as sch
 import unittest
 
 class TestClass(unittest.TestCase):

@@ -2,7 +2,9 @@
 
 Weather
 =================
-.. module:: kpfcc
+.. module:: astroq
 
-.. automodule:: kpfcc.weather
+.. automodule:: astroq.weather
    :members:
+   :undoc-members:
+   :show-inheritance:

@@ -1,21 +1,23 @@
+import argparse
 import os
+import sys
 import json
-import numpy as np
 import pandas as pd
+import numpy as pd
 import math
 from configparser import ConfigParser
 from argparse import Namespace
 
-import kpfcc.scheduler as sch
-import kpfcc.request as rq
-import kpfcc.management as mn
-import kpfcc.benchmarking as bn
-import kpfcc.blocks as ob
-import kpfcc.plot as pl
-import kpfcc.onsky as sk
-import kpfcc.history as hs
-import kpfcc.webapp as app
-import kpfcc.weather as wh
+import astroq.scheduler as sch
+import astroq.request as rq
+import astroq.management as mn
+import astroq.benchmarking as bn
+import astroq.blocks as ob
+import astroq.plot as pl
+import astroq.onsky as sk
+import astroq.history as hs
+import astroq.webapp as app
+import astroq.weather as wh
 
 import logging
 log = logging.getLogger(__name__)

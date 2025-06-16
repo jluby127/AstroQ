@@ -4,5 +4,5 @@ AstroQ
 .. toctree::
    :maxdepth: 4
 
-   kpfcc
+   astroq
    setup
