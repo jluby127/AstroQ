@@ -5,12 +5,15 @@ import sys
 from argparse import ArgumentParser
 import kpfcc
 
+# Create the parser at module level
+parser = ArgumentParser(
+    description='AstroQ: Optimized observation scheduling',
+    prog='astroq'
+)
+
 def main():
     # This parser defines the top-level command "astroq"
-    psr = ArgumentParser(
-        description='AstroQ: Optimized observation scheduling',
-        prog='astroq'
-    )
+    psr = parser  # Use the global parser
 
     psr.add_argument('-V', '--version',
                      action='version',
