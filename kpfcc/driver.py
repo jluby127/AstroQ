@@ -59,8 +59,13 @@ def bench(args):
     return
 
 def kpfcc(args):
-    print('    Entering kpfcc function in driver.py')
-    print("this function doesn't do anything yet.")
+    """
+    Main KPFCC command line interface.
+    """
+    if args.kpfcc_subcommand is None:
+        print("run astroq kpfcc --help for helpfile")
+        return
+    
     return
 
 def kpfcc_build(args):
