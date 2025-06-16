@@ -107,8 +107,10 @@ plot the results, and render summary plots in an HTML web app.
 
     .. code-block:: bash
     
+        $ astroq kpfcc prep -cf examples/hello_world/config_hello_world.ini
         $ astroq kpfcc build -cf examples/hello_world/config_hello_world.ini
         $ astroq schedule -cf examples/hello_world/config_hello_world.ini -rf examples/hello_world/outputs/2024-08-02/request_set.json
+        $ astroq ttp -cf examples/bench/config_benchmark.ini
         $ astroq plot -cf examples/hello_world/config_hello_world.ini
         $ astroq kpfcc webapp -cf examples/hello_world/config_hello_world.ini
 

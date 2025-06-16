@@ -9,10 +9,10 @@ import kpfcc.scheduler as sch
 
 class TestClass:
 
-    # def test_round2_weather(self):
-    #     dr.kpfcc_prep(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
-    #     dr.kpfcc_build(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
-    #     dr.schedule(argparse.Namespace(request_file="examples/hello_world/outputs/2024-08-02/request_set.json", config_file='examples/hello_world/config_hello_world.ini'))
+    def test_round2_weather(self):
+        dr.kpfcc_prep(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
+        dr.kpfcc_build(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
+        dr.schedule(argparse.Namespace(request_file="examples/hello_world/outputs/2024-08-02/request_set.json", config_file='examples/hello_world/config_hello_world.ini'))
 
     def test_bench(self):
         # override the tests of "do these files exist" and just run it all
