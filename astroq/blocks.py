@@ -33,7 +33,7 @@ exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', '
                     'calibration.trigger_ca_h_k', 'calibration.trigger_green', 'calibration.trigger_red',
                     'calibration.wide_flat_pos', 'observation.block_sky', 'observation.nod_e', 'observation.nod_n',
                     'schedule.isNew', 'observation.isNew', 'schedule.comment', 'target.d_ra', 'target.undefined',
-                    'schedule.desired_num_visits_per_night', 'schedule.minimum_num_visits_per_night', 'history' # NOTE: last two will be removed
+                    'schedule.desired_num_visits_per_night', 'schedule.minimum_num_visits_per_night', 'history'# NOTE: last two will be removed
 ]
 
 def refresh_local_data(semester):
