@@ -151,13 +151,13 @@ class data_admin(object):
         self.semester_grid = np.arange(0, self.n_nights_in_semester, 1)
         self.quarters_grid = np.arange(0, self.n_quarters_in_night, 1)
 
-        self.twilight_map_remaining_2D = mp.compute_twilight_map(self)
+        self.twilight_map_remaining_2D = ac.compute_twilight_map(self)
         self.available_slots_in_each_night = np.sum(self.twilight_map_remaining_2D, axis=1)
 
         # When running a normal schedule, include the observatory's allocation map
         if self.run_optimal_allocation == False:
                 weather_diff_remaining, allocation_map_1D, allocation_map_2D, weathered_map = \
-                                    mp.prepare_allocation_map(self)
+                                    ac.prepare_allocation_map(self)
         else:
             # When running the optimal allocation, all dates are possible except for those specifically blacked out
             # Weather arrays are zeros since no weather losses are modeled
@@ -374,8 +374,8 @@ def prepare_new_semester(config_path):
     if little_manager.run_optimal_allocation == False:
         little_manager.allocation_file = os.path.join(little_manager.upstream_path, "inputs/Observatory_Allocation.csv")
         if os.path.exists(little_manager.allocation_file):
-            allocation = mp.format_keck_allocation_info(little_manager.allocation_file)
-            allocation_binary = mp.convert_allocation_info_to_binary(little_manager, allocation)
+            allocation = ac.format_keck_allocation_info(little_manager.allocation_file)
+            allocation_binary = ac.convert_allocation_info_to_binary(little_manager, allocation)
         else:
             logs.critical("file not found {}".format(little_manager.allocation_file))
             logs.critical("Download from https://www2.keck.hawaii.edu/observing/keckSchedule/queryForm.php")
