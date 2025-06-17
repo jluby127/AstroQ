@@ -53,11 +53,8 @@ class data_admin(object):
         self.daily_starting_time = str(config.get('other', 'daily_starting_time'))
         self.daily_ending_time  = f"{(int(self.daily_starting_time.split(':')[0]) + self.n_hours_in_night) % 24:02d}:{int(self.daily_starting_time.split(':')[1]):02d}"
 
-        # self.allocation_file = os.path.join(self.semester_directory, "inputs/allocation_schedule.txt")
-        # self.allocation_file = str(config.get('oia', 'allocation_file'))
-        # logs.debug("Using allocation map as defined in: ", self.allocation_file)
+        self.run_bench_allocation = eval(config.get('options', 'run_bench_allocation'))
         self.past_database_file = os.path.join(self.semester_directory, "inputs/queryJumpDatabase.csv")
-        # self.accessibilities_file = os.path.join(self.semester_directory, "inputs/accessibilities_" + str(self.slot_size) + "minSlots.json")
         self.special_map_file = os.path.join(self.semester_directory, "inputs/specialMaps_" + str(self.slot_size) + "minSlots.txt")
         self.zero_out_file = os.path.join(self.semester_directory, "inputs/zero_out.csv")
         self.nonqueue_map_file = os.path.join(self.semester_directory, "inputs/NonQueueMap"  + str(self.slot_size) + ".txt")
@@ -158,7 +155,16 @@ class data_admin(object):
 
         # When running a normal schedule, include the observatory's allocation map
         if self.run_optimal_allocation == False:
-                allocation_2D_all, allocation_2D_post_weather, weather_diff = wh.prepare_allocation_map(self)
+
+            if self.run_bench_allocation:
+                allocation_2D_all = np.loadtxt('RELATIVE PATH TO SAVED ARRAY HERE', sep=',') 
+                allocation_2D_post_weather, weather_diff = wh.prepare_allocation_map(self, allocation_2D_all)
+            else:
+                # Get the latest allocation info from the observatory
+                allo, all_dates_dict = ac.pull_allocation(manager.semester_start_date, manager.semester_length, 'KPF') # NOTE: later change instrument to 'KPF-CC'
+                allocation_map_2D = ac.build_allocation_map(all_dates_dict, allo)
+                allocation_2D_post_weather, weather_diff = wh.prepare_allocation_map(self, allocation_map_2D)
+
         else:
             # When running the optimal allocation, all dates are possible except for those specifically blacked out
             # Weather arrays are zeros since no weather losses are modeled
