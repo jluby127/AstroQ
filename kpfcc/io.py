@@ -213,7 +213,7 @@ def build_observed_map_past(past_info, starmap_template_filename):
 # def build_observed_map_future(manager, combined_semester_schedule, starname, starmap):
 #     """
 #     Construct stage two (future) of the starmap which is then used to build the cadence plot.
-# 
+#
 #     Args:
 #         manager (obj): a data_admin object
 #         combined_semester_schedule (array): a 2D array of dimensions n_nights_in_semester by
@@ -381,7 +381,7 @@ def write_available_human_readable(manager):
                 slotallocated += '*'
             if manager.allocation_map_2D[n][s] == 0:
                 slotallocated += 'X'
-            if manager.weathered_map[n][s] == 1:# and slotallocated == '':
+            if manager.weather_diff[n][s] == 1:# and slotallocated == '':
                 slotallocated += 'W'
             if os.path.exists(manager.nonqueue_map_file):
                 slotallocated += str(nonqueuemap_slots_strs[n + manager.all_dates_dict[manager.current_day], ][s])
@@ -420,7 +420,7 @@ def serialize_schedule(Yrds, manager):
     dense2 = dense1.copy()
     isNight = np.array(manager.twilight_map_remaining_2D).flatten()
     isAlloc = np.array(manager.allocation_map_2D).flatten()
-    isClear = np.array(manager.weathered_map).flatten()
+    isClear = np.array(manager.weather_diff).flatten()
     # have to go backwards otherwise you're adding stars into slots and then testing if the star is in the next slot
     for slot in range(manager.n_slots_in_semester-1, -1, -1):
         name_string = ""

@@ -134,7 +134,7 @@ def produce_ultimate_map(manager, rs, running_backup_stars=False, mod=False):
     is_night = manager.twilight_map_remaining_2D.astype(bool) # shape = (nnights, nslots)
     is_night = np.ones_like(is_altaz, dtype=bool) & is_night[np.newaxis,:,:]
 
-    is_alloc = manager.allocation_map_2D.astype(bool) # shape = (nnights, nslots)
+    is_alloc = manager.allocation_map_2D[-manager.n_nights_in_semester:,:].astype(bool) # shape = (nnights, nslots)
     # is_alloc = np.repeat(is_alloc[np.newaxis, :, :], ntargets, axis=0)
     is_alloc = np.ones_like(is_altaz, dtype=bool) & is_alloc[np.newaxis,:,:] # shape = (ntargets, nnights, nslots)
 
@@ -422,8 +422,8 @@ def prepare_allocation_map(manager):
                                     n_slots_in_night where 1's are nights that were
                                     allocated but weathered out (for plotting purposes)
     """
-    allo = pull_allocation(manager.semester_start_date, manager.semester_length, 'KPF') # NOTE: later change instrument to 'KPF-CC'
-    allocation_2D_all = build_allocation_map(allo)
+    allo, all_dates_dict = ac.pull_allocation(manager.semester_start_date, manager.semester_length, 'KPF') # NOTE: later change instrument to 'KPF-CC'
+    allocation_2D_all = ac.build_allocation_map(all_dates_dict, allo)
 
     # Sample out future allocated nights to simulate weather loss based on empirical weather data.
     logs.info("Sampling out weather losses")
@@ -431,7 +431,7 @@ def prepare_allocation_map(manager):
 
     allocation_2D_post_weather, weather_diff, days_lost = wh.simulate_weather_losses(allocation_2D_all, loss_stats_this_semester, \
         covariance=0.14, run_weather_loss=manager.run_weather_loss, plot=True, outputdir=manager.output_directory)
-    wh.write_out_weather_stats(manager, days_lost)
+    wh.write_out_weather_stats(manager, days_lost, allocation_2D_post_weather)
 
     return allocation_2D_all, allocation_2D_post_weather, weather_diff
 

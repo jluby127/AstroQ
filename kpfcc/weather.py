@@ -104,7 +104,7 @@ def simulate_weather_losses(allocation, loss_stats, covariance=0.14, \
 
     return allocation_post_losses, weather_diff, days_lost
 
-def write_out_weather_stats(manager, days_lost):
+def write_out_weather_stats(manager, days_lost, allocation):
     """
     Write out data on the results of the weather simulation. For comparing acrossing MCMC simulations
 
@@ -137,7 +137,7 @@ def write_out_weather_stats(manager, days_lost):
                 sim_result = 'Poor'
             else:
                 sim_result = 'Clear'
-            if np.sum(allocation_remaining[a - manager.all_dates_dict[manager.current_day]]) >= 1:
+            if np.sum(allocation[a - manager.all_dates_dict[manager.current_day]]) >= 1:
                 allocation_status = 'True'
             else:
                 allocation_status = 'False'

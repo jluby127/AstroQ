@@ -8,12 +8,15 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as pt
 from pathlib import Path
+import requests
 
 from astropy.time import Time
 from astropy.time import TimeDelta
 import astropy as apy
 import astropy.units as u
 import astroplan as apl
+
+import kpfcc.management as mn
 
 # Define list of observatories which are currently supported.
 # To add an obseratory/telescope, add the Astroplan resolvable name to the list in generate_night_plan
@@ -382,7 +385,9 @@ def pull_allocation(date, numdays, instrument):
         ends.append(data[i]['EndTime'])
         fractions.append(data[i]['FractionOfNight'])
     allo = pd.DataFrame({"Date":dates, "Start":starts, "End":ends, "Fraction":fractions})
-    return allo
+
+    all_dates_dict, all_dates_array = mn.build_date_dictionary(date, numdays)
+    return allo, all_dates_dict
 
 def make_time_grid(start="03:30", end="17:30", step_min=5, base_date = "2000-01-01"):
     # Convert start and end to minutes since midnight
@@ -393,7 +398,7 @@ def make_time_grid(start="03:30", end="17:30", step_min=5, base_date = "2000-01-
     t_end_min = h_end * 60 + m_end
 
     # Make array of minute offsets
-    minute_offsets = np.arange(t_start_min, t_end_min + 1, step_min)
+    minute_offsets = np.arange(t_start_min, t_end_min, step_min)
     time_grid = Time(f"{base_date}T00:00:00") + TimeDelta(minute_offsets * 60, format='sec')
     return time_grid
 
@@ -405,11 +410,11 @@ def closest_time_index(input_time, time_grid, base_date = "2000-01-01"):
     deltas = np.abs(input_time_obj - time_grid)
     return np.argmin(deltas)
 
-def build_allocation_map(allo):
+def build_allocation_map(all_dates_dict, allo):
     grid = make_time_grid()
     allo_map = []
     allo_by_date = dict(zip(allo['Date'], allo.index))
-    for date_str, day_index in sorted(all_dates.items(), key=lambda x: x[1]):
+    for date_str, day_index in sorted(all_dates_dict.items(), key=lambda x: x[1]):
         one_night = [0] * len(grid)
         if date_str in allo_by_date:
             row = allo.loc[allo_by_date[date_str]]

@@ -52,8 +52,8 @@ class data_admin(object):
         self.daily_ending_time  = f"{(int(self.daily_starting_time.split(':')[0]) + self.n_hours_in_night) % 24:02d}:{int(self.daily_starting_time.split(':')[1]):02d}"
 
         # self.allocation_file = os.path.join(self.semester_directory, "inputs/allocation_schedule.txt")
-        self.allocation_file = str(config.get('oia', 'allocation_file'))
-        logs.debug("Using allocation map as defined in: ", self.allocation_file)
+        # self.allocation_file = str(config.get('oia', 'allocation_file'))
+        # logs.debug("Using allocation map as defined in: ", self.allocation_file)
         self.past_database_file = os.path.join(self.semester_directory, "inputs/queryJumpDatabase.csv")
         # self.accessibilities_file = os.path.join(self.semester_directory, "inputs/accessibilities_" + str(self.slot_size) + "minSlots.json")
         self.special_map_file = os.path.join(self.semester_directory, "inputs/specialMaps_" + str(self.slot_size) + "minSlots.txt")
