@@ -78,22 +78,26 @@ def star_home():
 @app.route("/star/<starname>")
 def single_star(starname):
 
+    compare_starname = starname.lower().replace(' ', '') # Lower case and remove all spaces
     program_names = data_astroq[0].keys()
 
     for program in program_names:
         for star_ind in range(len(data_astroq[0][program])):
             star_obj = data_astroq[0][program][star_ind]
-            if star_obj.starname == starname:
-                table_reqframe_html = dn.get_requests_frame(manager, filter_condition=f"starname=='{starname}'")
+            true_starname = star_obj.starname
+            object_compare_starname = true_starname.lower().replace(' ', '')
+            
+            if object_compare_starname == compare_starname:
+                table_reqframe_html = dn.get_requests_frame(manager, filter_condition=f"starname=='{true_starname}'")
                 
-                fig_football_html = dn.get_football(manager, [data_astroq[0][program][star_ind]])
+                fig_football_html = dn.get_football(manager, [star_obj])
                 fig_cof_html = dn.get_cof(manager, [data_astroq[0][program][star_ind]])
-                fig_birdseye_html = dn.get_birdseye(manager, data_astroq[2], [data_astroq[0][program][star_ind]])
+                fig_birdseye_html = dn.get_birdseye(manager, data_astroq[2], [star_obj])
 
                 tables_html = [table_reqframe_html]
                 figures_html = [fig_football_html, fig_cof_html, fig_birdseye_html]
 
-                return render_template("star.html", starname=starname, tables_html=tables_html, figures_html=figures_html)
+                return render_template("star.html", starname=true_starname, tables_html=tables_html, figures_html=figures_html)
     return f"Error, star {starname} not found in programs {list(program_names)}"
 
 
