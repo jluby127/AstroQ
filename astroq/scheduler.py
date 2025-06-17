@@ -19,7 +19,7 @@ from gurobipy import GRB
 import astroq.io as io
 import astroq.management as mn
 import astroq.request as rq
-import astroq.maps as mp
+import astroq.access as ac
 
 class Scheduler(object):
     """A Scheduler object, from which we can define a Gurobi model, build constraints, and solve."""
@@ -690,8 +690,8 @@ class Scheduler(object):
         self.manager.allocation_map_2D_NQ = allocation_schedule
 
         weather_holder = np.zeros(np.shape(allocation_schedule))
-        allocation_map_1D, allocation_map_2D, weathered_map = mp.build_allocation_map(self.manager, allocation_schedule, weather_holder)
-        mp.convert_allocation_array_to_binary(self.manager)
+        allocation_map_1D, allocation_map_2D, weathered_map = ac.build_allocation_map(self.manager, allocation_schedule, weather_holder)
+        ac.convert_allocation_array_to_binary(self.manager)
         self.manager.allocation_all = allocation_map_1D
         self.manager.allocation_1D = allocation_map_1D
         self.manager.allocation_map_2D = allocation_map_2D

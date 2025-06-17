@@ -22,7 +22,7 @@ import pickle
 
 import astroq.management as mn
 import astroq.history as hs
-import astroq.maps as mp
+import astroq.access as ac
 import astroq.io as io
 import ttp.plotting as plotting
 
@@ -174,7 +174,7 @@ def process_stars(manager):
         newstar.star_color_rgb = rgb_strings[np.random.randint(0, len(rgb_strings)-1)]
         newstar.draw_lines = False
 
-        is_altaz, is_moon, is_night, is_inter, is_future, is_alloc = mp.mod_produce_ultimate_map(manager, name)
+        is_altaz, is_moon, is_night, is_inter, is_future, is_alloc = ac.mod_produce_ultimate_map(manager, name)
         newstar.maps = [is_alloc, is_night, is_altaz, is_moon, is_inter, is_future]
         newstar.maps_names = ['is_alloc', 'is_night', 'is_altaz', 'is_moon', 'is_inter', 'is_future']
         newstar.allow_mapview = True
@@ -535,7 +535,7 @@ def run_plot_suite(config_file):
 
 def generate_single_star_maps(manager, starname):
 
-    is_altaz, is_moon, is_night, is_inter, is_future, is_alloc = mp.mod_produce_ultimate_map(manager, starname)
+    is_altaz, is_moon, is_night, is_inter, is_future, is_alloc = ac.mod_produce_ultimate_map(manager, starname)
     all_maps = [is_altaz, is_alloc, is_night, is_moon, is_inter, is_future]
     # return is_altaz, is_moon, is_night, is_inter, is_future, is_alloc
 
