@@ -23,8 +23,6 @@ import astroq.history as hs
 import astroq.access as ac
 import astroq.weather as wh
 
-
-
 class data_admin(object):
     """A Data Admin object, from which we can easily pass around information.
 
