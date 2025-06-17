@@ -16,10 +16,10 @@ import pandas as pd
 import gurobipy as gp
 from gurobipy import GRB
 
-import kpfcc.io as io
-import kpfcc.management as mn
-import kpfcc.request as rq
-import kpfcc.maps as mp
+import astroq.io as io
+import astroq.management as mn
+import astroq.request as rq
+import astroq.maps as mp
 
 class Scheduler(object):
     """A Scheduler object, from which we can define a Gurobi model, build constraints, and solve."""
@@ -554,7 +554,7 @@ class Scheduler(object):
             intracadence_valid_tuples.drop_duplicates(['id','d','s']),
             intracadence_valid_tuples[['id','d','s']],
             suffixes=['','3'],on=['id', 'd']
-            ).query('s + 0 < s3 <= s + tau_intra')
+            ).query('s + 0 < s3 < s + tau_intra')
         intracadence_frame = intracadence_frame.groupby(['id','d','s'])[['s3']].agg(list)
         for i, row in intracadence_valid_tuples.iterrows():
             if (row.id, row.d, row.s) in intracadence_frame.index:

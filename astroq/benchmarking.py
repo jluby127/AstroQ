@@ -13,8 +13,8 @@ import random
 from configparser import ConfigParser
 from argparse import Namespace
 
-import kpfcc.request as rq
-import kpfcc.driver as dr
+import astroq.request as rq
+import astroq.driver as dr
 
 # In the paper, we used random seed = 24.
 np.random.seed(24)

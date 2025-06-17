@@ -15,8 +15,8 @@ from astropy.time import Time
 import numpy as np
 import pandas as pd
 
-import kpfcc.management as mn
-import kpfcc.history as hs
+import astroq.management as mn
+import astroq.history as hs
 
 
 class StarTracker:
