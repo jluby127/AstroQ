@@ -805,8 +805,31 @@ def get_script_plan(manager, data):
     lines = io_mine.write_starlist(manager.requests_frame, data[0].plotly, obs_start_time, data[0].extras,round_two_requests, str(manager.current_day), manager.reports_directory + 'observer/' + manager.current_day)
     observing_plan = pd.DataFrame([io_mine.parse_star_line(line) for line in lines])
     observing_plan = observing_plan[observing_plan.iloc[:, 0].str.strip() != '']
-    observing_plan_html = save_interactive_observing_plan(observing_plan)
+    observing_plan_html = dataframe_to_html(observing_plan, sort_column=11)
     return observing_plan_html
+    
+
+def get_requests_frame(manager, filter_condition=None):
+    """
+    Load manager.requests_frame and render in HTML
+    
+    Arguments:
+        manager (manager): Manager object holding requests_frame
+        filter_condition (str): String specifying any desired filters
+            to apply to loaded frame. Defaults to empty (no cuts)
+    
+    Returns:
+        req_frame_html (str): HTML string representing filtered frame
+    
+    """
+    
+    req_frame = manager.requests_frame
+    if filter_condition is not None:
+        req_frame = req_frame.query(filter_condition)
+    req_frame_html = dataframe_to_html(req_frame, sort_column=0)
+    
+    return req_frame_html
+    
 
 def plot_path_2D_interactive(manager, data):
     """Create an interactive Plotly plot showing telescope azimuth and altitude paths with UTC times and white background."""
@@ -895,11 +918,24 @@ def plot_path_2D_interactive(manager, data):
     slew_path_html = pio.to_html(fig, full_html=True, include_plotlyjs='cdn')
     return slew_path_html
 
-def save_interactive_observing_plan(observing_plan):
+def dataframe_to_html(dataframe, sort_column=0):
+    """
+    Convert a pandas dataframe into and HTML string for rendering
+    on the web app.
+    
+    Arguments:
+        dataframe (Pandas dataframe): Frame to be rendered
+        sort_column (int): Index of the column by which
+            rendered frame should be sorted, in ascending
+            order. Defaults to the 0th column.
+    
+    Returns:
+        full_html (str): HTML string representing dataframe
+    """
     from pathlib import Path
 
     # Generate the core HTML table (just the <table>...</table>)
-    observing_plan_html = observing_plan.to_html(
+    dataframe_html = dataframe.to_html(
         index=False,
         border=0,
         classes='display',
@@ -935,7 +971,7 @@ def save_interactive_observing_plan(observing_plan):
 
 <h2>Observing Plan</h2>
 
-{observing_plan_html}
+{dataframe_html}
 
 <script>
     $(document).ready(function () {{
@@ -944,7 +980,7 @@ def save_interactive_observing_plan(observing_plan):
             searching: true,
             responsive: true,
             pageLength: 100,
-            order: [[11, 'asc']]
+            order: [[sort_column, 'asc']]
         }});
     }});
 </script>
