@@ -354,3 +354,68 @@ def build_twilight_map(available_slots_in_night, n_slots_in_night, invert=False)
                     quarterslots[j] = 1
         nightly_twilight_map.append(quarterslots)
     return nightly_twilight_map
+
+
+# Jack adding functions to pull most recent allocation schedule from Keck and produce allocation map of 1/0s, size n_slots by n_nights
+# Note using this will break the weather loss functions, need to fix those to accept this allocation map.
+def pull_allocation(date, numdays, instrument):
+    base_url = "https://www3.keck.hawaii.edu/api/getSchedule/?cmd=getSchedule"
+    params = {
+        'date': date,
+        'numdays': numdays,
+        'instrument':instrument
+    }
+    response = requests.get(base_url, params=params)
+    if response.status_code == 200:
+        data = response.json()
+    else:
+        print(f"Error: {response.status_code}, {response.text}")
+        return None
+
+    dates = []
+    starts = []
+    ends = []
+    fractions = []
+    for i in range(len(data)):
+        dates.append(data[i]['Date'])
+        starts.append(data[i]['StartTime'])
+        ends.append(data[i]['EndTime'])
+        fractions.append(data[i]['FractionOfNight'])
+    allo = pd.DataFrame({"Date":dates, "Start":starts, "End":ends, "Fraction":fractions})
+    return allo
+
+def make_time_grid(start="03:30", end="17:30", step_min=5, base_date = "2000-01-01"):
+    # Convert start and end to minutes since midnight
+    h_start, m_start = map(int, start.split(":"))
+    h_end, m_end = map(int, end.split(":"))
+
+    t_start_min = h_start * 60 + m_start
+    t_end_min = h_end * 60 + m_end
+
+    # Make array of minute offsets
+    minute_offsets = np.arange(t_start_min, t_end_min + 1, step_min)
+    time_grid = Time(f"{base_date}T00:00:00") + TimeDelta(minute_offsets * 60, format='sec')
+    return time_grid
+
+def closest_time_index(input_time, time_grid, base_date = "2000-01-01"):
+    # Convert input_time (e.g., "12:43") to a Time object with dummy date
+    input_time_obj = Time(f"{base_date}T{input_time}")
+
+    # Find the closest time in the grid
+    deltas = np.abs(input_time_obj - time_grid)
+    return np.argmin(deltas)
+
+def build_allocation_map(allo):
+    grid = make_time_grid()
+    allo_map = []
+    allo_by_date = dict(zip(allo['Date'], allo.index))
+    for date_str, day_index in sorted(all_dates.items(), key=lambda x: x[1]):
+        one_night = [0] * len(grid)
+        if date_str in allo_by_date:
+            row = allo.loc[allo_by_date[date_str]]
+            start_index = closest_time_index(row['Start'], grid)
+            end_index = closest_time_index(row['End'], grid)
+            one_night[start_index:end_index + 1] = [1] * (end_index - start_index + 1)
+        allo_map.append(one_night)
+    allo_map = np.array(allo_map)
+    return allo_map

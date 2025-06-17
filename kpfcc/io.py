@@ -210,40 +210,40 @@ def build_observed_map_past(past_info, starmap_template_filename):
     starmap['N_obs'] = n_observed
     return starmap
 
-def build_observed_map_future(manager, combined_semester_schedule, starname, starmap):
-    """
-    Construct stage two (future) of the starmap which is then used to build the cadence plot.
-
-    Args:
-        manager (obj): a data_admin object
-        combined_semester_schedule (array): a 2D array of dimensions n_nights_in_semester by
-                                            n_slots_in_night where elements denote how the slot is
-                                            used: target, twilight, weather, not scheduled.
-        starname (str): the request in question
-        starmap (dataframe): an updated starmap which includes the past history of the target
-
-    Returns:
-        starmap (dataframe): an updated starmap which includes the past history of the target
-    """
-    starmap['Allocated'] = [False]*len(starmap)
-    starmap['Weathered'] = [False]*len(starmap)
-
-    for i, item in enumerate(combined_semester_schedule):
-        if starname in combined_semester_schedule[i]:
-            ind = list(combined_semester_schedule[i]).index(starname)
-            quarter = determine_quarter(ind, np.shape(combined_semester_schedule)[1])
-            starmap['Observed'][i*4 + quarter] = True
-            starmap['N_obs'][i*4 + quarter] = list(combined_semester_schedule[i]).count(
-                    starname)/manager.slots_needed_for_exposure_dict[starname]
-
-    for a, item in enumerate(manager.allocation_all):
-        # mulitply by 4 because each element of allocation_all represents one quarter
-        # starmap['Allocated'][days_into_semester*4 + a] = bool(allocation_all[a])
-        starmap['Allocated'][a] = bool(manager.allocation_all[a])
-    for w, item in enumerate(manager.weather_diff_remaining.flatten()):
-        starmap['Weathered'][manager.all_dates_dict[manager.current_day]*4+ w] = bool(manager.weather_diff_remaining.flatten()[w])
-
-    return starmap
+# def build_observed_map_future(manager, combined_semester_schedule, starname, starmap):
+#     """
+#     Construct stage two (future) of the starmap which is then used to build the cadence plot.
+# 
+#     Args:
+#         manager (obj): a data_admin object
+#         combined_semester_schedule (array): a 2D array of dimensions n_nights_in_semester by
+#                                             n_slots_in_night where elements denote how the slot is
+#                                             used: target, twilight, weather, not scheduled.
+#         starname (str): the request in question
+#         starmap (dataframe): an updated starmap which includes the past history of the target
+#
+#     Returns:
+#         starmap (dataframe): an updated starmap which includes the past history of the target
+#     """
+#     starmap['Allocated'] = [False]*len(starmap)
+#     starmap['Weathered'] = [False]*len(starmap)
+#
+#     for i, item in enumerate(combined_semester_schedule):
+#         if starname in combined_semester_schedule[i]:
+#             ind = list(combined_semester_schedule[i]).index(starname)
+#             quarter = determine_quarter(ind, np.shape(combined_semester_schedule)[1])
+#             starmap['Observed'][i*4 + quarter] = True
+#             starmap['N_obs'][i*4 + quarter] = list(combined_semester_schedule[i]).count(
+#                     starname)/manager.slots_needed_for_exposure_dict[starname]
+#
+#     for a, item in enumerate(manager.allocation_all):
+#         # mulitply by 4 because each element of allocation_all represents one quarter
+#         # starmap['Allocated'][days_into_semester*4 + a] = bool(allocation_all[a])
+#         starmap['Allocated'][a] = bool(manager.allocation_all[a])
+#     for w, item in enumerate(manager.weather_diff.flatten()):
+#         starmap['Weathered'][manager.all_dates_dict[manager.current_day]*4+ w] = bool(manager.weather_diff.flatten()[w])
+#
+#     return starmap
 
 def determine_quarter(value, n_slots_in_night):
     """

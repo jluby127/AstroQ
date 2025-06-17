@@ -409,18 +409,7 @@ def prepare_allocation_map(manager):
     perform the weather loss modeling.
 
     Args:
-        allocation_file (str): the path and filename to the binary map of allocated quarters/nights
-        current_day (str): today's date, format YYYY-MM-DD
-        semester_length (int): the number of days in a full semester
-        DATADIR (str): the path to the pre-computed data files
-        all_dates_array (array): the list of calendar dates in the semester
-        run_weather_loss (boolean): If True, run the weather loss model. If False, no weather loss.
-        output_directory (str): the path to which to save
-        available_slots_in_night (array): a 1D array of length n_nights_in_semester where each
-                              element is an integer representing the number of slots within that
-                              night that during night time
-        today_starting_night (int): the day number of today's date in the semester
-        n_slots_in_night (int): the number of slots in a single night
+        manager (obj) - a data_admin object
 
     Returns:
         weather_diff_remaining (array): 1D array for remainder of semester where elements are 1 if
@@ -433,32 +422,18 @@ def prepare_allocation_map(manager):
                                     n_slots_in_night where 1's are nights that were
                                     allocated but weathered out (for plotting purposes)
     """
-    # Convert allocation info from human to computer-readable
-    allocation_raw = np.loadtxt(manager.allocation_file, dtype=str)
-    allocation_remaining = []
-    allocation_all = []
-    for a in range(manager.semester_length):
-        convert = list(map(int, allocation_raw[a][2:]))
-        allocation_all.append(convert)
-        if a >= manager.all_dates_dict[manager.current_day]:
-            allocation_remaining.append(convert)
-    manager.allocation_all = allocation_all
-    allocation_schedule_all = np.reshape(allocation_all, (manager.semester_length, manager.n_quarters_in_night))
-    manager.allocation_map_2D_NQ = allocation_schedule_all
-    manager.allocation_remaining = allocation_remaining
+    allo = pull_allocation(manager.semester_start_date, manager.semester_length, 'KPF') # NOTE: later change instrument to 'KPF-CC'
+    allocation_2D_all = build_allocation_map(allo)
 
     # Sample out future allocated nights to simulate weather loss based on empirical weather data.
     logs.info("Sampling out weather losses")
-    loss_stats_remaining = wh.get_loss_stats(manager)
-    allocation_remaining_post_weather_loss, weather_diff_remaining, weather_diff_remaining_1D, \
-        days_lost = wh.simulate_weather_losses(manager.allocation_remaining, loss_stats_remaining, \
-        covariance=0.14, run_weather_loss=manager.run_weather_loss, plot=True, outputdir=manager.output_directory)
-    allocation_map_1D, allocation_map_2D, weathered_map = \
-        build_allocation_map(manager, allocation_remaining_post_weather_loss, weather_diff_remaining)
+    loss_stats_this_semester = wh.get_loss_stats(manager)
 
-    manager.weather_diff_remaining = weather_diff_remaining
-    wh.write_out_weather_stats(manager, days_lost, manager.allocation_remaining)
-    return weather_diff_remaining, allocation_map_1D, allocation_map_2D, weathered_map
+    allocation_2D_post_weather, weather_diff, days_lost = wh.simulate_weather_losses(allocation_2D_all, loss_stats_this_semester, \
+        covariance=0.14, run_weather_loss=manager.run_weather_loss, plot=True, outputdir=manager.output_directory)
+    wh.write_out_weather_stats(manager, days_lost)
+
+    return allocation_2D_all, allocation_2D_post_weather, weather_diff
 
 def build_allocation_map(manager, allocation_schedule, weather_diff):
     """

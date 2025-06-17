@@ -27,31 +27,29 @@ import kpfcc.access as ac
 
 def get_loss_stats(manager):
     """
-    Simulate nights totally lost to weather usine historical data
+    Get the loss probabilities for this semester's dates
 
     Args:
         manager (obj): a data_admin object
 
     Returns:
-        loss_stats_remaining (array): each element is the percent of total loss for nights,
-                                      starting with tomorrow and going to end of semester
+        loss_stats_this_semester (array): each element is the percent of total loss for nights,
     """
     historical_weather_data = pd.read_csv(os.path.join(manager.DATADIR,"maunakea_weather_loss_data.csv"))
-    loss_stats_remaining = []
+    loss_stats_this_semester = []
     for i, item in enumerate(manager.all_dates_array):
         ind = historical_weather_data.index[historical_weather_data['Date'] == \
             manager.all_dates_array[i][5:]].tolist()[0]
-        loss_stats_remaining.append(historical_weather_data['% Total Loss'][ind])
-    return loss_stats_remaining
+        loss_stats_this_semester.append(historical_weather_data['% Total Loss'][ind])
+    return loss_stats_this_semester
 
-
-def simulate_weather_losses(allocation_remaining, loss_stats, covariance=0.14, \
+def simulate_weather_losses(allocation, loss_stats, covariance=0.14, \
                             run_weather_loss=False, plot=False, outputdir=None):
     """
     Simulate nights totally lost to weather usine historical data
 
     Args:
-        allocation_remaining (array): a 1D array of length n_nights_in_semester where 1's represent
+        allocation (array): a 1D array of length n_nights_in_semester where 1's represent
                                       allocated night and 0's represent non-allocated night
         loss_stats (array): 1D array of length n_nights_in_semester where elements are the
                             percent of the time that night is totally lost to weather
@@ -61,17 +59,17 @@ def simulate_weather_losses(allocation_remaining, loss_stats, covariance=0.14, \
         outputdir (str): path to save the plot
 
     Returns:
-        allocation_remaining_post_losses (array): 1's represent the night still is allocated
+        allocation_post_losses (array): 1's represent the night still is allocated
         weather_diff_remaining_2D (array): 1's represent the night still weathered
         weather_diff_remaining_1D (array): 1's represent the night still weathered
     """
     previous_day_was_lost = False
-    allocation_remaining_post_losses = allocation_remaining.copy()
+    allocation_post_losses = allocation.copy()
     counter = 0
     if run_weather_loss:
         days_lost = []
         # start at 1 because we never want tonight to be simulated as total loss
-        for i in range(1, len(allocation_remaining_post_losses)):
+        for i in range(1, len(allocation_post_losses)):
             value_to_beat = loss_stats[i]
             if previous_day_was_lost:
                 value_to_beat += covariance
@@ -79,7 +77,7 @@ def simulate_weather_losses(allocation_remaining, loss_stats, covariance=0.14, \
 
             if roll_the_dice < value_to_beat:
                 # the night is simulated a total loss
-                allocation_remaining_post_losses[i] = [0,0,0,0]
+                allocation_post_losses[i] = np.zeros(len(allocation_post_losses[i]))
                 previous_day_was_lost = True
                 counter += 1
                 days_lost.append(1)
@@ -92,13 +90,11 @@ def simulate_weather_losses(allocation_remaining, loss_stats, covariance=0.14, \
                     pt.axvline(i, color='k')
     else:
         logs.info('Pretending weather is always good!')
-        days_lost = [0]*(len(allocation_remaining_post_losses)-1)
+        days_lost = [0]*(len(allocation_post_losses)-1)
 
-    weather_diff_remaining_2D = np.array(allocation_remaining) - \
-                                np.array(allocation_remaining_post_losses)
-    weather_diff_remaining_1D = weather_diff_remaining_2D.flatten()
+    weather_diff = np.array(allocation) - np.array(allocation_post_losses)
     logs.info("Total nights simulated as weathered out: " + str(counter) + " of " + \
-                str(len(allocation_remaining_post_losses)) + " nights remaining.") # info
+                str(len(allocation_post_losses)) + " nights remaining.") # info
     if plot:
         size=15
         pt.xlabel("Days in Semester from Current Day", fontsize=size)
@@ -106,9 +102,9 @@ def simulate_weather_losses(allocation_remaining, loss_stats, covariance=0.14, \
         pt.savefig(outputdir + "weather_loss_visualization.png", dpi=200,
                                     bbox_inches='tight', facecolor='w')
 
-    return allocation_remaining_post_losses, weather_diff_remaining_2D, weather_diff_remaining_1D, days_lost
+    return allocation_post_losses, weather_diff, days_lost
 
-def write_out_weather_stats(manager, days_lost, allocation_remaining):
+def write_out_weather_stats(manager, days_lost):
     """
     Write out data on the results of the weather simulation. For comparing acrossing MCMC simulations
 
@@ -117,10 +113,6 @@ def write_out_weather_stats(manager, days_lost, allocation_remaining):
         current_day (star): today's date in format YYYY-MM-DD
         days_lost (array): a binary 1D array designating if the night was lost. Note that the length
                             of this array is n_nights_in_semester-1 which is smaller than len(all_dates_dict)
-        allocation_remaining (array): a binary 2D array of dates by quarters where 1 indicates
-                                quarter allocated and 0 not. Note that the length
-                                of this array is n_nights_in_semester-1 which is smaller
-                                than len(all_dates_dict)
         output_directory (str): path to save the plot
 
     Returns:

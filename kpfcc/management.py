@@ -156,26 +156,24 @@ class data_admin(object):
 
         # When running a normal schedule, include the observatory's allocation map
         if self.run_optimal_allocation == False:
-                weather_diff_remaining, allocation_map_1D, allocation_map_2D, weathered_map = \
-                                    mp.prepare_allocation_map(self)
+                allocation_2D_all, allocation_2D_post_weather, weather_diff = mp.prepare_allocation_map(self)
         else:
             # When running the optimal allocation, all dates are possible except for those specifically blacked out
             # Weather arrays are zeros since no weather losses are modeled
-            weather_diff_remaining = np.zeros(self.n_nights_in_semester, dtype='int')
-            weathered_map = np.zeros((self.n_nights_in_semester, self.n_slots_in_night), dtype='int')
+            weather_diff = np.zeros(self.n_nights_in_semester, dtype='int')
 
             # allocation maps are ones because all nights are possible to be allocated
-            allocation_map_1D = np.ones(self.n_slots_in_semester, dtype='int')
-            allocation_map_2D = np.ones((self.n_nights_in_semester, self.n_slots_in_night), dtype='int')
+            allocation_2D_all = np.ones((self.n_nights_in_semester, self.n_slots_in_night), dtype='int')
+            allocation_2D_post_weather = np.ones((self.n_nights_in_semester, self.n_slots_in_night), dtype='int')
 
-        self.weather_diff_remaining = weather_diff_remaining
-        self.allocation_map_1D = allocation_map_1D
-        self.allocation_map_2D = allocation_map_2D
-        self.weathered_map = weathered_map
-        if np.sum(self.weather_diff_remaining) == 0:
+        self.weather_diff = weather_diff
+        self.allocation_map_2D = allocation_2D_all
+        self.allocation_map_2D_post_weather = allocation_2D_post_weather
+
+        if np.sum(self.weather_diff) == 0:
             self.weathered_days = []
         else:
-            self.weathered_days = np.where(np.any(self.weather_diff_remaining == 1, axis=1))[0]
+            self.weathered_days = np.where(np.any(self.weather_diff == 1, axis=1))[0]
 
     def build_slots_required_dictionary(self, always_round_up_flag=False):
         """
