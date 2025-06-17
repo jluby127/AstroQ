@@ -30,7 +30,7 @@ import kpfcc.maps as mp
 
 named_colors = ['blue', 'red', 'green', 'gold', 'maroon', 'gray', 'orange', 'magenta', 'purple']
 
-def run_ttp(manager):
+def run_ttp(manager, include_specmatch=False):
     """
     Produce the TTP solution given the results of the autoscheduler
 
@@ -68,6 +68,15 @@ def run_ttp(manager):
     round_two_requests = np.loadtxt(manager.upstream_path + "/outputs/" + str(manager.current_day) + '/Round2_Requests.txt', dtype=str, delimiter="\n")
     send_to_ttp = prepare_for_ttp(manager.requests_frame, the_schedule[day_in_semester],
                                         round_two_requests)
+    if include_specmatch:
+        all_specmatch = pd.read_csv(manager.DATADIR + '/SPOCS_all_stars.csv')
+        all_rows_for_script_lines = pd.concat([manager.requests_frame, all_specmatch], ignore_index=True)
+        all_rows_for_script_lines.reset_index(inplace=True, drop=True)
+
+        specmatch_fillers = fill_gaps_specmatch(manager.DATADIR + '/SPOCS_all_stars.csv', manager.past_database_file, ra1=13, ra2=17)
+        send_to_ttp = pd.concat([send_to_ttp, specmatch_fillers], ignore_index=True)
+        send_to_ttp.reset_index(inplace=True, drop=True)
+
     filename = manager.upstream_path + "/outputs/" + str(manager.current_day) + '/Selected_' + str(manager.current_day) + ".txt"
     send_to_ttp.to_csv(filename, index=False)
     target_list = formatting.theTTP(filename)
@@ -86,10 +95,42 @@ def run_ttp(manager):
     plotting.plot_path_2D(solution,outputdir=observers_path)
     plotting.nightPlan(solution.plotly, manager.current_day, outputdir=observers_path)
     obs_and_times = pd.read_csv(observers_path + 'ObserveOrder_' + str(manager.current_day) + ".txt")
-    io.write_starlist(manager.requests_frame, solution.plotly, observation_start_time, solution.extras,
+
+    if include_specmatch:
+        io.write_starlist(all_rows_for_script_lines, solution.plotly, observation_start_time, solution.extras,
+                        round_two_requests, str(manager.current_day), observers_path)
+    else:
+        io.write_starlist(manager.requests_frame, solution.plotly, observation_start_time, solution.extras,
                         round_two_requests, str(manager.current_day), observers_path)
     print("The optimal path through the sky for the selected stars is found. Clear skies!")
 
+def fill_gaps_specmatch(filename, past_history_file, ra1=13, ra2=17):
+    library = pd.read_csv(filename)
+    pasthistory = pd.read_csv(past_history_file)
+    mask = ~library["starname"].isin(pasthistory["star_id"])
+
+    filtered_df = library[mask]
+    ra1 = filtered_df['ra'] > ra1*15
+    ra2 = filtered_df['ra'] < ra2*15
+    short = filtered_df['exptime'] < 1800
+
+    filtered_df = filtered_df[ra1&ra2&short]
+    filtered_df.sort_values(by='ra', inplace=True)
+    filtered_df = filtered_df[-50:]
+    filtered_df.reset_index(inplace=True, drop=True)
+
+    ttp_frame = pd.DataFrame({
+        "Starname":filtered_df['starname'],
+        "RA":filtered_df['ra'],
+        "Dec":filtered_df['dec'],
+        "Exposure Time":filtered_df['exptime'],
+        "Exposures Per Visit":[1]*len(filtered_df),
+        "Visits In Night":[1]*len(filtered_df),
+        "Intra_Night_Cadence":[0]*len(filtered_df),
+        "Priority":[1]*len(filtered_df)
+    })
+
+    return ttp_frame
 
 def produce_bright_backups(manager, nstars_max=100):
     """
