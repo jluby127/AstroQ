@@ -21,7 +21,6 @@ logs = logging.getLogger(__name__)
 DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')
 import astroq.history as hs
 import astroq.access as ac
-import astroq.maps as mp
 
 class data_admin(object):
     """A Data Admin object, from which we can easily pass around information.
