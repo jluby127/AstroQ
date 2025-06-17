@@ -3,22 +3,41 @@
 <head>
     <meta charset="UTF-8">
     <title>{% if starname %}{{ starname }}{% else %}Star Page{% endif %}</title>
+
+    <!-- Plotly -->
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+
+    <!-- DataTables and jQuery -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+
     <style>
         body {
             font-family: Arial, sans-serif;
             padding: 2rem;
             background-color: #f9f9f9;
         }
+
         h1 {
             margin-bottom: 1rem;
         }
+
         .plot-container {
             margin-top: 2rem;
             background-color: white;
             padding: 1rem;
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
             border-radius: 8px;
+        }
+
+        .table-container {
+            margin-top: 2rem;
+            background-color: white;
+            padding: 1rem;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            border-radius: 8px;
+            overflow-x: auto;
         }
     </style>
 </head>
@@ -31,14 +50,33 @@
             Select a star to view its plots
         {% endif %}
     </h1>
+    
+    {% if tables_html %}
+        <div class="table-container">
+            {% for table in tables_html %}
+                {{ table | safe }}
+            {% endfor %}
+        </div>
+    {% endif %}
 
-    {% if figure_html %}
+    <script>
+        document.addEventListener("DOMContentLoaded", function () {
+            const tables = document.querySelectorAll("table");
+            tables.forEach((table, index) => {
+                table.id = table.id || `datatable-${index}`;
+                $(table).DataTable();
+            });
+        });
+    </script>
+
+    {% if figures_html %}
         <div class="plot-container">
-            {% for fig in figure_html %}
+            {% for fig in figures_html %}
                 {{ fig | safe }}
             {% endfor %}
         </div>
     {% endif %}
+
 
 </body>
 </html>
