@@ -19,9 +19,9 @@ logs = logging.getLogger(__name__)
 
 # from kpfcc import DATADIR
 DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')
-import kpfcc.history as hs
-import kpfcc.access as ac
-import kpfcc.maps as mp
+import astroq.history as hs
+import astroq.access as ac
+import astroq.maps as mp
 
 class data_admin(object):
     """A Data Admin object, from which we can easily pass around information.
@@ -377,4 +377,6 @@ def prepare_new_semester(config_path):
             allocation = mp.format_keck_allocation_info(little_manager.allocation_file)
             allocation_binary = mp.convert_allocation_info_to_binary(little_manager, allocation)
         else:
-            logs.critical("No Keck Observatory instruments schedule found. See https://www2.keck.hawaii.edu/observing/keckSchedule/queryForm.php to download and then try again.")
+            logs.critical("file not found {}".format(little_manager.allocation_file))
+            logs.critical("Download from https://www2.keck.hawaii.edu/observing/keckSchedule/queryForm.php")
+            logs.critical("Save as {}".format(little_manager.allocation_file))

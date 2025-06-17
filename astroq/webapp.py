@@ -1,8 +1,8 @@
 from flask import Flask, render_template, request
 import plotly.io as pio
-import kpfcc.plot as pl
-import kpfcc.management as mn
-import kpfcc.dynamic as dn
+import astroq.plot as pl
+import astroq.management as mn
+import astroq.dynamic as dn
 
 
 app = Flask(__name__, template_folder="../templates")

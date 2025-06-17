@@ -24,9 +24,9 @@ import ttp.telescope as telescope
 import ttp.plotting as plotting
 import ttp.model as model
 
-import kpfcc.weather as wt
-import kpfcc.io as io
-import kpfcc.maps as mp
+import astroq.weather as wt
+import astroq.io as io
+import astroq.maps as mp
 
 named_colors = ['blue', 'red', 'green', 'gold', 'maroon', 'gray', 'orange', 'magenta', 'purple']
 

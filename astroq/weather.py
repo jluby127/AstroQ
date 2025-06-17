@@ -22,7 +22,7 @@ from astropy.coordinates import Angle
 import astroplan as apl
 import astropy.units as u
 
-import kpfcc.access as ac
+import astroq.access as ac
 
 
 def get_loss_stats(manager):
