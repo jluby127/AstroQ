@@ -24,7 +24,7 @@ import astropy.units as u
 
 import astroq.access as ac
 
-def prepare_allocation_map(manager):
+def prepare_allocation_map(manager, allocation_2D_all):
     """
     When not in optimal allocation mode, prepare and construct the allocation map, as well as
     perform the weather loss modeling.
@@ -43,10 +43,6 @@ def prepare_allocation_map(manager):
                                     n_slots_in_night where 1's are nights that were
                                     allocated but weathered out (for plotting purposes)
     """
-    # Get the latest allocation info from the observatory
-    allo, all_dates_dict = ac.pull_allocation(manager.semester_start_date, manager.semester_length, 'KPF') # NOTE: later change instrument to 'KPF-CC'
-    allocation_2D_all = ac.build_allocation_map(all_dates_dict, allo)
-
     # Sample out future allocated nights to simulate weather loss based on empirical weather data.
     logs.info("Sampling out weather losses")
     loss_stats_this_semester = get_loss_stats(manager)
@@ -56,7 +52,7 @@ def prepare_allocation_map(manager):
         covariance=0.14, run_weather_loss=manager.run_weather_loss, plot=True, outputdir=manager.output_directory)
     write_out_weather_stats(manager, days_lost, allocation_2D_post_weather)
 
-    return allocation_2D_all, allocation_2D_post_weather, weather_diff
+    return allocation_2D_post_weather, weather_diff
 
 def get_loss_stats(manager):
     """
