@@ -32,12 +32,12 @@ pre_sunset = {'Hawaii':'03:30', 'Arizona':'05:00'}
 post_sunrise = {'Hawaii':'17:30', 'Arizona':'14:00'}
 
 # Core mapping functions from maps.py
-def produce_ultimate_map(manager, rs, running_backup_stars=False, mod=False):
+def produce_ultimate_map(manager, rf, running_backup_stars=False, mod=False):
     """
     Combine all maps for a target to produce the final map
 
     Args:
-        requests_frame (dataframe): the pandas dataframe containing request information
+        rf (dataframe): request frame
         running_backup_stars (bool): if true, then do not run the extra map of stepping back in time to account for the starting slot fitting into the night
     Returns:
         available_indices_for_request (dictionary): keys are the starnames and values are a 1D array
@@ -47,19 +47,19 @@ def produce_ultimate_map(manager, rs, running_backup_stars=False, mod=False):
     # Prepatory work
     date_formal = Time(manager.current_day,format='iso',scale='utc')
     date = str(date_formal)[:10]
-    import pdb;pdb.set_trace()
     # Define size of grid
-    ntargets = len(rs)
-    nnights = manager.n_nights_in_semester
-    nslots = manager.n_slots_in_night
+    ntargets = len(rf)
+    nnights = manager.semester_length # total nights in semester
+    nslots = manager.n_slots_in_night # slots in the night
+
 
     # Determine observability
-    coords = apy.coordinates.SkyCoord(rs.ra * u.deg, rs.dec * u.deg, frame='icrs')
-    targets = apl.FixedTarget(name=rs.starname, coord=coords)
+    coords = apy.coordinates.SkyCoord(rf.ra * u.deg, rf.dec * u.deg, frame='icrs')
+    targets = apl.FixedTarget(name=rf.starname, coord=coords)
     keck = apl.Observer.at_site(manager.observatory)
 
     # Set up time grid for one night, first night of the semester
-    start = date + "T" + manager.daily_starting_time
+    start = date + "T" + manager.daily_starting_time #  
     daily_start = Time(start, location=keck.location)
     daily_end = daily_start + TimeDelta(1.0, format='jd') # full day from start of first night
     tmp_slot_size = TimeDelta(5.0*u.min)
@@ -116,18 +116,23 @@ def produce_ultimate_map(manager, rs, running_backup_stars=False, mod=False):
 
     is_inter = np.ones((ntargets, nnights, nslots),dtype=bool)
     for itarget in range(ntargets):
-        name = rs.iloc[itarget]['starname']
+        name = rf.iloc[itarget]['starname']
         if name in manager.database_info_dict:
-            if manager.database_info_dict[name][0] != '0000-00-00' and rs.iloc[itarget]['tau_inter'] > 1: # default value if no history, and only valid for cadences beyond every night
+            if manager.database_info_dict[name][0] != '0000-00-00' and rf.iloc[itarget]['tau_inter'] > 1: # default value if no history, and only valid for cadences beyond every night
                 inight_start = manager.all_dates_dict[manager.current_day] - manager.today_starting_night
-                inight_stop = min(inight_start + rs.iloc[itarget]['tau_inter'],nnights)
+                inight_stop = min(inight_start + rf.iloc[itarget]['tau_inter'],nnights)
                 is_inter[itarget,inight_start:inight_stop,:] = False
+    import pdb;pdb.set_trace()
 
     # True if obseravtion occurs at night
-    is_night = manager.twilight_map_remaining_2D.astype(bool) # shape = (nnights, nslots)
+    tf = generate_twilight_times(manager.all_dates_array)
+    evening = Time(tf['12_evening'], format='jd')[:, None]
+    morning = Time(tf['12_morning'], format='jd')[:, None]
+    is_night = (evening < slotmidpoint) & (slotmidpoint < morning)
+    is_night = is_night.astype(bool)
     is_night = np.ones_like(is_altaz, dtype=bool) & is_night[np.newaxis,:,:]
 
-    is_alloc = manager.allocation_map_2D.astype(bool) # shape = (nnights, nslots)
+    is_alloc = manager.allocation_map_2D.astype(bool) # shape = (nnights, nslots) # TODO compute on the fly
     # is_alloc = np.repeat(is_alloc[np.newaxis, :, :], ntargets, axis=0)
     is_alloc = np.ones_like(is_altaz, dtype=bool) & is_alloc[np.newaxis,:,:] # shape = (ntargets, nnights, nslots)
 
@@ -159,8 +164,8 @@ def produce_ultimate_map(manager, rs, running_backup_stars=False, mod=False):
         str(summed_array_names[i]): arr[:, 0]
         for i, arr in enumerate(summed_arrays)
     }
-    sumframe = pd.DataFrame(summing_data, index=list(rs.starname))
-    sumframe['Starname'] = list(rs.starname)
+    sumframe = pd.DataFrame(summing_data, index=list(rf.starname))
+    sumframe['Starname'] = list(rf.starname)
     sumframe.index.name = 'starname'
     sumframe.to_csv(manager.output_directory + "/tonight_map_values.csv", index=False)
 
@@ -171,7 +176,7 @@ def produce_ultimate_map(manager, rs, running_backup_stars=False, mod=False):
     is_observable = is_observable_now.copy()
     if running_backup_stars == False:
         for itarget in range(ntargets):
-            e_val = manager.slots_needed_for_exposure_dict[rs.iloc[itarget]['starname']]
+            e_val = manager.slots_needed_for_exposure_dict[rf.iloc[itarget]['starname']]
             if e_val == 1:
                 continue
 
@@ -196,7 +201,7 @@ def produce_ultimate_map(manager, rs, running_backup_stars=False, mod=False):
         for inight in range(nnights):
             temp.append(list(islot[itarget,inight,is_observable[itarget,inight,:]]))
 
-        available_indices_for_request[rs.iloc[itarget]['starname']] = temp
+        available_indices_for_request[rf.iloc[itarget]['starname']] = temp
     return available_indices_for_request
 
 
@@ -324,7 +329,6 @@ def compute_twilight_map(manager):
     daily_start = Time(date + "T" + manager.daily_starting_time, location=keck.location)
     slotmidpoint0 = daily_start + (np.arange(manager.n_slots_in_night) + 0.5) *  manager.slot_size * u.min
     days = np.arange(manager.n_nights_in_semester) * u.day
-
     slotmidpoint = (slotmidpoint0[np.newaxis,:] + days[:,np.newaxis])
 
     evening = Time(manager.twilight_frame['12_evening'][date_number:], format='jd')[:, None]
@@ -701,8 +705,8 @@ def generate_twilight_times(all_dates_array):
     keck = apl.Observer.at_site('W. M. Keck Observatory')
     times = Time(all_dates_array)
     df['time_utc'] = all_dates_array
-    df['12_evening'] = keck.twilight_evening_nautical(times,which='next')
-    df['12_morning'] = keck.twilight_morning_nautical(times,which='next')
+    df['12_evening'] = keck.twilight_evening_nautical(times,which='next').jd
+    df['12_morning'] = keck.twilight_morning_nautical(times,which='next').jd
     df = pd.DataFrame(df)
     return df
 
