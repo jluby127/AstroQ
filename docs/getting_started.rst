@@ -88,19 +88,34 @@ Test your installation further by running some of the commands below. We will us
 Let's see which subcommands are available using ``astroq --help``:
 
     .. code-block:: bash
+    
+    
+        $ usage: astroq [-h] [-V] {bench,plot,schedule,kpfcc,ttp,comp,simsemester} ...
 
-        $ astroq --help
-          usage: astroq [-h] [-V] {bench,plot,schedule,kpfcc} ...
+            AstroQ: Optimized observation scheduling
 
-          AstroQ: Optimized observation scheduling
+            optional arguments:
+            -h, --help            show this help message and exit
+            -V, --version         Print version number and exit.
 
-          optional arguments:
-              -h, --help            show this help message and exit
-              -V, --version         Print version number and exit.
+            subcommands:
+                {bench,plot,schedule,kpfcc,ttp,comp,simsemester}
+                
 
-          subcommands:
-              {bench,plot,schedule,kpfcc}
+Run the following commands to build a request set, schedule a set of observations,
+plot the results, and render summary plots in an HTML web app.
 
+    .. code-block:: bash
+    
+        $ astroq kpfcc prep -cf examples/hello_world/config_hello_world.ini
+        $ astroq kpfcc build -cf examples/hello_world/config_hello_world.ini
+        $ astroq schedule -cf examples/hello_world/config_hello_world.ini -rf examples/hello_world/outputs/2024-08-02/request_set.json
+        $ astroq ttp -cf examples/bench/config_benchmark.ini
+        $ astroq plot -cf examples/hello_world/config_hello_world.ini
+        $ astroq kpfcc webapp -cf examples/hello_world/config_hello_world.ini
+
+    
+**Below are more detailed explanations of these commands and their outputs.**
 
 To create your mock observing schedule, first run ``kpfcc build``:
 
@@ -112,7 +127,7 @@ Let's take a look at the outputs produced:
 
     .. code-block:: bash
     
-        $ ls -ltr examples/hello_world/outputs/2024-08-01
+        $ ls -ltr examples/hello_world/outputs/2024-08-02
         
         -rw-r--r--@ 1 staff       0 May 11 08:54 runReport.txt
         -rw-r--r--  1 staff   35685 May 11 08:54 weather_loss_visualization.png
@@ -130,7 +145,7 @@ Next, use ``request_set.json`` to generate an observing schedule:
 
     .. code-block:: bash
     
-        $ astroq schedule -cf examples/hello_world/config_hello_world.ini -rf examples/hello_world/outputs/2024-08-01/request_set.json
+        $ astroq schedule -cf examples/hello_world/config_hello_world.ini -rf examples/hello_world/outputs/2024-08-02/request_set.json
         
 
 Here are the new files in ``examples/hello_world/outputs/2024-08-01``:
@@ -165,6 +180,15 @@ Here are the new files in ``examples/hello_world/outputs/2024-08-01``:
     .. image:: plots/outputs_dense_screenshot.png
     
     - The image above shows 11 slots during night 21 of the semester. `HAT-P-11` is scheduled during slots 53-XX (update with dense version that shows all filled slots), followed by `219134` in slots 62-XX. The sky is dark, the telescope is allocated to our program, and the weather is good during all of these slots.      
+
+
+
+- Now run the plotting code
+
+    .. code-block:: bash
+    
+        $ astroq plot -cf examples/hello_world/config_hello_world.ini 
+
         
         
         

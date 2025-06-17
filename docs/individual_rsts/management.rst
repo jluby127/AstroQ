@@ -2,7 +2,9 @@
 
 Management
 =================
-.. module:: kpfcc
+.. module:: astroq
 
-.. automodule:: kpfcc.management
+.. automodule:: astroq.management
    :members:
+   :undoc-members:
+   :show-inheritance:

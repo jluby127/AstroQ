@@ -1,8 +1,9 @@
+import os
 from flask import Flask, render_template, request
 import plotly.io as pio
-import kpfcc.plot as pl
-import kpfcc.management as mn
-import kpfcc.dynamic as dn
+import astroq.plot as pl
+import astroq.management as mn
+import astroq.dynamic as dn
 
 
 app = Flask(__name__, template_folder="../templates")
@@ -26,10 +27,17 @@ def index():
 # Admin page route
 @app.route("/admin")
 def admin():
+    # table_reqframe_html = dn.get_requests_frame(manager, filter_condition="()")
+    table_reqframe_html = dn.get_requests_frame(manager, filter_condition=None)
+    tables_html = [table_reqframe_html]
+    
+    
     fig_cof_html = dn.get_cof(manager, list(data_astroq[1].values()))
     fig_birdseye_html = dn.get_birdseye(manager, data_astroq[2], list(data_astroq[1].values()))
     figures_html = [fig_cof_html, fig_birdseye_html]
-    return render_template("admin.html", figures_html=figures_html)
+    
+    
+    return render_template("admin.html", tables_html=tables_html, figures_html=figures_html)
 
 
 
@@ -48,11 +56,14 @@ def single_program(programname):
 
     star_obj_list = list(data_astroq[0][programname])
 
+    table_reqframe_html = dn.get_requests_frame(manager, filter_condition=f"program_code=='{programname}'")
+    tables_html = [table_reqframe_html]
+    
     fig_cof_html = dn.get_cof(manager, star_obj_list)
     fig_birdseye_html = dn.get_birdseye(manager, data_astroq[2], star_obj_list)
-    figure_html = [fig_cof_html, fig_birdseye_html]
+    figures_html = [fig_cof_html, fig_birdseye_html]
 
-    return render_template("semesterplan.html", figure_html=figure_html)
+    return render_template("semesterplan.html", programname=programname, tables_html=tables_html, figures_html=figures_html)
 
 # /star landing page
 @app.route("/star")
@@ -70,12 +81,15 @@ def single_star(starname):
         for star_ind in range(len(data_astroq[0][program])):
             star_obj = data_astroq[0][program][star_ind]
             if star_obj.starname == starname:
+                table_reqframe_html = dn.get_requests_frame(manager, filter_condition=f"starname=='{starname}'")
+                
                 fig_cof_html = dn.get_cof(manager, [data_astroq[0][program][star_ind]])
                 fig_birdseye_html = dn.get_birdseye(manager, data_astroq[2], [data_astroq[0][program][star_ind]])
 
-                figure_html = [fig_cof_html, fig_birdseye_html]
+                tables_html = [table_reqframe_html]
+                figures_html = [fig_cof_html, fig_birdseye_html]
 
-                return render_template("star.html", figure_html=figure_html)
+                return render_template("star.html", starname=starname, tables_html=tables_html, figures_html=figures_html)
     return f"Error, star {starname} not found in programs {list(program_names)}"
 
 
@@ -83,12 +97,16 @@ def single_star(starname):
 @app.route("/nightplan")
 def nightplan():
     plots = ['script_table', 'slewgif', 'ladder', 'slewpath']
-
-    ladder_html = dn.get_ladder(manager, data_ttp)
-    slew_animation_html = dn.get_slew_animation(manager, data_ttp, animationStep=120)
-    script_table_html = dn.get_script_plan(manager, data_ttp)
-    slew_path_html = dn.plot_path_2D_interactive(manager, data_ttp)
-    figure_html_list = [script_table_html, ladder_html, slew_animation_html, slew_path_html] 
+    
+    if data_ttp is not None:
+        script_table_html = dn.get_script_plan(manager, data_ttp)
+        ladder_html = dn.get_ladder(manager, data_ttp)
+        slew_animation_html = dn.get_slew_animation(manager, data_ttp, animationStep=120)
+        slew_path_html = dn.plot_path_2D_interactive(manager, data_ttp)
+        figure_html_list = [script_table_html, ladder_html, slew_animation_html, slew_path_html]
+    
+    else:
+        figure_html_list = []
     return render_template("nightplan.html", starname=None, figure_html_list=figure_html_list)
 
 # Entry point for launching the app
@@ -101,14 +119,18 @@ def launch_app(config_file):
     data_astroq = pl.read_star_objects(manager.reports_directory + "admin/" + manager.current_day + "/star_objects.pkl")
     all_stars_list = [star_obj for star_obj_list in data_astroq[0].values() for star_obj in star_obj_list]
 
-    data_ttp = pl.read_star_objects(manager.reports_directory + "observer/" + manager.current_day + "/ttp_data.pkl")
+    ttp_path = os.path.join(manager.reports_directory, "observer/", manager.current_day, "/ttp_data.pkl")
+    if os.path.exists(ttp_path):
+        data_ttp = pl.read_star_objects(ttp_path)
+    else:
+        data_ttp = None
 
     app.run(debug=True)
 
 if __name__=="__main__":
 
-    # cf =  'examples/hello_world/config_hello_world.ini'
-    cf =  'examples/bench/config_benchmark.ini'
+    cf =  'examples/hello_world/config_hello_world.ini'
+    # cf =  'examples/bench/config_benchmark.ini'
 
     launch_app(cf)
     single_program('U001')

@@ -20,10 +20,10 @@ from astropy.time import TimeDelta
 from collections import defaultdict
 import pickle
 
-import kpfcc.management as mn
-import kpfcc.history as hs
-import kpfcc.maps as mp
-import kpfcc.io as io
+import astroq.management as mn
+import astroq.history as hs
+import astroq.maps as mp
+import astroq.io as io
 import ttp.plotting as plotting
 
 labelsize = 38
