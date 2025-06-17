@@ -1,24 +1,25 @@
-import kpfcc.driver as dr
-import kpfcc.request as rq
-import kpfcc.benchmarking as bn
+import astroq.driver as dr
+import astroq.request as rq
+import astroq.benchmarking as bn
 import argparse
 from configparser import ConfigParser
 import os
-import kpfcc.management as mn
-import kpfcc.scheduler as sch
+import astroq.management as mn
+import astroq.scheduler as sch
+import unittest
 
-class TestClass:
+class TestClass(unittest.TestCase):
 
     def test_round2_weather(self):
         dr.kpfcc_prep(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
         dr.kpfcc_build(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
-        dr.schedule(argparse.Namespace(request_file="examples/hello_world/outputs/2024-08-01/request_set.json", config_file='examples/hello_world/config_hello_world.ini'))
+        dr.schedule(argparse.Namespace(request_file="examples/hello_world/outputs/2024-08-02/request_set.json", config_file='examples/hello_world/config_hello_world.ini'))
 
     def test_bench(self):
         # override the tests of "do these files exist" and just run it all
         # but run a shortened version, so it doesn't take long, see shortcut=5
         nS = 12
-        cf = 'examples/bench/config_benchmark_pytest.ini' # need a separate file for this so that paths are correct 
+        cf = 'examples/bench/config_benchmark.ini' # need a separate file for this so that paths are correct 
 
         # Initialize manager and compute request set on the fly
         # This is a hacky workaround. run_admin needs this file to exist. This can
@@ -28,7 +29,9 @@ class TestClass:
         upstream_path = eval(config.get('required', 'folder'), {"os": os})
         requests_frame = bn.build_toy_model_from_paper(nS, hours_per_program = 100)
         requests_frame = requests_frame[::10]
-        requests_frame.to_csv(os.path.join(upstream_path, "inputs/Requests.csv"))
+        frame_path = os.path.join(upstream_path, "inputs/Requests.csv")
+        os.makedirs(os.path.dirname(frame_path), exist_ok=True)
+        requests_frame.to_csv(frame_path)
         manager = mn.data_admin(cf)
         manager.run_admin()
 
@@ -43,15 +46,13 @@ class TestClass:
         schedule = sch.Scheduler(request_set, cf)
         schedule.run_model()
 
-    """
     def test_prep(self):
         # test the creation of all upstream files, including the allocation map
         dr.kpfcc_prep(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
-    """
 
 
-    # def test_plot(self):
-    #     dr.plot(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
+    def test_plot(self):
+        dr.plot(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
 
     # need environment variable to run
     """
@@ -72,12 +73,12 @@ class TestClass:
     def test_oia(self):
         dr.kpfcc_prep(argparse.Namespace(config_file='examples/recreate_paper/oia1/config_oia1.ini'))
         dr.kpfcc_build(argparse.Namespace(config_file='examples/recreate_paper/oia1/config_oia1.ini'))
-        dr.schedule(argparse.Namespace(request_file="examples/recreate_paper/oia1/outputs/2024-08-01/request_set.json", config_file='examples/recreate_paper/oia1/config_oia1.ini'))
+        dr.schedule(argparse.Namespace(request_file="examples/recreate_paper/oia1/outputs/2024-08-02/request_set.json", config_file='examples/recreate_paper/oia1/config_oia1.ini'))
     """
 
     # def test_requests_vs_schedule(self):
-    #     req = 'examples/hello_world/outputs/2024-08-01/request_set.json'
-    #     sch = 'examples/hello_world/outputs/2024-08-01/serialized_outputs_sparse.csv'
+    #     req = 'examples/hello_world/outputs/2024-08-02/request_set.json'
+    #     sch = 'examples/hello_world/outputs/2024-08-02/serialized_outputs_sparse.csv'
     #
     #     dr.requests_vs_schedule(argparse.Namespace(request_file=req, schedule_file=sch))
     #
@@ -86,6 +87,4 @@ class TestClass:
 
 
 if __name__=="__main__":
-    # import pdb; pdb.set_trace()
-    tc = TestClass()
-    tc.test_requests_vs_schedule()
+    unittest.main()

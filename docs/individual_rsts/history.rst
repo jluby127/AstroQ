@@ -2,7 +2,9 @@
 
 History
 =================
-.. module:: kpfcc
+.. module:: astroq
 
-.. automodule:: kpfcc.history
+.. automodule:: astroq.history
    :members:
+   :undoc-members:
+   :show-inheritance:

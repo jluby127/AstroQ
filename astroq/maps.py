@@ -34,8 +34,8 @@ def load_dict_compressed(filename):
         return pickle.load(f)
 from scipy.interpolate import interp1d
 
-import kpfcc.access as ac
-import kpfcc.weather as wh
+import astroq.access as ac
+import astroq.weather as wh
 
 def produce_ultimate_map(manager, rs, running_backup_stars=False, mod=False):
     """
