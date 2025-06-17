@@ -48,7 +48,7 @@ def produce_ultimate_map(manager, rf, running_backup_stars=False, mod=False):
 
     """
     # Prepatory work
-    date_formal = Time(manager.current_day,format='iso',scale='utc')
+    date_formal = Time(manager.semester_start_date,format='iso',scale='utc')
     date = str(date_formal)[:10]
     # Define size of grid
     ntargets = len(rf)
@@ -125,7 +125,6 @@ def produce_ultimate_map(manager, rf, running_backup_stars=False, mod=False):
                 inight_start = manager.all_dates_dict[manager.current_day] - manager.today_starting_night
                 inight_stop = min(inight_start + rf.iloc[itarget]['tau_inter'],nnights)
                 is_inter[itarget,inight_start:inight_stop,:] = False
-    import pdb;pdb.set_trace()
 
     # True if obseravtion occurs at night
     tf = generate_twilight_times(manager.all_dates_array)
@@ -138,6 +137,7 @@ def produce_ultimate_map(manager, rf, running_backup_stars=False, mod=False):
     is_alloc = manager.allocation_map_2D.astype(bool) # shape = (nnights, nslots) # TODO compute on the fly
     # is_alloc = np.repeat(is_alloc[np.newaxis, :, :], ntargets, axis=0)
     is_alloc = np.ones_like(is_altaz, dtype=bool) & is_alloc[np.newaxis,:,:] # shape = (ntargets, nnights, nslots)
+    import pdb;pdb.set_trace()
 
     if mod:
         # turn these off when computing semesterly access for fishbowl plot
@@ -154,27 +154,8 @@ def produce_ultimate_map(manager, rf, running_backup_stars=False, mod=False):
         is_alloc
     ])
 
-    is_altaz_sums = np.sum(is_altaz, axis=2)
-    is_moon_sums = np.sum(is_moon, axis=2)
-    is_night_sums = np.sum(is_night, axis=2)
-    is_inter_sums = np.sum(is_inter, axis=2)
-    is_future_sums = np.sum(is_future, axis=2)
-    is_alloc_sums = np.sum(is_alloc, axis=2)
-    is_intersection = np.sum(is_observable_now, axis=2)
-    summed_array_names = ['is_altaz', 'is_moon', 'is_inter', 'is_future', 'is_alloc', 'is_night', 'intersection']
-    summed_arrays = [is_altaz_sums, is_moon_sums, is_inter_sums, is_future_sums, is_alloc_sums, is_night_sums, is_intersection]
-    summing_data = {
-        str(summed_array_names[i]): arr[:, 0]
-        for i, arr in enumerate(summed_arrays)
-    }
-    sumframe = pd.DataFrame(summing_data, index=list(rf.starname))
-    sumframe['Starname'] = list(rf.starname)
-    sumframe.index.name = 'starname'
-    sumframe.to_csv(manager.output_directory + "/tonight_map_values.csv", index=False)
-
     # the target does not violate any of the observability limits in that specific slot, but
     # it does not mean it can be started at the slot. retroactively grow mask to accomodate multishot exposures.
-
     # Is observable now,
     is_observable = is_observable_now.copy()
     if running_backup_stars == False:
