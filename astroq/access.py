@@ -35,39 +35,6 @@ locations = {"Keck Observatory":"Hawaii", "Kitt Peak National Observatory":"Ariz
 pre_sunset = {'Hawaii':'03:30', 'Arizona':'05:00'}
 post_sunrise = {'Hawaii':'17:30', 'Arizona':'14:00'}
 
-def construct_access_dict(manager):
-    """
-    Define the dictionary of accessibility maps
-
-    Args:
-        manager (obj): a data_admin object
-    Returns:
-        default_access_maps (dictionary): keys are the starnames and values are the 1D access maps
-    """
-    print("Reading pre-computed accessibility maps.")
-    rewrite_flag = False
-    if os.path.exists(manager.accessibilities_file) == False:
-        default_access_maps = {}
-        rewrite_flag = True
-    else:
-        default_access_maps = read_accessibilty_map_dict(manager.accessibilities_file)
-    for n,row in manager.requests_frame.iterrows():
-        name = row['starname']
-        # check that this target has a pre-computed accessibility map,
-        # if not, make one and add it to the file
-        try:
-            try_read = default_access_maps[name]
-        except:
-            print(name + " not found in precomputed accessibilty maps. Running now.")
-            # Note: the -1 is to account for python indexing
-            new_written_access_map = build_single_target_accessibility(manager, name, row['ra'], row['dec'])
-            default_access_maps[name] = np.array(new_written_access_map).flatten()
-            rewrite_flag = True
-    if rewrite_flag:
-        # overwrite with the updated file
-        write_accessibilty_map_dict(default_access_maps, manager.accessibilities_file)
-    return default_access_maps
-
 # Core mapping functions from maps.py
 def produce_ultimate_map(manager, rs, running_backup_stars=False, mod=False):
     """
@@ -82,7 +49,6 @@ def produce_ultimate_map(manager, rs, running_backup_stars=False, mod=False):
 
     """
     # Prepatory work
-    # rs = manager.requests_frame
     date_formal = Time(manager.current_day,format='iso',scale='utc')
     date = str(date_formal)[:10]
 
@@ -121,7 +87,6 @@ def produce_ultimate_map(manager, rs, running_backup_stars=False, mod=False):
     is_altaz0 &= ~fail
     # computing slot midpoint for all nights in semester 2D array (slots, nights)
     slotmidpoint0 = daily_start + (np.arange(nslots) + 0.5) *  manager.slot_size * u.min
-    # days = np.arange(manager.n_nights_in_semester) * u.day
     days = np.arange(nnights) * u.day
     slotmidpoint = (slotmidpoint0[np.newaxis,:] + days[:,np.newaxis])
     # 3D mask
@@ -238,6 +203,8 @@ def produce_ultimate_map(manager, rs, running_backup_stars=False, mod=False):
         available_indices_for_request[rs.iloc[itarget]['starname']] = temp
     return available_indices_for_request
 
+
+# TODO eliminate redundant code with above function
 def mod_produce_ultimate_map(manager, starname):
     """
     Compute maps quickly for plotting purposes only
@@ -371,82 +338,12 @@ def compute_twilight_map(manager):
     return twilight_2D
 
 # Allocation and scheduling functions
+
+# No-op, we will specify the custom maps in the request_set object.
 def construct_custom_map_dict(special_map_file):
-    """
-    Construct a dictionary of custom maps from a file.
-    
-    This function reads a file containing custom observation maps for specific targets.
-    The file should be formatted with one target per line, where each line contains:
-    - The target name
-    - A comma-separated list of integers representing the custom map
-    
-    Args:
-        special_map_file (str): Path to the file containing custom maps
-        
-    Returns:
-        dict: A dictionary mapping target names to their custom observation maps
-    """
-    custom_map_dict = {}
-    if os.path.exists(special_map_file):
-        with open(special_map_file) as f:
-            for line in f:
-                if line[0] == '#':
-                    continue
-                starname = line.split(',')[0]
-                custom_map = line.split(',')[1:]
-                custom_map = [int(x) for x in custom_map]
-                custom_map_dict[starname] = custom_map
-    return custom_map_dict
+    pass
 
-def construct_zero_out_arr(zero_out_file):
-    """
-    Construct an array of slots to zero out.
-    
-    This function reads a file containing dates that should be marked as unavailable
-    for observation. The file should contain one date per line, with optional comments
-    starting with '#'.
-    
-    Args:
-        zero_out_file (str): Path to the file containing dates to zero out
-        
-    Returns:
-        list: A list of dates that should be marked as unavailable
-    """
-    zero_out_arr = []
-    if os.path.exists(zero_out_file):
-        with open(zero_out_file) as f:
-            for line in f:
-                if line[0] == '#':
-                    continue
-                zero_out_arr.append(line.split(',')[0])
-    return zero_out_arr
-
-def construct_nonqueue_arr(manager):
-    """
-    Construct an array of non-queue slots.
-    
-    This function creates a 2D array indicating which time slots are not available
-    for queue observations. It reads this information from a CSV file specified in
-    the manager's nonqueue_file attribute.
-    
-    Args:
-        manager (obj): A data_admin object containing the current state of the scheduler
-        
-    Returns:
-        numpy.ndarray: A 2D array of shape (n_nights, n_slots) where 1 indicates
-            a non-queue slot and 0 indicates a queue slot
-    """
-    nonqueue_arr = np.zeros((manager.n_nights_in_semester, manager.n_slots_in_night), dtype=int)
-    if os.path.exists(manager.nonqueue_file):
-        nonqueue_frame = pd.read_csv(manager.nonqueue_file)
-        for n,row in nonqueue_frame.iterrows():
-            date = row['date']
-            if date in manager.all_dates_dict:
-                inight = manager.all_dates_dict[date] - manager.today_starting_night
-                if inight >= 0 and inight < manager.n_nights_in_semester:
-                    nonqueue_arr[inight,:] = 1
-    return nonqueue_arr
-
+# This will be superceeded by keck text file -> is_alloc function. 
 def prepare_allocation_map(manager):
     """
     When not in optimal allocation mode, prepare and construct the allocation map, as well as
@@ -548,31 +445,6 @@ def build_allocation_map(manager, allocation_schedule, weather_diff):
     allocation_map_1D = np.array(allocation_map_1D).flatten()
 
     return allocation_map_1D, allocation_map_2D, allocation_map_weather_diff_2D
-
-
-
-# Utility functions
-def convert_allocation_array_to_binary(manager):
-    """
-    Convert allocation array to binary format.
-    
-    This function converts the 2D allocation map into a 1D binary array where:
-    - 1 indicates an allocated slot
-    - 0 indicates an unallocated slot
-    
-    Args:
-        manager (obj): A data_admin object containing the current state of the scheduler
-        
-    Returns:
-        numpy.ndarray: A 1D binary array representing allocated slots
-    """
-    # Convert the allocation map to binary format
-    allocation_binary = np.zeros(manager.n_slots_in_semester, dtype=int)
-    for inight in range(manager.n_nights_in_semester):
-        for islot in range(manager.n_slots_in_night):
-            if manager.allocation_map_2D[inight,islot] == 1:
-                allocation_binary[inight*manager.n_slots_in_night + islot] = 1
-    return allocation_binary
 
 def format_keck_allocation_info(allocation_file):
     """
@@ -775,133 +647,6 @@ def quarter_translator(start, stop):
     return night_map
 
 
-
-def quarters_observable(observability_matrix):
-    """
-    For a single night, using the full night's slots accessibility map,
-    determine which of the quarters the given target is observable.
-
-    Args:
-        observability_matrix (array): a 1D array of length equal to n_slots_in_night representing a
-                                      single night where 1 indicates target is accessible in that
-                                      slot, 0 otherwise.
-    Returns:
-        observable_quarters (array): a 1D array of length n_quarters_in_night where each element
-                                     represents if the target is at all observerable in that quarter
-                                     (1st to 4th running left to right).
-    """
-    observable_quarters = []
-    quarter = int(len(observability_matrix) / 4)
-
-    q1 = observability_matrix[0:quarter]
-    q1_up = np.sum(q1)
-    if q1_up > 4:
-        observable_quarters.append(1)
-    else:
-        observable_quarters.append(0)
-
-    q2 = observability_matrix[quarter:2*quarter]
-    q2_up = np.sum(q2)
-    if q2_up > 4:
-        observable_quarters.append(1)
-    else:
-        observable_quarters.append(0)
-
-    q3 = observability_matrix[2*quarter:3*quarter]
-    q3_up = np.sum(q3)
-    if q3_up > 4:
-        observable_quarters.append(1)
-    else:
-        observable_quarters.append(0)
-
-    q4 = observability_matrix[3*quarter:]
-    q4_up = np.sum(q4)
-    if q4_up > 4:
-        observable_quarters.append(1)
-    else:
-        observable_quarters.append(0)
-
-    return observable_quarters
-
-def compute_on_off_for_quarter(quarter_map, quarter):
-    """
-    Determine the first and last day a target is accessible in a given quarter of the night.
-    Primarily for easy lookup plotting purposes later.
-
-    Args:
-        observability_matrix (array): a 1D array of length equal to n_slots_in_night representing a
-                                      single night where 1 indicates target is accessible in that
-                                      slot, 0 otherwise.
-    Returns:
-        observable_quarters (array): a 1D array of length n_quarters_in_night where each element
-                                     represents if the target is at all observerable in that quarter
-                                     (1st to 4th running left to right).
-    """
-    quarter_map = np.array(quarter_map)
-    quarter_map_transpose = quarter_map.T
-    quarter_map_transpose_tonight = list(quarter_map_transpose[quarter])
-    try:
-        on = quarter_map_transpose_tonight.index(1)
-        quarter_map_transpose_tonight.reverse()
-        off = len(quarter_map_transpose_tonight) - quarter_map_transpose_tonight.index(1) - 1
-    except:
-        on = 0
-        off = 0
-    return [on, off]
-
-def round_time_to_slot(input_time, slot_size):
-    """
-    From a given timestamp, determine the timestamp of the nearest slot's start.
-
-    Args:
-        input_time (int): timestamp in question, format HH:MM
-        slot_size (int): the size of the slots in minutes
-
-    Returns:
-        output_time (array): the time, in HH:MM format, of the start of the nearest slot
-    """
-    hour = int(input_time[:2])
-    minute = int(input_time[3:])
-
-    if minute%slot_size == 0:
-        return input_time
-    else:
-        rounded = round(minute,-1)
-        if rounded == 0:
-            rounded = "00"
-        if rounded == 60:
-            rounded = "00"
-            hour += 1
-        if hour < 10:
-            hour = "0" + str(hour)
-        if hour == 24:
-            hour = "00"
-        output_time = str(hour) + ":" + str(rounded)
-        return output_time
-
-def convert_utc_to_hst(timestring):
-    """
-    Convert between the UTC time and the HST time. Note Hawaii does not change clocks with
-    daylight savings so this is always a straight-forward transformation.
-
-    Args:
-        timestring (str): timestamp in question, format HH:MM
-        slot_size (int): the size of the slots in minutes
-
-    Returns:
-        output_time (array): the time, in HH:MM format, of the start of the nearest slot
-    """
-    offset = 10 # Timezone difference between UTC and HST.
-    hour = int(timestring[:2]) - offset
-    if hour < 0:
-        hour = 24 + hour
-    if hour < 10:
-        hour = '0' + str(hour)
-    else:
-        hour = str(hour)
-    return hour + timestring[2:]
-
-
 def single_night_allocated_slots(twilight_tonight, allocated_quarters_tonight, available_slots_in_night,
                                 n_slots_in_night):
     """
@@ -944,102 +689,6 @@ def single_night_allocated_slots(twilight_tonight, allocated_quarters_tonight, a
                 allocated_slots_tonight[j] = 0
     return allocated_slots_tonight
 
-def write_accessibilty_map_dict(access_dict, filename):
-    """
-    Write entries to the accessbility map dictionary
-
-    Args:
-        access_dict (dict): the pre-generated accessibility map dictionary. Keys are target names,
-                            values are 1D arrays of length n_slots_in_semester indicating if a
-                            target is accessible (1) or inaccessible (0) due to default telescope
-                            pointing limits, seasonal rise/set, and moon-safe distance.
-        filename (str): the name of the file to re-save the updated dicationary.
-                        Best to match the original name and overwrite.
-    Returns:
-        None
-    """
-    starnames = list(access_dict.keys())
-    string_access_dict = {}
-    for s, item in enumerate(starnames):
-        flat_access_map = np.array(access_dict[starnames[s]]).flatten()
-        # because you can't json serialize an array/list or integers
-        # must create a string "list". Later decode it back to a real array
-        stringmap = '['
-        for e, itme in enumerate(flat_access_map):
-            stringmap += str(flat_access_map[e]) + ','
-        stringmap += ']'
-        string_access_dict[starnames[s]] = stringmap
-    with open(filename, 'w') as convert_file:
-        convert_file.write(json.dumps(string_access_dict))
-    print("All star accessibility maps written to txt file: ", filename)
-
-def read_accessibilty_map_dict(filename):
-    """
-    Read the accessibilty maps for each target from pre-written file. Must reformat the data to
-    array because the array is technically saved as a string.
-
-    Args:
-        filename (str): filename where the saved dictionary is stored.
-    Returns:
-        access_dict (dict): A dictionary where keys are target names, values are 1D arrays of
-                            length n_slots_in_semester indicating if a target is accessible (1)
-                            or inaccessible (0) due to default telescope pointing limits, seasonal
-                            rise/set, and moon-safe distance.
-    """
-    with open(filename) as f:
-        data = f.read()
-    # reconstruct the data as a dictionary
-    js = json.loads(data)
-    access_dict = {}
-    starnames = list(js.keys())
-    for i, item in enumerate(starnames):
-        reformat = [int(x) for x in js[starnames[i]][1:-2].split(',')]
-        access_dict[starnames[i]] = reformat
-    return access_dict
-
-
-def get_accessibility_stats(access_map, time_up=30, slot_size=5):
-    """
-    Compute stats useful for checking feasibilty and for generating the cadence plot of a target
-
-    Args:
-        access_map (array): a 2D array of shape n_nights_in_semester by n_slots_in_night where 1's
-                            indicate the target is accessible
-        time_up (int): the minimum number of minutes a target must be accessible in the night to be
-                       considered observable in that night
-        slot_size (int): the size of the slots in minutes
-
-    Returns:
-        days_observable (int): the number of days in the semester where the target achieves a
-                               minimum level of observablility
-        rise_day (int): the number of days from semester start where the target is first available
-        set_day (int): the number of days from semester start where the target is last available
-    """
-
-    sum_along_days = np.sum(access_map, axis=1)
-    gridpoints = int(time_up/slot_size)
-    observable_mask = sum_along_days > gridpoints
-    days_observable = np.sum(observable_mask)
-
-    rise_day = -1
-    i = 0
-    while rise_day < 0 and i < len(sum_along_days):
-        if sum_along_days[i] > gridpoints:
-            rise_day = i
-        i += 1
-    if i == len(sum_along_days):
-        rise_day = i
-
-    set_day = -1
-    j = len(sum_along_days)-1
-    while set_day < 0 and j > 0:
-        if sum_along_days[j] > gridpoints:
-            set_day = j
-        j -= 1
-    if j == len(sum_along_days):
-        set_day = len(sum_along_days)
-
-    return days_observable, rise_day, set_day
 
 def construct_twilight_map(manager):
     """
@@ -1113,87 +762,3 @@ def generate_twilight_times(all_dates_array):
 
     return twilight_frame
 
-def get_available_slots_per_night(all_dates_array, twilight_frame, slot_size=5, start_time='03:30',
-                                  n_hours_in_night=14):
-    """get_available_slots_per_night
-
-    Generates a 1D list of length equal to the number of nights in the semester where each element
-    is the integer number of slots that are available to the scheduler in that night
-
-    Args:
-        all_dates_array (list): the calendar dates of the semester.
-                            Format: YYYY-MM-DD.
-        twilight_frame (dataframe): the precomputed twilight times
-    Returns:
-        None
-    """
-    available_slots_per_night = []
-    for date in range(all_dates_array):
-        edge = determine_twilight_edge(date, twilight_frame, slot_size, start_time, n_hours_in_night)
-        available_slots_per_night.append(edge)
-    return available_slots_per_night
-
-def determine_twilight_edge(date, twilight_frame, slot_size, start_time='03:30',
-                            n_hours_in_night=14):
-    """determine_twilight_edge
-
-    Determine how many slots within each night actually take place during night time.
-
-    Args:
-        - date (string): the calendar date of the semester. Format: YYYY-MM-DD.
-        - twilight_frame (dataframe): the dataframe containing pre-computed
-        - slot_size (int): the size of the a slot in minutes
-        - start_time (str): the time representing the first slot of the night, format HH:MM
-        - n_hours_in_night (int): number of hours in a night
-    Returns:
-        available_slots_in_night (int): the number of slots in night that are night time
-    """
-    ind = twilight_frame.index[twilight_frame['time_utc'] == date].tolist()
-    twilight_evening_time_isot = twilight_frame.loc[ind,'12_evening'].values[0]
-    twilight_evening_time_bjd = Time(twilight_evening_time_isot,format='jd')
-    start_timestamp = date + "T" + start_time
-    start_timestamp_time = Time(start_timestamp)
-    n_slots = int((n_hours_in_night*60)/slot_size)
-
-    bin_edges = []
-    bin_edges.append(str(start_timestamp_time))
-    for i in range(n_slots):
-        start_timestamp_time += TimeDelta(slot_size/(24*60),format='jd')
-        if twilight_evening_time_bjd < str(start_timestamp_time):
-            edge = i
-            break
-
-    available_slots_in_night = n_slots - 2*edge
-    return available_slots_in_night
-
-def build_twilight_map(available_slots_in_night, n_slots_in_night, invert=False):
-    """
-    Create the 1D twilight times map for all slots in the semester
-
-    Args:
-        available_slots_in_night (array): a 1D array of length n_nights_in_semester where each
-                                        element has an integer representing the number of slots
-                                        within that night that are between twilight times
-        n_slots_in_night (int): the number of slots in a single night
-        invert (boolean): if true, flip the 1's and 0's designation. Useful because by default 0's
-                          mean we are not in day/twilight and 1's mean we are in night time but for
-                          adding purposes it is useful to invert this schema and then np.sum
-    Returns:
-        nightly_twilight_map (array): 1D array of length n_slots_in_semester where 1's indicate the
-                                    slots during night time and 0's during the day time/twilight
-    """
-    nightly_twilight_map = []
-    for i, item in enumerate(available_slots_in_night):
-        if invert:
-            quarterslots = [1]*n_slots_in_night
-        else:
-            quarterslots = [0]*n_slots_in_night
-        edge = int((n_slots_in_night - available_slots_in_night[i])/2)
-        for j in range(n_slots_in_night):
-            if j >= edge and j < n_slots_in_night - edge:
-                if invert:
-                    quarterslots[j] = 0
-                else:
-                    quarterslots[j] = 1
-        nightly_twilight_map.append(quarterslots)
-    return nightly_twilight_map
