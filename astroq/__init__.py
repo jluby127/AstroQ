@@ -1,6 +1,6 @@
 import os
 import logging
-from kpfcc import driver
+from astroq import driver
 
 __version__='2.1.0'
 _ROOT = os.path.abspath(os.path.dirname(__file__))

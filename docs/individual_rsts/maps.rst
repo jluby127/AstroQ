@@ -2,7 +2,9 @@
 
 Maps
 =================
-.. module:: kpfcc
+.. module:: astroq
 
-.. automodule:: kpfcc.maps
+.. automodule:: astroq.maps
    :members:
+   :undoc-members:
+   :show-inheritance:
