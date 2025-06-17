@@ -240,8 +240,8 @@ def build_observed_map_future(manager, combined_semester_schedule, starname, sta
         # mulitply by 4 because each element of allocation_all represents one quarter
         # starmap['Allocated'][days_into_semester*4 + a] = bool(allocation_all[a])
         starmap['Allocated'][a] = bool(manager.allocation_all[a])
-    for w, item in enumerate(manager.weather_diff_remaining.flatten()):
-        starmap['Weathered'][manager.all_dates_dict[manager.current_day]*4+ w] = bool(manager.weather_diff_remaining.flatten()[w])
+    for w, item in enumerate(manager.weather_diff.flatten()):
+        starmap['Weathered'][manager.all_dates_dict[manager.current_day]*4+ w] = bool(manager.weather_diff.flatten()[w])
 
     return starmap
 
