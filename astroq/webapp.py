@@ -1,5 +1,6 @@
 import os
 from flask import Flask, render_template, request
+import numpy as np
 import plotly.io as pio
 import astroq.plot as pl
 import astroq.management as mn
@@ -27,18 +28,19 @@ def index():
 # Admin page route
 @app.route("/admin")
 def admin():
-    # table_reqframe_html = dn.get_requests_frame(manager, filter_condition="()")
+    all_stars_from_all_programs = np.concatenate(list(data_astroq[0].values()))
+    
     table_reqframe_html = dn.get_requests_frame(manager, filter_condition=None)
     tables_html = [table_reqframe_html]
     
     
+    fig_football_html = dn.get_football(manager, all_stars_from_all_programs)
     fig_cof_html = dn.get_cof(manager, list(data_astroq[1].values()))
     fig_birdseye_html = dn.get_birdseye(manager, data_astroq[2], list(data_astroq[1].values()))
-    figures_html = [fig_cof_html, fig_birdseye_html]
+    figures_html = [fig_football_html, fig_cof_html, fig_birdseye_html]
     
     
     return render_template("admin.html", tables_html=tables_html, figures_html=figures_html)
-
 
 
 # /semesterplan landing page
@@ -59,9 +61,10 @@ def single_program(programname):
     table_reqframe_html = dn.get_requests_frame(manager, filter_condition=f"program_code=='{programname}'")
     tables_html = [table_reqframe_html]
     
+    fig_football_html = dn.get_football(manager, star_obj_list)
     fig_cof_html = dn.get_cof(manager, star_obj_list)
     fig_birdseye_html = dn.get_birdseye(manager, data_astroq[2], star_obj_list)
-    figures_html = [fig_cof_html, fig_birdseye_html]
+    figures_html = [fig_football_html, fig_cof_html, fig_birdseye_html]
 
     return render_template("semesterplan.html", programname=programname, tables_html=tables_html, figures_html=figures_html)
 
@@ -83,11 +86,12 @@ def single_star(starname):
             if star_obj.starname == starname:
                 table_reqframe_html = dn.get_requests_frame(manager, filter_condition=f"starname=='{starname}'")
                 
+                fig_football_html = dn.get_football(manager, [data_astroq[0][program][star_ind]])
                 fig_cof_html = dn.get_cof(manager, [data_astroq[0][program][star_ind]])
                 fig_birdseye_html = dn.get_birdseye(manager, data_astroq[2], [data_astroq[0][program][star_ind]])
 
                 tables_html = [table_reqframe_html]
-                figures_html = [fig_cof_html, fig_birdseye_html]
+                figures_html = [fig_football_html, fig_cof_html, fig_birdseye_html]
 
                 return render_template("star.html", starname=starname, tables_html=tables_html, figures_html=figures_html)
     return f"Error, star {starname} not found in programs {list(program_names)}"
@@ -133,5 +137,6 @@ if __name__=="__main__":
     # cf =  'examples/bench/config_benchmark.ini'
 
     launch_app(cf)
-    single_program('U001')
+    # single_program('U001')
+    admin()
     # import pdb; pdb.set_trace()
