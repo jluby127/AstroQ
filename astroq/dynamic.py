@@ -550,8 +550,8 @@ def get_football(manager, all_stars):#RA_grid, DEC_grid, Z_grid, request_df):
         contours=dict(start=70, end=184, size=10),
         opacity=0,  # Hide contour but keep colorbar
         colorbar=dict(
-            title='Observable Nights',
-            titleside='right',
+            title='Observable<br>Nights',
+            titleside='top',
             x=-0.15,  # Place on left of plot
             len=0.75,
             thickness=15
@@ -566,12 +566,18 @@ def get_football(manager, all_stars):#RA_grid, DEC_grid, Z_grid, request_df):
             hover = [f"{name} in {program}" for name in group['starname']]
             color = [group['color'][0]]*len(group)
 
+            if len(all_stars)==1:
+                size=20
+                marker='star'
+            else:
+                size=6
+                marker='circle'
             fig.add_trace(go.Scattergeo(
                 lon=group['ra'] - 180,
                 lat=group['dec'],
                 mode='markers',
                 name=program,
-                marker=dict(size=6, color=color, opacity=1),
+                marker=dict(symbol=marker, size=size, color=color, opacity=1),
                 text=hover,
                 hovertemplate="%{text}<br>RA: %{lon:.2f}°, Dec: %{lat:.2f}°<extra></extra>"
             ))
@@ -595,20 +601,38 @@ def get_football(manager, all_stars):#RA_grid, DEC_grid, Z_grid, request_df):
             bgcolor='rgba(0,0,0,0)',
             lonaxis=dict(showgrid=False),
             lataxis=dict(showgrid=False),
-        ),
+            ),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
         template='none',
         height=600,
         width=1000,
         xaxis=dict(showgrid=False, visible=True),
-        yaxis=dict(showgrid=False, visible=True)
+        yaxis=dict(showgrid=False, visible=True),
+        annotations=[
+            dict(
+                text="RA (deg)",  # X-axis label
+                x=0.5,
+                y=-0.10,
+                xref="paper",
+                yref="paper",
+                showarrow=False,
+                font=dict(size=14)
+            ),
+            dict(
+                text="Dec (deg)",  # Y-axis label
+                x=-0.07,
+                y=0.5,
+                xref="paper",
+                yref="paper",
+                showarrow=False,
+                textangle=-90,
+                font=dict(size=14)
+            )
+        ]
     )
     skymap_html = pio.to_html(fig, full_html=True, include_plotlyjs='cdn')
     return skymap_html
-
-
-
 
 
 
