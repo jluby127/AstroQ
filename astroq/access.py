@@ -7,14 +7,10 @@ This module combines functionality for:
 - Comprehensive observability maps
 - Allocation and scheduling constraints
 """
-import json
-import os
 import logging
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as pt
 from pathlib import Path
-from scipy.interpolate import interp1d
 
 from astropy.time import Time, TimeDelta
 import astropy as apy
@@ -689,38 +685,6 @@ def single_night_allocated_slots(twilight_tonight, allocated_quarters_tonight, a
                 allocated_slots_tonight[j] = 0
     return allocated_slots_tonight
 
-
-def construct_twilight_map(manager):
-    """
-    Compute the number of slots per night available, based on strictly twilight times
-
-    Args:
-        current_day (str): today's date, format YYYY-MM-DD
-        twilight_frame (dataframe): the pandas dataframe containing twilight information
-        slot_size (int): the size of a single slot, in minutes
-        all_dates_dict (dictionary): keys are calendar days, values are day of the semester
-        n_slots_in_night (int): the number of slots in single night, regardless of twilight
-        n_nights_in_semester (int): the number of nigths remaining in the semester
-
-    Returns:
-        twilight_map_remaining_flat (array): a 1D array where elements are 1 or 0 based if outside or inside of twilight time
-        twilight_map_remaining_2D (array): a 2D version of the same information
-    """
-    print("Determine available slots in each night.")
-    # available_slots_in_each_night is a 1D matrix of length nights n
-    # This is not a gorubi variable, but a regular python variable
-    # Each element will hold an integer which represents the number of slots are available in each
-    # quarter of a given night, after accounting for non-observable times due to day/twilight.
-    available_slots_in_each_night = []
-    for date in list(manager.all_dates_array):
-        slots_tonight = determine_twilight_edge(date, manager.twilight_frame, manager.slot_size)
-        available_slots_in_each_night.append(slots_tonight)
-    twilight_map_all = np.array(build_twilight_map(available_slots_in_each_night,manager.n_slots_in_night, invert=False))
-    twilight_map_remaining = twilight_map_all[manager.all_dates_dict[manager.current_day]:]
-    twilight_map_remaining_1D = twilight_map_remaining.copy().flatten()
-    twilight_map_remaining_2D = np.reshape(twilight_map_remaining_1D, (manager.n_nights_in_semester, manager.n_slots_in_night))
-    return twilight_map_remaining_2D, available_slots_in_each_night
-
 def generate_twilight_times(all_dates_array):
     """generate_twilight_times
 
@@ -733,7 +697,6 @@ def generate_twilight_times(all_dates_array):
         twilight_frame (dataframe): the precomputed twilight times
     """
     keck = apl.Observer.at_site('W. M. Keck Observatory')
-
     twilight_frame = pd.DataFrame({'time_utc':all_dates_array})
     eighteen_deg_evening = []
     twelve_deg_evening = []
