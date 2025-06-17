@@ -47,7 +47,7 @@ def produce_ultimate_map(manager, rs, running_backup_stars=False, mod=False):
     # Prepatory work
     date_formal = Time(manager.current_day,format='iso',scale='utc')
     date = str(date_formal)[:10]
-
+    import pdb;pdb.set_trace()
     # Define size of grid
     ntargets = len(rs)
     nnights = manager.n_nights_in_semester
@@ -694,34 +694,15 @@ def generate_twilight_times(all_dates_array):
         all_dates_array (list): the calendar dates of the semester.
                                 Format: YYYY-MM-DD.
     Returns:
-        twilight_frame (dataframe): the precomputed twilight times
+        dataframe: 12 deg twilight times
     """
+
+    df = {}
     keck = apl.Observer.at_site('W. M. Keck Observatory')
-    twilight_frame = pd.DataFrame({'time_utc':all_dates_array})
-    eighteen_deg_evening = []
-    twelve_deg_evening = []
-    six_deg_evening = []
-    eighteen_deg_morning = []
-    twelve_deg_morning = []
-    six_deg_morning = []
-    twilight_frame['timestamp'] = pd.to_datetime(twilight_frame['time_utc'])
-    twilight_frame = twilight_frame.set_index('timestamp')
-    # for day in twilight_frame.index.strftime('%Y-%m-%d').tolist():
-    for day in twilight_frame.index.strftime(date_format='%Y-%m-%d').tolist():
-        as_day = Time(day,format='iso',scale='utc')
-        eighteen_deg_evening.append(keck.twilight_evening_astronomical(as_day,which='next'))
-        twelve_deg_evening.append(keck.twilight_evening_nautical(as_day,which='next'))
-        six_deg_evening.append(keck.twilight_evening_civil(as_day,which='next'))
-        eighteen_deg_morning.append(keck.twilight_morning_astronomical(as_day,which='next'))
-        twelve_deg_morning.append(keck.twilight_morning_nautical(as_day,which='next'))
-        six_deg_morning.append(keck.twilight_morning_civil(as_day,which='next'))
-
-    twilight_frame['18_evening'] = eighteen_deg_evening
-    twilight_frame['12_evening'] = twelve_deg_evening
-    twilight_frame['6_evening'] = six_deg_evening
-    twilight_frame['18_morning'] = eighteen_deg_morning
-    twilight_frame['12_morning'] = twelve_deg_morning
-    twilight_frame['6_morning'] = six_deg_morning
-
-    return twilight_frame
+    times = Time(all_dates_array)
+    df['time_utc'] = all_dates_array
+    df['12_evening'] = keck.twilight_evening_nautical(times,which='next')
+    df['12_morning'] = keck.twilight_morning_nautical(times,which='next')
+    df = pd.DataFrame(df)
+    return df
 
