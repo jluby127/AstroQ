@@ -42,6 +42,7 @@ def produce_ultimate_map(manager, rf, running_backup_stars=False, mod=False):
     Args:
         rf (dataframe): request frame
         running_backup_stars (bool): if true, then do not run the extra map of stepping back in time to account for the starting slot fitting into the night
+
     Returns:
         available_indices_for_request (dictionary): keys are the starnames and values are a 1D array
                                                   the indices where available_slots_for_request is 1.
@@ -137,7 +138,6 @@ def produce_ultimate_map(manager, rf, running_backup_stars=False, mod=False):
     is_alloc = manager.allocation_map_2D.astype(bool) # shape = (nnights, nslots) # TODO compute on the fly
     # is_alloc = np.repeat(is_alloc[np.newaxis, :, :], ntargets, axis=0)
     is_alloc = np.ones_like(is_altaz, dtype=bool) & is_alloc[np.newaxis,:,:] # shape = (ntargets, nnights, nslots)
-    import pdb;pdb.set_trace()
 
     if mod:
         # turn these off when computing semesterly access for fishbowl plot
@@ -169,6 +169,33 @@ def produce_ultimate_map(manager, rf, running_backup_stars=False, mod=False):
                 # for is_observable to be true, it must be true for all shifts
                 is_observable[itarget, :, :-shift] &= is_observable_now[itarget, :, shift:]
 
+    access = {
+        'is_altaz': is_altaz,
+        'is_moon': is_moon,
+        'is_night': is_night,
+        'is_inter': is_inter,
+        'is_future': is_future,
+        'is_alloc': is_alloc,
+        'is_observable_now': is_observable_now,
+        'is_observable': is_observable
+    }
+    access = np.rec.fromarrays(list(access.values()), names=list(access.keys()))
+    return access
+
+def extract_available_indices_from_record(access, manager):
+    """
+    Extract available indices dictionary from the record array returned by produce_ultimate_map
+    
+    Args:
+        record_array: Record array from produce_ultimate_map containing observability masks
+        manager: Manager object containing requests_frame and other data
+        
+    Returns:
+        dict: Dictionary where keys are target names and values are lists of available slots per night
+    """
+    available_indices_for_request = {}
+    ntargets, nnights, nslots = access.shape
+    
     # specify indeces of 3D observability array
     itarget, inight, islot = np.mgrid[:ntargets,:nnights,:nslots]
 
@@ -178,15 +205,16 @@ def produce_ultimate_map(manager, rf, running_backup_stars=False, mod=False):
          'inight':inight.flatten(),
          'islot':islot.flatten()}
     )
-    df['is_observable'] = is_observable.flatten()
+    df['is_observable'] = access.is_observable.flatten()
     available_indices_for_request = {}
     for itarget in range(ntargets):
         temp = []
         for inight in range(nnights):
-            temp.append(list(islot[itarget,inight,is_observable[itarget,inight,:]]))
+            temp.append(list(islot[itarget,inight,access.is_observable[itarget,inight,:]]))
 
-        available_indices_for_request[rf.iloc[itarget]['starname']] = temp
+        available_indices_for_request[manager.requests_frame.iloc[itarget]['starname']] = temp
     return available_indices_for_request
+
 
 
 # TODO eliminate redundant code with above function
@@ -757,4 +785,36 @@ def build_allocation_map(all_dates_dict, allo):
         allo_map.append(one_night)
     allo_map = np.array(allo_map)
     return allo_map
+
+def define_indices_for_requests(manager):
+    """
+    Using the dictionary of indices where each request is available, define a dataframe for which
+    we will use to cut/filter/merge r,d,s tuples
+    """
+    # Get the record array from produce_ultimate_map
+    record_array = produce_ultimate_map(manager, manager.requests_frame)
+    
+    # Convert to the expected dictionary format
+    available_indices_for_request = extract_available_indices_from_record(record_array, manager)
+
+    observability_keys = []
+    strategy_keys = []
+    for n,row in manager.requests_frame.iterrows():
+        name = row['starname']
+        if name in list(available_indices_for_request.keys()):
+            max_n_visits = int(row['n_intra_max'])
+            min_n_visits = int(row['n_intra_min'])
+            intra = int(row['tau_intra'])
+            nnights = int(row['n_inter_max'])
+            inter = int(row['tau_inter'])
+            slots_needed = manager.slots_needed_for_exposure_dict[name]
+            strategy_keys.append([name, slots_needed, min_n_visits, max_n_visits, intra, nnights, inter])
+            for d in range(len(available_indices_for_request[name])):
+                for s in available_indices_for_request[name][d]:
+                    observability_keys.append((name, d, s))
+    strategy = pd.DataFrame(strategy_keys, columns =['id', 't_visit', 'n_intra_min', 'n_intra_max',
+                                                     'tau_intra', 'n_inter_max', 'tau_inter'])
+    observability = pd.DataFrame(observability_keys, columns =['id', 'd', 's'])
+    return strategy, observability
+
 

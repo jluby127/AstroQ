@@ -19,6 +19,8 @@ logs = logging.getLogger(__name__)
 
 # from kpfcc import DATADIR
 DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')
+EXAMPLEDIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'examples')
+
 import astroq.history as hs
 import astroq.access as ac
 import astroq.weather as wh
@@ -154,8 +156,8 @@ class data_admin(object):
         # When running a normal schedule, include the observatory's allocation map
         if self.run_optimal_allocation == False:
             if self.run_bench_allocation:
-                allocation_2D_all = np.loadtxt('RELATIVE PATH TO SAVED ARRAY HERE', sep=',') 
-                allocation_2D_post_weather, weather_diff = wh.prepare_allocation_map(self, allocation_2D_all)
+                allocation_map_2D = np.loadtxt(os.path.join(EXAMPLEDIR,'allocations/allocation_map_2D_real_2018B.txt'))
+                allocation_2D_post_weather, weather_diff = wh.prepare_allocation_map(self, allocation_map_2D)
             else:
                 # Get the latest allocation info from the observatory
                 allo, all_dates_dict = ac.pull_allocation(manager.semester_start_date, manager.semester_length, 'KPF') # NOTE: later change instrument to 'KPF-CC'
@@ -168,11 +170,11 @@ class data_admin(object):
             weather_diff = np.zeros(self.n_nights_in_semester, dtype='int')
 
             # allocation maps are ones because all nights are possible to be allocated
-            allocation_2D_all = np.ones((self.n_nights_in_semester, self.n_slots_in_night), dtype='int')
+            allocation_map_2D = np.ones((self.n_nights_in_semester, self.n_slots_in_night), dtype='int')
             allocation_2D_post_weather = np.ones((self.n_nights_in_semester, self.n_slots_in_night), dtype='int')
 
         self.weather_diff = weather_diff
-        self.allocation_map_2D = allocation_2D_all
+        self.allocation_map_2D = allocation_map_2D
         self.allocation_map_2D_post_weather = allocation_2D_post_weather
 
         if np.sum(self.weather_diff) == 0:

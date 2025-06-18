@@ -76,10 +76,11 @@ def define_indices_for_requests(manager):
     Using the dictionary of indices where each request is available, define a dataframe for which
     we will use to cut/filter/merge r,d,s tuples
     """
-    # Define the tuples of request and available slot for each request.
-    # This becomes the grid over which the Gurobi variables are defined.
-    # Now, slots that were never possible for scheduling are not included in the model.
-    available_indices_for_request = ac.produce_ultimate_map(manager, manager.requests_frame)
+    # Get the record array from produce_ultimate_map
+    record_array = ac.produce_ultimate_map(manager, manager.requests_frame)
+    
+    # Use the existing function to convert to dictionary format
+    available_indices_for_request = ac.extract_available_indices_from_record(record_array, manager)
 
     observability_keys = []
     strategy_keys = []
