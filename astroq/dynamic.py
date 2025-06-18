@@ -165,8 +165,8 @@ def get_birdseye(manager, availablity, all_stars):
         rgb_strings = [f"rgb({int(r*255)}, {int(g*255)}, {int(b*255)})" for r, g, b in colors]
         for m in range(len(all_stars[0].maps_names)):
             fig.add_trace(go.Heatmap(
-                z=all_stars[0].maps[m][0].astype(int).T,
-                colorscale=[[0, 'rgba(0,0,0,0)'], [1, rgb_strings[m]]],
+                z=1-all_stars[0].maps[m][0].astype(int).T, # 1-array swaps 0 <--> 1 to invert masks
+                colorscale=[[0, 'rgba(0,0,0,0)'], [1, gray]],
                 zmin=0, zmax=1,
                 opacity=1.0,
                 showscale=False,
@@ -323,7 +323,7 @@ def get_tau_inter_line(manager, all_stars):
     return tau_inter_line_html
 
 
-def compute_seasonality(manager, starnames, ras, decs, semester='B', nslots=168, nnights=184, observatory='Keck Observatory', start_time='03:30', slot_size=5):
+def compute_seasonality(manager, starnames, ras, decs, semester='B'):
     """
     Combine all maps for a target to produce the final map
 
@@ -336,6 +336,12 @@ def compute_seasonality(manager, starnames, ras, decs, semester='B', nslots=168,
 
     """
     # Prepatory work
+    nslots = manager.n_slots_in_night
+    nnights = manager.n_nights_in_semester
+    observatory = manager.observatory
+    start_time = manager.daily_starting_time
+    slot_size = manager.slot_size
+    
     if semester=='A':
         start_date = '2025-02-01'
     elif semester=='B':
@@ -355,7 +361,7 @@ def compute_seasonality(manager, starnames, ras, decs, semester='B', nslots=168,
     start = date + "T" + start_time
     daily_start = Time(start, location=keck.location)
     daily_end = daily_start + TimeDelta(1.0, format='jd') # full day from start of first night
-    tmp_slot_size = TimeDelta(5.0*u.min)
+    tmp_slot_size = TimeDelta(manager.slot_size*u.min)
     t = Time(np.arange(daily_start.jd, daily_end.jd, tmp_slot_size.jd), format='jd',location=keck.location)
     t = t[np.argsort(t.sidereal_time('mean'))] # sort by lst
 
@@ -401,7 +407,7 @@ def compute_seasonality(manager, starnames, ras, decs, semester='B', nslots=168,
 
     # True if obseravtion occurs at night
     is_night = manager.twilight_map_remaining_2D.astype(bool) # shape = (nnights, nslots)
-    is_night = np.ones_like(is_altaz, dtype=bool) & is_night[np.newaxis,:,:]
+    is_night = np.ones_like(is_altaz, dtype=bool) & is_night
 
 #     is_alloc = manager.allocation_map_2D.astype(bool) # shape = (nnights, nslots)
 #     is_alloc = np.ones_like(is_altaz, dtype=bool) & is_alloc[np.newaxis,:,:] # shape = (ntargets, nnights, nslots)
@@ -435,8 +441,9 @@ def compute_seasonality(manager, starnames, ras, decs, semester='B', nslots=168,
     return available_nights_onsky
 
 
-def interactive_sky_with_static_heatmap(manager, progcode):#RA_grid, DEC_grid, Z_grid, request_df):
+def get_football(manager, all_stars):#RA_grid, DEC_grid, Z_grid, request_df):
     """
+    "Football plot"
     Interactive sky map with static heatmap background and interactive star points.
 
     Parameters:
@@ -447,11 +454,6 @@ def interactive_sky_with_static_heatmap(manager, progcode):#RA_grid, DEC_grid, Z
     Returns:
         plotly.graph_objects.Figure
     """
-
-    with open(manager.reports_directory + 'admin/' + manager.current_day + '/star_objects.pkl', 'rb') as f:
-        data = pickle.load(f)
-
-    all_stars = data[0][progcode]
 
     starnames = [all_stars[r].starname for r in range(len(all_stars))]
     programs = [all_stars[r].program for r in range(len(all_stars))]
@@ -496,8 +498,8 @@ def interactive_sky_with_static_heatmap(manager, progcode):#RA_grid, DEC_grid, Z
     }
     grid_frame = pd.DataFrame(grid_stars)
 
-    available_nights_onsky_requests = compute_seasonality(manager, starnames, ras, decs, semester='B', nslots=168, nnights=184, observatory='Keck Observatory', start_time='03:30')
-    grid_frame['nights_observable'] = compute_seasonality(manager, grid_frame['starname'], grid_frame['ra'], grid_frame['dec'], semester='B', nslots=168, nnights=184, observatory='Keck Observatory', start_time='03:30')
+    available_nights_onsky_requests = compute_seasonality(manager, starnames, ras, decs, semester='A')
+    grid_frame['nights_observable'] = compute_seasonality(manager, grid_frame['starname'], grid_frame['ra'], grid_frame['dec'], semester='A')
 
     from scipy.interpolate import griddata
     NIGHTS_grid = griddata(
@@ -548,8 +550,8 @@ def interactive_sky_with_static_heatmap(manager, progcode):#RA_grid, DEC_grid, Z
         contours=dict(start=70, end=184, size=10),
         opacity=0,  # Hide contour but keep colorbar
         colorbar=dict(
-            title='Observable Nights',
-            titleside='right',
+            title='Observable<br>Nights',
+            titleside='top',
             x=-0.15,  # Place on left of plot
             len=0.75,
             thickness=15
@@ -564,12 +566,18 @@ def interactive_sky_with_static_heatmap(manager, progcode):#RA_grid, DEC_grid, Z
             hover = [f"{name} in {program}" for name in group['starname']]
             color = [group['color'][0]]*len(group)
 
+            if len(all_stars)==1:
+                size=20
+                marker='star'
+            else:
+                size=6
+                marker='circle'
             fig.add_trace(go.Scattergeo(
                 lon=group['ra'] - 180,
                 lat=group['dec'],
                 mode='markers',
                 name=program,
-                marker=dict(size=6, color=color, opacity=1),
+                marker=dict(symbol=marker, size=size, color=color, opacity=1),
                 text=hover,
                 hovertemplate="%{text}<br>RA: %{lon:.2f}°, Dec: %{lat:.2f}°<extra></extra>"
             ))
@@ -593,17 +601,38 @@ def interactive_sky_with_static_heatmap(manager, progcode):#RA_grid, DEC_grid, Z
             bgcolor='rgba(0,0,0,0)',
             lonaxis=dict(showgrid=False),
             lataxis=dict(showgrid=False),
-        ),
+            ),
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
         template='none',
         height=600,
-        width=1000
+        width=1000,
+        xaxis=dict(showgrid=False, visible=True),
+        yaxis=dict(showgrid=False, visible=True),
+        annotations=[
+            dict(
+                text="RA (deg)",  # X-axis label
+                x=0.5,
+                y=-0.10,
+                xref="paper",
+                yref="paper",
+                showarrow=False,
+                font=dict(size=14)
+            ),
+            dict(
+                text="Dec (deg)",  # Y-axis label
+                x=-0.07,
+                y=0.5,
+                xref="paper",
+                yref="paper",
+                showarrow=False,
+                textangle=-90,
+                font=dict(size=14)
+            )
+        ]
     )
     skymap_html = pio.to_html(fig, full_html=True, include_plotlyjs='cdn')
     return skymap_html
-
-
 
 
 
