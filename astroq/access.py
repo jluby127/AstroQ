@@ -90,6 +90,7 @@ def produce_ultimate_map(manager, rf, running_backup_stars=False, mod=False):
     days = np.arange(nnights) * u.day
     slotmidpoint = (slotmidpoint0[np.newaxis,:] + days[:,np.newaxis])
     # 3D mask
+    import pdb;pdb.set_trace()
     is_altaz = np.empty((ntargets, nnights, nslots),dtype=bool)
 
     # Pre-compute the sidereal times for interpolation

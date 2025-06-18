@@ -53,7 +53,7 @@ class data_admin(object):
         self.daily_starting_time = str(config.get('other', 'daily_starting_time'))
         self.daily_ending_time  = f"{(int(self.daily_starting_time.split(':')[0]) + self.n_hours_in_night) % 24:02d}:{int(self.daily_starting_time.split(':')[1]):02d}"
 
-        self.run_bench_allocation = eval(config.get('options', 'run_bench_allocation'))
+        self.allocation_file = str(config.get('options', 'allocation_file'))
         self.past_database_file = os.path.join(self.semester_directory, "inputs/queryJumpDatabase.csv")
         self.special_map_file = os.path.join(self.semester_directory, "inputs/specialMaps_" + str(self.slot_size) + "minSlots.txt")
         self.zero_out_file = os.path.join(self.semester_directory, "inputs/zero_out.csv")
@@ -155,8 +155,8 @@ class data_admin(object):
 
         # When running a normal schedule, include the observatory's allocation map
         if self.run_optimal_allocation == False:
-            if self.run_bench_allocation:
-                allocation_map_2D = np.loadtxt(os.path.join(EXAMPLEDIR,'allocations/allocation_map_2D_real_2018B.txt'))
+            if self.allocation_file is not None:
+                allocation_map_2D = np.loadtxt(os.path.join(self.upstream_path, self.allocation_file))
                 allocation_2D_post_weather, weather_diff = wh.prepare_allocation_map(self, allocation_map_2D)
             else:
                 # Get the latest allocation info from the observatory

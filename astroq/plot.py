@@ -125,6 +125,9 @@ def process_stars(manager):
 
     # Create a starmap of the times when we cannot observe due to twilight and allocation constraints
     # Used in the birdseye view plot to blackout the unavailble squares
+    import pdb;pdb.set_trace()
+    ac.produce_ultimate_map(manager, manager.requests_frame)
+
     nulltime = manager.twilight_map_remaining_2D&manager.allocation_map_2D
     nulltime = 1 - nulltime
     nulltime = pad_rows_top(nulltime, manager.semester_length)
