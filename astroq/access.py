@@ -367,64 +367,64 @@ def format_keck_allocation_info(allocation_file):
     allocation[['Start', 'Stop', 'Percentage']] = allocation['Time'].str.extract(pattern)
 
     for i, item in enumerate(allocation['Percentage']):
-        time_string = allocation['Start'].iloc[i]
+        time_string = allocation.loc[i, 'Start']
 
         if item == '100':
-            allocation['Start'].iloc[i] = 0
-            allocation['Stop'].iloc[i]  = 1
+            allocation.loc[i, 'Start'] = 0
+            allocation.loc[i, 'Stop']  = 1
 
         elif item == '75':
             if (time_string.startswith("07")) | (time_string.startswith("08")):
-                allocation['Start'].iloc[i] = 0.25
-                allocation['Stop'].iloc[i]  = 1
+                allocation.loc[i, 'Start'] = 0.25
+                allocation.loc[i, 'Stop']  = 1
             elif (time_string.startswith("04")) | (time_string.startswith("05")):
-                allocation['Start'].iloc[i] = 0
-                allocation['Stop'].iloc[i]  = 0.75
+                allocation.loc[i, 'Start'] = 0
+                allocation.loc[i, 'Stop']  = 0.75
             else:
                 logs.error("We have a problem, error code 1.")
-                logs.error(allocation['Date'].iloc[i],
-                            allocation['Start'].iloc[i], allocation['Stop'].iloc[i])
+                logs.error(allocation.loc[i, 'Date'],
+                            allocation.loc[i, 'Start'], allocation.loc[i, 'Stop'])
 
         elif item == '50':
             if (time_string.startswith("04")) | (time_string.startswith("05")):
-                allocation['Start'].iloc[i] = 0
-                allocation['Stop'].iloc[i]  = 0.5
+                allocation.loc[i, 'Start'] = 0
+                allocation.loc[i, 'Stop']  = 0.5
             elif (time_string.startswith("07")) | (time_string.startswith("08")):
-                allocation['Start'].iloc[i] = 0.25
-                allocation['Stop'].iloc[i]  = 0.75
+                allocation.loc[i, 'Start'] = 0.25
+                allocation.loc[i, 'Stop']  = 0.75
             elif (time_string.startswith("10")) | (time_string.startswith("11")):
-                allocation['Start'].iloc[i] = 0.5
-                allocation['Stop'].iloc[i]  = 1
+                allocation.loc[i, 'Start'] = 0.5
+                allocation.loc[i, 'Stop']  = 1
             else:
                 logs.error("We have a problem, error code 2.")
-                logs.error(allocation['Date'].iloc[i],
-                            allocation['Start'].iloc[i], allocation['Stop'].iloc[i])
+                logs.error(allocation.loc[i, 'Date'],
+                            allocation.loc[i, 'Start'], allocation.loc[i, 'Stop'])
 
         elif item == '25':
             if (time_string.startswith("04")) | (time_string.startswith("05")):
-                allocation['Start'].iloc[i] = 0
-                allocation['Stop'].iloc[i]  = 0.25
+                allocation.loc[i, 'Start'] = 0
+                allocation.loc[i, 'Stop']  = 0.25
             elif (time_string.startswith("06")) | (time_string.startswith("07")) | \
                             (time_string.startswith("08")):
-                allocation['Start'].iloc[i] = 0.25
-                allocation['Stop'].iloc[i]  = 0.5
+                allocation.loc[i, 'Start'] = 0.25
+                allocation.loc[i, 'Stop']  = 0.5
             elif (time_string.startswith("09")) | (time_string.startswith("10")):
-                allocation['Start'].iloc[i] = 0.5
-                allocation['Stop'].iloc[i]  = 0.75
+                allocation.loc[i, 'Start'] = 0.5
+                allocation.loc[i, 'Stop']  = 0.75
             elif (time_string.startswith("11")) | (time_string.startswith("12")) | \
                             (time_string.startswith("13")):
-                allocation['Start'].iloc[i] = 0.75
-                allocation['Stop'].iloc[i]  = 1
+                allocation.loc[i, 'Start'] = 0.75
+                allocation.loc[i, 'Stop']  = 1
             else:
                 logs.error("We have a problem, error code 3.")
-                logs.error(allocation['Date'].iloc[i],
-                                allocation['Start'].iloc[i], allocation['Stop'].iloc[i])
+                logs.error(allocation.loc[i, 'Date'],
+                                allocation.loc[i, 'Start'], allocation.loc[i, 'Stop'])
         else:
             logs.error("Non-25% of night increment. Implementing whole night as precaution.")
-            logs.error("Date: ", allocation['Date'].iloc[i])
+            logs.error("Date: ", allocation.loc[i, 'Date'])
             logs.error("True allocation amount: ", item)
-            allocation['Start'].iloc[i] = 0
-            allocation['Stop'].iloc[i]  = 1
+            allocation.loc[i, 'Start'] = 0
+            allocation.loc[i, 'Stop']  = 1
 
     return allocation
 

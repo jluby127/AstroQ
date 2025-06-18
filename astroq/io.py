@@ -430,13 +430,13 @@ def serialize_schedule(Yrds, manager):
             name_string += "X"
         if isClear[slot] == 1:
             name_string += "W"
-        dense2['r'][slot] = name_string + str(dense2['r'][slot])
+        dense2.loc[slot, 'r'] = name_string + str(dense2.loc[slot, 'r'])
 
-        if dense2['r'][slot] in list(manager.requests_frame['starname']):
-            slots_needed = manager.slots_needed_for_exposure_dict[dense2['r'][slot]]
+        if dense2.loc[slot, 'r'] in list(manager.requests_frame['starname']):
+            slots_needed = manager.slots_needed_for_exposure_dict[dense2.loc[slot, 'r']]
             if slots_needed > 1:
                 for t in range(1, slots_needed):
-                    dense2['r'][slot + t] = str(dense2['r'][slot + t]) + str(dense2['r'][slot])
+                    dense2.loc[slot + t, 'r'] = str(dense2.loc[slot + t, 'r']) + str(dense2.loc[slot, 'r'])
 
     # dense2 has keys for all days and slots, manually fill in the reserved slots for each observation and fill in Past/Twilight/Weather info
     dense2.to_csv(manager.output_directory + "serialized_outputs_dense_v2.csv", index=False, na_rep="")
