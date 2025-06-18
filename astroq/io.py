@@ -406,7 +406,7 @@ def serialize_schedule(Yrds, manager):
     """
     df = pd.DataFrame(Yrds.keys(),columns=['r','d','s'])
     df['value'] = [Yrds[k].x for k in Yrds.keys()]
-    sparse = df.query('value>0')
+    sparse = df.query('value>0').copy()
     sparse.drop(columns=['value'], inplace=True)
     # sparse only has keys from Yrds that have values = 1, so only scheduled slots and only the starting slot of the observation
     sparse.to_csv(manager.output_directory + "serialized_outputs_sparse.csv", index=False, na_rep="")
