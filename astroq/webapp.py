@@ -4,6 +4,7 @@ import plotly.io as pio
 import astroq.plot as pl
 import astroq.management as mn
 import astroq.dynamic as dn
+from socket import gethostname
 
 
 app = Flask(__name__, template_folder="../templates")
@@ -125,7 +126,7 @@ def launch_app(config_file):
     else:
         data_ttp = None
 
-    app.run(debug=True)
+    app.run(host=gethostname(), debug=True)
 
 if __name__=="__main__":
 

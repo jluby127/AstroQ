@@ -116,7 +116,7 @@ def fill_gaps_specmatch(filename, past_history_file, ra1=13, ra2=17):
 
     filtered_df = filtered_df[ra1&ra2&short]
     filtered_df.sort_values(by='ra', inplace=True)
-    filtered_df = filtered_df[-50:]
+    filtered_df = filtered_df[-1:]
     filtered_df.reset_index(inplace=True, drop=True)
 
     ttp_frame = pd.DataFrame({
