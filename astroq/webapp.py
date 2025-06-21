@@ -71,7 +71,6 @@ def single_program(programname):
 def star_home():
     return render_template("star.html", starname=None, figure_html=None)
 
-
 # Star detail page route
 @app.route("/star/<starname>")
 def single_star(starname):
@@ -98,7 +97,8 @@ def single_star(starname):
 @app.route("/nightplan")
 def nightplan():
     plots = ['script_table', 'slewgif', 'ladder', 'slewpath']
-    
+
+    print(data_ttp)
     if data_ttp is not None:
         script_table_html = dn.get_script_plan(manager, data_ttp)
         ladder_html = dn.get_ladder(manager, data_ttp)
@@ -120,7 +120,7 @@ def launch_app(config_file):
     data_astroq = pl.read_star_objects(manager.reports_directory + "admin/" + manager.current_day + "/star_objects.pkl")
     all_stars_list = [star_obj for star_obj_list in data_astroq[0].values() for star_obj in star_obj_list]
 
-    ttp_path = os.path.join(manager.reports_directory, "observer/", manager.current_day, "/ttp_data.pkl")
+    ttp_path = os.path.join(manager.reports_directory, "observer", manager.current_day, "ttp_data.pkl")
     if os.path.exists(ttp_path):
         data_ttp = pl.read_star_objects(ttp_path)
     else:

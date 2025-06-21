@@ -180,7 +180,7 @@ def produce_bright_backups(manager, nstars_max=100):
     observatory = telescope.Keck1()
     solution_b = model.TTPModel(observation_start_time, observation_stop_time,
                                 target_list, observatory, backups_path,
-                                runtime=120, optgap=0.05)
+                                runtime=300, optgap=0.01)
 
     plotting.writeStarList(solution_b.plotly, observation_start_time, manager.current_day,
                                 outputdir = backups_path)
