@@ -152,15 +152,14 @@ class data_admin(object):
 
         self.twilight_map_remaining_2D = ac.compute_twilight_map(self)
         self.available_slots_in_each_night = np.sum(self.twilight_map_remaining_2D, axis=1)
-
         # When running a normal schedule, include the observatory's allocation map
         if self.run_optimal_allocation == False:
-            if self.allocation_file is not None:
+            if self.allocation_file!='None':
                 allocation_map_2D = np.loadtxt(os.path.join(self.upstream_path, self.allocation_file))
                 allocation_2D_post_weather, weather_diff = wh.prepare_allocation_map(self, allocation_map_2D)
             else:
                 # Get the latest allocation info from the observatory
-                allo, all_dates_dict = ac.pull_allocation(manager.semester_start_date, manager.semester_length, 'KPF') # NOTE: later change instrument to 'KPF-CC'
+                allo, all_dates_dict = ac.pull_allocation(self.semester_start_date, self.semester_length, 'KPF') # NOTE: later change instrument to 'KPF-CC'
                 allocation_map_2D = ac.build_allocation_map(all_dates_dict, allo)
                 allocation_2D_post_weather, weather_diff = wh.prepare_allocation_map(self, allocation_map_2D)
 

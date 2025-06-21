@@ -69,7 +69,7 @@ Run ``pytest`` from your terminal to execute a suite of tests verifying that the
 
     .. code-block:: bash
 
-        $ pytest
+        $ pytest -v
 
 This may take a few minutes on the first run. The desired result is that all tests pass successfully.
         
