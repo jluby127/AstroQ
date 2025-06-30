@@ -162,7 +162,7 @@ class data_admin(object):
         wh.prepare_allocation_map(self, allocation_map_2D)
 
         """
-        
+        self.weathered_days = [] # removed weather logic for now
         
     def build_slots_required_dictionary(self, always_round_up_flag=False):
         """
