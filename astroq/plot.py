@@ -22,7 +22,7 @@ import pickle
 
 import astroq.management as mn
 import astroq.history as hs
-import astroq.maps as mp
+import astroq.access as ac
 import astroq.io as io
 import ttp.plotting as plotting
 
@@ -125,7 +125,9 @@ def process_stars(manager):
 
     # Create a starmap of the times when we cannot observe due to twilight and allocation constraints
     # Used in the birdseye view plot to blackout the unavailble squares
-    nulltime = manager.twilight_map_remaining_2D&manager.allocation_map_2D
+
+    access = ac.produce_ultimate_map(manager, manager.requests_frame)
+    nulltime = access['is_night'][0] & access['is_alloc'][0]
     nulltime = 1 - nulltime
     nulltime = pad_rows_top(nulltime, manager.semester_length)
     nulltime = np.array(nulltime).T
@@ -135,6 +137,8 @@ def process_stars(manager):
     except:
         past = pd.DataFrame(columns=['star_id', 'utctime'])
 
+    # Previously, there was a unique call to star names, every row of the request frame should
+    # unique already
     starnames = manager.requests_frame['starname'].unique()
     programs = manager.requests_frame['program_code'].unique()
 
@@ -148,9 +152,11 @@ def process_stars(manager):
     forecastT = np.array(forecast)
 
     all_stars = []
-    for name in starnames:
+    i = 0 
+    for i, row in manager.requests_frame.iterrows():
         # Create a StarPlotter object for each request, fill and compute relavant information
-        newstar = StarPlotter(name)
+
+        newstar = StarPlotter(row['starname'])
         newstar.get_stats(manager.requests_frame, manager.slot_size)
         newstar.get_past(past, manager.twilight_frame)
         newstar.get_future(forecastT, manager.all_dates_array)
@@ -173,13 +179,12 @@ def process_stars(manager):
         newstar.program_color_rgb = program_colors_rgb_vals[newstar.program]
         newstar.star_color_rgb = rgb_strings[np.random.randint(0, len(rgb_strings)-1)]
         newstar.draw_lines = False
-
-        is_altaz, is_moon, is_night, is_inter, is_future, is_alloc = mp.mod_produce_ultimate_map(manager, name)
-        newstar.maps = [is_alloc, is_night, is_altaz, is_moon, is_inter, is_future]
         newstar.maps_names = ['is_alloc', 'is_night', 'is_altaz', 'is_moon', 'is_inter', 'is_future']
+        newstar.maps = [access[name] for name in newstar.maps_names] 
         newstar.allow_mapview = True
 
         all_stars.append(newstar)
+        i += 1
 
     # Now create StarPlotter objects for each program, as it were one star.
     # These will not have all the attributes, but we only need these for the admin COF plot
@@ -535,7 +540,7 @@ def run_plot_suite(config_file):
 
 def generate_single_star_maps(manager, starname):
 
-    is_altaz, is_moon, is_night, is_inter, is_future, is_alloc = mp.mod_produce_ultimate_map(manager, starname)
+    is_altaz, is_moon, is_night, is_inter, is_future, is_alloc = ac.mod_produce_ultimate_map(manager, starname)
     all_maps = [is_altaz, is_alloc, is_night, is_moon, is_inter, is_future]
     # return is_altaz, is_moon, is_night, is_inter, is_future, is_alloc
 

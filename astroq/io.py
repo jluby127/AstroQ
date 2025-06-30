@@ -240,8 +240,8 @@ def build_observed_map_future(manager, combined_semester_schedule, starname, sta
         # mulitply by 4 because each element of allocation_all represents one quarter
         # starmap['Allocated'][days_into_semester*4 + a] = bool(allocation_all[a])
         starmap['Allocated'][a] = bool(manager.allocation_all[a])
-    for w, item in enumerate(manager.weather_diff_remaining.flatten()):
-        starmap['Weathered'][manager.all_dates_dict[manager.current_day]*4+ w] = bool(manager.weather_diff_remaining.flatten()[w])
+    for w, item in enumerate(manager.weather_diff.flatten()):
+        starmap['Weathered'][manager.all_dates_dict[manager.current_day]*4+ w] = bool(manager.weather_diff.flatten()[w])
 
     return starmap
 
@@ -381,7 +381,7 @@ def write_available_human_readable(manager):
                 slotallocated += '*'
             if manager.allocation_map_2D[n][s] == 0:
                 slotallocated += 'X'
-            if manager.weathered_map[n][s] == 1:# and slotallocated == '':
+            if manager.weather_diff[n][s] == 1:# and slotallocated == '':
                 slotallocated += 'W'
             if os.path.exists(manager.nonqueue_map_file):
                 slotallocated += str(nonqueuemap_slots_strs[n + manager.all_dates_dict[manager.current_day], ][s])
@@ -406,7 +406,7 @@ def serialize_schedule(Yrds, manager):
     """
     df = pd.DataFrame(Yrds.keys(),columns=['r','d','s'])
     df['value'] = [Yrds[k].x for k in Yrds.keys()]
-    sparse = df.query('value>0')
+    sparse = df.query('value>0').copy()
     sparse.drop(columns=['value'], inplace=True)
     # sparse only has keys from Yrds that have values = 1, so only scheduled slots and only the starting slot of the observation
     sparse.to_csv(manager.output_directory + "serialized_outputs_sparse.csv", index=False, na_rep="")
@@ -420,7 +420,7 @@ def serialize_schedule(Yrds, manager):
     dense2 = dense1.copy()
     isNight = np.array(manager.twilight_map_remaining_2D).flatten()
     isAlloc = np.array(manager.allocation_map_2D).flatten()
-    isClear = np.array(manager.weathered_map).flatten()
+    isClear = np.array(manager.weather_diff).flatten()
     # have to go backwards otherwise you're adding stars into slots and then testing if the star is in the next slot
     for slot in range(manager.n_slots_in_semester-1, -1, -1):
         name_string = ""
@@ -430,13 +430,13 @@ def serialize_schedule(Yrds, manager):
             name_string += "X"
         if isClear[slot] == 1:
             name_string += "W"
-        dense2['r'][slot] = name_string + str(dense2['r'][slot])
+        dense2.loc[slot, 'r'] = name_string + str(dense2.loc[slot, 'r'])
 
-        if dense2['r'][slot] in list(manager.requests_frame['starname']):
-            slots_needed = manager.slots_needed_for_exposure_dict[dense2['r'][slot]]
+        if dense2.loc[slot, 'r'] in list(manager.requests_frame['starname']):
+            slots_needed = manager.slots_needed_for_exposure_dict[dense2.loc[slot, 'r']]
             if slots_needed > 1:
                 for t in range(1, slots_needed):
-                    dense2['r'][slot + t] = str(dense2['r'][slot + t]) + str(dense2['r'][slot])
+                    dense2.loc[slot + t, 'r'] = str(dense2.loc[slot + t, 'r']) + str(dense2.loc[slot, 'r'])
 
     # dense2 has keys for all days and slots, manually fill in the reserved slots for each observation and fill in Past/Twilight/Weather info
     dense2.to_csv(manager.output_directory + "serialized_outputs_dense_v2.csv", index=False, na_rep="")

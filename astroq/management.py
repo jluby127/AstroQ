@@ -19,9 +19,11 @@ logs = logging.getLogger(__name__)
 
 # from kpfcc import DATADIR
 DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')
+EXAMPLEDIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'examples')
+
 import astroq.history as hs
 import astroq.access as ac
-import astroq.maps as mp
+import astroq.weather as wh
 
 class data_admin(object):
     """A Data Admin object, from which we can easily pass around information.
@@ -51,11 +53,8 @@ class data_admin(object):
         self.daily_starting_time = str(config.get('other', 'daily_starting_time'))
         self.daily_ending_time  = f"{(int(self.daily_starting_time.split(':')[0]) + self.n_hours_in_night) % 24:02d}:{int(self.daily_starting_time.split(':')[1]):02d}"
 
-        # self.allocation_file = os.path.join(self.semester_directory, "inputs/allocation_schedule.txt")
-        self.allocation_file = str(config.get('oia', 'allocation_file'))
-        logs.debug("Using allocation map as defined in: ", self.allocation_file)
+        self.allocation_file = str(config.get('options', 'allocation_file'))
         self.past_database_file = os.path.join(self.semester_directory, "inputs/queryJumpDatabase.csv")
-        # self.accessibilities_file = os.path.join(self.semester_directory, "inputs/accessibilities_" + str(self.slot_size) + "minSlots.json")
         self.special_map_file = os.path.join(self.semester_directory, "inputs/specialMaps_" + str(self.slot_size) + "minSlots.txt")
         self.zero_out_file = os.path.join(self.semester_directory, "inputs/zero_out.csv")
         self.nonqueue_map_file = os.path.join(self.semester_directory, "inputs/NonQueueMap"  + str(self.slot_size) + ".txt")
@@ -151,31 +150,36 @@ class data_admin(object):
         self.semester_grid = np.arange(0, self.n_nights_in_semester, 1)
         self.quarters_grid = np.arange(0, self.n_quarters_in_night, 1)
 
-        self.twilight_map_remaining_2D = mp.compute_twilight_map(self)
+        self.twilight_map_remaining_2D = ac.compute_twilight_map(self)
         self.available_slots_in_each_night = np.sum(self.twilight_map_remaining_2D, axis=1)
-
         # When running a normal schedule, include the observatory's allocation map
         if self.run_optimal_allocation == False:
-                weather_diff_remaining, allocation_map_1D, allocation_map_2D, weathered_map = \
-                                    mp.prepare_allocation_map(self)
+            if self.allocation_file!='None':
+                allocation_map_2D = np.loadtxt(os.path.join(self.upstream_path, self.allocation_file))
+                allocation_2D_post_weather, weather_diff = wh.prepare_allocation_map(self, allocation_map_2D)
+            else:
+                # Get the latest allocation info from the observatory
+                allo, all_dates_dict = ac.pull_allocation(self.semester_start_date, self.semester_length, 'KPF') # NOTE: later change instrument to 'KPF-CC'
+                allocation_map_2D = ac.build_allocation_map(all_dates_dict, allo)
+                allocation_2D_post_weather, weather_diff = wh.prepare_allocation_map(self, allocation_map_2D)
+
         else:
             # When running the optimal allocation, all dates are possible except for those specifically blacked out
             # Weather arrays are zeros since no weather losses are modeled
-            weather_diff_remaining = np.zeros(self.n_nights_in_semester, dtype='int')
-            weathered_map = np.zeros((self.n_nights_in_semester, self.n_slots_in_night), dtype='int')
+            weather_diff = np.zeros(self.n_nights_in_semester, dtype='int')
 
             # allocation maps are ones because all nights are possible to be allocated
-            allocation_map_1D = np.ones(self.n_slots_in_semester, dtype='int')
             allocation_map_2D = np.ones((self.n_nights_in_semester, self.n_slots_in_night), dtype='int')
+            allocation_2D_post_weather = np.ones((self.n_nights_in_semester, self.n_slots_in_night), dtype='int')
 
-        self.weather_diff_remaining = weather_diff_remaining
-        self.allocation_map_1D = allocation_map_1D
+        self.weather_diff = weather_diff
         self.allocation_map_2D = allocation_map_2D
-        self.weathered_map = weathered_map
-        if np.sum(self.weather_diff_remaining) == 0:
+        self.allocation_map_2D_post_weather = allocation_2D_post_weather
+
+        if np.sum(self.weather_diff) == 0:
             self.weathered_days = []
         else:
-            self.weathered_days = np.where(np.any(self.weather_diff_remaining == 1, axis=1))[0]
+            self.weathered_days = np.where(np.any(self.weather_diff == 1, axis=1))[0]
 
     def build_slots_required_dictionary(self, always_round_up_flag=False):
         """
@@ -374,8 +378,8 @@ def prepare_new_semester(config_path):
     if little_manager.run_optimal_allocation == False:
         little_manager.allocation_file = os.path.join(little_manager.upstream_path, "inputs/Observatory_Allocation.csv")
         if os.path.exists(little_manager.allocation_file):
-            allocation = mp.format_keck_allocation_info(little_manager.allocation_file)
-            allocation_binary = mp.convert_allocation_info_to_binary(little_manager, allocation)
+            allocation = ac.format_keck_allocation_info(little_manager.allocation_file)
+            allocation_binary = ac.convert_allocation_info_to_binary(little_manager, allocation)
         else:
             logs.critical("file not found {}".format(little_manager.allocation_file))
             logs.critical("Download from https://www2.keck.hawaii.edu/observing/keckSchedule/queryForm.php")

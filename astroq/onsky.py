@@ -26,7 +26,7 @@ import ttp.model as model
 
 import astroq.weather as wt
 import astroq.io as io
-import astroq.maps as mp
+import astroq.access as ac
 
 named_colors = ['blue', 'red', 'green', 'gold', 'maroon', 'gray', 'orange', 'magenta', 'purple']
 
@@ -162,7 +162,7 @@ def produce_bright_backups(manager, nstars_max=100):
 
     backup_starlist = pd.read_csv(manager.backup_file)
     manager.requests_frame = backup_starlist
-    available_indices = mp.produce_ultimate_map(manager, manager.requests_frame, running_backup_stars=True)
+    available_indices = ac.produce_ultimate_map(manager, manager.requests_frame, running_backup_stars=True)
     slots_available_tonight_for_star = {k: len(v[0]) for k, v in available_indices.items()}
     stars_with_sufficient_availability_tonight = [k for k, v in slots_available_tonight_for_star.items() if v > int(0.25*int(diff_minutes/5))]
 
