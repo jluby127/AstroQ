@@ -143,7 +143,7 @@ def ttp(args):
     manager = mn.data_admin(cf)
     manager.run_admin()
     sk.run_ttp(manager, include_specmatch=True)
-    sk.produce_bright_backups(manager)
+    sk.produce_bright_backups(manager,nstars_max=150)
     return
 
 def get_history(args):

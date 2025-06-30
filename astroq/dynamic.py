@@ -109,16 +109,16 @@ def get_cof(manager, all_stars):
         xaxis_title="Calendar Date",
         yaxis_title="Request % Complete",
         showlegend=True,
-        legend=dict(
-            x=0.98,
-            y=0.05,
-            xanchor='right',
-            yanchor='bottom',
-            bgcolor='rgba(255,255,255,0.7)',
-            bordercolor='black',
-            borderwidth=1,
-            font=dict(size=labelsize-18)
-        ),
+        #legend=dict(
+        #    x=0.98,
+        #    y=0.05,
+        #    xanchor='right',
+        #    yanchor='bottom',
+        #    bgcolor='rgba(255,255,255,0.7)',
+        #   bordercolor='black',
+        #    borderwidth=1,
+        #    font=dict(size=labelsize-18)
+        #),
         xaxis=dict(
             title_font=dict(size=labelsize),
             tickfont=dict(size=labelsize-4),

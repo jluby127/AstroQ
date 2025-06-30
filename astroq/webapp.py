@@ -105,7 +105,7 @@ def nightplan():
         slew_animation_html = dn.get_slew_animation(manager, data_ttp, animationStep=120)
         slew_path_html = dn.plot_path_2D_interactive(manager, data_ttp)
         figure_html_list = [script_table_html, ladder_html, slew_animation_html, slew_path_html]
-    
+        #figure_html_list = [ladder_html, slew_animation_html, slew_path_html]
     else:
         figure_html_list = []
     return render_template("nightplan.html", starname=None, figure_html_list=figure_html_list)
