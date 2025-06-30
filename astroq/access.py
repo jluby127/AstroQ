@@ -135,9 +135,26 @@ def produce_ultimate_map(manager, rf, running_backup_stars=False):
     is_night = is_night.astype(bool)
     is_night = np.ones_like(is_altaz, dtype=bool) & is_night[np.newaxis,:,:]
 
-    is_alloc = manager.allocation_map_2D.astype(bool) # shape = (nnights, nslots) # TODO compute on the fly
+    # Reads in csv of start stoptimes 
+    df = pd.read_csv(manager.allocation_file)
+    # Split Time into start and stop
+    df[['start', 'stop']] = df['Time'].str.extract(r'(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})')
+
+    # Drop old time and keep only relevant columns
+    df = df[['Date', 'start', 'stop']].copy()
+    df['start'] = pd.to_datetime(df['Date'] + ' ' + df['start'])
+    df['stop'] = pd.to_datetime(df['Date'] + ' ' + df['stop'])
+
+    is_alloc = np.zeros((nnights,nslots),dtype=bool)
+    for i,row in df.iterrows():
+        start = Time(row.start,scale='utc')
+        stop = Time(row.stop,scale='utc')
+        is_alloc |= (start < slotmidpoint) & (slotmidpoint < stop)
+
     # is_alloc = np.repeat(is_alloc[np.newaxis, :, :], ntargets, axis=0)
+    import pdb;pdb.set_trace()
     is_alloc = np.ones_like(is_altaz, dtype=bool) & is_alloc[np.newaxis,:,:] # shape = (ntargets, nnights, nslots)
+
 
     is_observable_now = np.logical_and.reduce([
         is_altaz,
