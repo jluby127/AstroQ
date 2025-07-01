@@ -142,7 +142,7 @@ def ttp(args):
     print(f'ttp function: config_file is {cf}')
     manager = mn.data_admin(cf)
     manager.run_admin()
-    sk.run_ttp(manager, include_specmatch=True)
+    sk.run_ttp(manager, include_specmatch=False)
     sk.produce_bright_backups(manager,nstars_max=150)
     return
 
