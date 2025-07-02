@@ -92,6 +92,13 @@ def run_ttp(manager, include_specmatch=False):
 
     plotting.writeStarList(solution.plotly, observation_start_time, manager.current_day,
                         outputdir=observers_path)
+    # add the unique id values to the above csv file for Josh
+    writtenstarlist = pd.read_csv(observers_path + "ObserveOrder_" + manager.current_day + ".txt")
+    df_merged = writtenstarlist.merge(manager.requests_frame[['starname', 'unique_id']], left_on='Target', right_on='starname', how='left')
+    df_merged = df_merged.drop(columns=['starname'])
+    df_merged.to_csv(observers_path + "ObserveOrder_" + manager.current_day + ".txt", index=False)
+
+
     plotting.plot_path_2D(solution,outputdir=observers_path)
     plotting.nightPlan(solution.plotly, manager.current_day, outputdir=observers_path)
     obs_and_times = pd.read_csv(observers_path + 'ObserveOrder_' + str(manager.current_day) + ".txt")
