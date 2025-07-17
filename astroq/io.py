@@ -188,89 +188,6 @@ def write_out_results(manager, theta, round, start_the_clock):
     filename.write("Total Time to complete " + round +  ": " + str(np.round(time.time()-start_the_clock,3)) + "\n")
     filename.close()
 
-def build_observed_map_past(past_info, starmap_template_filename):
-    """
-    Construct stage one (past) of the starmap which is then used to build the cadence plot.
-
-    Args:
-        past_info (array): 2D array following schema of the values for the database_info_dict
-        starmap_template_filename (str): the path and filename of the starmap template
-
-    Returns:
-        starmap (dataframe): an updated starmap which includes the past history of the target
-    """
-    starmap = pd.read_csv(starmap_template_filename)
-    observed = [False]*len(starmap)
-    n_observed = [0]*len(starmap)
-    for i, item in enumerate(past_info[1]):
-        ind = list(starmap['Date']).index(past_info[1][i])
-        observed[ind + int(past_info[2][i]-0.5)] = True
-        n_observed[ind + int(past_info[2][i]-0.5)] = past_info[3][i]
-    starmap['Observed'] = observed
-    starmap['N_obs'] = n_observed
-    return starmap
-
-def build_observed_map_future(manager, combined_semester_schedule, starname, starmap):
-    """
-    Construct stage two (future) of the starmap which is then used to build the cadence plot.
-
-    Args:
-        manager (obj): a data_admin object
-        combined_semester_schedule (array): a 2D array of dimensions n_nights_in_semester by
-                                            n_slots_in_night where elements denote how the slot is
-                                            used: target, twilight, weather, not scheduled.
-        starname (str): the request in question
-        starmap (dataframe): an updated starmap which includes the past history of the target
-
-    Returns:
-        starmap (dataframe): an updated starmap which includes the past history of the target
-    """
-    starmap['Allocated'] = [False]*len(starmap)
-    starmap['Weathered'] = [False]*len(starmap)
-
-    for i, item in enumerate(combined_semester_schedule):
-        if starname in combined_semester_schedule[i]:
-            ind = list(combined_semester_schedule[i]).index(starname)
-            quarter = determine_quarter(ind, np.shape(combined_semester_schedule)[1])
-            starmap['Observed'][i*4 + quarter] = True
-            starmap['N_obs'][i*4 + quarter] = list(combined_semester_schedule[i]).count(
-                    starname)/manager.slots_needed_for_exposure_dict[starname]
-
-    for a, item in enumerate(manager.allocation_all):
-        # mulitply by 4 because each element of allocation_all represents one quarter
-        # starmap['Allocated'][days_into_semester*4 + a] = bool(allocation_all[a])
-        starmap['Allocated'][a] = bool(manager.allocation_all[a])
-    for w, item in enumerate(manager.weather_diff_remaining.flatten()):
-        starmap['Weathered'][manager.all_dates_dict[manager.current_day]*4+ w] = bool(manager.weather_diff_remaining.flatten()[w])
-
-    return starmap
-
-def determine_quarter(value, n_slots_in_night):
-    """
-    Given a slot number, determine what quarter it is to be observed in.
-
-    Args:
-        value (int): the slot number to be observed
-        n_slots_in_night (int): the number of slots in the night
-
-    Returns:
-        quarter (int): the corresponding quarter (1, 2, 3, 4) of the night
-    """
-    if value <= int(n_slots_in_night*(1/4.)):
-        quarter = 0
-    elif value <= int(n_slots_in_night*(2/4.)) and value > int(n_slots_in_night*(1/4.)):
-        quarter = 1
-    elif value <= int(n_slots_in_night*(3/4.)) and value > int(n_slots_in_night*(2/4.)):
-        quarter = 2
-    elif value <= n_slots_in_night and value > int(n_slots_in_night*(3/4.)):
-        quarter = 3
-    elif value <= int(n_slots_in_night*(5/4.)) and value > n_slots_in_night:
-        quarter = 3
-    else:
-        quarter = 0
-        print("Houston, we've had a problem. No valid quarter: ", value, n_slots_in_night)
-    return quarter
-
 def write_stars_schedule_human_readable(combined_semester_schedule, Yrds, manager, round_info):
     """
     Turns the non-square matrix of the solution into a square matrix and starts the human readable
@@ -504,76 +421,6 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
     print("Total Open Shutter Time Scheduled: " + str(np.round((total_exptime/3600),2)) + " hours")
     return lines
 
-# Define column names in advance
-columns = [
-    'star_name', 'ra', 'dec', 'equinox', 'jmag', 'gmag', 'teff',
-    'gaia_dr3_id', 'program_code', 'priority', 'semester',
-    'obs_time', 'first_avail', 'last_avail'
-]
-def parse_star_line(line):
-    line = line.strip()
-
-    # Case 1: blank line
-    if not line:
-        return {col: '' for col in columns}
-
-    # Case 2: line with Xs
-    if 'EXTRAS' in line and re.fullmatch(r'X*EXTRASX*', line):
-        row = {col: 'XX' for col in columns}
-        row['gaia_dr3_id'] = 'EXTRAS'
-        return row
-
-    # Normal case: parse structured line
-    tokens = line.split()
-
-    try:
-        star_name = tokens[0]
-        ra = f"{tokens[1]}h{tokens[2]}m{tokens[3]}s"
-        dec = f"{tokens[4]}d{tokens[5]}m{tokens[6]}s"
-        equinox = tokens[7]
-
-        jmag = re.search(r'jmag=([\d.]+)', line)
-        gmag = re.search(r'gmag=([\d.]+)', line)
-        teff = re.search(r'Teff=([\d.]+)', line)
-
-        jmag = jmag.group(1) if jmag else ''
-        gmag = gmag.group(1) if gmag else ''
-        teff = teff.group(1) if teff else ''
-
-        gaia_id_match = re.search(r'DR[23]_\d+', line)
-        gaia_id = gaia_id_match.group(0) if gaia_id_match else ''
-
-        post_gaia_tokens = line.split(gaia_id)[-1].strip().split() if gaia_id else []
-
-        program_code = post_gaia_tokens[0] if len(post_gaia_tokens) > 0 else ''
-        priority = post_gaia_tokens[1] if len(post_gaia_tokens) > 1 else ''
-        semester = post_gaia_tokens[2] if len(post_gaia_tokens) > 2 else ''
-        obs_time      = str(post_gaia_tokens[3]) if len(post_gaia_tokens) > 3 else ''
-        first_avail   = str(post_gaia_tokens[4]) if len(post_gaia_tokens) > 4 else ''
-        last_avail    = str(post_gaia_tokens[5]) if len(post_gaia_tokens) > 5 else ''
-
-        return {
-            'star_name': star_name,
-            'ra': ra,
-            'dec': dec,
-            'equinox': equinox,
-            'jmag': jmag,
-            'gmag': gmag,
-            'teff': teff,
-            'gaia_dr3_id': gaia_id,
-            'program_code': program_code,
-            'priority': priority,
-            'semester': semester,
-            'obs_time': obs_time,
-            'first_avail': first_avail,
-            'last_avail': last_avail
-        }
-
-    except Exception as e:
-        # If parsing fails, return blank row (optional)
-        return {col: ' ' for col in columns}
-
-
 def format_kpf_row(row, obs_time, first_available, last_available, current_day,
                     filler_flag = False, extra=False):
     """
@@ -641,8 +488,8 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
                         + priostring + ' ' + programstring + ' ' + timestring2 +
                          ' ' + first_available  + ' ' + last_available )
 
-    # if not pd.isnull(row['Observing Notes'][0]):
-    #     line += (' ' + str(row['Observing Notes'][0]))
+    if not pd.isnull(row['Observing Notes'][0]):
+        line += (' ' + str(row['Observing Notes'][0]))
 
     return line
 
@@ -675,3 +522,190 @@ def pm_correcter(ra, dec, pmra, pmdec, current_day, equinox="2000"):
     formatted_dec = new_coord.dec.to_string(unit=u.deg, sep=' ', pad=True, precision=0)
 
     return formatted_ra, formatted_dec
+
+
+# # NOTE: This function is used to recreate a Request_Frame row from a script line. Might not be necessary and can be deleted.
+# # Define column names in advance
+# columns = [
+#     'star_name', 'ra', 'dec', 'equinox', 'jmag', 'gmag', 'teff',
+#     'gaia_dr3_id', 'program_code', 'priority', 'semester',
+#     'obs_time', 'first_avail', 'last_avail'
+# ]
+# def parse_star_line(line):
+#     line = line.strip()
+#
+#     # Case 1: blank line
+#     if not line:
+#         return {col: '' for col in columns}
+#
+#     # Case 2: line with Xs
+#     if 'EXTRAS' in line and re.fullmatch(r'X*EXTRASX*', line):
+#         row = {col: 'XX' for col in columns}
+#         row['gaia_dr3_id'] = 'EXTRAS'
+#         return row
+#
+#     # Normal case: parse structured line
+#     tokens = line.split()
+#
+#     try:
+#         star_name = tokens[0]
+#         ra = f"{tokens[1]}h{tokens[2]}m{tokens[3]}s"
+#         dec = f"{tokens[4]}d{tokens[5]}m{tokens[6]}s"
+#         equinox = tokens[7]
+#
+#         jmag = re.search(r'jmag=([\d.]+)', line)
+#         gmag = re.search(r'gmag=([\d.]+)', line)
+#         teff = re.search(r'Teff=([\d.]+)', line)
+#
+#         jmag = jmag.group(1) if jmag else ''
+#         gmag = gmag.group(1) if gmag else ''
+#         teff = teff.group(1) if teff else ''
+#
+#         gaia_id_match = re.search(r'DR[23]_\d+', line)
+#         gaia_id = gaia_id_match.group(0) if gaia_id_match else ''
+#
+#         post_gaia_tokens = line.split(gaia_id)[-1].strip().split() if gaia_id else []
+#
+#         program_code = post_gaia_tokens[0] if len(post_gaia_tokens) > 0 else ''
+#         priority = post_gaia_tokens[1] if len(post_gaia_tokens) > 1 else ''
+#         semester = post_gaia_tokens[2] if len(post_gaia_tokens) > 2 else ''
+#         obs_time      = str(post_gaia_tokens[3]) if len(post_gaia_tokens) > 3 else ''
+#         first_avail   = str(post_gaia_tokens[4]) if len(post_gaia_tokens) > 4 else ''
+#         last_avail    = str(post_gaia_tokens[5]) if len(post_gaia_tokens) > 5 else ''
+#
+#         return {
+#             'star_name': star_name,
+#             'ra': ra,
+#             'dec': dec,
+#             'equinox': equinox,
+#             'jmag': jmag,
+#             'gmag': gmag,
+#             'teff': teff,
+#             'gaia_dr3_id': gaia_id,
+#             'program_code': program_code,
+#             'priority': priority,
+#             'semester': semester,
+#             'obs_time': obs_time,
+#             'first_avail': first_avail,
+#             'last_avail': last_avail
+#         }
+#
+#     except Exception as e:
+#         # If parsing fails, return blank row (optional)
+#         return {col: ' ' for col in columns}
+
+
+# -------------------------------------------------------------------------------------------------------------------
+# NOTE: these three functions are used for constructing the "cadence view" plot, which we have not been making recently.
+# We may want to start making these and serving them to the webapp, but this is low priority. Saving these functions
+# for now by commenting them out, so they don't appear in the coverage test stats.
+# If we keep them they will likely get absorbed into the plot.py or dynamic.py
+# -------------------------------------------------------------------------------------------------------------------
+# def build_observed_map_past(past_info, starmap_template_filename):
+#     """
+#     Construct stage one (past) of the starmap which is then used to build the cadence plot.
+#
+#     Args:
+#         past_info (array): 2D array following schema of the values for the database_info_dict
+#         starmap_template_filename (str): the path and filename of the starmap template
+#
+#     Returns:
+#         starmap (dataframe): an updated starmap which includes the past history of the target
+#     """
+#     starmap = pd.read_csv(starmap_template_filename)
+#     observed = [False]*len(starmap)
+#     n_observed = [0]*len(starmap)
+#     for i, item in enumerate(past_info[1]):
+#         ind = list(starmap['Date']).index(past_info[1][i])
+#         observed[ind + int(past_info[2][i]-0.5)] = True
+#         n_observed[ind + int(past_info[2][i]-0.5)] = past_info[3][i]
+#     starmap['Observed'] = observed
+#     starmap['N_obs'] = n_observed
+#     return starmap
+#
+# def build_observed_map_future(manager, combined_semester_schedule, starname, starmap):
+#     """
+#     Construct stage two (future) of the starmap which is then used to build the cadence plot.
+#
+#     Args:
+#         manager (obj): a data_admin object
+#         combined_semester_schedule (array): a 2D array of dimensions n_nights_in_semester by
+#                                             n_slots_in_night where elements denote how the slot is
+#                                             used: target, twilight, weather, not scheduled.
+#         starname (str): the request in question
+#         starmap (dataframe): an updated starmap which includes the past history of the target
+#
+#     Returns:
+#         starmap (dataframe): an updated starmap which includes the past history of the target
+#     """
+#     starmap['Allocated'] = [False]*len(starmap)
+#     starmap['Weathered'] = [False]*len(starmap)
+#
+#     for i, item in enumerate(combined_semester_schedule):
+#         if starname in combined_semester_schedule[i]:
+#             ind = list(combined_semester_schedule[i]).index(starname)
+#             quarter = determine_quarter(ind, np.shape(combined_semester_schedule)[1])
+#             starmap['Observed'][i*4 + quarter] = True
+#             starmap['N_obs'][i*4 + quarter] = list(combined_semester_schedule[i]).count(
+#                     starname)/manager.slots_needed_for_exposure_dict[starname]
+#
+#     for a, item in enumerate(manager.allocation_all):
+#         # mulitply by 4 because each element of allocation_all represents one quarter
+#         # starmap['Allocated'][days_into_semester*4 + a] = bool(allocation_all[a])
+#         starmap['Allocated'][a] = bool(manager.allocation_all[a])
+#     for w, item in enumerate(manager.weather_diff_remaining.flatten()):
+#         starmap['Weathered'][manager.all_dates_dict[manager.current_day]*4+ w] = bool(manager.weather_diff_remaining.flatten()[w])
+#
+#     return starmap
+#
+# def determine_quarter(value, n_slots_in_night):
+#     """
+#     Given a slot number, determine what quarter it is to be observed in.
+#
+#     Args:
+#         value (int): the slot number to be observed
+#         n_slots_in_night (int): the number of slots in the night
+#
+#     Returns:
+#         quarter (int): the corresponding quarter (1, 2, 3, 4) of the night
+#     """
+#     if value <= int(n_slots_in_night*(1/4.)):
+#         quarter = 0
+#     elif value <= int(n_slots_in_night*(2/4.)) and value > int(n_slots_in_night*(1/4.)):
+#         quarter = 1
+#     elif value <= int(n_slots_in_night*(3/4.)) and value > int(n_slots_in_night*(2/4.)):
+#         quarter = 2
+#     elif value <= n_slots_in_night and value > int(n_slots_in_night*(3/4.)):
+#         quarter = 3
+#     elif value <= int(n_slots_in_night*(5/4.)) and value > n_slots_in_night:
+#         quarter = 3
+#     else:
+#         quarter = 0
+#         print("Houston, we've had a problem. No valid quarter: ", value, n_slots_in_night)
+#     return quarter
+#
+# def compute_on_off_for_quarter(quarter_map, quarter):
+#     """
+#     Determine the first and last day a target is accessible in a given quarter of the night.
+#     Primarily for easy lookup plotting purposes later.
+#
+#     Args:
+#         quarter_map (array): a 2D array of length equal to n_slots_in_night representing a
+#                                       single night where 1 indicates target is accessible in that
+#                                       slot, 0 otherwise.
+#     Returns:
+#         observable_quarters (array): a 1D array of length n_quarters_in_night where each element
+#                                      represents if the target is at all observerable in that quarter
+#                                      (1st to 4th running left to right).
+#     """
+#     quarter_map = np.array(quarter_map)
+#     quarter_map_transpose = quarter_map.T
+#     quarter_map_transpose_tonight = list(quarter_map_transpose[quarter])
+#     try:
+#         on = quarter_map_transpose_tonight.index(1)
+#         quarter_map_transpose_tonight.reverse()
+#         off = len(quarter_map_transpose_tonight) - quarter_map_transpose_tonight.index(1) - 1
+#     except:
+#         on = 0
+#         off = 0
+#     return [on, off]

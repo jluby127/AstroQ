@@ -344,36 +344,37 @@ Very best,
 Jack
 """
 
+# This portion not ready yet, but saving for future use.
+#---------------------------------------------------------
 # import smtplib
 # from email.mime.multipart import MIMEMultipart
 # from email.mime.text import MIMEText
 
 # Email Configuration
-SMTP_SERVER = 'smtp.example.com'
-SMTP_PORT = 587
-SENDER_EMAIL = 'youremail@example.com'
-SENDER_PASSWORD = 'yourpassword'
+# SMTP_SERVER = 'smtp.example.com'
+# SMTP_PORT = 587
+# SENDER_EMAIL = 'youremail@example.com'
+# SENDER_PASSWORD = 'yourpassword'
+#
+# def send_email(receiver_email, subject, body):
+#     msg = MIMEMultipart()
+#     msg['From'] = SENDER_EMAIL
+#     msg['To'] = receiver_email
+#     msg['Subject'] = subject
+#     msg.attach(MIMEText(body, 'plain'))
+#
+#     try:
+#         # Connect to SMTP server
+#         server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+#         server.starttls()  # Secure the connection
+#         server.login(SENDER_EMAIL, SENDER_PASSWORD)
+#         text = msg.as_string()
+#         server.sendmail(SENDER_EMAIL, receiver_email, text)
+#         server.quit()
+#         print(f"Email sent to {receiver_email}")
+#     except Exception as e:
+#         print(f"Failed to send email to {receiver_email}: {e}")
 
-def send_email(receiver_email, subject, body):
-    msg = MIMEMultipart()
-    msg['From'] = SENDER_EMAIL
-    msg['To'] = receiver_email
-    msg['Subject'] = subject
-    msg.attach(MIMEText(body, 'plain'))
-
-    try:
-        # Connect to SMTP server
-        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-        server.starttls()  # Secure the connection
-        server.login(SENDER_EMAIL, SENDER_PASSWORD)
-        text = msg.as_string()
-        server.sendmail(SENDER_EMAIL, receiver_email, text)
-        server.quit()
-        print(f"Email sent to {receiver_email}")
-    except Exception as e:
-        print(f"Failed to send email to {receiver_email}: {e}")
-
-# This portion not ready yet.
 # def define_email(bad_obs, i):
 #     badkeys = list(bad_obs.keys())
 #     email_address = bad_obs[badkeys[i]][4]
