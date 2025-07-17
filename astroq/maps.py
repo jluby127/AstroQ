@@ -770,80 +770,57 @@ def quarters_observable(observability_matrix):
 
     return observable_quarters
 
-def compute_on_off_for_quarter(quarter_map, quarter):
-    """
-    Determine the first and last day a target is accessible in a given quarter of the night.
-    Primarily for easy lookup plotting purposes later.
-
-    Args:
-        observability_matrix (array): a 1D array of length equal to n_slots_in_night representing a
-                                      single night where 1 indicates target is accessible in that
-                                      slot, 0 otherwise.
-    Returns:
-        observable_quarters (array): a 1D array of length n_quarters_in_night where each element
-                                     represents if the target is at all observerable in that quarter
-                                     (1st to 4th running left to right).
-    """
-    quarter_map = np.array(quarter_map)
-    quarter_map_transpose = quarter_map.T
-    quarter_map_transpose_tonight = list(quarter_map_transpose[quarter])
-    try:
-        on = quarter_map_transpose_tonight.index(1)
-        quarter_map_transpose_tonight.reverse()
-        off = len(quarter_map_transpose_tonight) - quarter_map_transpose_tonight.index(1) - 1
-    except:
-        on = 0
-        off = 0
-    return [on, off]
-
-def round_time_to_slot(input_time, slot_size):
-    """
-    From a given timestamp, determine the timestamp of the nearest slot's start.
-
-    Args:
-        input_time (int): timestamp in question, format HH:MM
-        slot_size (int): the size of the slots in minutes
-
-    Returns:
-        output_time (array): the time, in HH:MM format, of the start of the nearest slot
-    """
-    hour = int(input_time[:2])
-    minute = int(input_time[3:])
-
-    if minute%slot_size == 0:
-        return input_time
-    else:
-        rounded = round(minute,-1)
-        if rounded == 0:
-            rounded = "00"
-        if rounded == 60:
-            rounded = "00"
-            hour += 1
-        if hour < 10:
-            hour = "0" + str(hour)
-        if hour == 24:
-            hour = "00"
-        output_time = str(hour) + ":" + str(rounded)
-        return output_time
-
-def convert_utc_to_hst(timestring):
-    """
-    Convert between the UTC time and the HST time. Note Hawaii does not change clocks with
-    daylight savings so this is always a straight-forward transformation.
-
-    Args:
-        timestring (str): timestamp in question, format HH:MM
-        slot_size (int): the size of the slots in minutes
-
-    Returns:
-        output_time (array): the time, in HH:MM format, of the start of the nearest slot
-    """
-    offset = 10 # Timezone difference between UTC and HST.
-    hour = int(timestring[:2]) - offset
-    if hour < 0:
-        hour = 24 + hour
-    if hour < 10:
-        hour = '0' + str(hour)
-    else:
-        hour = str(hour)
-    return hour + timestring[2:]
+# ------------------------------------------------------------------------------------------------------------
+# These feel useful but are not touched at present.
+# ------------------------------------------------------------------------------------------------------------
+# def round_time_to_slot(input_time, slot_size):
+#     """
+#     From a given timestamp, determine the timestamp of the nearest slot's start.
+#
+#     Args:
+#         input_time (int): timestamp in question, format HH:MM
+#         slot_size (int): the size of the slots in minutes
+#
+#     Returns:
+#         output_time (array): the time, in HH:MM format, of the start of the nearest slot
+#     """
+#     hour = int(input_time[:2])
+#     minute = int(input_time[3:])
+#
+#     if minute%slot_size == 0:
+#         return input_time
+#     else:
+#         rounded = round(minute,-1)
+#         if rounded == 0:
+#             rounded = "00"
+#         if rounded == 60:
+#             rounded = "00"
+#             hour += 1
+#         if hour < 10:
+#             hour = "0" + str(hour)
+#         if hour == 24:
+#             hour = "00"
+#         output_time = str(hour) + ":" + str(rounded)
+#         return output_time
+#
+# def convert_utc_to_hst(timestring):
+#     """
+#     Convert between the UTC time and the HST time. Note Hawaii does not change clocks with
+#     daylight savings so this is always a straight-forward transformation.
+#
+#     Args:
+#         timestring (str): timestamp in question, format HH:MM
+#         slot_size (int): the size of the slots in minutes
+#
+#     Returns:
+#         output_time (array): the time, in HH:MM format, of the start of the nearest slot
+#     """
+#     offset = 10 # Timezone difference between UTC and HST.
+#     hour = int(timestring[:2]) - offset
+#     if hour < 0:
+#         hour = 24 + hour
+#     if hour < 10:
+#         hour = '0' + str(hour)
+#     else:
+#         hour = str(hour)
+#     return hour + timestring[2:]

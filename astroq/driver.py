@@ -3,7 +3,7 @@ import os
 import sys
 import json
 import pandas as pd
-import numpy as pd
+import numpy as np
 import math
 from configparser import ConfigParser
 from argparse import Namespace
@@ -14,6 +14,7 @@ import astroq.management as mn
 import astroq.benchmarking as bn
 import astroq.blocks as ob
 import astroq.plot as pl
+import astroq.io as io
 import astroq.onsky as sk
 import astroq.history as hs
 import astroq.webapp as app
@@ -45,6 +46,7 @@ def bench(args):
     requests_frame.to_csv(os.path.join(semester_directory, "inputs/Requests.csv"))
     manager = mn.data_admin(cf)
     manager.run_admin()
+    io.report_allocation_stats(manager)
 
     # Build observability maps and request set
     strategy, observable = rq.define_indices_for_requests(manager)
@@ -67,7 +69,7 @@ def kpfcc(args):
     if args.kpfcc_subcommand is None:
         print("run astroq kpfcc --help for helpfile")
         return
-    
+
     return
 
 def kpfcc_build(args):
@@ -131,10 +133,16 @@ def schedule(args):
     schedule.run_model()
     return
 
-def plot(args):
+def plot_pkl(args):
     cf = args.config_file
     print(f'plot function: config_file is {cf}')
-    pl.run_plot_suite(cf)
+    pl.build_semester_webapp_pkl(cf)
+    return
+
+def plot_static(args):
+    cf = args.config_file
+    print(f'plot function: config_file is {cf}')
+    pl.build_static_plots(cf)
     return
 
 def ttp(args):
@@ -150,6 +158,7 @@ def get_history(args):
     cf = args.config_file
     print(f'get_history function: config_file is {cf}')
     manager = mn.data_admin(cf)
+    manager.run_admin()
     database_info_dict = hs.build_past_history(manager.past_database_file, manager.requests_frame, manager.twilight_frame)
     return
 

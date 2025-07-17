@@ -66,8 +66,8 @@ def run_ttp(manager):
 
     # Prepare relevant files
     round_two_requests = np.loadtxt(manager.upstream_path + "/outputs/" + str(manager.current_day) + '/Round2_Requests.txt', dtype=str, delimiter="\n")
-    send_to_ttp = prepare_for_ttp(manager.requests_frame, the_schedule[day_in_semester],
-                                        round_two_requests)
+    send_to_ttp = prepare_for_ttp(manager.requests_frame, the_schedule[day_in_semester], round_two_requests)
+
     filename = manager.upstream_path + "/outputs/" + str(manager.current_day) + '/Selected_' + str(manager.current_day) + ".txt"
     send_to_ttp.to_csv(filename, index=False)
     target_list = formatting.theTTP(filename)
