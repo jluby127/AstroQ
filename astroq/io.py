@@ -523,76 +523,74 @@ def pm_correcter(ra, dec, pmra, pmdec, current_day, equinox="2000"):
 
     return formatted_ra, formatted_dec
 
+# Define column names in advance
+columns = [
+    'star_name', 'ra', 'dec', 'equinox', 'jmag', 'gmag', 'teff',
+    'gaia_dr3_id', 'program_code', 'priority', 'semester',
+    'obs_time', 'first_avail', 'last_avail'
+]
+def parse_star_line(line):
+    line = line.strip()
 
-# # NOTE: This function is used to recreate a Request_Frame row from a script line. Might not be necessary and can be deleted.
-# # Define column names in advance
-# columns = [
-#     'star_name', 'ra', 'dec', 'equinox', 'jmag', 'gmag', 'teff',
-#     'gaia_dr3_id', 'program_code', 'priority', 'semester',
-#     'obs_time', 'first_avail', 'last_avail'
-# ]
-# def parse_star_line(line):
-#     line = line.strip()
-#
-#     # Case 1: blank line
-#     if not line:
-#         return {col: '' for col in columns}
-#
-#     # Case 2: line with Xs
-#     if 'EXTRAS' in line and re.fullmatch(r'X*EXTRASX*', line):
-#         row = {col: 'XX' for col in columns}
-#         row['gaia_dr3_id'] = 'EXTRAS'
-#         return row
-#
-#     # Normal case: parse structured line
-#     tokens = line.split()
-#
-#     try:
-#         star_name = tokens[0]
-#         ra = f"{tokens[1]}h{tokens[2]}m{tokens[3]}s"
-#         dec = f"{tokens[4]}d{tokens[5]}m{tokens[6]}s"
-#         equinox = tokens[7]
-#
-#         jmag = re.search(r'jmag=([\d.]+)', line)
-#         gmag = re.search(r'gmag=([\d.]+)', line)
-#         teff = re.search(r'Teff=([\d.]+)', line)
-#
-#         jmag = jmag.group(1) if jmag else ''
-#         gmag = gmag.group(1) if gmag else ''
-#         teff = teff.group(1) if teff else ''
-#
-#         gaia_id_match = re.search(r'DR[23]_\d+', line)
-#         gaia_id = gaia_id_match.group(0) if gaia_id_match else ''
-#
-#         post_gaia_tokens = line.split(gaia_id)[-1].strip().split() if gaia_id else []
-#
-#         program_code = post_gaia_tokens[0] if len(post_gaia_tokens) > 0 else ''
-#         priority = post_gaia_tokens[1] if len(post_gaia_tokens) > 1 else ''
-#         semester = post_gaia_tokens[2] if len(post_gaia_tokens) > 2 else ''
-#         obs_time      = str(post_gaia_tokens[3]) if len(post_gaia_tokens) > 3 else ''
-#         first_avail   = str(post_gaia_tokens[4]) if len(post_gaia_tokens) > 4 else ''
-#         last_avail    = str(post_gaia_tokens[5]) if len(post_gaia_tokens) > 5 else ''
-#
-#         return {
-#             'star_name': star_name,
-#             'ra': ra,
-#             'dec': dec,
-#             'equinox': equinox,
-#             'jmag': jmag,
-#             'gmag': gmag,
-#             'teff': teff,
-#             'gaia_dr3_id': gaia_id,
-#             'program_code': program_code,
-#             'priority': priority,
-#             'semester': semester,
-#             'obs_time': obs_time,
-#             'first_avail': first_avail,
-#             'last_avail': last_avail
-#         }
-#
-#     except Exception as e:
-#         # If parsing fails, return blank row (optional)
-#         return {col: ' ' for col in columns}
+    # Case 1: blank line
+    if not line:
+        return {col: '' for col in columns}
+
+    # Case 2: line with Xs
+    if 'EXTRAS' in line and re.fullmatch(r'X*EXTRASX*', line):
+        row = {col: 'XX' for col in columns}
+        row['gaia_dr3_id'] = 'EXTRAS'
+        return row
+
+    # Normal case: parse structured line
+    tokens = line.split()
+
+    try:
+        star_name = tokens[0]
+        ra = f"{tokens[1]}h{tokens[2]}m{tokens[3]}s"
+        dec = f"{tokens[4]}d{tokens[5]}m{tokens[6]}s"
+        equinox = tokens[7]
+
+        jmag = re.search(r'jmag=([\d.]+)', line)
+        gmag = re.search(r'gmag=([\d.]+)', line)
+        teff = re.search(r'Teff=([\d.]+)', line)
+
+        jmag = jmag.group(1) if jmag else ''
+        gmag = gmag.group(1) if gmag else ''
+        teff = teff.group(1) if teff else ''
+
+        gaia_id_match = re.search(r'DR[23]_\d+', line)
+        gaia_id = gaia_id_match.group(0) if gaia_id_match else ''
+
+        post_gaia_tokens = line.split(gaia_id)[-1].strip().split() if gaia_id else []
+
+        program_code = post_gaia_tokens[0] if len(post_gaia_tokens) > 0 else ''
+        priority = post_gaia_tokens[1] if len(post_gaia_tokens) > 1 else ''
+        semester = post_gaia_tokens[2] if len(post_gaia_tokens) > 2 else ''
+        obs_time      = str(post_gaia_tokens[3]) if len(post_gaia_tokens) > 3 else ''
+        first_avail   = str(post_gaia_tokens[4]) if len(post_gaia_tokens) > 4 else ''
+        last_avail    = str(post_gaia_tokens[5]) if len(post_gaia_tokens) > 5 else ''
+
+        return {
+            'star_name': star_name,
+            'ra': ra,
+            'dec': dec,
+            'equinox': equinox,
+            'jmag': jmag,
+            'gmag': gmag,
+            'teff': teff,
+            'gaia_dr3_id': gaia_id,
+            'program_code': program_code,
+            'priority': priority,
+            'semester': semester,
+            'obs_time': obs_time,
+            'first_avail': first_avail,
+            'last_avail': last_avail
+        }
+
+    except Exception as e:
+        # If parsing fails, return blank row (optional)
+        return {col: ' ' for col in columns}
 
 
 # -------------------------------------------------------------------------------------------------------------------
@@ -709,3 +707,46 @@ def pm_correcter(ra, dec, pmra, pmdec, current_day, equinox="2000"):
 #         on = 0
 #         off = 0
 #     return [on, off]
+#
+# def get_accessibility_stats(access_map, time_up=30, slot_size=5):
+#     """
+#     Compute stats useful for checking feasibilty and for generating the cadence plot of a target
+#
+#     Args:
+#         access_map (array): a 2D array of shape n_nights_in_semester by n_slots_in_night where 1's
+#                             indicate the target is accessible
+#         time_up (int): the minimum number of minutes a target must be accessible in the night to be
+#                        considered observable in that night
+#         slot_size (int): the size of the slots in minutes
+#
+#     Returns:
+#         days_observable (int): the number of days in the semester where the target achieves a
+#                                minimum level of observablility
+#         rise_day (int): the number of days from semester start where the target is first available
+#         set_day (int): the number of days from semester start where the target is last available
+#     """
+#
+#     sum_along_days = np.sum(access_map, axis=1)
+#     gridpoints = int(time_up/slot_size)
+#     observable_mask = sum_along_days > gridpoints
+#     days_observable = np.sum(observable_mask)
+#
+#     rise_day = -1
+#     i = 0
+#     while rise_day < 0 and i < len(sum_along_days):
+#         if sum_along_days[i] > gridpoints:
+#             rise_day = i
+#         i += 1
+#     if i == len(sum_along_days):
+#         rise_day = i
+#
+#     set_day = -1
+#     j = len(sum_along_days)-1
+#     while set_day < 0 and j > 0:
+#         if sum_along_days[j] > gridpoints:
+#             set_day = j
+#         j -= 1
+#     if j == len(sum_along_days):
+#         set_day = len(sum_along_days)
+#
+#     return days_observable, rise_day, set_day

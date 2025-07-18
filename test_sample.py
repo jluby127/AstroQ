@@ -7,47 +7,32 @@ import os
 import astroq.management as mn
 import astroq.scheduler as sch
 import unittest
+from pathlib import Path
+
+import multiprocessing
+import time
+import requests
+import os
+from astroq.webapp import launch_app, app
+import threading
 
 class TestClass(unittest.TestCase):
 
     def test_cli(self):
         dr.kpfcc(argparse.Namespace(kpfcc_subcommand=None))
 
-    def test_round2_weather(self):
+    def test_helloworld(self):
         dr.kpfcc_prep(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
         dr.kpfcc_build(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
         dr.schedule(argparse.Namespace(request_file="examples/hello_world/outputs/2024-08-05/request_set.json", config_file='examples/hello_world/config_hello_world.ini'))
 
+    def test_round2_weather(self):
+        dr.kpfcc_prep(argparse.Namespace(config_file='examples/hello_world/config_hello_world_yesbonus.ini'))
+        dr.kpfcc_build(argparse.Namespace(config_file='examples/hello_world/config_hello_world_yesbonus.ini'))
+        dr.schedule(argparse.Namespace(request_file="examples/hello_world/outputs/2024-08-05/request_set.json", config_file='examples/hello_world/config_hello_world_yesbonus.ini'))
+
     def test_bench(self):
-        # override the tests of "do these files exist" and just run it all
-        # but run a shortened version, so it doesn't take long, see shortcut=5
-        nS = 12
-        cf = 'examples/bench/config_benchmark.ini' # need a separate file for this so that paths are correct
-        dr.bench(argparse.Namespace(config_file=cf, number_slots=nS))
-        # # Initialize manager and compute request set on the fly
-        # # This is a hacky workaround. run_admin needs this file to exist. This can
-        # # lead to race conditions if benchmarking is run in parallel.
-        # config = ConfigParser()
-        # config.read(cf)
-        # upstream_path = eval(config.get('required', 'folder'), {"os": os})
-        # requests_frame = bn.build_toy_model_from_paper(nS, hours_per_program = 100)
-        # requests_frame = requests_frame[::10]
-        # frame_path = os.path.join(upstream_path, "inputs/Requests.csv")
-        # os.makedirs(os.path.dirname(frame_path), exist_ok=True)
-        # requests_frame.to_csv(frame_path)
-        # manager = mn.data_admin(cf)
-        # manager.run_admin()
-        #
-        # # Build observability maps and request set
-        # print("Building valid indices.")
-        # strategy, observable = rq.define_indices_for_requests(manager)
-        # meta = rq.build_meta(cf)
-        # request_set = rq.RequestSet(meta, strategy, observable)
-        # current_day = str(config.get('required', 'current_day'))
-        #
-        # # Run the schedule
-        # schedule = sch.Scheduler(request_set, cf)
-        # schedule.run_model()
+        dr.bench(argparse.Namespace(config_file='examples/bench/config_benchmark.ini', number_slots=12))
 
     def test_prep(self):
         # test the creation of all upstream files, including the allocation map
@@ -57,36 +42,54 @@ class TestClass(unittest.TestCase):
         dr.plot_pkl(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
         dr.plot_static(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
 
-    # need environment variable to run
     def test_ob_database_pull(self):
         dr.kpfcc_data(argparse.Namespace(pull_file='examples/pull_file.json', database_file='examples/recreate_paper/'))
 
-    # following five tests has not been tested
     def test_ttp(self):
         dr.ttp(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
 
     def test_history(self):
         dr.get_history(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
 
-    # the dr.backups() function does not exist.
-    # def test_backups(self):
-    #     dr.backups(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
+    def test_dynamic_plotting(self):
+        dr.get_dynamics(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
+
+    def test_webapp(self):
+        config_path = 'examples/hello_world/config_hello_world.ini'
+
+        # Launch Flask in a thread
+        def run():
+            launch_app(config_path, flag=True)
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+
+        time.sleep(3)  # Wait for server to be ready
+        try:
+            response = requests.get("http://127.0.0.1:5000")
+            assert response.status_code == 200
+        finally:
+            # Gracefully shut down the Flask app
+            try:
+                requests.get("http://127.0.0.1:5000/shutdown")
+            except requests.exceptions.RequestException:
+                pass  # The server might already be down
+            thread.join(timeout=5)
+
+    def test_requests_vs_schedule(self):
+        req = 'examples/hello_world/outputs/2024-08-05/request_set.json'
+        sch = 'examples/hello_world/outputs/2024-08-05/serialized_outputs_sparse.csv'
+        dr.requests_vs_schedule(argparse.Namespace(request_file=req, schedule_file=sch))
+
+    # this is not working right now.
+    # def test_simulate_history(self):
+    #     dr.make_simulated_history(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
 
     # we don't care about OIA yet
     # def test_oia(self):
     #     dr.kpfcc_prep(argparse.Namespace(config_file='examples/recreate_paper/oia1/config_oia1.ini'))
     #     dr.kpfcc_build(argparse.Namespace(config_file='examples/recreate_paper/oia1/config_oia1.ini'))
     #     dr.schedule(argparse.Namespace(request_file="examples/recreate_paper/oia1/outputs/2024-08-02/request_set.json", config_file='examples/recreate_paper/oia1/config_oia1.ini'))
-
-    def test_requests_vs_schedule(self):
-        req = 'examples/hello_world/outputs/2024-08-02/request_set.json'
-        sch = 'examples/hello_world/outputs/2024-08-02/serialized_outputs_sparse.csv'
-
-        dr.requests_vs_schedule(argparse.Namespace(request_file=req, schedule_file=sch))
-
-    def test_simulate_history(self):
-        dr.make_simulated_history(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
-
 
 if __name__=="__main__":
     unittest.main()
