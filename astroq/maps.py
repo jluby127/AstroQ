@@ -34,7 +34,6 @@ def load_dict_compressed(filename):
         return pickle.load(f)
 from scipy.interpolate import interp1d
 
-import astroq.access as ac
 import astroq.weather as wh
 
 def produce_ultimate_map(manager, rs, running_backup_stars=False, mod=False):
@@ -68,7 +67,7 @@ def produce_ultimate_map(manager, rs, running_backup_stars=False, mod=False):
     start = date + "T" + manager.daily_starting_time
     daily_start = Time(start, location=keck.location)
     daily_end = daily_start + TimeDelta(1.0, format='jd') # full day from start of first night
-    tmp_slot_size = TimeDelta(5.0*u.min)
+    tmp_slot_size = TimeDelta(manager.slot_size*u.min)
     t = Time(np.arange(daily_start.jd, daily_end.jd, tmp_slot_size.jd), format='jd',location=keck.location)
     t = t[np.argsort(t.sidereal_time('mean'))] # sort by lst
 
@@ -206,6 +205,10 @@ def produce_ultimate_map(manager, rs, running_backup_stars=False, mod=False):
         available_indices_for_request[rs.iloc[itarget]['starname']] = temp
     return available_indices_for_request
 
+# NOTE: These two do the same thing essentially.
+# The first is used by the manager to create the self.twilight_map_remaining_2D without writing to file
+# The second is used by the manager during the "prep" to produce a csv of the twilight times
+# We should decide which way we want to go. Right now both are touched.
 def compute_twilight_map(manager):
     date_formal = Time(manager.current_day,format='iso',scale='utc')
     date = str(date_formal)[:10]
@@ -227,6 +230,89 @@ def compute_twilight_map(manager):
     # is_night = np.ones_like(is_altaz, dtype=bool) & is_night[np.newaxis,:,:]
     twilight_2D = is_night.astype(int)
     return twilight_2D
+
+def generate_twilight_times(all_dates_array):
+    """generate_twilight_times
+
+    Precompute a dataframe of the morning/evening twilight times for each day in the semester
+
+    Args:
+        all_dates_array (list): the calendar dates of the semester.
+                                Format: YYYY-MM-DD.
+    Returns:
+        twilight_frame (dataframe): the precomputed twilight times
+    """
+    keck = apl.Observer.at_site('W. M. Keck Observatory')
+
+    twilight_frame = pd.DataFrame({'time_utc':all_dates_array})
+    eighteen_deg_evening = []
+    twelve_deg_evening = []
+    six_deg_evening = []
+    eighteen_deg_morning = []
+    twelve_deg_morning = []
+    six_deg_morning = []
+    twilight_frame['timestamp'] = pd.to_datetime(twilight_frame['time_utc'])
+    twilight_frame = twilight_frame.set_index('timestamp')
+    # for day in twilight_frame.index.strftime('%Y-%m-%d').tolist():
+    for day in twilight_frame.index.strftime(date_format='%Y-%m-%d').tolist():
+        as_day = Time(day,format='iso',scale='utc')
+        eighteen_deg_evening.append(keck.twilight_evening_astronomical(as_day,which='next'))
+        twelve_deg_evening.append(keck.twilight_evening_nautical(as_day,which='next'))
+        six_deg_evening.append(keck.twilight_evening_civil(as_day,which='next'))
+        eighteen_deg_morning.append(keck.twilight_morning_astronomical(as_day,which='next'))
+        twelve_deg_morning.append(keck.twilight_morning_nautical(as_day,which='next'))
+        six_deg_morning.append(keck.twilight_morning_civil(as_day,which='next'))
+
+    twilight_frame['18_evening'] = eighteen_deg_evening
+    twilight_frame['12_evening'] = twelve_deg_evening
+    twilight_frame['6_evening'] = six_deg_evening
+    twilight_frame['18_morning'] = eighteen_deg_morning
+    twilight_frame['12_morning'] = twelve_deg_morning
+    twilight_frame['6_morning'] = six_deg_morning
+
+    return twilight_frame
+
+def single_night_allocated_slots(twilight_tonight, allocated_quarters_tonight, available_slots_in_night,
+                                n_slots_in_night):
+    """
+    Determine the slots of a single night that are allocated.
+
+    Args:
+        allocated_quarters_tonight (array): a 1D array of length n_quarters_in_night,
+                                [Q1, Q2, Q3, Q4] where binary elements indicate allocation.
+        available_slots_in_night (array): a 1D array of length n_nights_in_semester where each
+                              element is an integer representing the number of slots within that
+                              night that during night time
+        n_slots_in_night (int): the number of slots in a single night
+
+    Returns:
+        allocated_slots_tonight (array): a 1D array of length n_slots_in_night
+                        where 1's are the allocated slots that on night n and 0's are not allocated
+    """
+
+    available_slots_in_tonights_quarter = int(available_slots_in_night/4)
+    edge = int((n_slots_in_night - available_slots_in_night)/2)
+
+    edge_start = np.argmax(twilight_tonight)
+    edge_stop = np.argmax(twilight_tonight[::-1])
+
+    allocated_slots_tonight = [0]*n_slots_in_night
+    for i, item in enumerate(allocated_quarters_tonight):
+        if allocated_quarters_tonight[i] == 1:
+            start = edge_start + i*int(available_slots_in_tonights_quarter)
+            stop = start + int(available_slots_in_tonights_quarter)
+            if i == 3: # ensure allocation goes to up to twilight time at the end of the night.
+                stop = n_slots_in_night - edge_stop
+            for j in range(start, stop):
+                allocated_slots_tonight[j] = 1
+        else:
+            start = edge_start + i*available_slots_in_tonights_quarter
+            stop = start + available_slots_in_tonights_quarter
+            if i == 3: # prevent the last slot from being scheduled (one too many)
+                stop -= 1
+            for j in range(start, stop):
+                allocated_slots_tonight[j] = 0
+    return allocated_slots_tonight
 
 def mod_produce_ultimate_map(manager, starname):
     """
@@ -490,10 +576,10 @@ def build_allocation_map(manager, allocation_schedule, weather_diff):
     manager.available_slots_in_each_night_short = manager.available_slots_in_each_night#[manager.today_starting_night:]
 
     for n in range(len(manager.available_slots_in_each_night_short)):
-        allo_night_map = ac.single_night_allocated_slots(manager.twilight_map_remaining_2D[n], allocation_schedule[n],
+        allo_night_map = single_night_allocated_slots(manager.twilight_map_remaining_2D[n], allocation_schedule[n],
                                                 manager.available_slots_in_each_night_short[n], manager.n_slots_in_night)
         allocation_map_1D.append(allo_night_map)
-        weather_night_map = ac.single_night_allocated_slots(manager.twilight_map_remaining_2D[n], weather_diff[n],
+        weather_night_map = single_night_allocated_slots(manager.twilight_map_remaining_2D[n], weather_diff[n],
                                                 manager.available_slots_in_each_night_short[n], manager.n_slots_in_night)
         allocation_map_weathered.append(weather_night_map)
 

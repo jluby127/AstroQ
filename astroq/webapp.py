@@ -4,7 +4,7 @@ import plotly.io as pio
 import astroq.plot as pl
 import astroq.management as mn
 import astroq.dynamic as dn
-
+import threading
 
 app = Flask(__name__, template_folder="../templates")
 
@@ -30,22 +30,17 @@ def admin():
     # table_reqframe_html = dn.get_requests_frame(manager, filter_condition="()")
     table_reqframe_html = dn.get_requests_frame(manager, filter_condition=None)
     tables_html = [table_reqframe_html]
-    
-    
     fig_cof_html = dn.get_cof(manager, list(data_astroq[1].values()))
     fig_birdseye_html = dn.get_birdseye(manager, data_astroq[2], list(data_astroq[1].values()))
     figures_html = [fig_cof_html, fig_birdseye_html]
-    
-    
+
+
     return render_template("admin.html", tables_html=tables_html, figures_html=figures_html)
-
-
 
 # /semesterplan landing page
 @app.route("/semesterplan")
 def semesterplan_home():
     return render_template("semesterplan.html", starname=None, figure_html=None)
-
 
 # Page route for the semesterplan of a specific program
 @app.route("/semesterplan/<programname>")
@@ -58,7 +53,7 @@ def single_program(programname):
 
     table_reqframe_html = dn.get_requests_frame(manager, filter_condition=f"program_code=='{programname}'")
     tables_html = [table_reqframe_html]
-    
+
     fig_cof_html = dn.get_cof(manager, star_obj_list)
     fig_birdseye_html = dn.get_birdseye(manager, data_astroq[2], star_obj_list)
     figures_html = [fig_cof_html, fig_birdseye_html]
@@ -69,7 +64,6 @@ def single_program(programname):
 @app.route("/star")
 def star_home():
     return render_template("star.html", starname=None, figure_html=None)
-
 
 # Star detail page route
 @app.route("/star/<starname>")
@@ -82,7 +76,7 @@ def single_star(starname):
             star_obj = data_astroq[0][program][star_ind]
             if star_obj.starname == starname:
                 table_reqframe_html = dn.get_requests_frame(manager, filter_condition=f"starname=='{starname}'")
-                
+
                 fig_cof_html = dn.get_cof(manager, [data_astroq[0][program][star_ind]])
                 fig_birdseye_html = dn.get_birdseye(manager, data_astroq[2], [data_astroq[0][program][star_ind]])
 
@@ -97,20 +91,31 @@ def single_star(starname):
 @app.route("/nightplan")
 def nightplan():
     plots = ['script_table', 'slewgif', 'ladder', 'slewpath']
-    
+
     if data_ttp is not None:
         script_table_html = dn.get_script_plan(manager, data_ttp)
         ladder_html = dn.get_ladder(manager, data_ttp)
         slew_animation_html = dn.get_slew_animation(manager, data_ttp, animationStep=120)
         slew_path_html = dn.plot_path_2D_interactive(manager, data_ttp)
         figure_html_list = [script_table_html, ladder_html, slew_animation_html, slew_path_html]
-    
+
     else:
         figure_html_list = []
     return render_template("nightplan.html", starname=None, figure_html_list=figure_html_list)
 
-# Entry point for launching the app
-def launch_app(config_file):
+def run_server():
+    app.run(debug=False, use_reloader=False)
+
+def run_server_coverage():
+    # Run the Flask server in a background thread
+    server_thread = threading.Thread(target=lambda: app.run(debug=False, use_reloader=False), daemon=True)
+    server_thread.start()
+    admin()
+    single_program('U001')
+    single_star('191939')
+    nightplan()
+
+def launch_app(config_file, flag=False):
     global data_astroq, data_ttp, manager, all_stars_list
 
     manager = mn.data_admin(config_file)
@@ -124,14 +129,20 @@ def launch_app(config_file):
         data_ttp = pl.read_star_objects(ttp_path)
     else:
         data_ttp = None
+    if flag:
+        run_server_coverage()
+    else:
+        run_server()
 
-    app.run(debug=True)
+@app.route('/shutdown')
+def shutdown():
+    func = request.environ.get('werkzeug.server.shutdown')
+    if func:
+        func()
+    return 'Shutting down...'
 
 if __name__=="__main__":
 
     cf =  'examples/hello_world/config_hello_world.ini'
-    # cf =  'examples/bench/config_benchmark.ini'
-
     launch_app(cf)
     single_program('U001')
-    # import pdb; pdb.set_trace()

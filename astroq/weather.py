@@ -22,9 +22,6 @@ from astropy.coordinates import Angle
 import astroplan as apl
 import astropy.units as u
 
-import astroq.access as ac
-
-
 def get_loss_stats(manager):
     """
     Simulate nights totally lost to weather usine historical data
