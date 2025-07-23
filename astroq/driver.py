@@ -59,7 +59,7 @@ def bench(args):
     request_set.to_json(os.path.join(manager.output_directory, "request_set.json"))
 
     # Run the schedule
-    schedule = sch.Scheduler(request_set, cf)
+    schedule = sch.SemesterPlanner(request_set, cf)
     schedule.run_model()
     return
 
@@ -124,13 +124,26 @@ def kpfcc_webapp(args):
     app.launch_app(config_file)
     return
 
+def kpfcc_plan_semester(args):
+    """
+    Plan a semester's worth of observations using optimization.
+    """
+    rf = args.request_file
+    cf = args.config_file
+    print(f'kpfcc_plan_semester function: request_file is {rf}')
+    print(f'kpfcc_plan_semester function: config_file is {cf}')
+    request_set = rq.read_json(rf)
+    semester_planner = sch.SemesterPlanner(request_set, cf)
+    semester_planner.run_model()
+    return
+
 def schedule(args):
     rf = args.request_file
     cf = args.config_file
     print(f'schedule function: request_file is {rf}')
     print(f'schedule function: config_file is {cf}')
     request_set = rq.read_json(rf)
-    schedule = sch.Scheduler(request_set, cf)
+    schedule = sch.SemesterPlanner(request_set, cf)
     schedule.run_model()
     return
 
@@ -352,7 +365,7 @@ def requests_vs_schedule(args):
 #         # print out the last rows of strategy to ensure the size of the model looks right
 #         request_set.to_json(os.path.join(manager.output_directory, "request_set.json"))
 #         # Run the schedule
-#         schedule = sch.Scheduler(request_set, cf)
+#         schedule = sch.SemesterPlanner(request_set, cf)
 #         schedule.run_model()
 #         # Run the plot suite
 #         pl.run_plot_suite(cf)
