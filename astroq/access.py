@@ -180,7 +180,7 @@ def produce_ultimate_map(manager, rf, running_backup_stars=False):
         'is_observable_now': is_observable_now,
         'is_observable': is_observable
     }
-#     access = np.rec.fromarrays(list(access.values()), names=list(access.keys()))
+    access = np.rec.fromarrays(list(access.values()), names=list(access.keys()))
     return access
 
 def extract_available_indices_from_record(access, manager):
@@ -215,32 +215,6 @@ def extract_available_indices_from_record(access, manager):
 
         available_indices_for_request[manager.requests_frame.iloc[itarget]['starname']] = temp
     return available_indices_for_request
-
-
-
-def compute_twilight_map(manager):
-    """Compute the twilight map for the semester"""
-    date_formal = Time(manager.current_day,format='iso',scale='utc')
-    date = str(date_formal)[:10]
-    date_number = manager.all_dates_dict[manager.current_day]
-
-    keck = apl.Observer.at_site(manager.observatory)
-    daily_start = Time(date + "T" + manager.daily_starting_time, location=keck.location)
-    slotmidpoint0 = daily_start + (np.arange(manager.n_slots_in_night) + 0.5) *  manager.slot_size * u.min
-    days = np.arange(manager.n_nights_in_semester) * u.day
-    slotmidpoint = (slotmidpoint0[np.newaxis,:] + days[:,np.newaxis])
-
-    evening = Time(manager.twilight_frame['12_evening'][date_number:], format='jd')[:, None]
-    morning = Time(manager.twilight_frame['12_morning'][date_number:], format='jd')[:, None]
-    is_night = (evening < slotmidpoint) & (slotmidpoint < morning)
-    twilight_2D = is_night.astype(int)
-    return twilight_2D
-
-# Allocation and scheduling functions
-
-# No-op, we will specify the custom maps in the request_set object.
-def construct_custom_map_dict(special_map_file):
-    pass
 
 # This will be superceeded by keck text file -> is_alloc function. 
 def prepare_allocation_map(manager):
