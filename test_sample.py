@@ -5,7 +5,7 @@ import argparse
 from configparser import ConfigParser
 import os
 import astroq.management as mn
-import astroq.scheduler as sch
+import astroq.splan as splan
 import unittest
 from pathlib import Path
 
