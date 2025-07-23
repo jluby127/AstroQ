@@ -8,7 +8,7 @@ import math
 from configparser import ConfigParser
 from argparse import Namespace
 
-import astroq.scheduler as sch
+import astroq.splan as splan
 import astroq.request as rq
 import astroq.management as mn
 import astroq.benchmarking as bn
@@ -59,7 +59,7 @@ def bench(args):
     request_set.to_json(os.path.join(manager.output_directory, "request_set.json"))
 
     # Run the schedule
-    schedule = sch.SemesterPlanner(request_set, cf)
+    schedule = splan.SemesterPlanner(request_set, cf)
     schedule.run_model()
     return
 
@@ -142,7 +142,7 @@ def kpfcc_plan_semester(args):
     request_set = rq.RequestSet(meta, strategy, observable)
     
     # Run the semester planner
-    semester_planner = sch.SemesterPlanner(request_set, cf)
+    semester_planner = splan.SemesterPlanner(request_set, cf)
     semester_planner.run_model()
     return
 
@@ -152,7 +152,7 @@ def schedule(args):
     print(f'schedule function: request_file is {rf}')
     print(f'schedule function: config_file is {cf}')
     request_set = rq.read_json(rf)
-    schedule = sch.SemesterPlanner(request_set, cf)
+    schedule = splan.SemesterPlanner(request_set, cf)
     schedule.run_model()
     return
 
@@ -374,7 +374,7 @@ def requests_vs_schedule(args):
 #         # print out the last rows of strategy to ensure the size of the model looks right
 #         request_set.to_json(os.path.join(manager.output_directory, "request_set.json"))
 #         # Run the schedule
-#         schedule = sch.SemesterPlanner(request_set, cf)
+#         schedule = splan.SemesterPlanner(request_set, cf)
 #         schedule.run_model()
 #         # Run the plot suite
 #         pl.run_plot_suite(cf)
