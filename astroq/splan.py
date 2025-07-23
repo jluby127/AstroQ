@@ -655,7 +655,7 @@ class SemesterPlanner(object):
             else:
                 allocation_schedule_1d.append(0)
         allocation_schedule = np.reshape(allocation_schedule_1d, (self.manager.n_nights_in_semester, self.manager.n_quarters_in_night))
-        self.manager.allocation_map_2D_NQ = allocation_schedule
+
 
         weather_holder = np.zeros(np.shape(allocation_schedule))
         allocation_map_1D, allocation_map_2D, weathered_map = ac.build_allocation_map(self.manager, allocation_schedule, weather_holder)
