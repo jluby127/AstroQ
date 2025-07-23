@@ -142,14 +142,9 @@ def main():
 
     ## subcommand of kpfcc: plan-semester -- plan a semester's worth of observations
     psr_kpfcc_plan_semester = kpfcc_subpsr.add_parser('plan-semester', #parents=[psr_parent],
-                                                       description="Plan a semester's worth of observations using optimization",
+                                                       description="Plan a semester's worth of observations using optimization (builds request set on-the-fly)",
                                                        prefix_chars="-"
                                                        )
-    psr_kpfcc_plan_semester.add_argument('-rf', '--request_file',
-                                         type=str,
-                                         required=True,
-                                         help="Relative path of request file."
-                                         )
     psr_kpfcc_plan_semester.add_argument('-cf', '--config_file',
                                          type=str,
                                          required=True,

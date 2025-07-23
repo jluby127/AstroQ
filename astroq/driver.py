@@ -127,12 +127,21 @@ def kpfcc_webapp(args):
 def kpfcc_plan_semester(args):
     """
     Plan a semester's worth of observations using optimization.
+    Builds the request set on-the-fly from input data, then runs optimization.
     """
-    rf = args.request_file
     cf = args.config_file
-    print(f'kpfcc_plan_semester function: request_file is {rf}')
     print(f'kpfcc_plan_semester function: config_file is {cf}')
-    request_set = rq.read_json(rf)
+
+    # Build request set on the fly (no longer need separate build step)
+    manager = mn.data_admin(cf)
+    manager.run_admin()
+    
+    # Build observability maps and request set
+    strategy, observable = rq.define_indices_for_requests(manager)
+    meta = rq.build_meta(cf)
+    request_set = rq.RequestSet(meta, strategy, observable)
+    
+    # Run the semester planner
     semester_planner = sch.SemesterPlanner(request_set, cf)
     semester_planner.run_model()
     return
