@@ -39,31 +39,26 @@ exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', '
                     'schedule.desired_num_visits_per_night', 'schedule.minimum_num_visits_per_night', 'history'# NOTE: this line will be removed 
 ]
 
-def refresh_local_data(semester):
-    """
-    Pull the latest database OBs down to local.
-
-    Args:
-        semester (str) - the semester from which to query OBs, format YYYYL
-
-    Returns:
-        data (json) - the OB information in json format
-    """
-    url = "https://www3.keck.hawaii.edu/api/kpfcc/getAllSemesterObservingBlocks"
+def pull_allocation_info(start_date, numdays, instrument, savepath):
     params = {}
-    params["semester"] = semester
+    params['cmd'] = "getSchedule"
+    params["date"] = start_date
+    params["numdays"] = numdays
+    params["instrument"] = instrument 
+    url = "https://www3.keck.hawaii.edu/api/getSchedule/"
     try:
-        data = requests.get(url, params=params, auth=(os.environ['KECK_OB_DATABASE_API_USERNAME'], os.environ['KECK_OB_DATABASE_API_PASSWORD']))
-        data = data.json()
-        return data
+        data = requests.get(url, params=params)
+        data_json = json.loads(data.text)
+        df['start'] = pd.to_datetime(df['Date'] + ' ' + df['StartTime']).dt.strftime('%Y-%m-%dT%H:%M')
+        df['stop']  = pd.to_datetime(df['Date'] + ' ' + df['EndTime']).dt.strftime('%Y-%m-%dT%H:%M')
+        allocation_frame = df[['start', 'stop']].copy()
     except:
-        print("ERROR")
-        return
+        print("ERROR: allocation information not found. Double check date and instrument. Saving an empty file.")
+        allocation_frame = pd.DataFrame(columns=['start', 'stop'])
+    allocation_frame.to_csv(savepath +'allocation.csv', index=False)
 
 def get_request_sheet(OBs, awarded_programs, savepath):
-
     good_obs, bad_obs_values, bad_obs_hasFields = sort_good_bad(OBs, awarded_programs)
-
     # Filter bad OBs to only those in awarded programs
     if 'metadata.semid' in bad_obs_values.columns:
         mask = bad_obs_values['metadata.semid'].isin(awarded_programs)
