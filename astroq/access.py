@@ -277,7 +277,7 @@ def prepare_allocation_map(manager):
             allocation_remaining.append(convert)
     manager.allocation_all = allocation_all
     allocation_schedule_all = np.reshape(allocation_all, (manager.semester_length, manager.n_quarters_in_night))
-    manager.allocation_map_2D_NQ = allocation_schedule_all
+
     manager.allocation_remaining = allocation_remaining
 
     # Sample out future allocated nights to simulate weather loss based on empirical weather data.

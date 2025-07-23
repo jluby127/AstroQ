@@ -57,7 +57,6 @@ def bench(args):
     requests_frame.to_csv(os.path.join(semester_directory, "inputs/Requests.csv"))
     manager = mn.data_admin(cf)
     manager.run_admin()
-    io.report_allocation_stats(manager)
 
     # Build observability maps and request set
     strategy, observable = rq.define_indices_for_requests(manager)
