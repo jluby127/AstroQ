@@ -49,13 +49,11 @@ def produce_ultimate_map(manager, rf, running_backup_stars=False):
 
     """
     # Prepatory work
-    date_formal = Time(manager.semester_start_date,format='iso',scale='utc')
-    date = str(date_formal)[:10]
-    # Define size of grid
+    start_date = Time(manager.semester_start_date,format='iso',scale='utc')
     ntargets = len(rf)
-    nnights = manager.semester_length # total nights in semester
-    nslots = manager.n_slots_in_night # slots in the night
-
+    nnights = manager.semester_length # total nights in the full semester
+    nslots = int((24*60)/manager.slot_size) # slots in the night
+    slot_size_time = TimeDelta(manager.slot_size*u.min)
 
     # Determine observability
     coords = apy.coordinates.SkyCoord(rf.ra * u.deg, rf.dec * u.deg, frame='icrs')
@@ -63,18 +61,15 @@ def produce_ultimate_map(manager, rf, running_backup_stars=False):
     keck = apl.Observer.at_site(manager.observatory)
 
     # Set up time grid for one night, first night of the semester
-    start = date + "T" + manager.daily_starting_time #  
-    daily_start = Time(start, location=keck.location)
+    daily_start = Time(start_date, location=keck.location)
     daily_end = daily_start + TimeDelta(1.0, format='jd') # full day from start of first night
-    tmp_slot_size = TimeDelta(5.0*u.min)
-    t = Time(np.arange(daily_start.jd, daily_end.jd, tmp_slot_size.jd), format='jd',location=keck.location)
+    t = Time(np.arange(daily_start.jd, daily_end.jd, slot_size_time.jd), format='jd',location=keck.location)
     t = t[np.argsort(t.sidereal_time('mean'))] # sort by lst
 
     # Compute base alt/az pattern, shape = (ntargets, nslots)
     coord0 = keck.altaz(t, targets, grid_times_targets=True)
     alt0 = coord0.alt.deg
     az0 = coord0.az.deg
-
     # 2D mask (n targets, n slots))
     is_altaz0 = np.ones_like(alt0, dtype=bool)
     is_altaz0 &= ~((5.3 < az0 ) & (az0 < 146.2) & (alt0 < 33.3)) # remove nasymth deck
@@ -91,7 +86,6 @@ def produce_ultimate_map(manager, rf, running_backup_stars=False):
     slotmidpoint = (slotmidpoint0[np.newaxis,:] + days[:,np.newaxis])
     # 3D mask
     is_altaz = np.empty((ntargets, nnights, nslots),dtype=bool)
-
     # Pre-compute the sidereal times for interpolation
     x = t.sidereal_time('mean').value
     x_new = slotmidpoint.sidereal_time('mean').value
@@ -100,8 +94,8 @@ def produce_ultimate_map(manager, rf, running_backup_stars=False):
     is_altaz = is_altaz0[:,idx]
 
     is_future = np.ones((ntargets, nnights, nslots),dtype=bool)
-    # inight_current = manager.all_dates_dict[manager.current_day]
-    # is_future[:,:inight_current,:] = False
+    today_daynumber = manager.all_dates_dict[manager.current_day]
+    is_future[:,:today_daynumber,:] = False
 
     # Compute moon accessibility
     is_moon = np.ones_like(is_altaz, dtype=bool)
@@ -113,7 +107,20 @@ def produce_ultimate_map(manager, rf, running_backup_stars=False):
     ) # (ntargets)
     is_moon = is_moon & (ang_dist.to(u.deg) > 30*u.deg)[:, :, np.newaxis]
 
-    # TODO add in logic for custom maps
+    is_custom = np.ones((ntargets, nnights, nslots), dtype=bool)
+    custom_times_frame = pd.read_csv(manager.custom_file)
+    starname_to_index = {name: idx for idx, name in enumerate(rf['starname'])}
+    custom_times_frame['start'] = custom_times_frame['start'].apply(Time)
+    custom_times_frame['stop'] = custom_times_frame['stop'].apply(Time)
+    for _, row in custom_times_frame.iterrows():
+        starname = row['starname']
+        mask = (slotmidpoint >= row['start']) & (slotmidpoint <= row['stop'])
+        star_ind = starname_to_index[starname]
+        current_map = is_custom[star_ind]
+        if np.all(current_map):  # If all ones, first interval: restrict with AND
+            is_custom[star_ind] = mask
+        else:  # Otherwise, union with OR
+            is_custom[star_ind] = current_map | mask
 
     # TODO add in logic to remove stars that are not observable, currently code is a no-op
     # Set to False if internight cadence is violated
@@ -127,24 +134,25 @@ def produce_ultimate_map(manager, rf, running_backup_stars=False):
                 inight_stop = min(inight_start + rf.iloc[itarget]['tau_inter'],nnights)
                 is_inter[itarget,inight_start:inight_stop,:] = False
 
-    # True if obseravtion occurs at night
-    tf = generate_twilight_times(manager.all_dates_array)
-    evening = Time(tf['12_evening'], format='jd')[:, None]
-    morning = Time(tf['12_morning'], format='jd')[:, None]
-    is_night = (evening < slotmidpoint) & (slotmidpoint < morning)
-    is_night = is_night.astype(bool)
-    is_night = np.ones_like(is_altaz, dtype=bool) & is_night[np.newaxis,:,:]
-
-    is_alloc = manager.allocation_map_2D.astype(bool) # shape = (nnights, nslots) # TODO compute on the fly
-    # is_alloc = np.repeat(is_alloc[np.newaxis, :, :], ntargets, axis=0)
+    allocated_times_frame = pd.read_csv(manager.allocation_file)
+    allocated_times_frame['start'] = allocated_times_frame['start'].apply(Time)
+    allocated_times_frame['stop'] = allocated_times_frame['stop'].apply(Time)
+    allocated_times_map = []
+    allocated_mask = np.zeros((nnights, nslots), dtype=bool)
+    for i in range(len(allocated_times_frame)):
+        start_time = allocated_times_frame['start'].iloc[i]
+        stop_time = allocated_times_frame['stop'].iloc[i]
+        mask = (slotmidpoint >= start_time) & (slotmidpoint <= stop_time)
+        allocated_mask |= mask 
+    is_alloc = allocated_mask.astype(int)
     is_alloc = np.ones_like(is_altaz, dtype=bool) & is_alloc[np.newaxis,:,:] # shape = (ntargets, nnights, nslots)
 
     is_observable_now = np.logical_and.reduce([
         is_altaz,
-        is_moon,
-        is_night,
-        is_inter,
         is_future,
+        is_moon,
+        is_custom,
+        is_inter,
         is_alloc
     ])
 
@@ -157,7 +165,6 @@ def produce_ultimate_map(manager, rf, running_backup_stars=False):
             e_val = manager.slots_needed_for_exposure_dict[rf.iloc[itarget]['starname']]
             if e_val == 1:
                 continue
-
             for shift in range(1, e_val):
                 # shifts the is_observable_now array to the left by shift
                 # for is_observable to be true, it must be true for all shifts
@@ -165,15 +172,15 @@ def produce_ultimate_map(manager, rf, running_backup_stars=False):
 
     access = {
         'is_altaz': is_altaz,
-        'is_moon': is_moon,
-        'is_night': is_night,
-        'is_inter': is_inter,
         'is_future': is_future,
+        'is_moon': is_moon,
+        'is_custom':is_custom,
+        'is_inter': is_inter,
         'is_alloc': is_alloc,
         'is_observable_now': is_observable_now,
         'is_observable': is_observable
     }
-    access = np.rec.fromarrays(list(access.values()), names=list(access.keys()))
+#     access = np.rec.fromarrays(list(access.values()), names=list(access.keys()))
     return access
 
 def extract_available_indices_from_record(access, manager):
