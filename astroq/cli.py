@@ -48,6 +48,11 @@ def main():
                               required=True,
                               help="Relative path of config file."
                             )
+    psr_bench.add_argument('-t', '--thin',
+                              type=int,
+                              default=1,
+                              help="Downsample the request frame by this factor for faster testing (default: 1, no thinning)."
+                            )
     psr_bench.set_defaults(func=astroq.driver.bench)
 
     ## subcommand of astroq: plot -- run the plotting suite
@@ -152,17 +157,17 @@ def main():
                                          )
     psr_kpfcc_plan_semester.set_defaults(func=astroq.driver.kpfcc_plan_semester)
 
-    ## subcommand of astroq: ttp -- run the ttp
-    psr_ttp = subpsr.add_parser('ttp', parents=[psr_parent],
-                                  description='Run the ttp',
-                                  prefix_chars='-'
-                                  )
-    psr_ttp.add_argument('-cf', '--config_file',
-                              type=str,
-                              required=True,
-                              help="Relative path of config file."
-                              )
-    psr_ttp.set_defaults(func=astroq.driver.ttp)
+    ## subcommand of kpfcc: plan-night -- run the night planner
+    psr_kpfcc_plan_night = kpfcc_subpsr.add_parser('plan-night', #parents=[psr_parent],
+                                                    description="Run the night planner (Target & Time Planner)",
+                                                    prefix_chars="-"
+                                                    )
+    psr_kpfcc_plan_night.add_argument('-cf', '--config_file',
+                                      type=str,
+                                      required=True,
+                                      help="Relative path of config file."
+                                      )
+    psr_kpfcc_plan_night.set_defaults(func=astroq.driver.ttp)
 
     ## subcommand of astroq: compare -- compare request set and schedule file
     psr_compare = subpsr.add_parser('comp', parents=[psr_parent],
