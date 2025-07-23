@@ -1,11 +1,15 @@
 """
-Module for running the TTP.
-Designed to be only run as a function call from the generateScript.py script.
+Night Planning Module (nplan.py)
+
+Module for night-level observation planning and optimization.
+Uses the Target & Time Planner (TTP) to optimize nightly observation sequences.
+
+Main Functions:
+- run_ttp(manager): Optimize nightly observation sequences
+- produce_bright_backups(manager): Create backup target lists for poor weather
+- prepare_for_ttp(...): Prepare data for the TTP system
 
 See https://github.com/lukehandley/ttp/tree/main for more info about the TTP
-
-Example usage:
-    import ttp_functions as ttp
 """
 import sys
 import os
@@ -73,7 +77,7 @@ def run_ttp(manager):
     target_list = formatting.theTTP(filename)
 
     solution = model.TTPModel(observation_start_time, observation_stop_time, target_list,
-                                observatory, observers_path, runtime=300, optgap=0.01, useHighEl=False)
+                                observatory, observers_path, runtime=10, optgap=0.01, useHighEl=False)
 
     gurobi_model_backup = solution.gurobi_model  # backup the attribute, probably don't need this
     del solution.gurobi_model                   # remove attribute so pickle works
@@ -139,7 +143,7 @@ def produce_bright_backups(manager, nstars_max=100):
     observatory = telescope.Keck1()
     solution_b = model.TTPModel(observation_start_time, observation_stop_time,
                                 target_list, observatory, backups_path,
-                                runtime=120, optgap=0.05)
+                                runtime=10, optgap=0.05)
 
     plotting.writeStarList(solution_b.plotly, observation_start_time, manager.current_day,
                                 outputdir = backups_path)
