@@ -48,19 +48,24 @@ def main():
                               required=True,
                               help="Relative path of config file."
                             )
+    psr_bench.add_argument('-t', '--thin',
+                              type=int,
+                              default=1,
+                              help="Downsample the request frame by this factor for faster testing (default: 1, no thinning)."
+                            )
     psr_bench.set_defaults(func=astroq.driver.bench)
 
     ## subcommand of astroq: plot -- run the plotting suite
-    psr_plot = subpsr.add_parser('plot', parents=[psr_parent],
-                                  description='Run the plotting suite',
-                                  prefix_chars='-'
-                                  )
-    psr_plot.add_argument('-cf', '--config_file',
-                              type=str,
-                              required=True,
-                              help="Relative path of config file."
-                              )
-    psr_plot.set_defaults(func=astroq.driver.plot)
+    # psr_plot = subpsr.add_parser('plot', parents=[psr_parent],
+    #                               description='Run the plotting suite',
+    #                               prefix_chars='-'
+    #                               )
+    # psr_plot.add_argument('-cf', '--config_file',
+    #                           type=str,
+    #                           required=True,
+    #                           help="Relative path of config file."
+    #                           )
+    # psr_plot.set_defaults(func=astroq.driver.plot)
 
     ## subcommand of astroq: schedule -- Schedule observation requests
     psr_schedule = subpsr.add_parser('schedule', parents=[psr_parent],
@@ -140,17 +145,29 @@ def main():
                                 )
     psr_kpfcc_webapp.set_defaults(func=astroq.driver.kpfcc_webapp)
 
-    ## subcommand of astroq: ttp -- run the ttp
-    psr_ttp = subpsr.add_parser('ttp', parents=[psr_parent],
-                                  description='Run the ttp',
-                                  prefix_chars='-'
-                                  )
-    psr_ttp.add_argument('-cf', '--config_file',
-                              type=str,
-                              required=True,
-                              help="Relative path of config file."
-                              )
-    psr_ttp.set_defaults(func=astroq.driver.ttp)
+    ## subcommand of kpfcc: plan-semester -- plan a semester's worth of observations
+    psr_kpfcc_plan_semester = kpfcc_subpsr.add_parser('plan-semester', #parents=[psr_parent],
+                                                       description="Plan a semester's worth of observations using optimization (builds request set on-the-fly)",
+                                                       prefix_chars="-"
+                                                       )
+    psr_kpfcc_plan_semester.add_argument('-cf', '--config_file',
+                                         type=str,
+                                         required=True,
+                                         help="Relative path of config file."
+                                         )
+    psr_kpfcc_plan_semester.set_defaults(func=astroq.driver.kpfcc_plan_semester)
+
+    ## subcommand of kpfcc: plan-night -- run the night planner
+    psr_kpfcc_plan_night = kpfcc_subpsr.add_parser('plan-night', #parents=[psr_parent],
+                                                    description="Run the night planner (Target & Time Planner)",
+                                                    prefix_chars="-"
+                                                    )
+    psr_kpfcc_plan_night.add_argument('-cf', '--config_file',
+                                      type=str,
+                                      required=True,
+                                      help="Relative path of config file."
+                                      )
+    psr_kpfcc_plan_night.set_defaults(func=astroq.driver.ttp)
 
     ## subcommand of astroq: compare -- compare request set and schedule file
     psr_compare = subpsr.add_parser('comp', parents=[psr_parent],
@@ -170,16 +187,16 @@ def main():
     psr_compare.set_defaults(func=astroq.driver.requests_vs_schedule)
 
     ## subcommand of astroq: simsemester -- simulate a semester with a given weather loss pattern.
-    psr_simsemester = subpsr.add_parser('simsemester', parents=[psr_parent],
-                                    description='Compare request set and schedule for consistency',
-                                    prefix_chars='-'
-                                    )
-    psr_simsemester.add_argument('-cf', '--config_file',
-                              type=str,
-                              required=True,
-                              help="Relative path of config file."
-                              )
-    psr_simsemester.set_defaults(func=astroq.driver.make_simulated_history)
+    # psr_simsemester = subpsr.add_parser('simsemester', parents=[psr_parent],
+    #                                 description='Compare request set and schedule for consistency',
+    #                                 prefix_chars='-'
+    #                                 )
+    # psr_simsemester.add_argument('-cf', '--config_file',
+    #                           type=str,
+    #                           required=True,
+    #                           help="Relative path of config file."
+    #                           )
+    # psr_simsemester.set_defaults(func=astroq.driver.make_simulated_history)
 
     # If no arguments are provided, print help message and exit
     if len(sys.argv)==1:

@@ -122,81 +122,6 @@ def get_nobs_on_night(star_past_obs, unique_hst_dates_observed):
         n_obs_on_date.append(np.sum(datemask))
     return n_obs_on_date
 
-def access_jump():
-    """
-    Access the Jump database. You will need correct permissions to access this secured database
-    hosted by Caltech Cadence servers. Eventually we will pull from the Keck Observatory Archive
-    (KOA) directly.
-
-    Args:
-        None
-
-    Returns:
-        s (object): a session request
-    """
-    import requests
-    import re
-    from bs4 import BeautifulSoup
-    login_url = 'https://jump.caltech.edu/user/login/'
-    s = requests.session()
-    s.get(login_url)
-    csrftoken = s.cookies['csrftoken']
-    # you'll need to add your credentials for username and password, see environment variables above
-    payload = {'action':'login', 'username':JUMP_USERNAME,'password':JUMP_PASSWORD,
-               'csrfmiddlewaretoken': csrftoken}
-    new_login = s.post(login_url, data = payload, headers = dict(Referer = login_url))
-    return s
-
-def get_database_explorer(name, path_for_csv, url='https://jump.caltech.edu/explorer/', links=[]):
-    """
-    Pull the relevant query from the Jump database.
-    Eventually we will pull from the Keck Observatory Archive (KOA) directly.
-
-    Args:
-        name (str): the name of the pre-built query in the Jump database
-        path_for_csv (str): the link to the Jump database
-
-    Returns:
-        None
-    """
-    session = access_jump()
-    response = session.get(url)
-    soup = BeautifulSoup(response.text, 'html.parser')
-    table = soup.find("tbody", attrs={"class":"list"})
-    for row in table.find_all("tr"):
-        tab = row.find("td", attrs={"class":"name"})
-        try:
-            x = tab.a.string
-        except:
-            pass
-        else:
-            if x == name:
-                for l in row.find_all("a", href = re.compile('download')):
-                    links.append('/'.join(url.split('/')[:3])+l.get('href'))
-    if links != []:
-        response = session.get(links[0])
-        open(path_for_csv, 'wb').write(response.content)
-    else:
-        print("Can't find that query name, try again. (needs to be exact)")
-    session.keep_alive = False
-
-def get_kpf_past_database(path_to_csv):
-    """
-    A user-friendly front facing function to pull past observations from the Jump database.
-    Note that each semester, you will have to log into Jump, find this pre-built query,
-    and manually update the start and end date fields.
-    Eventually we will pull from the Keck Observatory Archive (KOA) directly.
-
-    Args:
-        path_to_csv (str): the directory to save the data
-
-    Returns:
-        None
-    """
-    name = 'Get all KPF Observations in Semester'
-    get_database_explorer(name, path_to_csv)
-    print("This semester's past KPF observations pulled from Jump. Saved to csv: " + path_to_csv)
-
 def real_star_name(name):
     if name.isdigit():
         return 'HD ' + name
@@ -281,3 +206,75 @@ def build_past_history(past_observations_file, requests_frame, twilight_frame):
     else:
         print("No past observation history to parse.")
     return database_info_dict
+
+# NOTE: we are not yet actually using the history field of the OBs, so this is not ready yet but will be used extensively.
+# -----------------------------------------------------------------------------------------------------------------------------
+# def is_observation_complete(ob, entry):
+#     """
+#     Determine if a particular entry in the history of the OB is a completed observation. For the
+#     accounting and charging of time purposes. Note, this logic is a political decision and can be
+#     modified at any time.
+#
+#     Args:
+#         ob (object) - the json object for a single OB. For OB structure info, see here: XYZ.
+#         entry (dict) - one element of the history array within the OB
+#     Returns:
+#         good (boolean) - True if passes unit tests
+#     """
+#     good = True
+#     # If you got at least half of your desired number of exposures, the observation is good
+#     if len(entry['exposure times']) < 0.5*ob['observation']['num_exposures']:
+#         good = False
+#     # If each of your exposures, except the last, was at least 75% complete in time, then your observation is good
+#     each_exp = []
+#     for i in range(len(entry['exposure times'])):
+#         if entry['exposure times'][i] < 0.75*ob['observation']['Exp Time']:
+#             each_exp.append(False)
+#         else:
+#             each_exp.append(True)
+#     if np.sum(each_exp) < len(entry['exposure times']) - 1:
+#         good = False
+#     return good
+#
+# def get_past_history(ob):
+#     """
+#     Convert the history field of the OB into the format expected by the autoscheduler.
+#
+#     Args:
+#         ob (object) - the json object for a single OB. For OB structure info, see here: XYZ.
+#     Returns:
+#         history (list) - See definition in comment below. Intended to be a value in a dictionary
+#                          where the keys are the star names.
+#     """
+#     unique = ob['metadata']['semid'] + "_" + str(ob['target']['target_name'])
+#     submitter = ob['metadata']['submitter']
+#     # Within the database_info_dict dictionary, each target's data is always in order:
+#     # element 0 = the calendar date of the most recent observation (HST date)
+#     # element 1 = a list of calendar dates with at least one observation
+#     # element 2 = a list of the quarters where the observation took place on the
+#     #             corresponding the nights in element 1.
+#     #             If multiple visits in one night, then this is quarter of the first visit.
+#     # element 3 = a list of the # of observations on each past night,
+#     #             corresponding the nights in element 1.
+#     observed_exps = []
+#     observed_times = []
+#     observed_dates = []
+#     observed_quarters = []
+#     for obs in ob['metadata']['history']:
+#         if is_observation_complete(ob, entry):
+#             n_exp = len(obs['exposure times'])
+#             observed_exps.append(n_exp)
+#
+#             sumtime = np.sum(obs['exposure times'])
+#             observed_times.append(sumtime)
+#
+#             tstamp = obs['timestamp'][:21]
+#             date = obs['timestamp'][:10]
+#             observed_dates.append(date)
+#
+#             quarter = get_quarter_observed(tstamp, date, twilight_frame)
+#             observed_quarters.append(quarter)
+#         else:
+#             print("Observation for " + unique + " on night " + str(obs['timestamp'][:10]) + " submitted by " + submitter + " is not complete.")
+#     history = [observed_dates[0], observed_dates, observed_quarters, observed_exps]
+#     return history

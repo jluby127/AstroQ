@@ -1,6 +1,6 @@
 """
-Module that defines the Scheduler class. This class is responsible for defining, building, and solving the
-Gurobi model. It is nearly completely agnostic to all astronomy knowledge.
+Module that defines the SemesterPlanner class. This class is responsible for defining, building, and solving the
+Gurobi model for semester-level observation planning. It is nearly completely agnostic to all astronomy knowledge.
 
 """
 import sys
@@ -21,12 +21,12 @@ import astroq.management as mn
 import astroq.request as rq
 import astroq.access as ac
 
-class Scheduler(object):
-    """A Scheduler object, from which we can define a Gurobi model, build constraints, and solve."""
+class SemesterPlanner(object):
+    """A SemesterPlanner object, from which we can define a Gurobi model, build constraints, and solve semester-level observation schedules."""
 
     def __init__(self, request_set, cf):
 
-        logs.debug("Building the Scheduler.")
+        logs.debug("Building the SemesterPlanner.")
         self.start_the_clock = time.time()
 
         manager = mn.data_admin(cf)
@@ -149,23 +149,6 @@ class Scheduler(object):
             self.past_nights_observed_dict = past_nights_observed_dict
         logs.debug("Initializing complete.")
 
-    def constraint_one_request_per_slot(self):
-        """
-        According to Eq X in Lubin et al. 2025.
-
-        Round 1:
-
-        Ensure that at most one request is scheduled
-        per available slot.
-        """
-        #print("Constraint 1: Enforce one request per slot.")
-        # Construct the constraint
-        tmpjoiner = self.joiner.drop_duplicates(subset=['d', 's'])
-        for i, row in tmpjoiner.iterrows():
-            requests_valid_in_slot = list(self.requests_valid_for_ds.loc[(row.d, row.s)])[0]
-            self.model.addConstr((gp.quicksum(self.Yrds[name,row.d,row.s] for name in requests_valid_in_slot) <= 1),
-                            'one_request_per_slot_' + str(row.d) + "d_" + str(row.s) + "s")
-
     def constraint_reserve_multislot_exposures(self):
         """
         According to Eq X in Lubin et al. 2025.
@@ -195,20 +178,6 @@ class Scheduler(object):
             lhs = 1 - gp.quicksum(self.Yrds[r,d,s] for r in R_ds[d,s])
             rhs = gp.quicksum(rhs)
             self.model.addConstr(lhs >= rhs, f'reserve_multislot_{d}d_{s}s')
-
-    # this function can likely be deleted - Jack 4/28/25
-    def constraint_max_visits_per_night(self):
-        """
-        According to Eq X in Lubin et al. 2025.
-
-        Judah: don't document
-        """
-        print("Constraint 3: Schedule request's maximum observations per night.")
-        for i, row in self.unique_request_on_day_pairs.iterrows():
-            constrained_slots_tonight = np.array(self.slots_on_day_for_r.loc[(row.id, row.d)][0])
-            print(row.id, row.n_intra_max)
-            self.model.addConstr((gp.quicksum(self.Yrds[row.id,row.d,ss] for ss in constrained_slots_tonight) <= row.n_intra_max),
-                    'max_observations_per_night_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
 
     def constraint_enforce_internight_cadence(self):
         """
@@ -621,7 +590,6 @@ class Scheduler(object):
         self.optimize_model()
         self.serialize_results_csv()
         self.round_info = 'Round2'
-        # np.savetxt(manager.output_directory + 'Round2_Requests.txt', [], delimiter=',', fmt="%s")
         if self.manager.run_round_two:
             self.build_model_round2()
             self.optimize_model()

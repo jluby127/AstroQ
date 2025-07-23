@@ -148,6 +148,7 @@ def process_stars(manager):
     program_colors_rgb_vals = dict(zip(programs, rgb_strings))
 
     # prepare the serialized output
+    # print(manager.future_forecast)
     forecast = pd.read_csv(manager.future_forecast, header=None).astype(str)
     forecastT = np.array(forecast)
 
@@ -476,68 +477,6 @@ def cof_builder(all_stars, manager, filename='', flag=False):
         )
     return fig
 
-
-def write_star_objects(savepath, data):
-    with open(savepath + "star_objects.pkl", "wb") as f:
-        pickle.dump(data, f)
-    print("Plotting objects saved to " + savepath + "star_objects.pkl")
-
-def read_star_objects(savepath):
-    with open(savepath, "rb") as f:
-        loaded_obj_list = pickle.load(f)
-    return loaded_obj_list
-
-def build_plot_file(manager):
-    stars_in_program, programs_as_stars, nulltime = process_stars(manager)
-    save_path = manager.reports_directory + "admin/" + manager.current_day + '/'
-    os.makedirs(save_path, exist_ok = True)
-    write_star_objects(save_path, [stars_in_program, programs_as_stars, nulltime])
-
-# import kpfcc.dynamic as dn
-def run_plot_suite(config_file):
-    manager = mn.data_admin(config_file)
-    manager.run_admin()
-
-    build_plot_file(manager)
-    # commenting out all below which are calls to create static files. Above line creates the pickle file from which these
-    # other plots are generated from.
-
-    # data = read_star_objects(manager.reports_directory + "admin/" + manager.current_day + '/')
-    # # build global plots
-    # all_stars_list = [obj for obj_list in data[0].values() for obj in obj_list]
-    # cof_builder(all_stars_list, manager, 'admin/' + manager.current_day + '/all_stars_COF.html')
-    # cof_builder(list(data[1].values()), manager, 'admin/' + manager.current_day + '/all_programs_COF.html', flag=True)
-    # generate_birds_eye(manager, data[2], all_stars_list, 'admin/' + manager.current_day + '/all_stars_birdseye.html')
-
-    # skymap_html = dn.interactive_sky_with_static_heatmap(manager, 'Program1')
-    # with open("/Users/jack/Desktop/skymap.html", "w", encoding="utf-8") as f:
-    #     f.write(skymap_html)
-
-    # get TTP plots from pkl file with data
-    # get_ttp_plots_dynamic(manager)
-    # ladder_html = dn.get_ladder(manager)
-    # with open("/Users/jack/Desktop/ladder.html", "w", encoding="utf-8") as f:
-    #     f.write(ladder_html)
-    #
-    # animation_html = dn.get_slew_animation(manager)
-    # with open("/Users/jack/Desktop/slewgif.html", "w", encoding="utf-8") as f:
-    #     f.write(animation_html)
-    #
-    # script_table_html = dn.get_script_plan(manager)
-    # with open("/Users/jack/Desktop/script_table.html", "w", encoding="utf-8") as f:
-    #     f.write(script_table_html)
-    #
-    # slew_path_html = dn.plot_path_2D_interactive(manager)
-    # with open("/Users/jack/Desktop/slewpath.html", "w", encoding="utf-8") as f:
-    #     f.write(slew_path_html)
-
-    # generate_single_star_maps(manager, 'your star name here')
-    # # build plots for each program
-    # program_names = data[0].keys()
-    # for p in program_names:
-    #     cof_builder(data[0][p], manager, 'admin/'+ manager.current_day + "/" + p + "_COF.html")
-    #     generate_birds_eye(manager, data[2], [data[1][p]], 'admin/'+ manager.current_day + "/" + p +"_birdseye.html")
-
 def generate_single_star_maps(manager, starname):
 
     is_altaz, is_moon, is_night, is_inter, is_future, is_alloc = ac.mod_produce_ultimate_map(manager, starname)
@@ -622,45 +561,41 @@ def generate_single_star_maps(manager, starname):
             font=dict(size=labelsize-10)
         )
     )
-    if filename != '':
-        fileout_path = manager.reports_directory + filename
-        fig.write_html(fileout_path)
+    # if filename != '':
+    #     fileout_path = manager.reports_directory + filename
+    #     fig.write_html(fileout_path)
     return fig
 
-def get_ttp_plots_dynamic(manager):
-    outputdir = manager.reports_directory + 'observer/' + manager.current_day + "/"
-    with open(manager.reports_directory + 'observer/' + manager.current_day + '/ttp_data.pkl', 'rb') as f:
-        data = pickle.load(f)
-        # note data[0] is the solution object, with the actual gorubi model having been deleted for pickling purposes
+def write_star_objects(savepath, data):
+    with open(savepath + "star_objects.pkl", "wb") as f:
+        pickle.dump(data, f)
+    print("Plotting objects saved to " + savepath + "star_objects.pkl")
 
-    # slew_path_gif = plotting.animate_telescope(data[0], outputdir, animationStep=120)
-    slew_path_gif = plotting.animate_telescope(data[0], animationStep=120)
-    with open("/Users/jack/Desktop/slewgif.html", "w", encoding="utf-8") as f:
-        f.write(slew_path_gif)
-    print(slew_path_gif)
+def read_star_objects(savepath):
+    with open(savepath, "rb") as f:
+        loaded_obj_list = pickle.load(f)
+    return loaded_obj_list
 
-    slew_path_2D = plotting.plot_path_2D(data[0], outputdir) #note this is still a static matplotlib fig object
-    ladder_plot = plotting.nightPlan(data[0].plotly, manager.current_day, outputdir)
-    round_two_requests = [] # just for now
-    nightly_start_stop_times = pd.read_csv(manager.nightly_start_stop_times_file)
-    day_in_semester = manager.all_dates_dict[manager.current_day]
-    idx = nightly_start_stop_times[nightly_start_stop_times['Date'] == str(manager.current_day)].index[0]
-    night_start_time = nightly_start_stop_times['Start'][idx]
-    night_stop_time = nightly_start_stop_times['Stop'][idx]
-    obs_start_time = Time(str(manager.current_day) + "T" + str(night_start_time))
-    lines = io.write_starlist(manager.requests_frame, data[0].plotly, obs_start_time, data[0].extras,round_two_requests, str(manager.current_day), outputdir)
-    observing_plan = pd.DataFrame([io.parse_star_line(line) for line in lines])
-    # observing_plan[['obs_time', 'first_avail', 'last_avail']] = observing_plan[['obs_time', 'first_avail', 'last_avail']].astype(str)
-    observing_plan = observing_plan[observing_plan.iloc[:, 0].str.strip() != '']
-    observing_plan_html = save_interactive_observing_plan(observing_plan)
-    with open("/Users/jack/Desktop/output.html", "w", encoding="utf-8") as f:
-        f.write(observing_plan_html)
+def build_plot_file(manager):
+    stars_in_program, programs_as_stars, nulltime = process_stars(manager)
+    save_path = manager.reports_directory + "admin/" + manager.current_day + '/'
+    os.makedirs(save_path, exist_ok = True)
+    write_star_objects(save_path, [stars_in_program, programs_as_stars, nulltime])
 
-    outputs = [observing_plan_html, ladder_plot, slew_path_2D, slew_path_gif]
-    # print(ladder_plot)
-    # ladder_plot.write_html("/Users/jack/Desktop/tmpnightplantest.html")
-    # slew_path_2D.savefig("/Users/jack/Desktop/tmpnightplantest.png", dpi=300, bbox_inches='tight', facecolor='w')
-    return outputs
+def build_semester_webapp_pkl(config_file):
+    manager = mn.data_admin(config_file)
+    manager.run_admin()
+    build_plot_file(manager)
+
+def build_static_plots(config_file):
+    manager = mn.data_admin(config_file)
+    manager.run_admin()
+    data = read_star_objects(manager.reports_directory + "admin/" + manager.current_day + '/star_objects.pkl')
+    all_stars_list = [obj for obj_list in data[0].values() for obj in obj_list]
+    cof_builder(all_stars_list, manager, 'admin/' + manager.current_day + '/all_stars_COF.html')
+    cof_builder(list(data[1].values()), manager, 'admin/' + manager.current_day + '/all_programs_COF.html', flag=True)
+    generate_birds_eye(manager, data[2], all_stars_list, 'admin/' + manager.current_day + '/all_stars_birdseye.html')
+    generate_single_star_maps(manager, manager.requests_frame['starname'][0])
 
 def save_interactive_observing_plan(observing_plan):
     from pathlib import Path
