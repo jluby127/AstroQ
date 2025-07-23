@@ -1,6 +1,6 @@
 """
-Module that defines the Scheduler class. This class is responsible for defining, building, and solving the
-Gurobi model. It is nearly completely agnostic to all astronomy knowledge.
+Module that defines the SemesterPlanner class. This class is responsible for defining, building, and solving the
+Gurobi model for semester-level observation planning. It is nearly completely agnostic to all astronomy knowledge.
 
 """
 import sys
@@ -21,12 +21,12 @@ import astroq.management as mn
 import astroq.request as rq
 import astroq.maps as mp
 
-class Scheduler(object):
-    """A Scheduler object, from which we can define a Gurobi model, build constraints, and solve."""
+class SemesterPlanner(object):
+    """A SemesterPlanner object, from which we can define a Gurobi model, build constraints, and solve semester-level observation schedules."""
 
     def __init__(self, request_set, cf):
 
-        logs.debug("Building the Scheduler.")
+        logs.debug("Building the SemesterPlanner.")
         self.start_the_clock = time.time()
 
         manager = mn.data_admin(cf)
