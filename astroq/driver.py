@@ -33,8 +33,10 @@ log.setLevel(logging.ERROR)
 def bench(args):
     nS = args.number_slots
     cf = args.config_file
+    thin = getattr(args, 'thin', 1)  # Default to 1 if thin not provided
     print(f'bench function: config_file is {cf}')
     print(f'bench function: n_Slots for single visits is {nS}')
+    print(f'bench function: thinning factor is {thin}')
 
     # Initialize manager and compute request set on the fly
     # This is a hacky workaround. run_admin needs this file to exist. This can
@@ -44,6 +46,14 @@ def bench(args):
     upstream_path = eval(config.get('required', 'folder'), {"os": os})
     semester_directory = upstream_path
     requests_frame = bn.build_toy_model_from_paper(nS)
+    
+    # Apply thinning if specified
+    if thin > 1:
+        original_size = len(requests_frame)
+        requests_frame = requests_frame.iloc[::thin].reset_index(drop=True)
+        new_size = len(requests_frame)
+        print(f'Request frame thinned: {original_size} -> {new_size} rows (factor of {thin})')
+    
     requests_frame.to_csv(os.path.join(semester_directory, "inputs/Requests.csv"))
     manager = mn.data_admin(cf)
     manager.run_admin()
@@ -173,8 +183,11 @@ def ttp(args):
     print(f'ttp function: config_file is {cf}')
     manager = mn.data_admin(cf)
     manager.run_admin()
-    nplan.run_ttp(manager)
-    nplan.produce_bright_backups(manager)
+    
+    # Use the new NightPlanner class for object-oriented night planning
+    night_planner = nplan.NightPlanner(manager)
+    night_planner.run_ttp()
+    night_planner.produce_bright_backups()
     return
 
 def get_history(args):
