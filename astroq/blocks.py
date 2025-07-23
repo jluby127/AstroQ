@@ -10,6 +10,8 @@ import pandas as pd
 import numpy as np
 import os
 from astropy.time import Time
+from astropy.coordinates import SkyCoord
+import astropy.units as u
 
 exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', 'metadata.history',
                     'metadata.instruments', 'metadata.is_approved', 'metadata.last_modification',
@@ -21,7 +23,7 @@ exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', '
                     'observation.object', 'observation.take_simulcal', 'observation.exp_meter_bin',
                     'observation.trigger_ca_h_k', 'observation.trigger_green', 'observation.trigger_red',
                     'schedule.accessibility_map', 'schedule.days_observable', 'schedule.fast_read_mode_requested',
-                    'schedule.minimum_elevation', 'schedule.minimum_moon_separation',
+                    'schedule.minimum_elevation', 'schedule.minimum_moon_separation', 'schedule.num_visits_per_night',
                     'schedule.rise_semester_day', 'schedule.scheduling_mode', 'schedule.sets_semester_day',
                     'schedule.total_observations_requested', 'schedule.total_time_for_target',
                     'schedule.total_time_for_target_hours', 'target.isNew', 'target.parallax', 'target.equinox', 'target.systemic_velocity',
@@ -32,8 +34,9 @@ exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', '
                     'calibration.open_science_shutter', 'calibration.open_sky_shutter', 'calibration.take_simulcal',
                     'calibration.trigger_ca_h_k', 'calibration.trigger_green', 'calibration.trigger_red',
                     'calibration.wide_flat_pos', 'observation.block_sky', 'observation.nod_e', 'observation.nod_n',
-                    'schedule.isNew', 'observation.isNew', 'schedule.comment', 'target.d_ra', 'target.undefined',
-                    'schedule.desired_num_visits_per_night', 'schedule.minimum_num_visits_per_night', 'history'# NOTE: last two will be removed
+                    'schedule.isNew', 'observation.isNew', 'schedule.comment', 'target.d_ra', 'target.d_dec', 'target.undefined',
+                    'target.ra_deg', 'target.dec_deg', 
+                    'schedule.desired_num_visits_per_night', 'schedule.minimum_num_visits_per_night', 'history'# NOTE: this line will be removed 
 ]
 
 def refresh_local_data(semester):
@@ -60,10 +63,18 @@ def refresh_local_data(semester):
 def get_request_sheet(OBs, awarded_programs, savepath):
 
     good_obs, bad_obs_values, bad_obs_hasFields = sort_good_bad(OBs, awarded_programs)
+
+    # Filter bad OBs to only those in awarded programs
+    if 'metadata.semid' in bad_obs_values.columns:
+        mask = bad_obs_values['metadata.semid'].isin(awarded_programs)
+        bad_obs_values = bad_obs_values[mask].reset_index(drop=True)
+        bad_obs_hasFields = bad_obs_hasFields[mask].reset_index(drop=True)
+
+    bad_obs_count_by_semid, bad_field_histogram = analyze_bad_obs(good_obs, bad_obs_values, bad_obs_hasFields, awarded_programs)
     good_obs.sort_values(by='program_code', inplace=True)
     good_obs.reset_index(inplace=True, drop=True)
     good_obs.to_csv(savepath, index=False)
-    return good_obs, bad_obs_values, bad_obs_hasFields
+    return good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram
 
 def flatten(d, parent_key='', sep='.'):
     items = {}
@@ -113,6 +124,54 @@ def create_checks_dataframes(OBs, exception_fields):
             # if value_df.at[idx, col] is None or value_df.at[idx, col] == "<NA>":
                 presence_df.at[idx, col] = False
 
+    run_safety_valves = True
+    if run_safety_valves:
+        # Safety valve for missing required fields
+        if 'schedule.num_intranight_cadence' in value_df.columns:
+            value_df['schedule.num_intranight_cadence'] = value_df['schedule.num_intranight_cadence'].fillna(0)
+            presence_df['schedule.num_intranight_cadence'] = presence_df['schedule.num_intranight_cadence'] | value_df['schedule.num_intranight_cadence'].notna()
+        else:
+            value_df['schedule.num_intranight_cadence'] = 0
+            presence_df['schedule.num_intranight_cadence'] = True
+
+        if 'schedule.desired_num_visits_per_night' not in value_df.columns:
+            value_df['schedule.desired_num_visits_per_night'] = 1
+            presence_df['schedule.desired_num_visits_per_night'] = True
+
+        if 'schedule.minimum_num_visits_per_night' in value_df.columns:
+            if 'schedule.desired_num_visits_per_night' in value_df.columns:
+                value_df['schedule.minimum_num_visits_per_night'] = value_df['schedule.minimum_num_visits_per_night'].fillna(value_df['schedule.desired_num_visits_per_night'])
+                presence_df['schedule.minimum_num_visits_per_night'] = presence_df['schedule.minimum_num_visits_per_night'] | value_df['schedule.minimum_num_visits_per_night'].notna()
+            else:
+                value_df['schedule.minimum_num_visits_per_night'] = value_df['schedule.minimum_num_visits_per_night'].fillna(0)
+                presence_df['schedule.minimum_num_visits_per_night'] = presence_df['schedule.minimum_num_visits_per_night'] | value_df['schedule.minimum_num_visits_per_night'].notna()
+        else:
+            if 'schedule.desired_num_visits_per_night' in value_df.columns:
+                value_df['schedule.minimum_num_visits_per_night'] = value_df['schedule.desired_num_visits_per_night']
+                presence_df['schedule.minimum_num_visits_per_night'] = value_df['schedule.minimum_num_visits_per_night'].notna()
+            else:
+                value_df['schedule.minimum_num_visits_per_night'] = 0
+                presence_df['schedule.minimum_num_visits_per_night'] = True
+
+        # New safety valve: if schedule.num_nights_per_semester == 1, set schedule.num_internight_cadence to 0
+        if 'schedule.num_nights_per_semester' in value_df.columns and 'schedule.num_internight_cadence' in value_df.columns:
+            mask = value_df['schedule.num_nights_per_semester'] == 1
+            value_df.loc[mask, 'schedule.num_internight_cadence'] = 0
+            presence_df.loc[mask, 'schedule.num_internight_cadence'] = True
+
+        # Safety valve: if target.teff is missing, assign 0
+        if 'target.teff' not in value_df.columns:
+            value_df['target.t_eff'] = 0
+            presence_df['target.t_eff'] = True
+
+        # Safety valve: if target.gaia_id is missing or empty, assign 'NoGaiaName'
+        if 'target.gaia_id' not in value_df.columns:
+            value_df['target.gaia_id'] = 'NoGaiaName'
+            presence_df['target.gaia_id'] = True
+        else:
+            value_df['target.gaia_id'] = value_df['target.gaia_id'].fillna('NoGaiaName').replace('', 'NoGaiaName')
+            presence_df['target.gaia_id'] = presence_df['target.gaia_id'] | value_df['target.gaia_id'].notna()
+
     # Create masks considering the exception fields
     def row_is_good(row):
         # Ignore the exception fields in the presence check
@@ -141,7 +200,8 @@ def cast_columns(df):
                 'schedule.num_internight_cadence':'Int64',
                 'schedule.num_intranight_cadence':'Float64',
                 'schedule.num_nights_per_semester':'Int64',
-                'schedule.num_visits_per_night':'Int64',
+                'schedule.minimum_num_visits_per_night':'Int64',
+                'schedule.desired_num_visits_per_night':'Int64',
                 }
 
     df = df.copy()
@@ -163,19 +223,25 @@ def sort_good_bad(OBs, awarded_programs):
     bad_OBs_hasFields = OB_hasFields[~pass_OBs_mask]
     bad_OBs_hasFields.reset_index(inplace=True, drop='True')
 
+    if 'metadata.semid' in bad_OBs_values.columns:
+        mask = bad_OBs_values['metadata.semid'].isin(awarded_programs)
+        bad_OBs_values = bad_OBs_values[mask].reset_index(drop=True)
+        bad_OBs_hasFields = bad_OBs_hasFields[mask].reset_index(drop=True)
+
     good_OB_values = OB_values[pass_OBs_mask]
     good_OB_values.reset_index(inplace=True, drop='True')
     good_OBs = cast_columns(good_OB_values)
 
     good_OBs_awarded = good_OBs[good_OBs['metadata.semid'].isin(awarded_programs)]
     good_OBs_awarded.reset_index(inplace=True, drop='True')
+    
 
     columns_to_keep = [
         '_id',
         'metadata.semid',
         'target.target_name',
-        'target.ra_deg',
-        'target.dec_deg',
+        'target.ra',
+        'target.dec',
         'observation.exposure_time',
         'observation.num_exposures',
         'schedule.num_nights_per_semester',
@@ -197,8 +263,8 @@ def sort_good_bad(OBs, awarded_programs):
         '_id':'unique_id',
         'metadata.semid':'program_code',
         'target.target_name':'starname',
-        'target.ra_deg':'ra',
-        'target.dec_deg':'dec',
+        'target.ra':'ra',
+        'target.dec':'dec',
         'observation.exposure_time':'exptime',
         'observation.num_exposures':'n_exp',
         'schedule.num_nights_per_semester':'n_inter_max',
@@ -218,8 +284,67 @@ def sort_good_bad(OBs, awarded_programs):
 
     trimmed_good = good_OBs_awarded[columns_to_keep].rename(columns=new_column_names)
     trimmed_good.columns.values[9] = 'n_intra_max'
-    trimmed_good
+
+    ra_list = trimmed_good['ra'].astype(str).tolist()
+    dec_list = trimmed_good['dec'].astype(str).tolist()
+    coords = SkyCoord(ra=ra_list, dec=dec_list, unit=(u.hourangle, u.deg))
+    trimmed_good['ra'] = coords.ra.deg
+    trimmed_good['dec'] = coords.dec.deg
+
     return trimmed_good, bad_OBs_values, bad_OBs_hasFields
+
+def analyze_bad_obs(trimmed_good, bad_OBs_values, bad_OBs_hasFields, awarded_programs,exception_fields=exception_fields):
+    """
+    Returns:
+        - bad_obs_count_by_semid: dict {metadata.semid: count of bad OBs}
+        - bad_field_histogram: dict {field: count of times field was missing in a bad OB}
+    """
+    # 1. Count bad OBs per metadata.semid
+    if 'metadata.semid' in bad_OBs_values.columns:
+        bad_obs_count_by_semid = bad_OBs_values['metadata.semid'].value_counts().to_dict()
+    else:
+        bad_obs_count_by_semid = {}
+    # Ensure all awarded_programs are present as keys
+    if awarded_programs is not None:
+        for semid in awarded_programs:
+            if semid not in bad_obs_count_by_semid:
+                bad_obs_count_by_semid[semid] = 0
+
+    # 2. Histogram of missing fields (reasons for bad OBs)
+    bad_field_histogram = {col: 0 for col in bad_OBs_hasFields.columns if col not in exception_fields}
+    for idx, row in bad_OBs_hasFields.iterrows():
+        for col in bad_field_histogram:
+            if not bool(row.get(col, True)):
+                bad_field_histogram[col] += 1
+
+    return bad_obs_count_by_semid, bad_field_histogram
+
+def plot_bad_obs_histograms(bad_obs_count_by_semid, bad_field_histogram):
+    """
+    Plots histograms for bad_obs_count_by_semid and bad_field_histogram.
+    X: keys, Y: values.
+    """
+    import matplotlib.pyplot as plt
+
+    # Plot for bad_obs_count_by_semid
+    plt.figure(figsize=(10, 4))
+    plt.bar(bad_obs_count_by_semid.keys(), bad_obs_count_by_semid.values())
+    plt.xlabel('Program (metadata.semid)')
+    plt.ylabel('Number of Bad OBs')
+    plt.title('Number of Bad OBs per Program')
+    plt.xticks(rotation=45, ha='right')
+    plt.tight_layout()
+    plt.show()
+
+    # Plot for bad_field_histogram
+    plt.figure(figsize=(12, 4))
+    plt.bar(bad_field_histogram.keys(), bad_field_histogram.values())
+    plt.xlabel('Field')
+    plt.ylabel('Count as Reason for Bad OB')
+    plt.title('Frequency of Each Field as Reason for Bad OB')
+    plt.xticks(rotation=90, ha='right')
+    plt.tight_layout()
+    plt.show()
 
 def inspect_row(df_exists, df_values, row_num, exception_fields=exception_fields):
     """
