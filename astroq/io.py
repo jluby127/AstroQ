@@ -504,6 +504,108 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
     print("Total Open Shutter Time Scheduled: " + str(np.round((total_exptime/3600),2)) + " hours")
     return lines
 
+def format_kpf_row(row, obs_time, first_available, last_available, current_day,
+                    filler_flag = False, extra=False):
+    """
+    Format request data in the specific way needed for the script (relates to the Keck "Magiq"
+    software's data ingestion requirements).
+
+    Args:
+        row (dataframe): a single row from the requests sheet dataframe
+        obs_time (str): the timestamp of the night to begin the exposure according to the TTP.
+                        In format HH:MM in HST timezone
+        first_available (str): the timestamp of the night where the star is first accessible.
+                                In format HH:MM in HST timezone.
+        last_available (str): the timestamp of the night where the star is last accessible.
+                                In format HH:MM in HST timezone.
+        filler_flag (boolean): True of the target was added in the bonus round
+        extra (boolean): is this an "extra" target
+
+    Returns:
+        line (str): the properly formatted string to be included in the script file
+    """
+
+    equinox = '2000'
+    updated_ra, updated_dec = pm_correcter(row['ra'][0], row['dec'][0],
+                                row['pmra'][0], row['pmdec'][0], current_day, equinox=equinox)
+    if updated_dec[0] != "-":
+        updated_dec = "+" + updated_dec
+
+    cpsname = hs.cps_star_name(row['starname'][0])
+    namestring = ' '*(16-len(cpsname[:16])) + cpsname[:16]
+
+    jmagstring = ('jmag=' + str(np.round(float(row['jmag'][0]),1)) + ' '* \
+        (4-len(str(np.round(row['jmag'][0],1)))))
+    exposurestring = (' '*(4-len(str(int(row['exptime'][0])))) + \
+        str(int(row['exptime'][0])) + '/' + \
+        str(int(row['exptime'][0])) + ' '* \
+        (4-len(str(int(row['exptime'][0])))))
+
+    ofstring = ('1of' + str(int(row['n_intra_max'][0])))
+    scstring = 'sc=' + 'T'
+
+    numstring = str(int(row['n_exp'][0])) + "x"
+    gmagstring = 'gmag=' + str(np.round(float(row['gmag'][0]),1)) + \
+                                                ' '*(4-len(str(np.round(row['gmag'][0],1))))
+    teffstr = 'Teff=' + str(int(row['teff'][0])) + \
+                                    ' '*(4-len(str(int(row['teff'][0]))))
+
+    gaiastring = str(row['gaia_id'][0]) + ' '*(25-len(str(row['gaia_id'][0])))
+    programstring = row['program_code'][0]
+
+    if filler_flag:
+        # All targets added in round 2 bonus round are lower priority
+        priostring = "p3"
+    else:
+        priostring = "p1"
+
+    if extra == False:
+        timestring2 = str(obs_time)
+    else:
+        # designate a nonsense time
+        timestring2 = "56:78"
+
+    line = (namestring + ' ' + updated_ra + ' ' + updated_dec + ' ' + str(equinox) + ' '
+                + jmagstring + ' ' + exposurestring + ' ' + ofstring + ' ' + scstring +  ' '
+                + numstring + ' '+ gmagstring + ' ' + teffstr + ' ' + gaiastring + ' CC '
+                        + priostring + ' ' + programstring + ' ' + timestring2 +
+                         ' ' + first_available  + ' ' + last_available )
+
+    if not pd.isnull(row['Observing Notes'][0]):
+        line += (' ' + str(row['Observing Notes'][0]))
+
+    return line
+
+def pm_correcter(ra, dec, pmra, pmdec, current_day, equinox="2000"):
+    """
+    Update a star's coordinates due to proper motion.
+
+    Args:
+        ra (float): RA in degrees
+        dec (float): Dec in degrees
+        pmra (float): proper motion in RA (mas/yr), including cos(Dec)
+        pmdec (float): proper motion in Dec (mas/yr)
+        equinox (str): original epoch (e.g. '2000.0')
+        current_day (str): date to which to propagate (e.g. '2025-04-30')
+
+    Returns:
+        formatted_ra (str), formatted_dec (str): updated coordinates as strings
+    """
+    start_time = Time(f'J{equinox}')
+    current_time = Time(current_day)
+    coord = SkyCoord(
+        ra=ra * u.deg,
+        dec=dec * u.deg,
+        pm_ra_cosdec=pmra * u.mas/u.yr,
+        pm_dec=pmdec * u.mas/u.yr,
+        obstime=start_time
+    )
+    new_coord = coord.apply_space_motion(new_obstime=current_time)
+    formatted_ra = new_coord.ra.to_string(unit=u.hourangle, sep=' ', pad=True, precision=1)
+    formatted_dec = new_coord.dec.to_string(unit=u.deg, sep=' ', pad=True, precision=0)
+
+    return formatted_ra, formatted_dec
+
 # Define column names in advance
 columns = [
     'star_name', 'ra', 'dec', 'equinox', 'jmag', 'gmag', 'teff',
@@ -574,104 +676,160 @@ def parse_star_line(line):
         return {col: ' ' for col in columns}
 
 
-def format_kpf_row(row, obs_time, first_available, last_available, current_day,
-                    filler_flag = False, extra=False):
-    """
-    Format request data in the specific way needed for the script (relates to the Keck "Magiq"
-    software's data ingestion requirements).
-
-    Args:
-        row (dataframe): a single row from the requests sheet dataframe
-        obs_time (str): the timestamp of the night to begin the exposure according to the TTP.
-                        In format HH:MM in HST timezone
-        first_available (str): the timestamp of the night where the star is first accessible.
-                                In format HH:MM in HST timezone.
-        last_available (str): the timestamp of the night where the star is last accessible.
-                                In format HH:MM in HST timezone.
-        filler_flag (boolean): True of the target was added in the bonus round
-        extra (boolean): is this an "extra" target
-
-    Returns:
-        line (str): the properly formatted string to be included in the script file
-    """
-
-    equinox = '2000'
-    updated_ra, updated_dec = pm_correcter(row['ra'][0], row['dec'][0],
-                                row['pmra'][0], row['pmdec'][0], current_day, equinox=equinox)
-    if updated_dec[0] != "-":
-        updated_dec = "+" + updated_dec
-
-    cpsname = hs.cps_star_name(row['starname'][0])
-    namestring = ' '*(16-len(cpsname[:16])) + cpsname[:16]
-
-    jmagstring = ('jmag=' + str(np.round(float(row['jmag'][0]),1)) + ' '* \
-        (4-len(str(np.round(row['jmag'][0],1)))))
-    exposurestring = (' '*(4-len(str(int(row['exptime'][0])))) + \
-        str(int(row['exptime'][0])) + '/' + \
-        str(int(row['exptime'][0])) + ' '* \
-        (4-len(str(int(row['exptime'][0])))))
-
-    ofstring = ('1of' + str(int(row['n_intra_max'][0])))
-    scstring = 'sc=' + 'T'
-
-    numstring = str(int(row['n_exp'][0])) + "x"
-    gmagstring = 'gmag=' + str(np.round(float(row['gmag'][0]),1)) + \
-                                                ' '*(4-len(str(np.round(row['gmag'][0],1))))
-    teffstr = 'Teff=' + str(int(row['teff'][0])) + \
-                                    ' '*(4-len(str(int(row['teff'][0]))))
-
-    gaiastring = str(row['gaia_id'][0]) + ' '*(25-len(str(row['gaia_id'][0])))
-    programstring = row['program_code'][0]
-
-    if filler_flag:
-        # All targets added in round 2 bonus round are lower priority
-        priostring = "p3"
-    else:
-        priostring = "p1"
-
-    if extra == False:
-        timestring2 = str(obs_time)
-    else:
-        # designate a nonsense time
-        timestring2 = "56:78"
-
-    line = (namestring + ' ' + updated_ra + ' ' + updated_dec + ' ' + str(equinox) + ' '
-                + jmagstring + ' ' + exposurestring + ' ' + ofstring + ' ' + scstring +  ' '
-                + numstring + ' '+ gmagstring + ' ' + teffstr + ' ' + gaiastring + ' CC '
-                        + priostring + ' ' + programstring + ' ' + timestring2 +
-                         ' ' + first_available  + ' ' + last_available )
-
-    # if not pd.isnull(row['Observing Notes'][0]):
-    #     line += (' ' + str(row['Observing Notes'][0]))
-
-    return line
-
-def pm_correcter(ra, dec, pmra, pmdec, current_day, equinox="2000"):
-    """
-    Update a star's coordinates due to proper motion.
-
-    Args:
-        ra (float): RA in degrees
-        dec (float): Dec in degrees
-        pmra (float): proper motion in RA (mas/yr), including cos(Dec)
-        pmdec (float): proper motion in Dec (mas/yr)
-        equinox (str): original epoch (e.g. '2000.0')
-        current_day (str): date to which to propagate (e.g. '2025-04-30')
-
-    Returns:
-        formatted_ra (str), formatted_dec (str): updated coordinates as strings
-    """
-    start_time = Time(f'J{equinox}')
-    current_time = Time(current_day)
-    coord = SkyCoord(
-        ra=ra * u.deg,
-        dec=dec * u.deg,
-        pm_ra_cosdec=pmra * u.mas/u.yr,
-        pm_dec=pmdec * u.mas/u.yr,
-        obstime=start_time
-    )
-    new_coord = coord.apply_space_motion(new_obstime=current_time)
-    formatted_ra = new_coord.ra.to_string(unit=u.hourangle, sep=' ', pad=True, precision=1)
-    formatted_dec = new_coord.dec.to_string(unit=u.deg, sep=' ', pad=True, precision=0)
-
-    return formatted_ra, formatted_dec
+# -------------------------------------------------------------------------------------------------------------------
+# NOTE: these three functions are used for constructing the "cadence view" plot, which we have not been making recently.
+# We may want to start making these and serving them to the webapp, but this is low priority. Saving these functions
+# for now by commenting them out, so they don't appear in the coverage test stats.
+# If we keep them they will likely get absorbed into the plot.py or dynamic.py
+# -------------------------------------------------------------------------------------------------------------------
+# def build_observed_map_past(past_info, starmap_template_filename):
+#     """
+#     Construct stage one (past) of the starmap which is then used to build the cadence plot.
+#
+#     Args:
+#         past_info (array): 2D array following schema of the values for the database_info_dict
+#         starmap_template_filename (str): the path and filename of the starmap template
+#
+#     Returns:
+#         starmap (dataframe): an updated starmap which includes the past history of the target
+#     """
+#     starmap = pd.read_csv(starmap_template_filename)
+#     observed = [False]*len(starmap)
+#     n_observed = [0]*len(starmap)
+#     for i, item in enumerate(past_info[1]):
+#         ind = list(starmap['Date']).index(past_info[1][i])
+#         observed[ind + int(past_info[2][i]-0.5)] = True
+#         n_observed[ind + int(past_info[2][i]-0.5)] = past_info[3][i]
+#     starmap['Observed'] = observed
+#     starmap['N_obs'] = n_observed
+#     return starmap
+#
+# def build_observed_map_future(manager, combined_semester_schedule, starname, starmap):
+#     """
+#     Construct stage two (future) of the starmap which is then used to build the cadence plot.
+#
+#     Args:
+#         manager (obj): a data_admin object
+#         combined_semester_schedule (array): a 2D array of dimensions n_nights_in_semester by
+#                                             n_slots_in_night where elements denote how the slot is
+#                                             used: target, twilight, weather, not scheduled.
+#         starname (str): the request in question
+#         starmap (dataframe): an updated starmap which includes the past history of the target
+#
+#     Returns:
+#         starmap (dataframe): an updated starmap which includes the past history of the target
+#     """
+#     starmap['Allocated'] = [False]*len(starmap)
+#     starmap['Weathered'] = [False]*len(starmap)
+#
+#     for i, item in enumerate(combined_semester_schedule):
+#         if starname in combined_semester_schedule[i]:
+#             ind = list(combined_semester_schedule[i]).index(starname)
+#             quarter = determine_quarter(ind, np.shape(combined_semester_schedule)[1])
+#             starmap['Observed'][i*4 + quarter] = True
+#             starmap['N_obs'][i*4 + quarter] = list(combined_semester_schedule[i]).count(
+#                     starname)/manager.slots_needed_for_exposure_dict[starname]
+#
+#     for a, item in enumerate(manager.allocation_all):
+#         # mulitply by 4 because each element of allocation_all represents one quarter
+#         # starmap['Allocated'][days_into_semester*4 + a] = bool(allocation_all[a])
+#         starmap['Allocated'][a] = bool(manager.allocation_all[a])
+#     for w, item in enumerate(manager.weather_diff_remaining.flatten()):
+#         starmap['Weathered'][manager.all_dates_dict[manager.current_day]*4+ w] = bool(manager.weather_diff_remaining.flatten()[w])
+#
+#     return starmap
+#
+# def determine_quarter(value, n_slots_in_night):
+#     """
+#     Given a slot number, determine what quarter it is to be observed in.
+#
+#     Args:
+#         value (int): the slot number to be observed
+#         n_slots_in_night (int): the number of slots in the night
+#
+#     Returns:
+#         quarter (int): the corresponding quarter (1, 2, 3, 4) of the night
+#     """
+#     if value <= int(n_slots_in_night*(1/4.)):
+#         quarter = 0
+#     elif value <= int(n_slots_in_night*(2/4.)) and value > int(n_slots_in_night*(1/4.)):
+#         quarter = 1
+#     elif value <= int(n_slots_in_night*(3/4.)) and value > int(n_slots_in_night*(2/4.)):
+#         quarter = 2
+#     elif value <= n_slots_in_night and value > int(n_slots_in_night*(3/4.)):
+#         quarter = 3
+#     elif value <= int(n_slots_in_night*(5/4.)) and value > n_slots_in_night:
+#         quarter = 3
+#     else:
+#         quarter = 0
+#         print("Houston, we've had a problem. No valid quarter: ", value, n_slots_in_night)
+#     return quarter
+#
+# def compute_on_off_for_quarter(quarter_map, quarter):
+#     """
+#     Determine the first and last day a target is accessible in a given quarter of the night.
+#     Primarily for easy lookup plotting purposes later.
+#
+#     Args:
+#         quarter_map (array): a 2D array of length equal to n_slots_in_night representing a
+#                                       single night where 1 indicates target is accessible in that
+#                                       slot, 0 otherwise.
+#     Returns:
+#         observable_quarters (array): a 1D array of length n_quarters_in_night where each element
+#                                      represents if the target is at all observerable in that quarter
+#                                      (1st to 4th running left to right).
+#     """
+#     quarter_map = np.array(quarter_map)
+#     quarter_map_transpose = quarter_map.T
+#     quarter_map_transpose_tonight = list(quarter_map_transpose[quarter])
+#     try:
+#         on = quarter_map_transpose_tonight.index(1)
+#         quarter_map_transpose_tonight.reverse()
+#         off = len(quarter_map_transpose_tonight) - quarter_map_transpose_tonight.index(1) - 1
+#     except:
+#         on = 0
+#         off = 0
+#     return [on, off]
+#
+# def get_accessibility_stats(access_map, time_up=30, slot_size=5):
+#     """
+#     Compute stats useful for checking feasibilty and for generating the cadence plot of a target
+#
+#     Args:
+#         access_map (array): a 2D array of shape n_nights_in_semester by n_slots_in_night where 1's
+#                             indicate the target is accessible
+#         time_up (int): the minimum number of minutes a target must be accessible in the night to be
+#                        considered observable in that night
+#         slot_size (int): the size of the slots in minutes
+#
+#     Returns:
+#         days_observable (int): the number of days in the semester where the target achieves a
+#                                minimum level of observablility
+#         rise_day (int): the number of days from semester start where the target is first available
+#         set_day (int): the number of days from semester start where the target is last available
+#     """
+#
+#     sum_along_days = np.sum(access_map, axis=1)
+#     gridpoints = int(time_up/slot_size)
+#     observable_mask = sum_along_days > gridpoints
+#     days_observable = np.sum(observable_mask)
+#
+#     rise_day = -1
+#     i = 0
+#     while rise_day < 0 and i < len(sum_along_days):
+#         if sum_along_days[i] > gridpoints:
+#             rise_day = i
+#         i += 1
+#     if i == len(sum_along_days):
+#         rise_day = i
+#
+#     set_day = -1
+#     j = len(sum_along_days)-1
+#     while set_day < 0 and j > 0:
+#         if sum_along_days[j] > gridpoints:
+#             set_day = j
+#         j -= 1
+#     if j == len(sum_along_days):
+#         set_day = len(sum_along_days)
+#
+#     return days_observable, rise_day, set_day

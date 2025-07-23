@@ -116,6 +116,7 @@ def cull_from_weather(request_set, weather_loss_map):
     request_set.observability = request_set.observability[~request_set.observability['d'].isin(weather_loss_map)]
     return request_set
 
+# This feels important but is not presently touched
 def convert_slot_to_quarter(d, s, twilight_map_remaining_2D_d):
     '''
     Determine the slot numbers within the night that breaks the night into "equal" length quarters

@@ -284,12 +284,13 @@ def get_tau_inter_line(manager, all_stars):
         program_to_indices.setdefault(prog, []).append(i)
 
     # Create one trace per program
+    maxyvals = []
     for program, indices in program_to_indices.items():
         x_vals = [all_request_tau_inters[i] for i in indices]
         y_vals = [all_onsky_tau_inters[i] for i in indices]
         text_vals = [f"{all_starnames[i]} in {program}" for i in indices]
         color_vals = all_colors[indices[0]]  # Use the first point's color for the group
-
+        maxyvals.append(max(y_vals))
         fig.add_trace(go.Scatter(
             x=x_vals,
             y=y_vals,
@@ -301,8 +302,8 @@ def get_tau_inter_line(manager, all_stars):
         ))
 
     # Add 1-to-1 line
-    min_val = min(min(x), min(y))
-    max_val = max(max(x), max(y))
+    min_val = 0
+    max_val = max(maxyvals)
     fig.add_trace(go.Scatter(
         x=[min_val, max_val],
         y=[min_val, max_val],
@@ -836,29 +837,29 @@ def get_script_plan(manager, data):
     observing_plan = observing_plan[observing_plan.iloc[:, 0].str.strip() != '']
     observing_plan_html = dataframe_to_html(observing_plan, sort_column=11)
     return observing_plan_html
-    
+
 
 def get_requests_frame(manager, filter_condition=None):
     """
     Load manager.requests_frame and render in HTML
-    
+
     Arguments:
         manager (manager): Manager object holding requests_frame
         filter_condition (str): String specifying any desired filters
             to apply to loaded frame. Defaults to empty (no cuts)
-    
+
     Returns:
         req_frame_html (str): HTML string representing filtered frame
-    
+
     """
-    
+
     req_frame = manager.requests_frame
     if filter_condition is not None:
         req_frame = req_frame.query(filter_condition)
     req_frame_html = dataframe_to_html(req_frame, sort_column=0)
-    
+
     return req_frame_html
-    
+
 
 def plot_path_2D_interactive(manager, data):
     """Create an interactive Plotly plot showing telescope azimuth and altitude paths with UTC times and white background."""
@@ -951,13 +952,13 @@ def dataframe_to_html(dataframe, sort_column=0):
     """
     Convert a pandas dataframe into and HTML string for rendering
     on the web app.
-    
+
     Arguments:
         dataframe (Pandas dataframe): Frame to be rendered
         sort_column (int): Index of the column by which
             rendered frame should be sorted, in ascending
             order. Defaults to the 0th column.
-    
+
     Returns:
         full_html (str): HTML string representing dataframe
     """
