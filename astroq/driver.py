@@ -15,7 +15,7 @@ import astroq.benchmarking as bn
 import astroq.blocks as ob
 import astroq.plot as pl
 import astroq.io as io
-import astroq.onsky as sk
+import astroq.nplan as nplan
 import astroq.history as hs
 import astroq.webapp as app
 import astroq.weather as wh
@@ -173,8 +173,8 @@ def ttp(args):
     print(f'ttp function: config_file is {cf}')
     manager = mn.data_admin(cf)
     manager.run_admin()
-    sk.run_ttp(manager)
-    sk.produce_bright_backups(manager)
+    nplan.run_ttp(manager)
+    nplan.produce_bright_backups(manager)
     return
 
 def get_history(args):
