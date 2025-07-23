@@ -365,7 +365,7 @@ def prepare_new_semester(config_path):
 
     # Compute twilight times for this semester once and save as csv
     # -----------------------------------------------------------------------------------------
-        logs.info("Computing twilight times for the semester.")
+    logs.info("Computing twilight times for the semester.")
     twilight_frame = ac.generate_twilight_times(little_manager.all_dates_array)
     twilight_frame.to_csv(little_manager.upstream_path + 'inputs/twilight_times.csv', index=False)
 
