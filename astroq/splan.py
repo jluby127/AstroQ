@@ -124,10 +124,10 @@ class SemesterPlanner(object):
         past_nights_observed_dict = {}
         for name in self.schedulable_requests:
             idx = self.manager.requests_frame.index[self.manager.requests_frame['starname']==name][0]
-            if self.manager.database_info_dict == {}:
-                past_nights_observed = 0
+            if name in list(self.manager.past_history.keys()):
+                past_nights_observed = self.manager.past_history[name].total_n_unique_nights
             else:
-                past_nights_observed = len(self.manager.database_info_dict[name][1])
+                past_nights_observed = 0
 
             # Safety valve for if the target is over-observed for any reason
             if past_nights_observed > self.manager.requests_frame['n_inter_max'][idx] + \
