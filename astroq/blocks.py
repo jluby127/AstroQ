@@ -39,6 +39,50 @@ exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', '
                     'schedule.desired_num_visits_per_night', 'schedule.minimum_num_visits_per_night', 'history'# NOTE: this line will be removed 
 ]
 
+def pull_OBs(semester):
+    """
+    Pull the latest database OBs down to local.
+
+    Args:
+        semester (str) - the semester from which to query OBs, format YYYYL
+        histories (bool) - if True, pull the history of OBs for the semester, if False, pull the latest OBs for the semester
+
+    Returns:
+        data (json) - the OB information in json format
+    """
+    url = "https://www3.keck.hawaii.edu/api/kpfcc/getAllSemesterObservingBlocks"
+    params = {}
+    params["semester"] = semester
+    try:
+        data = requests.get(url, params=params, auth=(os.environ['KECK_OB_DATABASE_API_USERNAME'], os.environ['KECK_OB_DATABASE_API_PASSWORD']))
+        data = data.json()
+        return data
+    except:
+        print("ERROR")
+        return
+
+def pull_OB_histories(semester):
+    """
+    Pull the latest database OBs down to local.
+
+    Args:
+        semester (str) - the semester from which to query OBs, format YYYYL
+        histories (bool) - if True, pull the history of OBs for the semester, if False, pull the latest OBs for the semester
+
+    Returns:
+        data (json) - the OB information in json format
+    """
+    url = "https://www3.keck.hawaii.edu/api/kpfcc/getObservingBlockHistory"
+    params = {}
+    params["semester"] = semester
+    try:
+        data = requests.get(url, params=params, auth=(os.environ['KECK_OB_DATABASE_API_USERNAME'], os.environ['KECK_OB_DATABASE_API_PASSWORD']))
+        data = data.json()
+        return data
+    except:
+        print("ERROR")
+        return
+        
 def pull_allocation_info(start_date, numdays, instrument, savepath):
     params = {}
     params['cmd'] = "getSchedule"
