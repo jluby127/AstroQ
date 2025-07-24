@@ -28,7 +28,7 @@ def writeStarList(orderData, starttime, current_day, outputpath):
         outputdir (str): Folder in which to write the text output
     """
     
-    with open(outputpath, "w") as f
+    with open(outputpath, "w") as f:
         f.write("Target,StartExposure\n")
         for i in range(len(orderData['Starname'])):
             adjusted_timestamp = TimeDelta(orderData['Start Exposure'][i]*60,format='sec') + starttime
