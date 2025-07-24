@@ -363,7 +363,7 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
         fig.write_html(fileout_path)
         pio.write_image(
             fig,
-            manager.reports_directory + "admin/" + manager.current_day + '/birdseye_static.png',
+            manager.reports_directory + "birdseye_static.png",
             format="png",
             width=1200,
             height=800,
@@ -477,7 +477,7 @@ def cof_builder(all_stars, manager, filename='', flag=False):
 
         pio.write_image(
             fig,
-            manager.reports_directory + "admin/" + manager.current_day + '/cof_static.png',
+            manager.reports_directory + "cof_static.png",
             format="png",
             width=1200,
             height=800,
@@ -589,7 +589,7 @@ def read_star_objects(savepath):
 
 def build_plot_file(manager):
     stars_in_program, programs_as_stars, nulltime = process_stars(manager)
-    save_path = manager.reports_directory + "admin/" + manager.current_day + '/'
+    save_path = manager.reports_directory
     os.makedirs(save_path, exist_ok = True)
     write_star_objects(save_path, [stars_in_program, programs_as_stars, nulltime])
 
@@ -601,7 +601,7 @@ def build_semester_webapp_pkl(config_file):
 def build_static_plots(config_file):
     manager = mn.data_admin(config_file)
     manager.run_admin()
-    data = read_star_objects(manager.reports_directory + "admin/" + manager.current_day + '/star_objects.pkl')
+    data = read_star_objects(manager.reports_directory + "star_objects.pkl")
     all_stars_list = [obj for obj_list in data[0].values() for obj in obj_list]
     cof_builder(all_stars_list, manager, 'all_stars_COF.html')
     cof_builder(list(data[1].values()), manager, 'all_programs_COF.html', flag=True)
