@@ -130,11 +130,10 @@ def produce_ultimate_map(manager, rf, running_backup_stars=False):
     is_inter = np.ones((ntargets, nnights, nslots),dtype=bool)
     for itarget in range(ntargets):
         name = rf.iloc[itarget]['starname']
-        if name in manager.database_info_dict:
-            if manager.database_info_dict[name][0] != '0000-00-00' and rf.iloc[itarget]['tau_inter'] > 1: # default value if no history, and only valid for cadences beyond every night
-                inight_start = manager.all_dates_dict[manager.current_day] - manager.today_starting_night
-                inight_stop = min(inight_start + rf.iloc[itarget]['tau_inter'],nnights)
-                is_inter[itarget,inight_start:inight_stop,:] = False
+        if name in manager.past_history and rf.iloc[itarget]['tau_inter'] > 1:
+            inight_start = manager.all_dates_dict[manager.past_history.date_last_observed] - manager.today_starting_night
+            inight_stop = min(inight_start + rf.iloc[itarget]['tau_inter'],nnights)
+            is_inter[itarget,inight_start:inight_stop,:] = False
 
     allocated_times_frame = pd.read_csv(manager.allocation_file)
     allocated_times_frame['start'] = allocated_times_frame['start'].apply(Time)

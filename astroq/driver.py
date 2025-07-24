@@ -112,8 +112,8 @@ def kpfcc_data(args):
     awarded_programs = data["awarded_programs"]
     if not os.path.exists(savepath):
         os.makedirs(savepath)
-    OBs = ob.refresh_local_data(semester)
-    good_obs, bad_obs_values, bad_obs_hasFields = ob.get_request_sheet(OBs, awarded_programs, savepath + "/Requests.csv")
+    OBs = ob.pull_OBs(semester)
+    good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram = ob.get_request_sheet(OBs, awarded_programs, savepath + "/Requests.csv")
 
     send_emails_with = []
     for i in range(len(bad_obs_values)):
@@ -194,7 +194,10 @@ def get_history(args):
     print(f'get_history function: config_file is {cf}')
     manager = mn.data_admin(cf)
     manager.run_admin()
-    database_info_dict = hs.build_past_history(manager.past_database_file, manager.requests_frame, manager.twilight_frame)
+    # raw_histories = ob.pull_OB_histories(manager.semesterID)
+    raw_histories = ob.pull_OB_histories('2025A')
+    obhist = hs.write_OB_histories_to_csv(manager, raw_histories)
+    past_history = hs.process_star_history(manager.past_file)
     return
 
 def get_dynamics(args):
