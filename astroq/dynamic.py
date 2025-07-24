@@ -407,7 +407,8 @@ def compute_seasonality(manager, starnames, ras, decs, semester='B'):
     is_moon = is_moon & (ang_dist.to(u.deg) > 30*u.deg)[:, :, np.newaxis]
 
     # True if obseravtion occurs at night
-    is_night = manager.twilight_map_remaining_2D.astype(bool) # shape = (nnights, nslots)
+    # Create a simple night mask (all slots available)
+    is_night = np.ones((manager.n_nights_in_semester, manager.n_slots_in_night), dtype=bool)
     is_night = np.ones_like(is_altaz, dtype=bool) & is_night
 
 #     is_alloc = manager.allocation_map_2D.astype(bool) # shape = (nnights, nslots)

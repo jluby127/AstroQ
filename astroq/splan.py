@@ -36,7 +36,6 @@ class SemesterPlanner(object):
         manager.run_admin()
 
         self.manager = manager
-        request_set = rq.cull_from_weather(request_set, self.manager.weathered_days)
         self.request_set = request_set
         self.observability_tuples = list(request_set.observability.itertuples(index=False, name=None))
 
@@ -174,7 +173,6 @@ class SemesterPlanner(object):
                 if (d,s_shift) in R_ds:
                     rhs.extend(self.Yrds[r,d,s_shift] for r in R_ds[d,s_shift] & R_geq_t_visit[delta+1])
 
-            #import pdb; pdb.set_trace()
             lhs = 1 - gp.quicksum(self.Yrds[r,d,s] for r in R_ds[d,s])
             rhs = gp.quicksum(rhs)
             self.model.addConstr(lhs >= rhs, f'reserve_multislot_{d}d_{s}s')
@@ -193,9 +191,13 @@ class SemesterPlanner(object):
         """
         logs.info("Constraint 4: Enforce inter-night cadence.")
         # Get all (d',s') pairs for a request that must be zero if a (d,s) pair is selected
+        # Ensure tau_inter is numeric before the query
+        joiner_for_intercadence = self.joiner.copy()
+        joiner_for_intercadence['tau_inter'] = pd.to_numeric(joiner_for_intercadence['tau_inter'], errors='coerce')
+        
         intercadence = pd.merge(
-            self.joiner.drop_duplicates(['id','d',]),
-            self.joiner[['id','d','s']],
+            joiner_for_intercadence.drop_duplicates(['id','d',]),
+            joiner_for_intercadence[['id','d','s']],
             suffixes=['','3'],on=['id']
         ).query('d + 0 < d3 < d + tau_inter')
         self.intercadence_tracker = intercadence.groupby(['id','d'])[['d3','s3']].agg(list)
@@ -247,67 +249,8 @@ class SemesterPlanner(object):
         self.model.addConstr(gp.quicksum(self.Un[d] for d in range(self.manager.n_nights_in_semester))
                             <= self.manager.max_unique_nights, "maximumNightsAllocated")
 
-    def constraint_relate_allocation_and_onsky(self):
-        """
-        According to Eq X in Lubin et al. 2025.
-
-        Judah: not sure what role this equation plays
-
-        Ensure that for any night/quarter combination
-        during which an observation is scheduled, the
-        telescope is allocated to the observing program
-        for at least one quarter during that night.
-        """
-        logs.info("Constraint: relating allocation map and unique night allocation map.")
-        for d in range(self.manager.n_nights_in_semester):
-            for q in range(self.manager.n_quarters_in_night):
-                self.model.addConstr(self.Un[d] >= self.Anq[d,q], "relatedUnique_andNonUnique_lowerbound_" + str(d) + "d_" + str(q) + "q")
-            self.model.addConstr(self.Un[d] <= gp.quicksum(self.Anq[d,q] for q in range(self.manager.n_quarters_in_night)), "relatedUnique_andNonUnique_upperbound_" + str(d) + "d")
-
-    def constraint_all_portions_of_night_represented(self):
-        """
-        According to Eq X in Lubin et al. 2025.
-
-        Enforce a minimum number of first, second, third,
-        and fourth quarters in the final schedule.
-        """
-        logs.info("Constraint: setting minimum number of times each quarter to be allocated.")
-        self.model.addConstr(gp.quicksum(self.Anq[d,0] for d in range(self.manager.n_nights_in_semester)) >= self.manager.min_represented, "minQuarterSelection_0q")
-        self.model.addConstr(gp.quicksum(self.Anq[d,1] for d in range(self.manager.n_nights_in_semester)) >= self.manager.min_represented, "minQuarterSelection_1q")
-        self.model.addConstr(gp.quicksum(self.Anq[d,2] for d in range(self.manager.n_nights_in_semester)) >= self.manager.min_represented, "minQuarterSelection_2q")
-        self.model.addConstr(gp.quicksum(self.Anq[d,3] for d in range(self.manager.n_nights_in_semester)) >= self.manager.min_represented, "minQuarterSelection_3q")
-
-    def constraint_forbidden_quarter_patterns(self):
-        """
-        According to Eq X in Lubin et al. 2025.
-
-        Prevent allocations of quarter nights that
-        are not one of the following:
-            - a full night
-            - first half only
-            - second half only
-        """
-        logs.info("Constraint: forbid certain patterns of quarter night allocations within night.")
-        for d in range(self.manager.n_nights_in_semester):
-            # Cannot have 1st and 3rd quarter allocated without also allocating 2nd quarter (no gap), regardless of if 4th quarter is allocated or not
-            self.model.addConstr(self.Anq[d,0] + (self.Un[d]-self.Anq[d,1]) + self.Anq[d,2] <= 2*self.Un[d], "NoGap2_" + str(d) + "d")
-            # Cannot have 2nd and 4th quarter allocated without also allocating 3rd quarter (no gap), regardless of if 1st quarter is allocated or not
-            self.model.addConstr(self.Anq[d,1] + (self.Un[d]-self.Anq[d,2]) + self.Anq[d,3] <= 2*self.Un[d], "NoGap3_" + str(d) + "d")
-            # Cannot have only 2nd and 3rd quarters allocated (no middle half)
-            self.model.addConstr((self.Un[d]-self.Anq[d,0]) + self.Anq[d,1] + self.Anq[d,2] + (self.Un[d]-self.Anq[d,3]) <= 3*self.Un[d], "NoMiddleHalf_" + str(d) + "d")
-            if self.manager.allow_single_quarters == False:
-                # Cannot have only 1st and 4th quarters allocated (no end-cap half)
-                self.model.addConstr(self.Anq[d,0] + (self.Un[d]-self.Anq[d,1]) + (self.Un[d]-self.Anq[d,2]) + self.Anq[d,3] <= 3*self.Un[d], "NoEndCapHalf_" + str(d) + "d")
-                # Cannot choose single quarter allocations
-                self.model.addConstr(self.Anq[d,0] + (self.Un[d]-self.Anq[d,1]) + (self.Un[d]-self.Anq[d,2]) + (self.Un[d]-self.Anq[d,3]) <= 3*self.Un[d], "No1stQOnly_" + str(d) + "d")
-                self.model.addConstr((self.Un[d]-self.Anq[d,0]) + self.Anq[d,1] + (self.Un[d]-self.Anq[d,2]) + (self.Un[d]-self.Anq[d,3]) <= 3*self.Un[d], "No2ndQOnly_" + str(d) + "d")
-                self.model.addConstr((self.Un[d]-self.Anq[d,0]) + (self.Un[d]-self.Anq[d,1]) + self.Anq[d,2] + (self.Un[d]-self.Anq[d,3]) <= 3*self.Un[d], "No3rdQOnly_" + str(d) + "d")
-                self.model.addConstr((self.Un[d]-self.Anq[d,0]) + (self.Un[d]-self.Anq[d,1]) + (self.Un[d]-self.Anq[d,2]) + self.Anq[d,3] <= 3*self.Un[d], "No4thQOnly_" + str(d) + "d")
-                # Cannot choose 3/4 allocations
-                self.model.addConstr(self.Anq[d,0] + self.Anq[d,1] + self.Anq[d,2] + (self.Un[d]-self.Anq[d,3]) <= 3*self.Un[d], "No3/4Q_v1_" + str(d) + "d")
-                self.model.addConstr((self.Un[d]-self.Anq[d,0]) + self.Anq[d,1] + self.Anq[d,2] + self.Anq[d,3] <= 3*self.Un[d], "No3/4Q_v2_" + str(d) + "d")
-
-    def constraint_cannot_observe_if_not_allocated(self, twilight_map_remaining_2D):
+ 
+    def constraint_cannot_observe_if_not_allocated(self):
         """
         According to Eq X in Lubin et al. 2025.
 
@@ -319,7 +262,9 @@ class SemesterPlanner(object):
         # if quarter is not allocated, all slots in quarter must be zero
         # note that the twilight times at the front and end of the night have to be respected
         for id, d, s in zip(self.request_set.observability['id'], self.request_set.observability['d'], self.request_set.observability['s']):
-            q = rq.convert_slot_to_quarter(d, s, twilight_map_remaining_2D[d])
+            # Create a simple night mask for quarter conversion
+            night_mask = np.ones(self.manager.n_slots_in_night, dtype=int)
+            q = rq.convert_slot_to_quarter(d, s, night_mask)
             self.model.addConstr(self.Yrds[id, d, s] <= self.Anq[d, q], "dontSched_ifNot_Allocated_"+ str(d) + "d_" + str(q) + "q_" + str(s) + "s_" + id, d, id)
 
     def constraint_max_consecutive_onsky(self):
@@ -589,11 +534,6 @@ class SemesterPlanner(object):
         self.build_model_round1()
         self.optimize_model()
         self.serialize_results_csv()
-        self.round_info = 'Round2'
-        if self.manager.run_round_two:
-            self.build_model_round2()
-            self.optimize_model()
-        self.serialize_results_csv()
         logs.info("Scheduling complete, clear skies!")
 
     def build_model_round1(self):
@@ -614,7 +554,7 @@ class SemesterPlanner(object):
             self.constraint_relate_allocation_and_onsky()
             self.constraint_all_portions_of_night_represented()
             self.constraint_forbidden_quarter_patterns()
-            self.constraint_cannot_observe_if_not_allocated(self.manager.twilight_map_remaining_2D)
+            self.constraint_cannot_observe_if_not_allocated()
             if os.path.exists(self.manager.blackout_file):
                 self.constraint_enforce_restricted_nights(limit=0)
             if os.path.exists(self.manager.whiteout_file):
@@ -639,28 +579,13 @@ class SemesterPlanner(object):
         logs.debug("Building human readable schedule.")
         if self.manager.run_optimal_allocation:
             self.retrieve_ois_solution()
-        self.human_read_available = io.write_available_human_readable(self.manager)
-        self.human_read_schedule = io.write_stars_schedule_human_readable(self.human_read_available, self.Yrds, self.manager, self.round_info)
-        io.build_fullness_report(self.human_read_schedule, self.manager, self.round_info)
-        io.write_out_results(self.manager, self.theta, self.round_info, self.start_the_clock)
-        mn.get_gap_filler_targets(self.manager)
+
         io.serialize_schedule(self.Yrds, self.manager,)
 
-    def retrieve_ois_solution(self):
-        logs.debug("Retrieving results of Optimal Instrument Allocation set of nights.")
-        allocation_schedule_1d = []
-        for v in self.Anq.values():
-            if np.round(v.X,0) == 1:
-                allocation_schedule_1d.append(1)
-            else:
-                allocation_schedule_1d.append(0)
-        allocation_schedule = np.reshape(allocation_schedule_1d, (self.manager.n_nights_in_semester, self.manager.n_quarters_in_night))
-
-
-        weather_holder = np.zeros(np.shape(allocation_schedule))
-        allocation_map_1D, allocation_map_2D, weathered_map = ac.build_allocation_map(self.manager, allocation_schedule, weather_holder)
-        ac.convert_allocation_array_to_binary(self.manager)
-        self.manager.allocation_all = allocation_map_1D
-        self.manager.allocation_1D = allocation_map_1D
-        self.manager.allocation_map_2D = allocation_map_2D
-        self.manager.weathered_map = weathered_map
+        # --- New: Output selected requests for current day ---
+        today_idx = self.manager.all_dates_dict[self.manager.current_day]
+        selected = [k[0] for k, v in self.Yrds.items() if v.x > 0 and k[1] == today_idx]
+        selected = list(set(selected))
+        selected_df = self.manager.requests_frame[self.manager.requests_frame['starname'].isin(selected)].copy()
+        # Save to CSV with new name
+        selected_df.to_csv(os.path.join(self.manager.output_directory, 'request_selected.csv'), index=False)

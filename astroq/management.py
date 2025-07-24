@@ -53,9 +53,15 @@ class data_admin(object):
         self.daily_starting_time = str(config.get('other', 'daily_starting_time'))
         self.daily_ending_time  = f"{(int(self.daily_starting_time.split(':')[0]) + self.n_hours_in_night) % 24:02d}:{int(self.daily_starting_time.split(':')[1]):02d}"
 
-        self.allocation_file = str(config.get('options', 'allocation_file'))
+        # Resolve allocation file path relative to semester directory
+        allocation_file_config = str(config.get('options', 'allocation_file'))
+        if os.path.isabs(allocation_file_config):
+            self.allocation_file = allocation_file_config
+        else:
+            self.allocation_file = os.path.join(self.semester_directory, allocation_file_config)
         self.past_database_file = os.path.join(self.semester_directory, "inputs/queryJumpDatabase.csv")
         self.special_map_file = os.path.join(self.semester_directory, "inputs/specialMaps_" + str(self.slot_size) + "minSlots.txt")
+        self.custom_file = os.path.join(self.semester_directory, "custom.csv")
         self.zero_out_file = os.path.join(self.semester_directory, "inputs/zero_out.csv")
         self.nonqueue_map_file = os.path.join(self.semester_directory, "inputs/NonQueueMap"  + str(self.slot_size) + ".txt")
         self.nonqueue_file = os.path.join(self.semester_directory, "inputs/NonQueueMap.csv")
@@ -108,7 +114,6 @@ class data_admin(object):
 
         self.output_directory = self.upstream_path  + "outputs/" + str(self.current_day) + "/"
         self.folder_cadences = os.path.join(self.semester_directory, "/outputs/" + str(self.current_day) + "/cadences/")
-        self.future_forecast = os.path.join(self.semester_directory, "outputs/" + str(self.current_day) + "/raw_combined_semester_schedule_Round2.txt")
         # Suggest your output directory be something so that it doesn't autosave
         # to the same directory as the run files and crowds up the GitHub repo.
         check = os.path.isdir(self.output_directory)
@@ -150,37 +155,6 @@ class data_admin(object):
         self.today_starting_night = today_starting_night
         self.semester_grid = np.arange(0, self.n_nights_in_semester, 1)
         self.quarters_grid = np.arange(0, self.n_quarters_in_night, 1)
-
-        self.twilight_map_remaining_2D = ac.compute_twilight_map(self)
-        self.available_slots_in_each_night = np.sum(self.twilight_map_remaining_2D, axis=1)
-        # When running a normal schedule, include the observatory's allocation map
-        if self.run_optimal_allocation == False:
-            if self.allocation_file!='None':
-                allocation_map_2D = np.loadtxt(os.path.join(self.upstream_path, self.allocation_file))
-                allocation_2D_post_weather, weather_diff = wh.prepare_allocation_map(self, allocation_map_2D)
-            else:
-                # Get the latest allocation info from the observatory
-                allo, all_dates_dict = ac.pull_allocation(self.semester_start_date, self.semester_length, 'KPF') # NOTE: later change instrument to 'KPF-CC'
-                allocation_map_2D = ac.build_allocation_map(all_dates_dict, allo)
-                allocation_2D_post_weather, weather_diff = wh.prepare_allocation_map(self, allocation_map_2D)
-
-        else:
-            # When running the optimal allocation, all dates are possible except for those specifically blacked out
-            # Weather arrays are zeros since no weather losses are modeled
-            weather_diff = np.zeros(self.n_nights_in_semester, dtype='int')
-
-            # allocation maps are ones because all nights are possible to be allocated
-            allocation_map_2D = np.ones((self.n_nights_in_semester, self.n_slots_in_night), dtype='int')
-            allocation_2D_post_weather = np.ones((self.n_nights_in_semester, self.n_slots_in_night), dtype='int')
-
-        self.weather_diff = weather_diff
-        self.allocation_map_2D = allocation_map_2D
-        self.allocation_map_2D_post_weather = allocation_2D_post_weather
-
-        if np.sum(self.weather_diff) == 0:
-            self.weathered_days = []
-        else:
-            self.weathered_days = np.where(np.any(self.weather_diff == 1, axis=1))[0]
 
     def build_slots_required_dictionary(self, always_round_up_flag=False):
         """
