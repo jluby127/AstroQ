@@ -61,7 +61,7 @@ class data_admin(object):
             self.allocation_file = os.path.join(self.semester_directory, allocation_file_config)
         self.past_database_file = os.path.join(self.semester_directory, "inputs/queryJumpDatabase.csv")
         self.special_map_file = os.path.join(self.semester_directory, "inputs/specialMaps_" + str(self.slot_size) + "minSlots.txt")
-        self.custom_file = os.path.join(self.semester_directory, "custom.csv")
+        self.custom_file = os.path.join(self.semester_directory, "inputs/custom.csv")
         self.zero_out_file = os.path.join(self.semester_directory, "inputs/zero_out.csv")
         self.nonqueue_map_file = os.path.join(self.semester_directory, "inputs/NonQueueMap"  + str(self.slot_size) + ".txt")
         self.nonqueue_file = os.path.join(self.semester_directory, "inputs/NonQueueMap.csv")
@@ -96,10 +96,7 @@ class data_admin(object):
 
         self.folder_forecasts = os.path.join(self.semester_directory, "/data/first_forecasts/")
         self.turn_on_off_file = os.path.join(self.semester_directory, "inputs/turnOnOffDates.csv")
-        self.starmap_template_filename = os.path.join(self.semester_directory, "inputs/cadenceTemplateFile.csv")
         self.build_starmaps = config.get('other', 'build_starmaps').strip().lower() == "true"
-
-        self.nightly_start_stop_times_file = os.path.join(self.semester_directory, "inputs/nightly_start_stop_times.csv")
         self.run_backup_scripts = config.get('other', 'generate_backup_script').strip().lower() == "true"
         self.backup_file = os.path.join(DATADIR,"bright_backups_frame.csv")
         self.backup_observability_file = os.path.join(DATADIR,"bright_backup_observability.csv")
@@ -110,7 +107,6 @@ class data_admin(object):
         """
         # build out some paths here, so that if current_day changes due to request_set.json file, it is reflected properly
         self.requests_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/Requests.csv"))
-        self.twilight_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/twilight_times.csv"), parse_dates=True)
 
         self.output_directory = self.upstream_path  + "outputs/" + str(self.current_day) + "/"
         self.folder_cadences = os.path.join(self.semester_directory, "/outputs/" + str(self.current_day) + "/cadences/")
@@ -123,7 +119,7 @@ class data_admin(object):
             file.close()
 
         # Get semester parameters and define important quantities
-        self.database_info_dict = hs.build_past_history(self.past_database_file, self.requests_frame, self.twilight_frame)
+        self.database_info_dict = hs.build_past_history(self.past_database_file, self.requests_frame, None)
         self.slots_needed_for_exposure_dict = self.build_slots_required_dictionary()
 
         semester_start_date, semester_end_date, semester_length, semester_year, semester_letter = \
@@ -334,14 +330,7 @@ def prepare_new_semester(config_path):
             dateslist.append(little_manager.all_dates_array[d])
             quarterlist.append(0.5+q)
     falselist = [False]*len(dateslist)
-    template_frame = pd.DataFrame({'Date':dateslist, 'Quarter':quarterlist,'Allocated':falselist,'Weathered':falselist})
-    template_frame.to_csv(little_manager.upstream_path + 'inputs/cadenceTemplateFile.csv', index=False)
-
-    # Compute twilight times for this semester once and save as csv
-    # -----------------------------------------------------------------------------------------
-    logs.info("Computing twilight times for the semester.")
-    twilight_frame = ac.generate_twilight_times(little_manager.all_dates_array)
-    twilight_frame.to_csv(little_manager.upstream_path + 'inputs/twilight_times.csv', index=False)
+    # Removed cadence template and twilight times creation (not needed)
 
     # Create the json file containing the accessiblity for each target (elevation + moon safe)
     # -----------------------------------------------------------------------------------------

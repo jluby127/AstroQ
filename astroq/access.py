@@ -439,7 +439,7 @@ def convert_allocation_info_to_binary(manager, allocation):
         starts.append(start)
         stops.append(stop)
     allocation_frame = pd.DataFrame({'Date':processed_dates, 'Start':starts, 'Stop':stops})
-    allocation_frame.to_csv(manager.upstream_path + 'inputs/nightly_start_stop_times.csv', index=False)
+    # Removed nightly_start_stop_times.csv creation (not needed)
 
 def quarter_translator(start, stop):
     """
