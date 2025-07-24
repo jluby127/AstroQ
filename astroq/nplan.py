@@ -52,6 +52,40 @@ class NightPlanner(object):
         """
         self.manager = manager
         
+    def _get_nightly_times_from_allocation(self, current_day):
+        """
+        Extract start and stop times for a specific date from allocation.csv.
+        
+        Args:
+            current_day (str): the date to look for in YYYY-MM-DD format
+            
+        Returns:
+            tuple: (start_time, stop_time) as Time objects
+        """
+        allocated_times_frame = pd.read_csv(self.manager.allocation_file)
+        allocated_times_frame['start'] = allocated_times_frame['start'].apply(Time)
+        allocated_times_frame['stop'] = allocated_times_frame['stop'].apply(Time)
+        
+        # Filter for the current day
+        current_day_str = str(current_day)
+        day_allocations = []
+        for _, row in allocated_times_frame.iterrows():
+            start_datetime = str(row['start'])[:10]  # Extract date part (YYYY-MM-DD)
+            if start_datetime == current_day_str:
+                day_allocations.append(row)
+        
+        if not day_allocations:
+            raise ValueError(f"No allocation found for date {current_day_str}")
+        
+        # For multiple allocations on the same day, use the earliest start and latest stop
+        start_times = [row['start'] for row in day_allocations]
+        stop_times = [row['stop'] for row in day_allocations]
+        
+        earliest_start = min(start_times)
+        latest_stop = max(stop_times)
+        
+        return earliest_start, latest_stop
+        
     def run_ttp(self):
         """
         Produce the TTP solution given the results of the autoscheduler.
@@ -63,13 +97,8 @@ class NightPlanner(object):
             os.makedirs(observers_path)
 
         observatory = telescope.Keck1()
-        nightly_start_stop_times = pd.read_csv(self.manager.nightly_start_stop_times_file)
-
-        idx = nightly_start_stop_times[nightly_start_stop_times['Date'] == str(self.manager.current_day)].index[0]
-        night_start_time = nightly_start_stop_times['Start'][idx]
-        night_stop_time = nightly_start_stop_times['Stop'][idx]
-        observation_start_time = Time(str(self.manager.current_day) + "T" + str(night_start_time), format='isot')
-        observation_stop_time = Time(str(self.manager.current_day) + "T" + str(night_stop_time), format='isot')
+        # Use the helper method to get nightly times
+        observation_start_time, observation_stop_time = self._get_nightly_times_from_allocation(self.manager.current_day)
         total_time = np.round((observation_stop_time.jd-observation_start_time.jd)*24,3)
         print("Time in Night for Observations: " + str(total_time) + " hours.")
 
@@ -125,16 +154,8 @@ class NightPlanner(object):
         if not check:
             os.makedirs(backups_path)
 
-        nightly_start_stop_times = pd.read_csv(self.manager.nightly_start_stop_times_file)
-        # Determine time bounds of the night
-        day_in_semester = self.manager.all_dates_dict[self.manager.current_day]
-        idx = nightly_start_stop_times[nightly_start_stop_times['Date'] == str(self.manager.current_day)].index[0]
-        night_start_time = nightly_start_stop_times['Start'][idx]
-        observation_start_time = Time(str(self.manager.current_day) + "T" + str(night_start_time),
-            format='isot')
-        night_stop_time = nightly_start_stop_times['Stop'][idx]
-        observation_stop_time = Time(str(self.manager.current_day) + "T" + str(night_stop_time),
-            format='isot')
+        # Use the helper method to get nightly times
+        observation_start_time, observation_stop_time = self._get_nightly_times_from_allocation(self.manager.current_day)
         diff_minutes = int(abs((observation_stop_time - observation_start_time).to('min').value))
         print("Minutes on sky: ", diff_minutes)
 
