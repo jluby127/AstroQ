@@ -67,27 +67,20 @@ class StarPlotter(object):
         self.expected_nobs_per_night = self.n_exp * self.n_intra_max
         self.total_observations_requested = self.expected_nobs_per_night * self.n_inter_max
 
-    def get_past(self, past, twilight_frame):
+    def get_past(self, past):
         """
-        Gather the information about a star's past observation history this semester
-
+        Gather the information about a star's past observation history this semester.
         Args:
-            starname (str): the name of the star in question
-
+            past (DataFrame): DataFrame of past observations, must have 'target' and 'timestamp' columns.
         Returns:
-            observations_past (dict): a dictionary where keys are the dates of an observation
-                                      and the values are number of observations taken on that night
+            None. Sets self.observations_past as a dict: {date: n_obs}
         """
-        starmask = past['star_id'] == self.starname
-        star_obs_past = past[starmask]
-        star_obs_past.sort_values(by='utctime', inplace=True)
-        star_obs_past.reset_index(inplace=True)
-        star_obs_past, unique_hst_dates_past, quarters_observed_past = \
-                    hs.get_unique_nights(star_obs_past, twilight_frame)
-        nobs_on_date_past = hs.get_nobs_on_night(star_obs_past, unique_hst_dates_past)
-        observations_past = {}
-        for i in range(len(unique_hst_dates_past)):
-            observations_past[unique_hst_dates_past[i]] = nobs_on_date_past[i]
+        # Filter to this star
+        star_obs_past = past[past['target'] == self.starname]
+        # Parse date from timestamp and group by date
+        star_obs_past = star_obs_past.copy()
+        star_obs_past['date'] = star_obs_past['timestamp'].str[:10]
+        observations_past = star_obs_past.groupby('date').size().to_dict()
         self.observations_past = observations_past
 
     def get_future(self, forecaset_file, all_dates_array):
@@ -141,11 +134,6 @@ def process_stars(manager):
     # nulltime = pad_rows_top(nulltime, manager.semester_length)
     nulltime = np.array(nulltime).T
 
-    try:
-        past = pd.read_csv(manager.past_database_file)
-    except:
-        past = pd.DataFrame(columns=['star_id', 'utctime'])
-
     # Previously, there was a unique call to star names, every row of the request frame should
     # unique already
     starnames = manager.requests_frame['starname'].unique()
@@ -156,17 +144,18 @@ def process_stars(manager):
     rgb_strings = [f"rgb({int(r*255)}, {int(g*255)}, {int(b*255)})" for r, g, b in colors]
     program_colors_rgb_vals = dict(zip(programs, rgb_strings))
 
-
     all_stars = []
     i = 0 
     for i, row in manager.requests_frame.iterrows():
         # Create a StarPlotter object for each request, fill and compute relavant information
-        
         newstar = StarPlotter(row['starname'])
         newstar.get_map(manager)
         newstar.get_stats(manager.requests_frame, manager.slot_size)
-        # newstar.get_past(past, manager.twilight_frame) #add this back in when history is properly implemented
-        newstar.observations_past = {}
+        print(list(manager.past_history.keys()))
+        if newstar.starname in list(manager.past_history.keys()):
+            newstar.observations_past = manager.past_history[newstar.starname].n_obs_on_nights
+        else:
+            newstar.observations_past = {}
         newstar.get_future(manager.future_forecast, manager.all_dates_array)
 
         # Create COF arrays for each request

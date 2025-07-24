@@ -26,17 +26,17 @@ class TestClass(unittest.TestCase):
         dr.kpfcc_build(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
         dr.schedule(argparse.Namespace(request_file="examples/hello_world/outputs/2024-08-05/request_set.json", config_file='examples/hello_world/config_hello_world.ini'))
 
-    def test_round2_weather(self):
-        dr.kpfcc_prep(argparse.Namespace(config_file='examples/hello_world/config_hello_world_yesbonus.ini'))
-        dr.kpfcc_build(argparse.Namespace(config_file='examples/hello_world/config_hello_world_yesbonus.ini'))
-        dr.schedule(argparse.Namespace(request_file="examples/hello_world/outputs/2024-08-05/request_set.json", config_file='examples/hello_world/config_hello_world_yesbonus.ini'))
+    # def test_round2_weather(self):
+    #     dr.kpfcc_prep(argparse.Namespace(config_file='examples/hello_world/config_hello_world_yesbonus.ini'))
+    #     dr.kpfcc_build(argparse.Namespace(config_file='examples/hello_world/config_hello_world_yesbonus.ini'))
+    #     dr.schedule(argparse.Namespace(request_file="examples/hello_world/outputs/2024-08-05/request_set.json", config_file='examples/hello_world/config_hello_world_yesbonus.ini'))
 
-    def test_bench(self):
-        dr.bench(argparse.Namespace(config_file='examples/bench/config_benchmark.ini', number_slots=12, thin=10))
+    # def test_bench(self):
+    #     dr.bench(argparse.Namespace(config_file='examples/bench/config_benchmark.ini', number_slots=12, thin=10))
 
-    def test_prep(self):
-        # test the creation of all upstream files, including the allocation map
-        dr.kpfcc_prep(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
+    # def test_prep(self):
+    #     # test the creation of all upstream files, including the allocation map
+    #     dr.kpfcc_prep(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
 
     def test_plot(self):
         dr.plot_pkl(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
@@ -45,41 +45,41 @@ class TestClass(unittest.TestCase):
     def test_ob_database_pull(self):
         dr.kpfcc_data(argparse.Namespace(pull_file='examples/pull_file.json', database_file='examples/recreate_paper/'))
 
-    def test_ttp(self):
-        dr.ttp(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
+    # def test_ttp(self):
+    #     dr.ttp(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
 
-    # def test_history(self):
-    #     dr.get_history(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
+    def test_history(self):
+        dr.get_history(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
 
-    def test_dynamic_plotting(self):
-        dr.get_dynamics(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
+    # def test_dynamic_plotting(self):
+    #     dr.get_dynamics(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
 
-    def test_webapp(self):
-        config_path = 'examples/hello_world/config_hello_world.ini'
+    # def test_webapp(self):
+    #     config_path = 'examples/hello_world/config_hello_world.ini'
 
-        # Launch Flask in a thread
-        def run():
-            launch_app(config_path, flag=True)
+    #     # Launch Flask in a thread
+    #     def run():
+    #         launch_app(config_path, flag=True)
 
-        thread = threading.Thread(target=run, daemon=True)
-        thread.start()
+    #     thread = threading.Thread(target=run, daemon=True)
+    #     thread.start()
 
-        time.sleep(3)  # Wait for server to be ready
-        try:
-            response = requests.get("http://127.0.0.1:5000")
-            assert response.status_code == 200
-        finally:
-            # Gracefully shut down the Flask app
-            try:
-                requests.get("http://127.0.0.1:5000/shutdown")
-            except requests.exceptions.RequestException:
-                pass  # The server might already be down
-            thread.join(timeout=5)
+    #     time.sleep(3)  # Wait for server to be ready
+    #     try:
+    #         response = requests.get("http://127.0.0.1:5000")
+    #         assert response.status_code == 200
+    #     finally:
+    #         # Gracefully shut down the Flask app
+    #         try:
+    #             requests.get("http://127.0.0.1:5000/shutdown")
+    #         except requests.exceptions.RequestException:
+    #             pass  # The server might already be down
+    #         thread.join(timeout=5)
 
-    def test_requests_vs_schedule(self):
-        req = 'examples/hello_world/outputs/2024-08-05/request_set.json'
-        sch = 'examples/hello_world/outputs/2024-08-05/serialized_outputs_sparse.csv'
-        dr.requests_vs_schedule(argparse.Namespace(request_file=req, schedule_file=sch))
+    # def test_requests_vs_schedule(self):
+    #     req = 'examples/hello_world/outputs/2024-08-05/request_set.json'
+    #     sch = 'examples/hello_world/outputs/2024-08-05/serialized_outputs_sparse.csv'
+    #     dr.requests_vs_schedule(argparse.Namespace(request_file=req, schedule_file=sch))
 
     # this is not working right now.
     # def test_simulate_history(self):

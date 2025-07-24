@@ -59,7 +59,7 @@ class data_admin(object):
             self.allocation_file = allocation_file_config
         else:
             self.allocation_file = os.path.join(self.semester_directory, allocation_file_config)
-        self.past_database_file = os.path.join(self.semester_directory, "inputs/queryJumpDatabase.csv")
+        self.past_file = os.path.join(self.semester_directory, "past.csv")
         self.special_map_file = os.path.join(self.semester_directory, "inputs/specialMaps_" + str(self.slot_size) + "minSlots.txt")
         self.custom_file = os.path.join(self.semester_directory, "custom.csv")
         self.zero_out_file = os.path.join(self.semester_directory, "inputs/zero_out.csv")
@@ -124,8 +124,7 @@ class data_admin(object):
             file.close()
 
         # Get semester parameters and define important quantities
-        # self.database_info_dict = hs.build_past_history(self.past_database_file, self.requests_frame, self.twilight_frame)
-        self.database_info_dict = {}
+        self.past_history = hs.process_star_history(self.past_file)
         self.slots_needed_for_exposure_dict = self.build_slots_required_dictionary()
 
         semester_start_date, semester_end_date, semester_length, semester_year, semester_letter = \
