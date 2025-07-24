@@ -135,7 +135,7 @@ class NightPlanner(object):
         with open(self.manager.reports_directory + 'ttp_data.pkl', 'wb') as f:
             pickle.dump(save_data, f)
 
-        observe_order_file = os.path.join(observers_path,'night_plan.txt')
+        observe_order_file = os.path.join(observers_path,'night_plan.csv')
         plotting.writeStarList(solution.plotly, observation_start_time, self.manager.current_day,
                             outputpath=observe_order_file)
         plotting.plot_path_2D(solution,outputdir=observers_path)
@@ -188,7 +188,7 @@ class NightPlanner(object):
                                     outputdir = backups_path)
         plotting.plot_path_2D(solution_b, outputdir = backups_path)
         plotting.nightPlan(solution_b.plotly, self.manager.current_day, outputdir = backups_path)
-        obs_and_times_b = pd.read_csv(backups_path + 'ObserveOrder.txt')
+        obs_and_times_b = pd.read_csv(backups_path + 'night_plan.csv')
         io.write_starlist(pool_tonight, solution_b.plotly, observation_start_time,
                             solution_b.extras, [], self.manager.current_day, backups_path, "backups")
         print("Bright backups script created.")
