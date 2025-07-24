@@ -65,7 +65,6 @@ def bench(args):
     # print out the last rows of strategy to ensure the size of the model looks right
     print("Last 5 rows of Request Set here: ")
     print(request_set.strategy[-5:])
-    request_set.to_json(os.path.join(manager.output_directory, "request_set.json"))
 
     # Run the schedule
     schedule = splan.SemesterPlanner(request_set, cf)
@@ -91,7 +90,6 @@ def kpfcc_build(args):
     strategy, observable = rq.define_indices_for_requests(manager)
     meta = rq.build_meta(cf)
     request_set = rq.RequestSet(meta, strategy, observable)
-    request_set.to_json(manager.output_directory + "request_set.json")
     return
 
 def kpfcc_prep(args):
@@ -156,11 +154,16 @@ def kpfcc_plan_semester(args):
     return
 
 def schedule(args):
-    rf = args.request_file
     cf = args.config_file
-    print(f'schedule function: request_file is {rf}')
     print(f'schedule function: config_file is {cf}')
-    request_set = rq.read_json(rf)
+    
+    # Build request set on the fly from input files
+    manager = mn.data_admin(cf)
+    manager.run_admin()
+    strategy, observable = rq.define_indices_for_requests(manager)
+    meta = rq.build_meta(cf)
+    request_set = rq.RequestSet(meta, strategy, observable)
+    
     schedule = splan.SemesterPlanner(request_set, cf)
     schedule.run_model()
     return
@@ -224,12 +227,17 @@ def get_dynamics(args):
     #dn.get_tau_inter_line(manager, list(data_astroq[0].values())[0])
 
 def requests_vs_schedule(args):
-    rf = args.request_file
+    cf = args.config_file
     sf = args.schedule_file
-    print(f'kpfcc_data function: request_set_file is {rf}')
-    print(f'kpfcc_data function: serialized_output_file to {sf}')
+    print(f'requests_vs_schedule function: config_file is {cf}')
+    print(f'requests_vs_schedule function: schedule_file is {sf}')
 
-    req_object = rq.read_json(rf)
+    # Build request set on the fly from input files
+    manager = mn.data_admin(cf)
+    manager.run_admin()
+    strategy, observable = rq.define_indices_for_requests(manager)
+    meta = rq.build_meta(cf)
+    req_object = rq.RequestSet(meta, strategy, observable)
     req = req_object.strategy
     sch = pd.read_csv(sf)
     sch = sch.sort_values(by=['d', 's']).reset_index(drop=True) # Re-order into the real schedule
@@ -307,7 +315,7 @@ def requests_vs_schedule(args):
                 assert min_day_gaps >= tau_inter, tau_inter_err
 
     # 5) tau_intra: There must be at least tau_intra slots between successive observations of a target in a single night
-        slot_duration = req_object.meta.slot_duration # Slot duration in minutes
+        slot_duration = req_object.meta['slot_duration'] # Slot duration in minutes
         slots_per_hour = 60/slot_duration
         tau_intra_hrs = star_request['tau_intra'].values[0] # min num of hours before another obs
         tau_intra_slots = tau_intra_hrs * slots_per_hour
