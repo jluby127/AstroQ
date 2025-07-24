@@ -78,7 +78,7 @@ class TestClass(unittest.TestCase):
 
     def test_requests_vs_schedule(self):
         req = 'examples/hello_world/outputs/request_set.json'
-        sch = 'examples/hello_world/outputs/serialized_outputs_sparse.csv'
+        sch = 'examples/hello_world/outputs/semester_plan.csv'
         dr.requests_vs_schedule(argparse.Namespace(request_file=req, schedule_file=sch))
 
     # this is not working right now.

@@ -65,7 +65,7 @@ class data_admin(object):
         self.zero_out_file = os.path.join(self.semester_directory, "inputs/zero_out.csv")
         self.nonqueue_map_file = os.path.join(self.semester_directory, "inputs/NonQueueMap"  + str(self.slot_size) + ".txt")
         self.nonqueue_file = os.path.join(self.semester_directory, "inputs/NonQueueMap.csv")
-        self.future_forecast = os.path.join(self.semester_directory, "outputs/" + str(self.current_day) + "/serialized_outputs_sparse.csv")
+        self.future_forecast = os.path.join(self.semester_directory, "outputs/semester_plan.csv")
 
         self.random_seed = int(config.get('options', 'random_seed'))
         np.random.seed(self.random_seed)
