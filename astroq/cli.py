@@ -56,16 +56,16 @@ def main():
     psr_bench.set_defaults(func=astroq.driver.bench)
 
     ## subcommand of astroq: plot -- run the plotting suite
-    # psr_plot = subpsr.add_parser('plot', parents=[psr_parent],
-    #                               description='Run the plotting suite',
-    #                               prefix_chars='-'
-    #                               )
-    # psr_plot.add_argument('-cf', '--config_file',
-    #                           type=str,
-    #                           required=True,
-    #                           help="Relative path of config file."
-    #                           )
-    # psr_plot.set_defaults(func=astroq.driver.plot)
+    psr_plot = subpsr.add_parser('plot', parents=[psr_parent],
+                                  description='Run the plotting suite',
+                                  prefix_chars='-'
+                                  )
+    psr_plot.add_argument('-cf', '--config_file',
+                              type=str,
+                              required=True,
+                              help="Relative path of config file."
+                              )
+    psr_plot.set_defaults(func=astroq.driver.plot_pkl)
 
     ## subcommand of astroq: schedule -- Schedule observation requests
     psr_schedule = subpsr.add_parser('schedule', parents=[psr_parent],

@@ -201,16 +201,25 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
     """
 
     equinox = '2000'
+    # Handle missing pmra/pmdec columns with default values
+    pmra = row.get('pmra', [0.0])[0] if 'pmra' in row else 0.0
+    pmdec = row.get('pmdec', [0.0])[0] if 'pmdec' in row else 0.0
     updated_ra, updated_dec = pm_correcter(row['ra'][0], row['dec'][0],
-                                row['pmra'][0], row['pmdec'][0], current_day, equinox=equinox)
+                                pmra, pmdec, current_day, equinox=equinox)
     if updated_dec[0] != "-":
         updated_dec = "+" + updated_dec
 
     cpsname = hs.crossmatch_star_name(row['starname'][0])
     namestring = ' '*(16-len(cpsname[:16])) + cpsname[:16]
 
-    jmagstring = ('jmag=' + str(np.round(float(row['jmag'][0]),1)) + ' '* \
-        (4-len(str(np.round(row['jmag'][0],1)))))
+    # Handle missing columns with default values
+    jmag_val = row.get('jmag', [15.0])[0] if 'jmag' in row else 15.0
+    gmag_val = row.get('gmag', [15.0])[0] if 'gmag' in row else 15.0
+    teff_val = row.get('teff', [5000])[0] if 'teff' in row else 5000
+    gaia_id_val = row.get('gaia_id', ['UNKNOWN'])[0] if 'gaia_id' in row else 'UNKNOWN'
+    
+    jmagstring = ('jmag=' + str(np.round(float(jmag_val),1)) + ' '* \
+        (4-len(str(np.round(jmag_val,1)))))
     exposurestring = (' '*(4-len(str(int(row['exptime'][0])))) + \
         str(int(row['exptime'][0])) + '/' + \
         str(int(row['exptime'][0])) + ' '* \
@@ -220,12 +229,12 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
     scstring = 'sc=' + 'T'
 
     numstring = str(int(row['n_exp'][0])) + "x"
-    gmagstring = 'gmag=' + str(np.round(float(row['gmag'][0]),1)) + \
-                                                ' '*(4-len(str(np.round(row['gmag'][0],1))))
-    teffstr = 'Teff=' + str(int(row['teff'][0])) + \
-                                    ' '*(4-len(str(int(row['teff'][0]))))
+    gmagstring = 'gmag=' + str(np.round(float(gmag_val),1)) + \
+                                                ' '*(4-len(str(np.round(gmag_val,1))))
+    teffstr = 'Teff=' + str(int(teff_val)) + \
+                                    ' '*(4-len(str(int(teff_val))))
 
-    gaiastring = str(row['gaia_id'][0]) + ' '*(25-len(str(row['gaia_id'][0])))
+    gaiastring = str(gaia_id_val) + ' '*(25-len(str(gaia_id_val)))
     programstring = row['program_code'][0]
 
     if filler_flag:
@@ -246,8 +255,10 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
                         + priostring + ' ' + programstring + ' ' + timestring2 +
                          ' ' + first_available  + ' ' + last_available )
 
-    if not pd.isnull(row['Observing Notes'][0]):
-        line += (' ' + str(row['Observing Notes'][0]))
+    # Handle missing Observing Notes column
+    observing_notes = row.get('Observing Notes', [''])[0] if 'Observing Notes' in row else ''
+    if observing_notes and not pd.isnull(observing_notes):
+        line += (' ' + str(observing_notes))
 
     return line
 

@@ -49,8 +49,8 @@ class TestClass(unittest.TestCase):
     def test_history(self):
         dr.get_history(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
 
-    # def test_dynamic_plotting(self):
-    #     dr.get_dynamics(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
+    def test_dynamic_plotting(self):
+        dr.get_dynamics(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
 
     # def test_webapp(self):
     #     config_path = 'examples/hello_world/config_hello_world.ini'
