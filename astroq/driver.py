@@ -112,8 +112,8 @@ def kpfcc_data(args):
     awarded_programs = data["awarded_programs"]
     if not os.path.exists(savepath):
         os.makedirs(savepath)
-    OBs = ob.refresh_local_data(semester)
-    good_obs, bad_obs_values, bad_obs_hasFields = ob.get_request_sheet(OBs, awarded_programs, savepath + "/Requests.csv")
+    OBs = ob.pull_OBs(semester)
+    good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram = ob.get_request_sheet(OBs, awarded_programs, savepath + "/Requests.csv")
 
     send_emails_with = []
     for i in range(len(bad_obs_values)):

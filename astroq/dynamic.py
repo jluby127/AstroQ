@@ -213,22 +213,40 @@ def get_birdseye(manager, availablity, all_stars):
             line=dict(color="lightgray", width=1),
             layer="below"
         )
+     # X-axis: ticks every 23 days, plus the last day
+    x_tick_step = 23
+    x_tickvals = list(range(0, manager.semester_length, x_tick_step))
+    if (manager.semester_length - 1) not in x_tickvals:
+        x_tickvals.append(manager.semester_length - 1)
+    x_ticktext = [str(val + 1) for val in x_tickvals]
+
+    # Y-axis: ticks every 2 hours, using slot_size
+    n_slots = int(24 * 60 // manager.slot_size)
+    slots_per_2hr = int(2 * 60 // manager.slot_size)
+    y_tickvals = list(range(0, n_slots, slots_per_2hr))
+    y_ticktext = []
+    for slot in y_tickvals:
+        total_minutes = slot * manager.slot_size
+        hours = total_minutes // 60
+        minutes = total_minutes % 60
+        y_ticktext.append(f"{hours:02.0f}:{minutes:02.0f}")
+
     fig.update_layout(
         yaxis_title="Slot in Night",
         xaxis_title="Night in Semester",
         xaxis=dict(
             title_font=dict(size=labelsize),
             tickfont=dict(size=labelsize - 4),
-            tickvals=np.append(np.arange(0, manager.semester_length, 23), 183),
-            ticktext=np.append(np.arange(0, manager.semester_length, 23), 184),
+            tickvals=x_tickvals,
+            ticktext=x_ticktext,
             tickmode='array',
             showgrid=False,
         ),
         yaxis=dict(
             title_font=dict(size=labelsize),
             tickfont=dict(size=labelsize - 4),
-            tickvals=np.append(np.arange(0, manager.n_slots_in_night, 28), manager.n_slots_in_night-1),
-            ticktext=[manager.n_slots_in_night - x for x in np.arange(0, manager.n_slots_in_night+1, 28)],
+            tickvals=y_tickvals,
+            ticktext=y_ticktext,
             tickmode='array',
             showgrid=False,
         ),

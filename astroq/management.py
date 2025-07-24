@@ -65,6 +65,7 @@ class data_admin(object):
         self.zero_out_file = os.path.join(self.semester_directory, "inputs/zero_out.csv")
         self.nonqueue_map_file = os.path.join(self.semester_directory, "inputs/NonQueueMap"  + str(self.slot_size) + ".txt")
         self.nonqueue_file = os.path.join(self.semester_directory, "inputs/NonQueueMap.csv")
+        self.future_forecast = os.path.join(self.semester_directory, "outputs/" + str(self.current_day) + "/serialized_outputs_sparse.csv")
 
         self.random_seed = int(config.get('options', 'random_seed'))
         np.random.seed(self.random_seed)
@@ -110,7 +111,7 @@ class data_admin(object):
         """
         # build out some paths here, so that if current_day changes due to request_set.json file, it is reflected properly
         self.requests_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/Requests.csv"))
-        self.twilight_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/twilight_times.csv"), parse_dates=True)
+        # self.twilight_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/twilight_times.csv"), parse_dates=True)
 
         self.output_directory = self.upstream_path  + "outputs/" + str(self.current_day) + "/"
         self.folder_cadences = os.path.join(self.semester_directory, "/outputs/" + str(self.current_day) + "/cadences/")
@@ -123,7 +124,8 @@ class data_admin(object):
             file.close()
 
         # Get semester parameters and define important quantities
-        self.database_info_dict = hs.build_past_history(self.past_database_file, self.requests_frame, self.twilight_frame)
+        # self.database_info_dict = hs.build_past_history(self.past_database_file, self.requests_frame, self.twilight_frame)
+        self.database_info_dict = {}
         self.slots_needed_for_exposure_dict = self.build_slots_required_dictionary()
 
         semester_start_date, semester_end_date, semester_length, semester_year, semester_letter = \
@@ -339,9 +341,9 @@ def prepare_new_semester(config_path):
 
     # Compute twilight times for this semester once and save as csv
     # -----------------------------------------------------------------------------------------
-    logs.info("Computing twilight times for the semester.")
-    twilight_frame = ac.generate_twilight_times(little_manager.all_dates_array)
-    twilight_frame.to_csv(little_manager.upstream_path + 'inputs/twilight_times.csv', index=False)
+    # logs.info("Computing twilight times for the semester.")
+    # twilight_frame = ac.generate_twilight_times(little_manager.all_dates_array)
+    # twilight_frame.to_csv(little_manager.upstream_path + 'inputs/twilight_times.csv', index=False)
 
     # Create the json file containing the accessiblity for each target (elevation + moon safe)
     # -----------------------------------------------------------------------------------------
