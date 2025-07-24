@@ -825,15 +825,16 @@ def get_slew_animation(manager, data, animationStep=120):
     return slew_animation_html
 
 def get_script_plan(manager, data):
-
-    # with open(manager.reports_directory + 'observer/' + manager.current_day + '/ttp_data.pkl', 'rb') as f:
-    #     data = pickle.load(f)
-
+    """Generate script plan HTML table from TTP data."""
+    
+    # Import the shared helper function from nplan module
+    from astroq.nplan import get_nightly_times_from_allocation
+    
+    # Get start time from allocation file instead of nightly_start_stop_times
+    obs_start_time, _ = get_nightly_times_from_allocation(manager, manager.current_day)
+    
     round_two_requests = [] # just for now
-    nightly_start_stop_times = pd.read_csv(manager.nightly_start_stop_times_file)
-    idx = nightly_start_stop_times[nightly_start_stop_times['Date'] == str(manager.current_day)].index[0]
-    obs_start_time = Time(str(manager.current_day) + "T" + str(nightly_start_stop_times['Start'][idx]))
-    lines = io_mine.write_starlist(manager.requests_frame, data[0].plotly, obs_start_time, data[0].extras,round_two_requests, str(manager.current_day), manager.reports_directory + 'observer/' + manager.current_day)
+    lines = io_mine.write_starlist(manager.requests_frame, data[0].plotly, obs_start_time, data[0].extras,round_two_requests, str(manager.current_day), manager.reports_directory)
     observing_plan = pd.DataFrame([io_mine.parse_star_line(line) for line in lines])
     observing_plan = observing_plan[observing_plan.iloc[:, 0].str.strip() != '']
     observing_plan_html = dataframe_to_html(observing_plan, sort_column=11)

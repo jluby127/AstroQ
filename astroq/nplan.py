@@ -35,6 +35,42 @@ import astroq.access as ac
 named_colors = ['blue', 'red', 'green', 'gold', 'maroon', 'gray', 'orange', 'magenta', 'purple']
 
 
+def get_nightly_times_from_allocation(manager, current_day):
+    """
+    Extract start and stop times for a specific date from allocation.csv.
+    
+    Args:
+        manager: Data manager object containing allocation_file path
+        current_day (str): the date to look for in YYYY-MM-DD format
+        
+    Returns:
+        tuple: (start_time, stop_time) as Time objects
+    """
+    allocated_times_frame = pd.read_csv(manager.allocation_file)
+    allocated_times_frame['start'] = allocated_times_frame['start'].apply(Time)
+    allocated_times_frame['stop'] = allocated_times_frame['stop'].apply(Time)
+    
+    # Filter for the current day
+    current_day_str = str(current_day)
+    day_allocations = []
+    for _, row in allocated_times_frame.iterrows():
+        start_datetime = str(row['start'])[:10]  # Extract date part (YYYY-MM-DD)
+        if start_datetime == current_day_str:
+            day_allocations.append(row)
+    
+    if not day_allocations:
+        raise ValueError(f"No allocation found for date {current_day_str}")
+    
+    # For multiple allocations on the same day, use the earliest start and latest stop
+    start_times = [row['start'] for row in day_allocations]
+    stop_times = [row['stop'] for row in day_allocations]
+    
+    earliest_start = min(start_times)
+    latest_stop = max(stop_times)
+    
+    return earliest_start, latest_stop
+
+
 class NightPlanner(object):
     """
     Night Planner for optimizing observation sequences within a single night.
@@ -52,53 +88,19 @@ class NightPlanner(object):
         """
         self.manager = manager
         
-    def _get_nightly_times_from_allocation(self, current_day):
-        """
-        Extract start and stop times for a specific date from allocation.csv.
-        
-        Args:
-            current_day (str): the date to look for in YYYY-MM-DD format
-            
-        Returns:
-            tuple: (start_time, stop_time) as Time objects
-        """
-        allocated_times_frame = pd.read_csv(self.manager.allocation_file)
-        allocated_times_frame['start'] = allocated_times_frame['start'].apply(Time)
-        allocated_times_frame['stop'] = allocated_times_frame['stop'].apply(Time)
-        
-        # Filter for the current day
-        current_day_str = str(current_day)
-        day_allocations = []
-        for _, row in allocated_times_frame.iterrows():
-            start_datetime = str(row['start'])[:10]  # Extract date part (YYYY-MM-DD)
-            if start_datetime == current_day_str:
-                day_allocations.append(row)
-        
-        if not day_allocations:
-            raise ValueError(f"No allocation found for date {current_day_str}")
-        
-        # For multiple allocations on the same day, use the earliest start and latest stop
-        start_times = [row['start'] for row in day_allocations]
-        stop_times = [row['stop'] for row in day_allocations]
-        
-        earliest_start = min(start_times)
-        latest_stop = max(stop_times)
-        
-        return earliest_start, latest_stop
-        
     def run_ttp(self):
         """
         Produce the TTP solution given the results of the autoscheduler.
         Optimizes the nightly observation sequence for scheduled targets.
         """
-        observers_path = self.manager.semester_directory + 'reports/observer/' + str(self.manager.current_day) + '/'
+        observers_path = self.manager.semester_directory + 'outputs/'
         check1 = os.path.isdir(observers_path)
         if not check1:
             os.makedirs(observers_path)
 
         observatory = telescope.Keck1()
-        # Use the helper method to get nightly times
-        observation_start_time, observation_stop_time = self._get_nightly_times_from_allocation(self.manager.current_day)
+        # Get start/stop times from allocation file
+        observation_start_time, observation_stop_time = get_nightly_times_from_allocation(self.manager, self.manager.current_day)
         total_time = np.round((observation_stop_time.jd-observation_start_time.jd)*24,3)
         print("Time in Night for Observations: " + str(total_time) + " hours.")
 
@@ -130,14 +132,15 @@ class NightPlanner(object):
         gurobi_model_backup = solution.gurobi_model  # backup the attribute, probably don't need this
         del solution.gurobi_model                   # remove attribute so pickle works
         save_data = [solution]
-        with open(self.manager.reports_directory + '/observer/' + self.manager.current_day + '/ttp_data.pkl', 'wb') as f:
+        with open(self.manager.reports_directory + 'ttp_data.pkl', 'wb') as f:
             pickle.dump(save_data, f)
 
+        observe_order_file = os.path.join(observers_path,'night_plan.txt')
         plotting.writeStarList(solution.plotly, observation_start_time, self.manager.current_day,
-                            outputdir=observers_path)
+                            outputpath=observe_order_file)
         plotting.plot_path_2D(solution,outputdir=observers_path)
         plotting.nightPlan(solution.plotly, self.manager.current_day, outputdir=observers_path)
-        obs_and_times = pd.read_csv(observers_path + 'ObserveOrder_' + str(self.manager.current_day) + ".txt")
+        obs_and_times = pd.read_csv(observe_order_file)
         io.write_starlist(selected_df, solution.plotly, observation_start_time, solution.extras,
                             [], str(self.manager.current_day), observers_path)
         print("The optimal path through the sky for the selected stars is found. Clear skies!")
@@ -149,13 +152,13 @@ class NightPlanner(object):
         Args:
             nstars_max (int): Maximum number of backup stars to include
         """
-        backups_path = self.manager.reports_directory + '/observer/' + self.manager.current_day + "/backups/"
+        backups_path = self.manager.semester_directory + 'outputs/'
         check = os.path.isdir(backups_path)
         if not check:
             os.makedirs(backups_path)
 
-        # Use the helper method to get nightly times
-        observation_start_time, observation_stop_time = self._get_nightly_times_from_allocation(self.manager.current_day)
+        # Get start/stop times from allocation file
+        observation_start_time, observation_stop_time = get_nightly_times_from_allocation(self.manager, self.manager.current_day)
         diff_minutes = int(abs((observation_stop_time - observation_start_time).to('min').value))
         print("Minutes on sky: ", diff_minutes)
 
@@ -185,7 +188,7 @@ class NightPlanner(object):
                                     outputdir = backups_path)
         plotting.plot_path_2D(solution_b, outputdir = backups_path)
         plotting.nightPlan(solution_b.plotly, self.manager.current_day, outputdir = backups_path)
-        obs_and_times_b = pd.read_csv(backups_path + 'ObserveOrder_' + self.manager.current_day + ".txt")
+        obs_and_times_b = pd.read_csv(backups_path + 'ObserveOrder.txt')
         io.write_starlist(pool_tonight, solution_b.plotly, observation_start_time,
                             solution_b.extras, [], self.manager.current_day, backups_path, "backups")
         print("Bright backups script created.")

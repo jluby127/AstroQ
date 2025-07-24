@@ -202,21 +202,23 @@ def get_dynamics(args):
     print(f'get_dynamics function: config_file is {cf}')
     manager = mn.data_admin(cf)
     manager.run_admin()
-    data_astroq = pl.read_star_objects(manager.reports_directory + "admin/" + manager.current_day + "/star_objects.pkl")
+    data_astroq = pl.read_star_objects(manager.reports_directory + "star_objects.pkl")
     # all_stars_list = [star_obj for star_obj_list in data_astroq[0].values() for star_obj in star_obj_list]
     table_reqframe_html = dn.get_requests_frame(manager, filter_condition=None)
     fig_cof_html = dn.get_cof(manager, list(data_astroq[1].values()))
     fig_birdseye_html = dn.get_birdseye(manager, data_astroq[2], list(data_astroq[1].values()))
     # dn.interactive_sky_with_static_heatmap(manager, 'U001') # This is broken, need to rethink what it means to have a twilight map.
 
-    ttp_path = os.path.join(manager.reports_directory,"observer",manager.current_day,"ttp_data.pkl")
+    ttp_path = os.path.join(manager.reports_directory, "ttp_data.pkl")
     if os.path.exists(ttp_path):
         data_ttp = pl.read_star_objects(ttp_path)
         script_table_html = dn.get_script_plan(manager, data_ttp)
         ladder_html = dn.get_ladder(manager, data_ttp)
         slew_animation_html = dn.get_slew_animation(manager, data_ttp, animationStep=120)
         slew_path_html = dn.plot_path_2D_interactive(manager, data_ttp)
-    dn.get_tau_inter_line(manager, list(data_astroq[0].values())[0])
+
+    # TODO: need to fix this.
+    #dn.get_tau_inter_line(manager, list(data_astroq[0].values())[0])
 
 def requests_vs_schedule(args):
     rf = args.request_file
