@@ -23,13 +23,11 @@ class TestClass(unittest.TestCase):
 
     def test_helloworld(self):
         dr.kpfcc_prep(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
-        dr.kpfcc_build(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
-        dr.schedule(argparse.Namespace(request_file="examples/hello_world/outputs/request_set.json", config_file='examples/hello_world/config_hello_world.ini'))
+        dr.schedule(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
 
     def test_round2_weather(self):
         dr.kpfcc_prep(argparse.Namespace(config_file='examples/hello_world/config_hello_world_yesbonus.ini'))
-        dr.kpfcc_build(argparse.Namespace(config_file='examples/hello_world/config_hello_world_yesbonus.ini'))
-        dr.schedule(argparse.Namespace(request_file="examples/hello_world/outputs/request_set.json", config_file='examples/hello_world/config_hello_world_yesbonus.ini'))
+        dr.schedule(argparse.Namespace(config_file='examples/hello_world/config_hello_world_yesbonus.ini'))
 
     def test_bench(self):
         dr.bench(argparse.Namespace(config_file='examples/bench/config_benchmark.ini', number_slots=12, thin=10))
@@ -77,9 +75,8 @@ class TestClass(unittest.TestCase):
     #         thread.join(timeout=5)
 
     def test_requests_vs_schedule(self):
-        req = 'examples/hello_world/outputs/request_set.json'
         sch = 'examples/hello_world/outputs/semester_plan.csv'
-        dr.requests_vs_schedule(argparse.Namespace(request_file=req, schedule_file=sch))
+        dr.requests_vs_schedule(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini', schedule_file=sch))
 
     # this is not working right now.
     # def test_simulate_history(self):
