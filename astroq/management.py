@@ -44,7 +44,7 @@ class data_admin(object):
 
         self.current_day = str(config.get('required', 'current_day'))
         self.semester_directory = self.upstream_path
-        self.reports_directory = self.upstream_path + 'reports/'
+        self.reports_directory = self.upstream_path + 'outputs/'
         self.observatory = config.get('required', 'observatory')
 
         self.slot_size = int(config.get('other', 'slot_size'))
@@ -106,9 +106,10 @@ class data_admin(object):
         Given today's date, collate all important information about the semester.
         """
         # build out some paths here, so that if current_day changes due to request_set.json file, it is reflected properly
-        self.requests_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/Requests.csv"))
+        self.requests_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/requests.csv"))
 
-        self.output_directory = self.upstream_path  + "outputs/" + str(self.current_day) + "/"
+        self.output_directory = self.upstream_path + "outputs/"
+        self.reports_directory = self.upstream_path + 'outputs/'
         self.folder_cadences = os.path.join(self.semester_directory, "/outputs/" + str(self.current_day) + "/cadences/")
         # Suggest your output directory be something so that it doesn't autosave
         # to the same directory as the run files and crowds up the GitHub repo.
@@ -309,7 +310,7 @@ def prepare_new_semester(config_path):
     little_manager.daily_starting_time = str(config.get('other', 'daily_starting_time'))
     little_manager.daily_ending_time  = f"{(int(little_manager.daily_starting_time.split(':')[0]) + little_manager.n_hours_in_night) % 24:02d}:{int(little_manager.daily_starting_time.split(':')[1]):02d}"
 
-    little_manager.requests_frame = pd.read_csv(os.path.join(little_manager.upstream_path, "inputs/Requests.csv"))
+    little_manager.requests_frame = pd.read_csv(os.path.join(little_manager.upstream_path, "inputs/requests.csv"))
     try:
         little_manager.nonqueue_frame = pd.read_csv(os.path.join(little_manager.upstream_path, "inputs/NonQueueMap"  + str(little_manager.slot_size) + ".csv"))
     except:

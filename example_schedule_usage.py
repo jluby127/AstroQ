@@ -40,7 +40,7 @@ def compare_old_vs_new():
     """
     
     config_path = "config_2025A.ini"
-    request_file = "outputs/2025-07-06/request_set.json"
+    request_file = "outputs/request_set.json"
     
     print("=== OLD APPROACH ===")
     print("""

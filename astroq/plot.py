@@ -346,7 +346,7 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
     # import pdb; pdb.set_trace()
     if filename != '':
 
-        fileout_path = manager.reports_directory + filename
+        fileout_path = manager.reports_directory + 'birdseye_static.png'
 
         # If it's a file, get its directory
         dir_path = fileout_path if os.path.isdir(fileout_path) else os.path.dirname(fileout_path)
@@ -453,7 +453,7 @@ def cof_builder(all_stars, manager, filename='', flag=False):
     # import pdb; pdb.set_trace()
     if filename != '':
 
-        fileout_path = manager.reports_directory + filename
+        fileout_path = manager.reports_directory + 'cof_static.png'
 
         # If it's a file, get its directory
         dir_path = fileout_path if os.path.isdir(fileout_path) else os.path.dirname(fileout_path)
@@ -461,7 +461,7 @@ def cof_builder(all_stars, manager, filename='', flag=False):
 
         fig.write_html(fileout_path)
         if flag:
-            file = open(manager.reports_directory + "admin/" + manager.current_day + "/completion_Report.txt", "w")
+            file = open(manager.reports_directory + 'completion_Report.txt', "w")
             for l in lines:
                 file.write(l + "\n")
             print("JUST wrote figure to {}".format(manager.reports_directory, filename))
@@ -592,9 +592,9 @@ def build_static_plots(config_file):
     manager.run_admin()
     data = read_star_objects(manager.reports_directory + "admin/" + manager.current_day + '/star_objects.pkl')
     all_stars_list = [obj for obj_list in data[0].values() for obj in obj_list]
-    cof_builder(all_stars_list, manager, 'admin/' + manager.current_day + '/all_stars_COF.html')
-    cof_builder(list(data[1].values()), manager, 'admin/' + manager.current_day + '/all_programs_COF.html', flag=True)
-    generate_birds_eye(manager, data[2], all_stars_list, 'admin/' + manager.current_day + '/all_stars_birdseye.html')
+    cof_builder(all_stars_list, manager, 'all_stars_COF.html')
+    cof_builder(list(data[1].values()), manager, 'all_programs_COF.html', flag=True)
+    generate_birds_eye(manager, data[2], all_stars_list, 'all_stars_birdseye.html')
     generate_single_star_maps(manager, manager.requests_frame['starname'][0])
 
 def save_interactive_observing_plan(observing_plan):

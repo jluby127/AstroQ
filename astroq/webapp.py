@@ -128,10 +128,10 @@ def launch_app(config_file, flag=False):
     manager = mn.data_admin(config_file)
     manager.run_admin()
 
-    data_astroq = pl.read_star_objects(manager.reports_directory + "admin/" + manager.current_day + "/star_objects.pkl")
+    data_astroq = pl.read_star_objects(manager.reports_directory + "star_objects.pkl")
     all_stars_list = [star_obj for star_obj_list in data_astroq[0].values() for star_obj in star_obj_list]
 
-    ttp_path = os.path.join(manager.reports_directory, "observer/", manager.current_day, "/ttp_data.pkl")
+    ttp_path = os.path.join(manager.reports_directory, "ttp_data.pkl")
     if os.path.exists(ttp_path):
         data_ttp = pl.read_star_objects(ttp_path)
     else:
