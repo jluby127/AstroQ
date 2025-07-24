@@ -410,6 +410,7 @@ def serialize_schedule(Yrds, manager):
     sparse.drop(columns=['value'], inplace=True)
     # sparse only has keys from Yrds that have values = 1, so only scheduled slots and only the starting slot of the observation
     sparse.to_csv(manager.output_directory + "serialized_outputs_sparse.csv", index=False, na_rep="")
+    
     day, slot = np.mgrid[:manager.semester_length,:manager.n_slots_in_night]
     dense1 = pd.DataFrame(dict(d=day.flatten(), s=slot.flatten()))
     dense1 = pd.merge(dense1, sparse, left_on=['d','s'],right_on=['d','s'],how='left')

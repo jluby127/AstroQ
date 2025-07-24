@@ -1,6 +1,5 @@
 """
 Module for preparing the benchmark tests
-
 """
 import json
 import os
