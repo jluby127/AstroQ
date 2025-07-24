@@ -40,12 +40,11 @@ def pull_OB_histories(semester):
         print("ERROR")
         return
 
-def write_OB_histories_to_csv(manager, histories):
+def write_OB_histories_to_csv(histories, savepath):
     """
     Write the OB histories to a CSV file.
     """
     rows = []
-    print(histories)
     for entry in histories["history"]:
         # Zip together times and durations for each exposure in this record
         for start_time, duration in zip(entry["exposure_start_times"], entry["exposure_times"]):
@@ -60,8 +59,37 @@ def write_OB_histories_to_csv(manager, histories):
                 # "junk": entry.get("junk", ""),
             })
     df = pd.DataFrame(rows)
-    # df.to_csv(manager.upstream_path + manager.past_file, index=False)
-    return df
+    df.to_csv(savepath, index=False)
+
+def write_OB_histories_to_csv_JUMP(requests_frame, jump_file):
+    """
+    Convert a JUMP-style CSV to the OB histories format and write to CSV.
+    """
+    # Load the jump file
+    df = pd.read_csv(jump_file)
+    
+    # Crossmatch star names
+    df['target'] = df['star_id'].apply(crossmatch_star_name)
+    
+    # Prepare a lookup for id and semid from the requests_frame
+    req = requests_frame
+    req_lookup = req.set_index('starname')[['unique_id', 'program_code']].to_dict(orient='index')
+
+    # Map id and semid using the crossmatched target
+    df['id'] = df['target'].map(lambda name: req_lookup.get(name, {}).get('unique_id', ''))
+    df['semid'] = df['target'].map(lambda name: req_lookup.get(name, {}).get('program_code', ''))
+    
+    # Rename columns
+    df['timestamp'] = df['utctime']
+    df['exposure_start_time'] = df['utctime']
+    df['observer'] = 'none'
+    
+    # Keep only the required columns
+    out_df = df[['id', 'target', 'semid', 'timestamp', 'exposure_start_time', 'exposure_time', 'observer']]
+    
+    # Write to the manager's past_file location
+    # out_df.to_csv(manager.upstream_path + manager.past_file, index=False)
+    return out_df
 
 def process_star_history(filename):
     """
