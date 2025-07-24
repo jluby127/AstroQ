@@ -59,7 +59,7 @@ class data_admin(object):
             self.allocation_file = allocation_file_config
         else:
             self.allocation_file = os.path.join(self.semester_directory, allocation_file_config)
-        self.past_file = os.path.join(self.semester_directory, "past.csv")
+        self.past_file = os.path.join(self.semester_directory, "inputs/past.csv")
         self.special_map_file = os.path.join(self.semester_directory, "inputs/specialMaps_" + str(self.slot_size) + "minSlots.txt")
         self.custom_file = os.path.join(self.semester_directory, "inputs/custom.csv")
         self.zero_out_file = os.path.join(self.semester_directory, "inputs/zero_out.csv")
