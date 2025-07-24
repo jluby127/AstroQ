@@ -194,7 +194,10 @@ def get_history(args):
     print(f'get_history function: config_file is {cf}')
     manager = mn.data_admin(cf)
     manager.run_admin()
-    database_info_dict = hs.build_past_history(manager.past_database_file, manager.requests_frame, manager.twilight_frame)
+    # raw_histories = ob.pull_OB_histories(manager.semesterID)
+    raw_histories = ob.pull_OB_histories('2025A')
+    obhist = hs.write_OB_histories_to_csv(manager, raw_histories)
+    past_history = hs.process_star_history(manager.past_file)
     return
 
 def get_dynamics(args):
