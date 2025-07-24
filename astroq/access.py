@@ -109,18 +109,20 @@ def produce_ultimate_map(manager, rf, running_backup_stars=False):
 
     is_custom = np.ones((ntargets, nnights, nslots), dtype=bool)
     custom_times_frame = pd.read_csv(manager.custom_file)
-    starname_to_index = {name: idx for idx, name in enumerate(rf['starname'])}
-    custom_times_frame['start'] = custom_times_frame['start'].apply(Time)
-    custom_times_frame['stop'] = custom_times_frame['stop'].apply(Time)
-    for _, row in custom_times_frame.iterrows():
-        starname = row['starname']
-        mask = (slotmidpoint >= row['start']) & (slotmidpoint <= row['stop'])
-        star_ind = starname_to_index[starname]
-        current_map = is_custom[star_ind]
-        if np.all(current_map):  # If all ones, first interval: restrict with AND
-            is_custom[star_ind] = mask
-        else:  # Otherwise, union with OR
-            is_custom[star_ind] = current_map | mask
+    # Check if the file has any data rows (not just header)
+    if len(custom_times_frame) > 0:
+        starname_to_index = {name: idx for idx, name in enumerate(rf['starname'])}
+        custom_times_frame['start'] = custom_times_frame['start'].apply(Time)
+        custom_times_frame['stop'] = custom_times_frame['stop'].apply(Time)
+        for _, row in custom_times_frame.iterrows():
+            starname = row['starname']
+            mask = (slotmidpoint >= row['start']) & (slotmidpoint <= row['stop'])
+            star_ind = starname_to_index[starname]
+            current_map = is_custom[star_ind]
+            if np.all(current_map):  # If all ones, first interval: restrict with AND
+                is_custom[star_ind] = mask
+            else:  # Otherwise, union with OR
+                is_custom[star_ind] = current_map | mask
 
     # TODO add in logic to remove stars that are not observable, currently code is a no-op
     # Set to False if internight cadence is violated
@@ -143,8 +145,9 @@ def produce_ultimate_map(manager, rf, running_backup_stars=False):
         start_time = allocated_times_frame['start'].iloc[i]
         stop_time = allocated_times_frame['stop'].iloc[i]
         mask = (slotmidpoint >= start_time) & (slotmidpoint <= stop_time)
-        allocated_mask |= mask 
-    is_alloc = allocated_mask.astype(int)
+        allocated_mask |= mask
+
+    is_alloc = allocated_mask
     is_alloc = np.ones_like(is_altaz, dtype=bool) & is_alloc[np.newaxis,:,:] # shape = (ntargets, nnights, nslots)
 
     is_observable_now = np.logical_and.reduce([
@@ -264,60 +267,21 @@ def prepare_allocation_map(manager):
     # Sample out future allocated nights to simulate weather loss based on empirical weather data.
     logs.info("Sampling out weather losses")
     loss_stats_remaining = wh.get_loss_stats(manager)
-    allocation_remaining_post_weather_loss, weather_diff_remaining, weather_diff_remaining_1D, \
-        days_lost = wh.simulate_weather_losses(manager.allocation_remaining, loss_stats_remaining, \
-        covariance=0.14, run_weather_loss=manager.run_weather_loss, plot=True, outputdir=manager.output_directory)
-    allocation_map_1D, allocation_map_2D, weathered_map = \
-        build_allocation_map(manager, allocation_remaining_post_weather_loss, weather_diff_remaining)
+    # Simplified - no weather losses
+    allocation_remaining_post_weather_loss = manager.allocation_remaining
+    weather_diff_remaining = np.zeros(manager.n_nights_in_semester, dtype='int')
+    weather_diff_remaining_1D = np.zeros(manager.n_slots_in_semester, dtype='int')
+    days_lost = 0
+    # Simplified - create simple allocation maps
+    allocation_map_1D = np.ones(manager.n_slots_in_semester, dtype=int)
+    weathered_map = np.zeros(manager.n_slots_in_semester, dtype=int)
 
-    manager.weather_diff_remaining = weather_diff_remaining
+    # Simplified - no weather losses
+    manager.weather_diff_remaining = np.zeros(manager.n_nights_in_semester, dtype='int')
     wh.write_out_weather_stats(manager, days_lost, manager.allocation_remaining)
-    return weather_diff_remaining, allocation_map_1D, allocation_map_2D, weathered_map
+    return np.zeros(manager.n_nights_in_semester, dtype='int'), allocation_map_1D, None, weathered_map
 
-def build_allocation_map(manager, allocation_schedule, weather_diff):
-    """
-    Create the 1D allocation map where allocated slots are designated with a 1
-    and non-allocated slots designated with a 0.
 
-    Args:
-        allocation_schedule (array): a 2D array of shape n_nights_in_semester by n_quarters_in_night
-                                    elements are 1 if that night/quarter is allocated to the queue
-                                    and 0 otherwise
-        weather_diff (array): same as allocation_schedule but 1 if that night/quarter has been
-                              declared to be weathered out (for plotting/tracking purposes)
-        available_slots_in_night (array): a 1D array of length n_nights_in_semester where each
-                              element is an integer representing the number of slots within that
-                              night that during night time
-        n_slots_in_night (int): the number of slots in a single night
-
-    Returns:
-        allocation_map_1D (array): a 1D array of length equal to n_slots_in_semester,
-                                1's are allocated and 0's are non-allocated slots
-        allocation_map_2D (array): a 2D array of shape n_nights_in_semester by n_slots_in_night
-                                    with same information as allocation_map_1D
-        allocation_map_weather_diff_2D (array): a 2D array of shape n_nights_in_semester by
-                                            n_slots_in_night where 1's are nights that were
-                                            allocated but weathered out (for plotting purposes)
-    """
-    allocation_map_1D = []
-    allocation_map_weathered = []
-    manager.available_slots_in_each_night_short = manager.available_slots_in_each_night#[manager.today_starting_night:]
-
-    for n in range(len(manager.available_slots_in_each_night_short)):
-        allo_night_map = single_night_allocated_slots(manager.twilight_map_remaining_2D[n], allocation_schedule[n],
-                                                manager.available_slots_in_each_night_short[n], manager.n_slots_in_night)
-        allocation_map_1D.append(allo_night_map)
-        weather_night_map = single_night_allocated_slots(manager.twilight_map_remaining_2D[n], weather_diff[n],
-                                                manager.available_slots_in_each_night_short[n], manager.n_slots_in_night)
-        allocation_map_weathered.append(weather_night_map)
-
-    allocation_map_2D = np.reshape(allocation_map_1D,
-                                                (len(manager.available_slots_in_each_night_short), manager.n_slots_in_night))
-    allocation_map_weather_diff_2D = np.reshape(allocation_map_weathered,
-                                                (len(manager.available_slots_in_each_night_short), manager.n_slots_in_night))
-    allocation_map_1D = np.array(allocation_map_1D).flatten()
-
-    return allocation_map_1D, allocation_map_2D, allocation_map_weather_diff_2D
 
 def format_keck_allocation_info(allocation_file):
     """

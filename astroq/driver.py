@@ -186,7 +186,7 @@ def ttp(args):
     # Use the new NightPlanner class for object-oriented night planning
     night_planner = nplan.NightPlanner(manager)
     night_planner.run_ttp()
-    night_planner.produce_bright_backups()
+    # Removed: night_planner.produce_bright_backups()
     return
 
 def get_history(args):

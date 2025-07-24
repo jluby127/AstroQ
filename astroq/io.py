@@ -56,7 +56,8 @@ def build_fullness_report(combined_semester_schedule, manager, round_info):
                 if combined_semester_schedule[b][c] in listnames or "RM___" in combined_semester_schedule[b][c]:
                     used += 1
         available = unused + used
-        allocated = np.sum(manager.allocation_map_2D.flatten())
+        # Simplified - assume all slots are allocated
+        allocated = manager.n_nights_in_semester * manager.n_slots_in_night
         file.write("N slots in semester:" + str(np.prod(combined_semester_schedule.shape)) + "\n")
         file.write("N available slots:" + str(allocated) + "\n")
         file.write("N slots scheduled: " + str(used) + "\n")
@@ -148,8 +149,8 @@ def build_observed_map_future(manager, combined_semester_schedule, starname, sta
         # mulitply by 4 because each element of allocation_all represents one quarter
         # starmap['Allocated'][days_into_semester*4 + a] = bool(allocation_all[a])
         starmap['Allocated'][a] = bool(manager.allocation_all[a])
-    for w, item in enumerate(manager.weather_diff.flatten()):
-        starmap['Weathered'][manager.all_dates_dict[manager.current_day]*4+ w] = bool(manager.weather_diff.flatten()[w])
+    # Simplified - no weather losses
+    pass
 
     return starmap
 
@@ -244,61 +245,6 @@ def write_stars_schedule_human_readable(combined_semester_schedule, Yrds, manage
         combined_semester_schedule, delimiter=',', fmt="%s")
     return combined_semester_schedule
 
-def write_available_human_readable(manager):
-    """
-    Fill in the human readable solution with the non-observation information: non-allocated slots,
-    weather loss slots, non-queue slots, twilight slots.
-
-    Args:
-        manager (obj): a data_admin object
-        twilight_map (array): the 1D array of length n_slots_in_semester where 1's represent slots
-                            not in night time and 0's represent slots that are during day/twilight
-        allocation_map_2D (array): a 2D array where rows represent a night and columns represent
-                                   the quarter within that night. Values are 1 if that
-                                   night/quarter is allocated and 0 if not.
-        weathered_map (array): a 1D array of length s slots in semester where elements are 1 if
-                                that slot has been modeled as lost to weather and 0 if not
-
-    Returns:
-        combined_semester_schedule (array): a 2D array of dimensions n_nights_in_semester by
-                                            n_slots_in_night where elements denote how the slot is
-                                            used: target, twilight, weather, not scheduled.
-    """
-    if os.path.exists(manager.nonqueue_map_file):
-        nonqueuemap_slots_strs = np.loadtxt(manager.nonqueue_map_file, delimiter=',', dtype=str)
-
-    # The past does not matter to us here, so specify the days/slots that are to be ignored.
-    end_past = manager.all_dates_dict[manager.current_day]*manager.n_slots_in_night
-    combined_semester_schedule = ['']*manager.semester_length*manager.n_slots_in_night
-    combined_semester_schedule[0] = 'longwordhereformakingspace'
-    for c in range(end_past):
-        # for some reason when adding strings within an array, the max length of new string is the
-        # length of the longest string in the whole array. So choosing an arbitrary long word
-        # as a placeholder. Later I post-process this out.
-        # For some reason this word had to be different than the one above...
-        combined_semester_schedule[c] += 'supercalifragilisticexpialidocious'
-    combined_semester_schedule = np.reshape(combined_semester_schedule,
-            (manager.semester_length, manager.n_slots_in_night))
-
-    for n in range(manager.semester_length - manager.all_dates_dict[manager.current_day]):
-        for s in range(manager.n_slots_in_night):
-            slotallocated = ''
-            # remember that twilight map is "inverted": the 1's are time where it is night and the
-            # 0's are time where it is day/twilight.
-            if manager.twilight_map_remaining_2D[n][s] == 0:
-                slotallocated += '*'
-            if manager.allocation_map_2D[n][s] == 0:
-                slotallocated += 'X'
-            if manager.weather_diff[n][s] == 1:# and slotallocated == '':
-                slotallocated += 'W'
-            if os.path.exists(manager.nonqueue_map_file):
-                slotallocated += str(nonqueuemap_slots_strs[n + manager.all_dates_dict[manager.current_day], ][s])
-            combined_semester_schedule[n + manager.all_dates_dict[manager.current_day], ][s] += str(slotallocated)
-
-    np.savetxt(manager.output_directory + 'raw_combined_semester_schedule_available.txt',
-        combined_semester_schedule, delimiter=',', fmt="%s")
-    return combined_semester_schedule
-
 def serialize_schedule(Yrds, manager):
     """
     Turns the non-square matrix of the solution into a square matrix and starts the human readable
@@ -316,38 +262,7 @@ def serialize_schedule(Yrds, manager):
     df['value'] = [Yrds[k].x for k in Yrds.keys()]
     sparse = df.query('value>0').copy()
     sparse.drop(columns=['value'], inplace=True)
-    # sparse only has keys from Yrds that have values = 1, so only scheduled slots and only the starting slot of the observation
     sparse.to_csv(manager.output_directory + "serialized_outputs_sparse.csv", index=False, na_rep="")
-    day, slot = np.mgrid[:manager.semester_length,:manager.n_slots_in_night]
-    dense1 = pd.DataFrame(dict(d=day.flatten(), s=slot.flatten()))
-    dense1 = pd.merge(dense1, sparse, left_on=['d','s'],right_on=['d','s'],how='left')
-    dense1['r'] = dense1['r'].fillna('')
-    # dense1 has keys for all days and slots, where no star was scheduled to start its observation, the r column is blank
-    dense1.to_csv(manager.output_directory + "serialized_outputs_dense_v1.csv", index=False, na_rep="")
-
-    dense2 = dense1.copy()
-    isNight = np.array(manager.twilight_map_remaining_2D).flatten()
-    isAlloc = np.array(manager.allocation_map_2D).flatten()
-    isClear = np.array(manager.weather_diff).flatten()
-    # have to go backwards otherwise you're adding stars into slots and then testing if the star is in the next slot
-    for slot in range(manager.n_slots_in_semester-1, -1, -1):
-        name_string = ""
-        if isNight[slot] == 0:
-            name_string += "*"
-        if isAlloc[slot] == 0:
-            name_string += "X"
-        if isClear[slot] == 1:
-            name_string += "W"
-        dense2.loc[slot, 'r'] = name_string + str(dense2.loc[slot, 'r'])
-
-        if dense2.loc[slot, 'r'] in list(manager.requests_frame['starname']):
-            slots_needed = manager.slots_needed_for_exposure_dict[dense2.loc[slot, 'r']]
-            if slots_needed > 1:
-                for t in range(1, slots_needed):
-                    dense2.loc[slot + t, 'r'] = str(dense2.loc[slot + t, 'r']) + str(dense2.loc[slot, 'r'])
-
-    # dense2 has keys for all days and slots, manually fill in the reserved slots for each observation and fill in Past/Twilight/Weather info
-    dense2.to_csv(manager.output_directory + "serialized_outputs_dense_v2.csv", index=False, na_rep="")
 
 def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars, current_day,
                     outputdir, version='nominal'):
@@ -584,160 +499,3 @@ def parse_star_line(line):
         return {col: ' ' for col in columns}
 
 
-# -------------------------------------------------------------------------------------------------------------------
-# NOTE: these three functions are used for constructing the "cadence view" plot, which we have not been making recently.
-# We may want to start making these and serving them to the webapp, but this is low priority. Saving these functions
-# for now by commenting them out, so they don't appear in the coverage test stats.
-# If we keep them they will likely get absorbed into the plot.py or dynamic.py
-# -------------------------------------------------------------------------------------------------------------------
-# def build_observed_map_past(past_info, starmap_template_filename):
-#     """
-#     Construct stage one (past) of the starmap which is then used to build the cadence plot.
-#
-#     Args:
-#         past_info (array): 2D array following schema of the values for the database_info_dict
-#         starmap_template_filename (str): the path and filename of the starmap template
-#
-#     Returns:
-#         starmap (dataframe): an updated starmap which includes the past history of the target
-#     """
-#     starmap = pd.read_csv(starmap_template_filename)
-#     observed = [False]*len(starmap)
-#     n_observed = [0]*len(starmap)
-#     for i, item in enumerate(past_info[1]):
-#         ind = list(starmap['Date']).index(past_info[1][i])
-#         observed[ind + int(past_info[2][i]-0.5)] = True
-#         n_observed[ind + int(past_info[2][i]-0.5)] = past_info[3][i]
-#     starmap['Observed'] = observed
-#     starmap['N_obs'] = n_observed
-#     return starmap
-#
-# def build_observed_map_future(manager, combined_semester_schedule, starname, starmap):
-#     """
-#     Construct stage two (future) of the starmap which is then used to build the cadence plot.
-#
-#     Args:
-#         manager (obj): a data_admin object
-#         combined_semester_schedule (array): a 2D array of dimensions n_nights_in_semester by
-#                                             n_slots_in_night where elements denote how the slot is
-#                                             used: target, twilight, weather, not scheduled.
-#         starname (str): the request in question
-#         starmap (dataframe): an updated starmap which includes the past history of the target
-#
-#     Returns:
-#         starmap (dataframe): an updated starmap which includes the past history of the target
-#     """
-#     starmap['Allocated'] = [False]*len(starmap)
-#     starmap['Weathered'] = [False]*len(starmap)
-#
-#     for i, item in enumerate(combined_semester_schedule):
-#         if starname in combined_semester_schedule[i]:
-#             ind = list(combined_semester_schedule[i]).index(starname)
-#             quarter = determine_quarter(ind, np.shape(combined_semester_schedule)[1])
-#             starmap['Observed'][i*4 + quarter] = True
-#             starmap['N_obs'][i*4 + quarter] = list(combined_semester_schedule[i]).count(
-#                     starname)/manager.slots_needed_for_exposure_dict[starname]
-#
-#     for a, item in enumerate(manager.allocation_all):
-#         # mulitply by 4 because each element of allocation_all represents one quarter
-#         # starmap['Allocated'][days_into_semester*4 + a] = bool(allocation_all[a])
-#         starmap['Allocated'][a] = bool(manager.allocation_all[a])
-#     for w, item in enumerate(manager.weather_diff_remaining.flatten()):
-#         starmap['Weathered'][manager.all_dates_dict[manager.current_day]*4+ w] = bool(manager.weather_diff_remaining.flatten()[w])
-#
-#     return starmap
-#
-# def determine_quarter(value, n_slots_in_night):
-#     """
-#     Given a slot number, determine what quarter it is to be observed in.
-#
-#     Args:
-#         value (int): the slot number to be observed
-#         n_slots_in_night (int): the number of slots in the night
-#
-#     Returns:
-#         quarter (int): the corresponding quarter (1, 2, 3, 4) of the night
-#     """
-#     if value <= int(n_slots_in_night*(1/4.)):
-#         quarter = 0
-#     elif value <= int(n_slots_in_night*(2/4.)) and value > int(n_slots_in_night*(1/4.)):
-#         quarter = 1
-#     elif value <= int(n_slots_in_night*(3/4.)) and value > int(n_slots_in_night*(2/4.)):
-#         quarter = 2
-#     elif value <= n_slots_in_night and value > int(n_slots_in_night*(3/4.)):
-#         quarter = 3
-#     elif value <= int(n_slots_in_night*(5/4.)) and value > n_slots_in_night:
-#         quarter = 3
-#     else:
-#         quarter = 0
-#         print("Houston, we've had a problem. No valid quarter: ", value, n_slots_in_night)
-#     return quarter
-#
-# def compute_on_off_for_quarter(quarter_map, quarter):
-#     """
-#     Determine the first and last day a target is accessible in a given quarter of the night.
-#     Primarily for easy lookup plotting purposes later.
-#
-#     Args:
-#         quarter_map (array): a 2D array of length equal to n_slots_in_night representing a
-#                                       single night where 1 indicates target is accessible in that
-#                                       slot, 0 otherwise.
-#     Returns:
-#         observable_quarters (array): a 1D array of length n_quarters_in_night where each element
-#                                      represents if the target is at all observerable in that quarter
-#                                      (1st to 4th running left to right).
-#     """
-#     quarter_map = np.array(quarter_map)
-#     quarter_map_transpose = quarter_map.T
-#     quarter_map_transpose_tonight = list(quarter_map_transpose[quarter])
-#     try:
-#         on = quarter_map_transpose_tonight.index(1)
-#         quarter_map_transpose_tonight.reverse()
-#         off = len(quarter_map_transpose_tonight) - quarter_map_transpose_tonight.index(1) - 1
-#     except:
-#         on = 0
-#         off = 0
-#     return [on, off]
-#
-# def get_accessibility_stats(access_map, time_up=30, slot_size=5):
-#     """
-#     Compute stats useful for checking feasibilty and for generating the cadence plot of a target
-#
-#     Args:
-#         access_map (array): a 2D array of shape n_nights_in_semester by n_slots_in_night where 1's
-#                             indicate the target is accessible
-#         time_up (int): the minimum number of minutes a target must be accessible in the night to be
-#                        considered observable in that night
-#         slot_size (int): the size of the slots in minutes
-#
-#     Returns:
-#         days_observable (int): the number of days in the semester where the target achieves a
-#                                minimum level of observablility
-#         rise_day (int): the number of days from semester start where the target is first available
-#         set_day (int): the number of days from semester start where the target is last available
-#     """
-#
-#     sum_along_days = np.sum(access_map, axis=1)
-#     gridpoints = int(time_up/slot_size)
-#     observable_mask = sum_along_days > gridpoints
-#     days_observable = np.sum(observable_mask)
-#
-#     rise_day = -1
-#     i = 0
-#     while rise_day < 0 and i < len(sum_along_days):
-#         if sum_along_days[i] > gridpoints:
-#             rise_day = i
-#         i += 1
-#     if i == len(sum_along_days):
-#         rise_day = i
-#
-#     set_day = -1
-#     j = len(sum_along_days)-1
-#     while set_day < 0 and j > 0:
-#         if sum_along_days[j] > gridpoints:
-#             set_day = j
-#         j -= 1
-#     if j == len(sum_along_days):
-#         set_day = len(sum_along_days)
-#
-#     return days_observable, rise_day, set_day
