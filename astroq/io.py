@@ -114,7 +114,7 @@ def serialize_schedule(Yrds, manager):
     df['value'] = [Yrds[k].x for k in Yrds.keys()]
     sparse = df.query('value>0').copy()
     sparse.drop(columns=['value'], inplace=True)
-    sparse.to_csv(manager.output_directory + "serialized_outputs_sparse.csv", index=False, na_rep="")
+    sparse.to_csv(manager.output_directory + "semester_plan.csv", index=False, na_rep="")
 
 def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars, current_day,
                     outputdir, version='nominal'):
