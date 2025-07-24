@@ -24,11 +24,6 @@ import astroq.dynamic as dn
 import logging
 log = logging.getLogger(__name__)
 log.setLevel(logging.ERROR)
-# log.debug("Debug message")
-# log.info("Info message")
-# log.warning("Warning message here")
-# log.error("Error message")
-# log.critical("Critical message")
 
 def bench(args):
     nS = args.number_slots
@@ -113,7 +108,7 @@ def kpfcc_data(args):
     awarded_programs = data["awarded_programs"]
     if not os.path.exists(savepath):
         os.makedirs(savepath)
-    OBs = ob.refresh_local_data(semester)
+    OBs = ob.pull_OBs(semester)
     good_obs, bad_obs_values, bad_obs_hasFields = ob.get_request_sheet(OBs, awarded_programs, savepath + "/Requests.csv")
 
     send_emails_with = []
