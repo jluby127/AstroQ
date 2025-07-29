@@ -69,18 +69,6 @@ class data_admin(object):
         np.random.seed(self.random_seed)
         self.run_weather_loss = eval(config.get('options', 'run_weather_loss'))#.strip().lower() == "true"
 
-        # Removed oia configuration calls - these will be handled differently
-        self.run_optimal_allocation = False
-        self.include_aesthetic = False
-        self.max_quarters = 0
-        self.max_unique_nights = 0
-        self.min_represented = 5
-        # Removed whiteout_file, blackout_file - these will be handled differently
-        self.allow_single_quarters = False
-        self.max_consecutive = 0
-        self.min_consecutive = 0
-        self.max_baseline = 0
-
         self.DATADIR = DATADIR
         self.gurobi_output = config.get('gurobi', 'show_gurobi_output').strip().lower() == "true"
         self.plot_results = config.get('options', 'run_plots').strip().lower() == "true"
@@ -94,8 +82,6 @@ class data_admin(object):
         self.max_bonus = float(config.get('other', 'maximum_bonus_size'))
 
         self.folder_forecasts = os.path.join(self.semester_directory, "/data/first_forecasts/")
-        self.turn_on_off_file = os.path.join(self.semester_directory, "inputs/turnOnOffDates.csv")
-        self.build_starmaps = config.get('other', 'build_starmaps').strip().lower() == "true"
         self.run_backup_scripts = config.get('other', 'generate_backup_script').strip().lower() == "true"
         self.backup_file = os.path.join(DATADIR,"bright_backups_frame.csv")
         self.backup_observability_file = os.path.join(DATADIR,"bright_backup_observability.csv")
