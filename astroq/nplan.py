@@ -55,7 +55,6 @@ class NightPlanner(object):
     def run_ttp(self):
         """
         Produce the TTP solution given the results of the autoscheduler.
-        
         Optimizes the nightly observation sequence for scheduled targets.
         """
         observers_path = self.manager.semester_directory + 'reports/observer/' + str(self.manager.current_day) + '/'
@@ -64,26 +63,36 @@ class NightPlanner(object):
             os.makedirs(observers_path)
 
         observatory = telescope.Keck1()
-        the_schedule = np.loadtxt(self.manager.upstream_path + "/outputs/" + str(self.manager.current_day) + "/raw_combined_semester_schedule_Round2.txt", delimiter=',', dtype=str)
         nightly_start_stop_times = pd.read_csv(self.manager.nightly_start_stop_times_file)
 
-        day_in_semester = self.manager.all_dates_dict[self.manager.current_day]
         idx = nightly_start_stop_times[nightly_start_stop_times['Date'] == str(self.manager.current_day)].index[0]
         night_start_time = nightly_start_stop_times['Start'][idx]
         night_stop_time = nightly_start_stop_times['Stop'][idx]
-        observation_start_time = Time(str(self.manager.current_day) + "T" + str(night_start_time),
-            format='isot')
-        observation_stop_time = Time(str(self.manager.current_day) + "T" + str(night_stop_time),
-            format='isot')
+        observation_start_time = Time(str(self.manager.current_day) + "T" + str(night_start_time), format='isot')
+        observation_stop_time = Time(str(self.manager.current_day) + "T" + str(night_stop_time), format='isot')
         total_time = np.round((observation_stop_time.jd-observation_start_time.jd)*24,3)
         print("Time in Night for Observations: " + str(total_time) + " hours.")
 
-        # Prepare relevant files
-        round_two_requests = np.loadtxt(self.manager.upstream_path + "/outputs/" + str(self.manager.current_day) + '/Round2_Requests.txt', dtype=str, delimiter="\n")
-        send_to_ttp = self.prepare_for_ttp(self.manager.requests_frame, the_schedule[day_in_semester], round_two_requests)
+        # Use only request_selected.csv as the source of scheduled targets
+        selected_path = os.path.join(self.manager.output_directory, 'request_selected.csv')
+        if not os.path.exists(selected_path):
+            raise FileNotFoundError(f"{selected_path} not found. Please run the scheduler first.")
+        selected_df = pd.read_csv(selected_path)
 
-        filename = self.manager.upstream_path + "/outputs/" + str(self.manager.current_day) + '/Selected_' + str(self.manager.current_day) + ".txt"
-        send_to_ttp.to_csv(filename, index=False)
+        # Prepare the TTP input DataFrame (matching the old prepare_for_ttp output)
+        to_ttp = pd.DataFrame({
+            "Starname": selected_df["starname"],
+            "RA": selected_df["ra"],
+            "Dec": selected_df["dec"],
+            "Exposure Time": selected_df["exptime"],
+            "Exposures Per Visit": selected_df["n_exp"],
+            "Visits In Night": selected_df["n_intra_max"],
+            "Intra_Night_Cadence": selected_df["tau_intra"],
+            "Priority": 10  # Default priority, or you can add logic if needed
+        })
+
+        filename = os.path.join(self.manager.output_directory, 'request_selected.txt')
+        to_ttp.to_csv(filename, index=False)
         target_list = formatting.theTTP(filename)
 
         solution = model.TTPModel(observation_start_time, observation_stop_time, target_list,
@@ -100,8 +109,8 @@ class NightPlanner(object):
         plotting.plot_path_2D(solution,outputdir=observers_path)
         plotting.nightPlan(solution.plotly, self.manager.current_day, outputdir=observers_path)
         obs_and_times = pd.read_csv(observers_path + 'ObserveOrder_' + str(self.manager.current_day) + ".txt")
-        io.write_starlist(self.manager.requests_frame, solution.plotly, observation_start_time, solution.extras,
-                            round_two_requests, str(self.manager.current_day), observers_path)
+        io.write_starlist(selected_df, solution.plotly, observation_start_time, solution.extras,
+                            [], str(self.manager.current_day), observers_path)
         print("The optimal path through the sky for the selected stars is found. Clear skies!")
 
     def produce_bright_backups(self, nstars_max=100):

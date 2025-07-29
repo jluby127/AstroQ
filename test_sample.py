@@ -32,11 +32,10 @@ class TestClass(unittest.TestCase):
         dr.schedule(argparse.Namespace(request_file="examples/hello_world/outputs/2024-08-05/request_set.json", config_file='examples/hello_world/config_hello_world_yesbonus.ini'))
 
     def test_bench(self):
-        dr.bench(argparse.Namespace(config_file='examples/bench/config_benchmark.ini', number_slots=12, thin=30))
+        dr.bench(argparse.Namespace(config_file='examples/bench/config_benchmark.ini', number_slots=12, thin=10))
 
     def test_prep(self):
-        # test the creation of all upstream files, including the allocation map
-        dr.kpfcc_prep(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
+        dr.kpfcc_prep(argparse.Namespace(config_file='/Users/jack/Desktop/test_folder/test_config.ini'))
 
     def test_plot(self):
         dr.plot_pkl(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
