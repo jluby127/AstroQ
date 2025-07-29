@@ -12,6 +12,7 @@ import json
 from configparser import ConfigParser
 
 import astroq.access as ac
+import astroq.management as mn
 
 class RequestSet(object):
     """
@@ -19,8 +20,28 @@ class RequestSet(object):
 
     Specifies set of request to send to schedule. May be saved and restored from json
     """
-    def __init__(self, meta, strategy, observable):
-        self.meta = meta
+    def __init__(self, config_file):
+        """
+        Initialize RequestSet from a config file.
+        
+        Args:
+            config_file: Path to the configuration file
+        """
+        # Create manager and run admin to set up all necessary data
+        manager = mn.data_admin(config_file)
+        manager.run_admin()
+        
+        # Build meta data from config
+        config = ConfigParser()
+        config.read(config_file)
+        daily_starting_time = str(config.get('other', 'daily_starting_time'))
+        current_day = str(config.get('required', 'current_day'))
+        slot_size = int(config.get('other', 'slot_size'))
+        self.meta = {"s1_time":daily_starting_time, "d1_date":current_day, "slot_duration":slot_size}
+        
+        # Build strategy and observable data
+        strategy, observable = define_indices_for_requests(manager)
+        
         # enforce order
         strategy_cols = 'id t_visit n_intra_min n_intra_max tau_intra n_inter_max tau_inter'.split()
         strategy = strategy[strategy_cols]
@@ -111,20 +132,7 @@ def define_indices_for_requests(manager):
     observability = pd.DataFrame(observability_keys, columns =['id', 'd', 's'])
     return strategy, observability
 
-def build_meta(config_file):
-
-    config = ConfigParser()
-    config.read(config_file)
-    daily_starting_time = str(config.get('other', 'daily_starting_time'))
-    current_day = str(config.get('required', 'current_day'))
-    slot_size = int(config.get('other', 'slot_size'))
-
-    meta = {"s1_time":daily_starting_time, "d1_date":current_day, "slot_duration":slot_size}
-    return meta
-
 def cull_from_weather(request_set, weather_loss_map):
     request_set.original_observability = request_set.observability
     request_set.observability = request_set.observability[~request_set.observability['d'].isin(weather_loss_map)]
     return request_set
-
-

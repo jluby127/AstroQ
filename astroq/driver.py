@@ -31,37 +31,30 @@ log.setLevel(logging.ERROR)
 # log.critical("Critical message")
 
 def bench(args):
-    nS = args.number_slots
     cf = args.config_file
-    thin = getattr(args, 'thin', 1)  # Default to 1 if thin not provided
+    number_slots = args.number_slots
+    thin = args.thin
     print(f'bench function: config_file is {cf}')
-    print(f'bench function: n_Slots for single visits is {nS}')
-    print(f'bench function: thinning factor is {thin}')
+    print(f'bench function: number_slots is {number_slots}')
+    print(f'bench function: thin is {thin}')
 
-    # Initialize manager and compute request set on the fly
-    # This is a hacky workaround. run_admin needs this file to exist. This can
-    # lead to race conditions if benchmarking is run in parallel.
+    # Load the requests frame and thin it
     config = ConfigParser()
     config.read(cf)
     upstream_path = eval(config.get('required', 'folder'), {"os": os})
     semester_directory = upstream_path
-    requests_frame = bn.build_toy_model_from_paper(nS)
-    
-    # Apply thinning if specified
-    if thin > 1:
-        original_size = len(requests_frame)
-        requests_frame = requests_frame.iloc[::thin].reset_index(drop=True)
-        new_size = len(requests_frame)
-        print(f'Request frame thinned: {original_size} -> {new_size} rows (factor of {thin})')
+    requests_frame = pd.read_csv(os.path.join(semester_directory, "inputs/requests.csv"))
+    original_size = len(requests_frame)
+    requests_frame = requests_frame.iloc[::thin]
+    new_size = len(requests_frame)
+    print(f'Request frame thinned: {original_size} -> {new_size} rows (factor of {thin})')
     
     requests_frame.to_csv(os.path.join(semester_directory, "inputs/Requests.csv"))
     manager = mn.data_admin(cf)
     manager.run_admin()
 
-    # Build observability maps and request set
-    strategy, observable = rq.define_indices_for_requests(manager)
-    meta = rq.build_meta(cf)
-    request_set = rq.RequestSet(meta, strategy, observable)
+    # Build request set on the fly from config file
+    request_set = rq.RequestSet(cf)
     # print out the last rows of strategy to ensure the size of the model looks right
     print("Last 5 rows of Request Set here: ")
     print(request_set.strategy[-5:])
@@ -85,11 +78,8 @@ def kpfcc_build(args):
     cf = args.config_file
     print(f'kpfcc_build function: config_file is {cf}')
 
-    manager = mn.data_admin(cf)
-    manager.run_admin()
-    strategy, observable = rq.define_indices_for_requests(manager)
-    meta = rq.build_meta(cf)
-    request_set = rq.RequestSet(meta, strategy, observable)
+    # Build request set on the fly from config file
+    request_set = rq.RequestSet(cf)
     return
 
 def kpfcc_prep(args):
@@ -139,14 +129,8 @@ def kpfcc_plan_semester(args):
     cf = args.config_file
     print(f'kpfcc_plan_semester function: config_file is {cf}')
 
-    # Build request set on the fly (no longer need separate build step)
-    manager = mn.data_admin(cf)
-    manager.run_admin()
-    
-    # Build observability maps and request set
-    strategy, observable = rq.define_indices_for_requests(manager)
-    meta = rq.build_meta(cf)
-    request_set = rq.RequestSet(meta, strategy, observable)
+    # Build request set on the fly from config file
+    request_set = rq.RequestSet(cf)
     
     # Run the semester planner
     semester_planner = splan.SemesterPlanner(request_set, cf)
@@ -157,12 +141,8 @@ def schedule(args):
     cf = args.config_file
     print(f'schedule function: config_file is {cf}')
     
-    # Build request set on the fly from input files
-    manager = mn.data_admin(cf)
-    manager.run_admin()
-    strategy, observable = rq.define_indices_for_requests(manager)
-    meta = rq.build_meta(cf)
-    request_set = rq.RequestSet(meta, strategy, observable)
+    # Build request set on the fly from config file
+    request_set = rq.RequestSet(cf)
     
     schedule = splan.SemesterPlanner(request_set, cf)
     schedule.run_model()
@@ -232,12 +212,8 @@ def requests_vs_schedule(args):
     print(f'requests_vs_schedule function: config_file is {cf}')
     print(f'requests_vs_schedule function: schedule_file is {sf}')
 
-    # Build request set on the fly from input files
-    manager = mn.data_admin(cf)
-    manager.run_admin()
-    strategy, observable = rq.define_indices_for_requests(manager)
-    meta = rq.build_meta(cf)
-    req_object = rq.RequestSet(meta, strategy, observable)
+    # Build request set on the fly from config file
+    req_object = rq.RequestSet(cf)
     req = req_object.strategy
     sch = pd.read_csv(sf)
     sch = sch.sort_values(by=['d', 's']).reset_index(drop=True) # Re-order into the real schedule
