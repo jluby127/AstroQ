@@ -3,9 +3,6 @@ Module that defines the RequestSet class. This encodes all the astronomy informa
 prepares it for the Scheduler object. Useful as a checkpoint to the code.
 
 """
-import sys
-import time
-import os
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -116,32 +113,4 @@ def cull_from_weather(request_set, weather_loss_map):
     request_set.observability = request_set.observability[~request_set.observability['d'].isin(weather_loss_map)]
     return request_set
 
-# This feels important but is not presently touched
-def convert_slot_to_quarter(d, s, twilight_map_remaining_2D_d):
-    '''
-    Determine the slot numbers within the night that breaks the night into "equal" length quarters
-    Take extra precaution when the total number of slots between twilight times is not easily
-    divisable by 4.
-    '''
 
-    n_available_slots_in_quarter_tonight = int(np.sum(twilight_map_remaining_2D_d)/4)
-    extra_slots = np.sum(twilight_map_remaining_2D_d)%4
-
-    edge_slot = np.argmax(twilight_map_remaining_2D_d)
-    split_2nd3rd = int(len(twilight_map_remaining_2D_d)/2) - 1
-    split_1st2nd = int((split_2nd3rd - edge_slot)/2) + edge_slot
-    split_3rd4th = int((len(twilight_map_remaining_2D_d) - edge_slot - split_2nd3rd)/2) + split_2nd3rd
-
-    if s < split_1st2nd:
-        q = 0
-    elif s >= split_1st2nd and s < split_2nd3rd:
-        q = 1
-    elif s >= split_2nd3rd and s < split_3rd4th:
-        q = 2
-    elif s >= split_3rd4th:
-        q = 3
-    else:
-        q = 100
-        print("Houston, we've had a problem.")
-
-    return q
