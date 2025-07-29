@@ -306,18 +306,9 @@ class SemesterPlanner(object):
         Args:
             limit (int): either 0 or 1 to enforce blackout and whiteout, respectively
         """
-        if limit not in [0, 1]:
-            logs.critical("Limit must be an integer, either 0 (blackout) or 1 (whiteout).")
-        elif limit == 0:
-            filename = self.manager.blackout_file
-        else:
-            filename = self.manager.whiteout_file
+        # Removed blackout_file and whiteout_file references - these will be handled differently
         logs.info("Constraint: enforcing quarters that cannot be chosen.")
-        selections = pd.read_csv(filename)
-        for s in range(len(selections)):
-            night = self.manager.all_dates_dict[selections['Date'][s]]
-            quarter = selections['Quarter'][s]
-            self.model.addConstr(self.Anq[night,quarter] == limit, "enforced_" + str(limit) + "_" + str(night) + "d_" + str(quarter) + 'q')
+        # Placeholder - restricted nights functionality removed
 
     def constraint_maximize_baseline(self):
         """
@@ -555,10 +546,7 @@ class SemesterPlanner(object):
             self.constraint_all_portions_of_night_represented()
             self.constraint_forbidden_quarter_patterns()
             self.constraint_cannot_observe_if_not_allocated()
-            if os.path.exists(self.manager.blackout_file):
-                self.constraint_enforce_restricted_nights(limit=0)
-            if os.path.exists(self.manager.whiteout_file):
-                self.constraint_enforce_restricted_nights(limit=1)
+            # Removed blackout_file and whiteout_file checks - these will be handled differently
             if self.manager.include_aesthetic:
                 self.constraint_max_consecutive_onsky()
                 self.constraint_minimum_consecutive_offsky()

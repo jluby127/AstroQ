@@ -60,10 +60,8 @@ class data_admin(object):
         else:
             self.allocation_file = os.path.join(self.semester_directory, allocation_file_config)
         self.past_file = os.path.join(self.semester_directory, "inputs/past.csv")
-        self.special_map_file = os.path.join(self.semester_directory, "inputs/specialMaps_" + str(self.slot_size) + "minSlots.txt")
+        # Removed special_map_file, zero_out_file, nonqueue_map_file - these will be handled differently
         self.custom_file = os.path.join(self.semester_directory, "inputs/custom.csv")
-        self.zero_out_file = os.path.join(self.semester_directory, "inputs/zero_out.csv")
-        self.nonqueue_map_file = os.path.join(self.semester_directory, "inputs/NonQueueMap"  + str(self.slot_size) + ".txt")
         self.nonqueue_file = os.path.join(self.semester_directory, "inputs/NonQueueMap.csv")
         self.future_forecast = os.path.join(self.semester_directory, "outputs/semester_plan.csv")
 
@@ -71,17 +69,17 @@ class data_admin(object):
         np.random.seed(self.random_seed)
         self.run_weather_loss = eval(config.get('options', 'run_weather_loss'))#.strip().lower() == "true"
 
-        self.run_optimal_allocation = config.get('oia', 'run_optimal_allocation').strip().lower() == "true"
-        self.include_aesthetic = config.get('oia', 'run_with_aesthetics').strip().lower() == "true"
-        self.max_quarters = int(config.get('oia', 'maximum_allocated_quarters'))
-        self.max_unique_nights = int(config.get('oia', 'maximum_allocated_nights'))
+        # Removed oia configuration calls - these will be handled differently
+        self.run_optimal_allocation = False
+        self.include_aesthetic = False
+        self.max_quarters = 0
+        self.max_unique_nights = 0
         self.min_represented = 5
-        self.whiteout_file = os.path.join(self.semester_directory, "inputs/whiteout_dates.csv")
-        self.blackout_file = os.path.join(self.semester_directory, "inputs/blackout_dates.csv")
-        self.allow_single_quarters = config.get('oia', 'allow_single_quarter_allocations').strip().lower() == "true"
-        self.max_consecutive = int(config.get('oia', 'maximum_consecutive_onsky'))
-        self.min_consecutive = int(config.get('oia', 'minimum_consecutive_offsky'))
-        self.max_baseline = int(config.get('oia', 'maximum_baseline'))
+        # Removed whiteout_file, blackout_file - these will be handled differently
+        self.allow_single_quarters = False
+        self.max_consecutive = 0
+        self.min_consecutive = 0
+        self.max_baseline = 0
 
         self.DATADIR = DATADIR
         self.gurobi_output = config.get('gurobi', 'show_gurobi_output').strip().lower() == "true"
@@ -235,68 +233,3 @@ def get_gap_filler_targets(manager):
         gap_fillers = []
     np.savetxt(manager.output_directory + 'Round2_Requests.txt', gap_fillers, delimiter=',', fmt="%s")
 
-def prepare_new_semester(config_path):
-
-    config = ConfigParser()
-    config.read(config_path)
-    little_manager = SimpleNamespace()
-
-    # Set up important variables
-    # -----------------------------------------------------------------------------------------
-    little_manager.current_day = str(config.get('required', 'current_day'))
-    little_manager.run_optimal_allocation = config.get('oia', 'run_optimal_allocation').strip().lower() == "true"
-
-    little_manager.upstream_path = eval(config.get('required', 'folder'), {"os": os})
-    little_manager.observatory = config.get('required', 'observatory')
-
-    little_manager.slot_size = int(config.get('other', 'slot_size'))
-    little_manager.n_quarters_in_night = int(config.get('other', 'quarters_in_night'))
-    little_manager.n_hours_in_night = int(config.get('other', 'hours_in_night'))
-    little_manager.daily_starting_time = str(config.get('other', 'daily_starting_time'))
-    little_manager.daily_ending_time  = f"{(int(little_manager.daily_starting_time.split(':')[0]) + little_manager.n_hours_in_night) % 24:02d}:{int(little_manager.daily_starting_time.split(':')[1]):02d}"
-
-    little_manager.requests_frame = pd.read_csv(os.path.join(little_manager.upstream_path, "inputs/requests.csv"))
-    try:
-        little_manager.nonqueue_frame = pd.read_csv(os.path.join(little_manager.upstream_path, "inputs/NonQueueMap"  + str(little_manager.slot_size) + ".csv"))
-    except:
-        logs.warning("There are no times reserved for non-queue observations.")
-        little_manager.nonqueue_frame = None
-
-    # Removed get_semester_info call - semester info will be handled differently
-    # Placeholder values for now
-    little_manager.semester_start_date = "2024-08-01"
-    little_manager.semester_end_date = "2025-01-31"
-    little_manager.semester_length = 184
-    little_manager.semester_year = 2024
-    little_manager.semester_letter = "A"
-    little_manager.all_dates_dict, little_manager.all_dates_array = build_date_dictionary(little_manager.semester_start_date, little_manager.semester_length)
-    little_manager.n_nights_in_semester = len(little_manager.all_dates_dict) - little_manager.all_dates_dict[little_manager.current_day]
-
-    # Create the template file for the cadence plots including true weather map
-    # -----------------------------------------------------------------------------------------
-    logs.info("Generate the cadence plot template file.")
-    dateslist = []
-    quarterlist = []
-    for d in range(len(little_manager.all_dates_array)):
-        for q in range(4):
-            dateslist.append(little_manager.all_dates_array[d])
-            quarterlist.append(0.5+q)
-    falselist = [False]*len(dateslist)
-    # Removed cadence template and twilight times creation (not needed)
-
-    # Create the json file containing the accessiblity for each target (elevation + moon safe)
-    # -----------------------------------------------------------------------------------------
-    logs.info("Computing access maps for all stars.")
-    # Create the csv file containing the turn on and turn off dates for each target in each quarter
-    # -----------------------------------------------------------------------------------------
-    ########### code goes here, use the separation slots between quarters and sum access maps
-
-    if little_manager.run_optimal_allocation == False:
-        little_manager.allocation_file = os.path.join(little_manager.upstream_path, "inputs/Observatory_Allocation.csv")
-        if os.path.exists(little_manager.allocation_file):
-            allocation = ac.format_keck_allocation_info(little_manager.allocation_file)
-            allocation_binary = ac.convert_allocation_info_to_binary(little_manager, allocation)
-        else:
-            logs.critical("file not found {}".format(little_manager.allocation_file))
-            logs.critical("Download from https://www2.keck.hawaii.edu/observing/keckSchedule/queryForm.php")
-            logs.critical("Save as {}".format(little_manager.allocation_file))
