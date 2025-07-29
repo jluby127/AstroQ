@@ -34,6 +34,36 @@ locations = {"Keck Observatory":"Hawaii", "Kitt Peak National Observatory":"Ariz
 pre_sunset = {'Hawaii':'03:30', 'Arizona':'05:00'}
 post_sunrise = {'Hawaii':'17:30', 'Arizona':'14:00'}
 
+class Access:
+    """
+    Bare-bones Access class that wraps accessibility computation functionality.
+    
+    This class provides an object-oriented interface to the accessibility
+    computation functions while maintaining backward compatibility.
+    """
+    
+    def __init__(self):
+        """Initialize the Access object."""
+        pass
+    
+    def produce_ultimate_map(self, manager, rf, running_backup_stars=False):
+        """
+        Combine all maps for a target to produce the final map
+        
+        This method wraps the existing produce_ultimate_map function to provide
+        an object-oriented interface.
+
+        Args:
+            manager: Manager object containing configuration and data
+            rf (dataframe): request frame
+            running_backup_stars (bool): if true, then do not run the extra map of stepping back in time to account for the starting slot fitting into the night
+
+        Returns:
+            available_indices_for_request (dictionary): keys are the starnames and values are a 1D array
+                                                      the indices where available_slots_for_request is 1.
+        """
+        return produce_ultimate_map(manager, rf, running_backup_stars)
+
 # Core mapping functions from maps.py
 def produce_ultimate_map(manager, rf, running_backup_stars=False):
     """
@@ -217,19 +247,6 @@ def extract_available_indices_from_record(access, manager):
 
         available_indices_for_request[manager.requests_frame.iloc[itarget]['starname']] = temp
     return available_indices_for_request
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
