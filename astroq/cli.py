@@ -114,6 +114,16 @@ def main():
                               required=True,
                               help="Relative path of config file."
                                 )
+    psr_kpfcc_prep.add_argument('-as', '--allo_source',
+                            type=str,
+                            required=True,
+                            help="Absolute path of observatory-provided allocation file. Use 'db' to pull from the database."
+                              )
+    psr_kpfcc_prep.add_argument('-ps', '--past_source',
+                            type=str,
+                            required=True,
+                            help="Absolute path of a past history file. Use 'db' to pull from the database."
+                              )
     psr_kpfcc_prep.set_defaults(func=astroq.driver.kpfcc_prep)
 
     ## subcommand of kpfcc: data -- pull latest OB database
