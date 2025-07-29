@@ -282,95 +282,41 @@ def prepare_allocation_map(manager):
 
 
 
-def format_keck_allocation_info(allocation_file):
+def format_keck_allocation_info(input_file, output_file):
     """
-
-    Read in allocation file, as downloaded from this site, filter by KPF and the relevant semester:
-    https://www2.keck.hawaii.edu/observing/keckSchedule/queryForm.php
-
-    Thanks to H. Isaacson for portion of code which I adapted further.
-    Here we are parsing the Time column for which quarters of the night are allocated to us.
-    Note: this assumes time is awarded in 0.25 night increments.
-    If non-0.25 increment of time exists, assume the whole night is allocated and then
-         the best way to deal with this is to later define a new map,
-         set the relevant slots equal to 0, then apply map to all targets.
-
+    Read allocation CSV file and extract start/stop times.
+    
     Args:
-        allocation_file (str): the path and filename to the downloaded csv
+        input_file (str): Path to the CSV file with allocation data
+        output_file (str): Path to the CSV file to save the formatted allocation data
+        
     Returns:
-        allocation (dataframe): a dataframe containing each night's award and start/stop times
+        unique_proj_codes: (list) - the unique ProjCode values
     """
-    allocation = pd.read_csv(allocation_file)
-    # Indicates that all awards are part of the KPF-CC queue
-    allocation['Queue'] = ['True']*len(allocation)
+    import pandas as pd
+    import re
+    
+    # Read the CSV file
+    df = pd.read_csv(input_file)
+    
+    # Extract start and stop times using regex
+    pattern = r'(\d{2}:\d{2}) - (\d{2}:\d{2})'
+    
+    # Extract times and create new dataframe
+    times = df['Time'].str.extract(pattern)
+    times.columns = ['start_time', 'stop_time']
+    
+    # Combine date with times
+    result = pd.DataFrame({
+        'start': df['Date'] + 'T' + times['start_time'],
+        'stop': df['Date'] + 'T' + times['stop_time']
+    })
 
-    allocation['Time'] = allocation['Time'].str.replace(r'\s+(\d+%)', r'\1', regex=True)
-    # Define a regular expression pattern to extract start time, stop time, and percentage
-    pattern = r'(\d{2}:\d{2}) - (\d{2}:\d{2}) \((\d{2,3})%\)'
-    # Extract the start time, stop time, and percentage using the pattern
-    allocation[['Start', 'Stop', 'Percentage']] = allocation['Time'].str.extract(pattern)
-
-    for i, item in enumerate(allocation['Percentage']):
-        time_string = allocation.loc[i, 'Start']
-
-        if item == '100':
-            allocation.loc[i, 'Start'] = 0
-            allocation.loc[i, 'Stop']  = 1
-
-        elif item == '75':
-            if (time_string.startswith("07")) | (time_string.startswith("08")):
-                allocation.loc[i, 'Start'] = 0.25
-                allocation.loc[i, 'Stop']  = 1
-            elif (time_string.startswith("04")) | (time_string.startswith("05")):
-                allocation.loc[i, 'Start'] = 0
-                allocation.loc[i, 'Stop']  = 0.75
-            else:
-                logs.error("We have a problem, error code 1.")
-                logs.error(allocation.loc[i, 'Date'],
-                            allocation.loc[i, 'Start'], allocation.loc[i, 'Stop'])
-
-        elif item == '50':
-            if (time_string.startswith("04")) | (time_string.startswith("05")):
-                allocation.loc[i, 'Start'] = 0
-                allocation.loc[i, 'Stop']  = 0.5
-            elif (time_string.startswith("07")) | (time_string.startswith("08")):
-                allocation.loc[i, 'Start'] = 0.25
-                allocation.loc[i, 'Stop']  = 0.75
-            elif (time_string.startswith("10")) | (time_string.startswith("11")):
-                allocation.loc[i, 'Start'] = 0.5
-                allocation.loc[i, 'Stop']  = 1
-            else:
-                logs.error("We have a problem, error code 2.")
-                logs.error(allocation.loc[i, 'Date'],
-                            allocation.loc[i, 'Start'], allocation.loc[i, 'Stop'])
-
-        elif item == '25':
-            if (time_string.startswith("04")) | (time_string.startswith("05")):
-                allocation.loc[i, 'Start'] = 0
-                allocation.loc[i, 'Stop']  = 0.25
-            elif (time_string.startswith("06")) | (time_string.startswith("07")) | \
-                            (time_string.startswith("08")):
-                allocation.loc[i, 'Start'] = 0.25
-                allocation.loc[i, 'Stop']  = 0.5
-            elif (time_string.startswith("09")) | (time_string.startswith("10")):
-                allocation.loc[i, 'Start'] = 0.5
-                allocation.loc[i, 'Stop']  = 0.75
-            elif (time_string.startswith("11")) | (time_string.startswith("12")) | \
-                            (time_string.startswith("13")):
-                allocation.loc[i, 'Start'] = 0.75
-                allocation.loc[i, 'Stop']  = 1
-            else:
-                logs.error("We have a problem, error code 3.")
-                logs.error(allocation.loc[i, 'Date'],
-                                allocation.loc[i, 'Start'], allocation.loc[i, 'Stop'])
-        else:
-            logs.error("Non-25% of night increment. Implementing whole night as precaution.")
-            logs.error("Date: ", allocation.loc[i, 'Date'])
-            logs.error("True allocation amount: ", item)
-            allocation.loc[i, 'Start'] = 0
-            allocation.loc[i, 'Stop']  = 1
-
-    return allocation
+    # Get unique ProjCode values
+    unique_proj_codes = df['ProjCode'].unique().tolist()
+    
+    result.to_csv(output_file, index=False)
+    return unique_proj_codes
 
 def convert_allocation_info_to_binary(manager, allocation):
     # Generate the binary map for allocations this semester
