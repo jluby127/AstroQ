@@ -124,8 +124,13 @@ class data_admin(object):
         self.past_history = hs.process_star_history(self.past_file)
         self.slots_needed_for_exposure_dict = self.build_slots_required_dictionary()
 
-        semester_start_date, semester_end_date, semester_length, semester_year, semester_letter = \
-            get_semester_info(self.current_day)
+        # Removed get_semester_info call - semester info will be handled differently
+        # Placeholder values for now
+        semester_start_date = "2024-08-01"
+        semester_end_date = "2025-01-31" 
+        semester_length = 184
+        semester_year = 2024
+        semester_letter = "A"
         all_dates_dict, all_dates_array = build_date_dictionary(semester_start_date, semester_length)
         n_nights_in_semester = len(all_dates_dict) - all_dates_dict[self.current_day]
         logs.debug("Total semester length: ", semester_length)
@@ -175,68 +180,7 @@ class data_admin(object):
             slots_needed_for_exposure_dict[name] = compute_slots_required_for_exposure(exposure_time, self.slot_size, always_round_up_flag)
         return slots_needed_for_exposure_dict
 
-def get_semester_info(current_day):
-    """
-    Given today's date, return information about the semester we are currently in.
 
-    Args:
-        manager (obj): a data_admin object
-    """
-    year_flag = False
-    # "A" semester runs from Feb 01 through July 31
-    if current_day[5:7] in ['02', '03', '04', '05', '06', '07']:
-        semester_letter = 'A'
-    # "B" semester runs from Aug 1 through Jan 01
-    elif current_day[5:7] in ['08', '09', '10', '11', '12', '01']:
-        semester_letter = 'B'
-        if current_day[5:7] == '01':
-            year_flag = True
-    else:
-        logs.critical("Invalid date. Exiting.") # critical
-        return None
-    semester_year = current_day[:4]
-
-    if semester_letter == 'A':
-        semester_start_date = semester_year + '-02-01'
-        semester_end_date = semester_year + '-07-31'
-        # check if this is a leap year
-        this_year = 2024
-        year_limit = 2034
-        # Note from Jack Lubin in the year 2024: The year 2034 is arbitrary. In this year,
-        # you, the current queue manager, will have to update this line for another 10 years.
-        # I could have extended this thousands of years in the future, but thought it would be more
-        # fun if one day this line breaks, and every 10 years and someone manually updates it.
-        # If/when you need to update it, please send me an email because I'd like to know that Keck
-        # is still using this software! Also when you update the line, please sign the list of
-        # queue managers below:
-        #
-        # --------------------------
-        # KPF-CC Queue Managers:
-        # --------------------------
-        # 2024 - Jack Lubin
-        # 2034 - your_name_here
-        # --------------------------
-        if int(semester_year) > year_limit:
-            logs.critical("Time to update the leap year array!!! See line 255 in management.py!!!")
-            semester_length = 0
-        elif int(semester_year) in np.arange(this_year, year_limit, 4):
-            semester_length = 182
-        else:
-            semester_length = 181
-    elif semester_letter == 'B':
-        if year_flag:
-            semester_start_date = str(int(semester_year) - 1) + '-08-01'
-            semester_end_date = semester_year + '-01-31'
-        else:
-            semester_start_date = semester_year + '-08-01'
-            semester_end_date = str(int(semester_year) + 1) + '-01-31'
-        semester_length = 184
-    else:
-        logs.critical("Unrecognized semester letter designation!")
-        semester_start_date = semester_year + '-01-01'
-        semester_end_date = str(semester_year)+ '-01-01'
-        semester_length = 0
-    return semester_start_date, semester_end_date, semester_length, semester_year, semester_letter
 
 def build_date_dictionary(semester_start_date, semester_length):
     """
@@ -318,7 +262,13 @@ def prepare_new_semester(config_path):
         logs.warning("There are no times reserved for non-queue observations.")
         little_manager.nonqueue_frame = None
 
-    little_manager.semester_start_date, little_manager.semester_end_date, little_manager.semester_length, little_manager.semester_year, little_manager.semester_letter = get_semester_info(little_manager.current_day)
+    # Removed get_semester_info call - semester info will be handled differently
+    # Placeholder values for now
+    little_manager.semester_start_date = "2024-08-01"
+    little_manager.semester_end_date = "2025-01-31"
+    little_manager.semester_length = 184
+    little_manager.semester_year = 2024
+    little_manager.semester_letter = "A"
     little_manager.all_dates_dict, little_manager.all_dates_array = build_date_dictionary(little_manager.semester_start_date, little_manager.semester_length)
     little_manager.n_nights_in_semester = len(little_manager.all_dates_dict) - little_manager.all_dates_dict[little_manager.current_day]
 
