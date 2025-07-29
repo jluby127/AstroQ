@@ -97,15 +97,14 @@ def write_out_results(manager, theta, round, start_the_clock):
     filename.write("Total Time to complete " + round +  ": " + str(np.round(time.time()-start_the_clock,3)) + "\n")
     filename.close()
 
-def serialize_schedule(Yrds, manager):
+def serialize_schedule(Yrds, planner):
     """
     Turns the non-square matrix of the solution into a square matrix and starts the human readable
     solution by filling in the slots where a star's exposre is started.
 
     Args:
-        combined_semester_schedule (array): the human readable solution
-        Yns (array): the Gurobi solution with keys of (starname, slot_number) and values 1 or 0.
-        manager (obj): a data_admin object
+        Yrds (array): the Gurobi solution with keys of (starname, day, slot) and values 1 or 0.
+        planner (obj): a SemesterPlanner object
 
     Returns:
         None
@@ -114,7 +113,7 @@ def serialize_schedule(Yrds, manager):
     df['value'] = [Yrds[k].x for k in Yrds.keys()]
     sparse = df.query('value>0').copy()
     sparse.drop(columns=['value'], inplace=True)
-    sparse.to_csv(manager.output_directory + "semester_plan.csv", index=False, na_rep="")
+    sparse.to_csv(planner.output_directory + "semester_plan.csv", index=False, na_rep="")
 
 def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars, current_day,
                     outputdir, version='nominal'):
