@@ -22,7 +22,6 @@ class TestClass(unittest.TestCase):
         dr.kpfcc(argparse.Namespace(kpfcc_subcommand=None))
 
     def test_helloworld(self):
-        dr.kpfcc_prep(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
         dr.schedule(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
 
     def test_round2_weather(self):
