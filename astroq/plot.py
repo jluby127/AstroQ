@@ -67,59 +67,61 @@ class StarPlotter(object):
         self.expected_nobs_per_night = self.n_exp * self.n_intra_max
         self.total_observations_requested = self.expected_nobs_per_night * self.n_inter_max
 
-    def get_past(self, past, twilight_frame):
+    def get_past(self, past):
         """
-        Gather the information about a star's past observation history this semester
-
+        Gather the information about a star's past observation history this semester.
         Args:
-            starname (str): the name of the star in question
-
+            past (DataFrame): DataFrame of past observations, must have 'target' and 'timestamp' columns.
         Returns:
-            observations_past (dict): a dictionary where keys are the dates of an observation
-                                      and the values are number of observations taken on that night
+            None. Sets self.observations_past as a dict: {date: n_obs}
         """
-        starmask = past['star_id'] == self.starname
-        star_obs_past = past[starmask]
-        star_obs_past.sort_values(by='utctime', inplace=True)
-        star_obs_past.reset_index(inplace=True)
-        star_obs_past, unique_hst_dates_past, quarters_observed_past = \
-                    hs.get_unique_nights(star_obs_past, twilight_frame)
-        nobs_on_date_past = hs.get_nobs_on_night(star_obs_past, unique_hst_dates_past)
-        observations_past = {}
-        for i in range(len(unique_hst_dates_past)):
-            observations_past[unique_hst_dates_past[i]] = nobs_on_date_past[i]
+        # Filter to this star
+        star_obs_past = past[past['target'] == self.starname]
+        # Parse date from timestamp and group by date
+        star_obs_past = star_obs_past.copy()
+        star_obs_past['date'] = star_obs_past['timestamp'].str[:10]
+        observations_past = star_obs_past.groupby('date').size().to_dict()
         self.observations_past = observations_past
 
-    def get_future(self, forecast, all_dates_array):
+    def get_future(self, forecaset_file, all_dates_array):
         """
-        Gather the information about a star's future forecast this semester
+        Process a DataFrame with columns ['r', 'd', 's'] to gather the future schedule for this star.
 
         Args:
-            starname (str): the name of the star in question
-
-        Returns:
-            observations_future (dict): a dictionary where keys are the dates of an observation and
-                                       the values are number of observations to be taken that night
+            forecast_df (pd.DataFrame): DataFrame with columns ['r', 'd', 's']
+            all_dates_array (list): List of all dates in the semester, indexed by 'd'
         """
+        forecast_df = pd.read_csv(forecaset_file)
+        # Only keep rows for this star
+        star_rows = forecast_df[forecast_df['r'] == self.starname]
+        # Count number of slots scheduled per night (d)
         observations_future = {}
-        for i in range(len(forecast)):
-            if self.starname in forecast[i]:
-                observations_future[all_dates_array[i]] = (list(forecast[i]).count(self.starname)/self.slots_per_visit)/self.n_intra_max#*self.n_exp*self.n_intra_max
+        for d, group in star_rows.groupby('d'):
+            # d may be int or str; ensure it's int for indexing
+            d_idx = int(d)
+            date = all_dates_array[d_idx]
+            n_slots = len(group)
+            # Optionally, normalize by slots_per_visit or n_intra_max as before
+            observations_future[date] = n_slots
         self.observations_future = observations_future
 
-    def get_map(self, forecast, semester_length):
+    def get_map(self, manager):
         """
-        Gather the information about a star's future forecast this semester
-
-        Args:
-            starname (str): the name of the star in question
-
-        Returns:
-            None
+        Build the starmap for this star using the new schedule format (future_forecast DataFrame with columns r, d, s).
+        Only set starmap[d, s] = 1 if sched['r'] == self.starname.
         """
-        starmap = (forecast == self.starname).astype(int).to_numpy()
-        starmap =  np.array(pad_rows_top(starmap, semester_length)).T
-        self.starmap = starmap
+        forecast_df = pd.read_csv(manager.future_forecast)
+        n_nights = manager.semester_length
+        n_slots = int((24 * 60) / manager.slot_size)
+        starmap = np.zeros((n_nights, n_slots), dtype=int)
+        for _, sched in forecast_df.iterrows():
+            if sched['r'] == self.starname:
+                d = int(sched['d'])
+                s = int(sched['s'])
+                starmap[d, s] = 1
+        self.starmap = starmap.T
+        # assert np.shape(starmap) == (manager.semester_length, int((24 * 60) / manager.slot_size)), np.shape(starmap)
+        # assert np.shape(starmap) == (10, 4), np.shape(starmap)
 
 def process_stars(manager):
 
@@ -127,15 +129,10 @@ def process_stars(manager):
     # Used in the birdseye view plot to blackout the unavailble squares
 
     access = ac.produce_ultimate_map(manager, manager.requests_frame)
-    nulltime = access['is_night'][0] & access['is_alloc'][0]
+    nulltime = access['is_alloc'][0]
     nulltime = 1 - nulltime
-    nulltime = pad_rows_top(nulltime, manager.semester_length)
+    # nulltime = pad_rows_top(nulltime, manager.semester_length)
     nulltime = np.array(nulltime).T
-
-    try:
-        past = pd.read_csv(manager.past_database_file)
-    except:
-        past = pd.DataFrame(columns=['star_id', 'utctime'])
 
     # Previously, there was a unique call to star names, every row of the request frame should
     # unique already
@@ -147,23 +144,19 @@ def process_stars(manager):
     rgb_strings = [f"rgb({int(r*255)}, {int(g*255)}, {int(b*255)})" for r, g, b in colors]
     program_colors_rgb_vals = dict(zip(programs, rgb_strings))
 
-    # prepare the serialized output
-    # print(manager.future_forecast)
-    forecast = pd.read_csv(manager.future_forecast, header=None).astype(str)
-    forecastT = np.array(forecast)
-
     all_stars = []
     i = 0 
     for i, row in manager.requests_frame.iterrows():
         # Create a StarPlotter object for each request, fill and compute relavant information
-
         newstar = StarPlotter(row['starname'])
+        newstar.get_map(manager)
         newstar.get_stats(manager.requests_frame, manager.slot_size)
-        newstar.get_past(past, manager.twilight_frame)
-        newstar.get_future(forecastT, manager.all_dates_array)
-
-        # Create birdseye map for each request
-        newstar.get_map(forecast, manager.semester_length)
+        print(list(manager.past_history.keys()))
+        if newstar.starname in list(manager.past_history.keys()):
+            newstar.observations_past = manager.past_history[newstar.starname].n_obs_on_nights
+        else:
+            newstar.observations_past = {}
+        newstar.get_future(manager.future_forecast, manager.all_dates_array)
 
         # Create COF arrays for each request
         combined_set = set(list(newstar.observations_past.keys()) + list(newstar.observations_future.keys()))
@@ -180,7 +173,7 @@ def process_stars(manager):
         newstar.program_color_rgb = program_colors_rgb_vals[newstar.program]
         newstar.star_color_rgb = rgb_strings[np.random.randint(0, len(rgb_strings)-1)]
         newstar.draw_lines = False
-        newstar.maps_names = ['is_alloc', 'is_night', 'is_altaz', 'is_moon', 'is_inter', 'is_future']
+        newstar.maps_names = ['is_alloc', 'is_custom', 'is_altaz', 'is_moon', 'is_inter', 'is_future']
         newstar.maps = [access[name] for name in newstar.maps_names] 
         newstar.allow_mapview = True
 
@@ -217,7 +210,6 @@ def process_stars(manager):
         programmatic_star.total_observations_requested = np.sum([all_stars[k].total_observations_requested for k in prog_indices])
         programmatic_star.draw_lines = False
         programmatic_star.allow_mapview = False
-
 
         # Set colors to match program color
         programmatic_star.program_color_rgb = all_stars[prog_indices[0]].program_color_rgb
@@ -316,24 +308,40 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
             layer="below"
         )
 
+    # X-axis: ticks every 23 days, plus the last day
+    x_tick_step = 23
+    x_tickvals = list(range(0, manager.semester_length, x_tick_step))
+    if (manager.semester_length - 1) not in x_tickvals:
+        x_tickvals.append(manager.semester_length - 1)
+    x_ticktext = [str(val + 1) for val in x_tickvals]
+
+    # Y-axis: ticks every 2 hours, using slot_size
+    n_slots = int(24 * 60 // manager.slot_size)
+    slots_per_2hr = int(2 * 60 // manager.slot_size)
+    y_tickvals = list(range(0, n_slots, slots_per_2hr))
+    y_ticktext = []
+    for slot in y_tickvals:
+        total_minutes = slot * manager.slot_size
+        hours = total_minutes // 60
+        minutes = total_minutes % 60
+        y_ticktext.append(f"{hours:02.0f}:{minutes:02.0f}")
+
     fig.update_layout(
         yaxis_title="Slot in Night",
         xaxis_title="Night in Semester",
         xaxis=dict(
             title_font=dict(size=labelsize),
             tickfont=dict(size=labelsize - 4),
-            tickvals=np.append(np.arange(0, manager.semester_length, 23), 183),
-            ticktext=np.append(np.arange(0, manager.semester_length, 23), 184),
+            tickvals=x_tickvals,
+            ticktext=x_ticktext,
             tickmode='array',
             showgrid=False,
         ),
         yaxis=dict(
             title_font=dict(size=labelsize),
             tickfont=dict(size=labelsize - 4),
-            # tickvals=np.arange(0, manager.n_slots_in_night, 20),
-            # ticktext=manager.n_slots_in_night - np.arange(0, manager.n_slots_in_night, 20) - 1,
-            tickvals=[0, 28, 56, 84, 112, 140, 167],
-            ticktext=[manager.n_slots_in_night - x for x in [0, 28, 56, 84, 112, 140, 168]],
+            tickvals=y_tickvals,
+            ticktext=y_ticktext,
             tickmode='array',
             showgrid=False,
         ),
@@ -479,16 +487,19 @@ def cof_builder(all_stars, manager, filename='', flag=False):
 
 def generate_single_star_maps(manager, starname):
 
-    is_altaz, is_moon, is_night, is_inter, is_future, is_alloc = ac.mod_produce_ultimate_map(manager, starname)
+    access = ac.mod_produce_ultimate_map(manager, starname)
     all_maps = [is_altaz, is_alloc, is_night, is_moon, is_inter, is_future]
-    # return is_altaz, is_moon, is_night, is_inter, is_future, is_alloc
+    mapnames = ['is_altaz', 'is_alloc', 'is_custom', 'is_moon', 'is_inter', 'is_future', ]
 
-    mapnames = ['is_altaz', 'is_alloc', 'is_night', 'is_moon', 'is_inter', 'is_future', ]
-
-    forecast = pd.read_csv(manager.future_forecast, header=None).astype(str)
-    forecastT = np.array(forecast)
-    starmap = (forecast == starname).astype(int).to_numpy()
-    starmap =  np.array(pad_rows_top(starmap, manager.semester_length)).T
+    forecast = pd.read_csv(manager.future_forecast)  # columns: id, d, s
+    n_nights = manager.semester_length
+    n_slots = int((24 * 60) / manager.slot_size)  
+    starmap = np.zeros((n_nights, n_slots), dtype=int)
+    star_rows = forecast[forecast['r'] == starname]
+    for _, sched in star_rows.iterrows():
+        d = int(sched['d'])
+        s = int(sched['s'])
+        starmap[d, s] = 1
 
     colors = sns.color_palette("deep", len(mapnames) + 1)
     rgb_strings = [f"rgb({int(r*255)}, {int(g*255)}, {int(b*255)})" for r, g, b in colors]
@@ -595,7 +606,7 @@ def build_static_plots(config_file):
     cof_builder(all_stars_list, manager, 'admin/' + manager.current_day + '/all_stars_COF.html')
     cof_builder(list(data[1].values()), manager, 'admin/' + manager.current_day + '/all_programs_COF.html', flag=True)
     generate_birds_eye(manager, data[2], all_stars_list, 'admin/' + manager.current_day + '/all_stars_birdseye.html')
-    generate_single_star_maps(manager, manager.requests_frame['starname'][0])
+    # generate_single_star_maps(manager, manager.requests_frame['starname'][0])
 
 def build_static_plots(config_file):
     manager = mn.data_admin(config_file)
