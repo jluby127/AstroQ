@@ -73,9 +73,23 @@ def define_indices_for_requests(manager):
     Using the dictionary of indices where each request is available, define a dataframe for which
     we will use to cut/filter/merge r,d,s tuples
     """
-    access = ac.Access().produce_ultimate_map(manager, manager.requests_frame)
+    # Create Access object with required parameters
+    access_obj = ac.Access(
+        semester_start_date=manager.semester_start_date,
+        semester_length=manager.semester_length,
+        slot_size=manager.slot_size,
+        observatory=manager.observatory,
+        current_day=manager.current_day,
+        all_dates_dict=manager.all_dates_dict,
+        custom_file=manager.custom_file,
+        allocation_file=manager.allocation_file,
+        past_history=manager.past_history,
+        today_starting_night=manager.today_starting_night,
+        slots_needed_for_exposure_dict=manager.slots_needed_for_exposure_dict
+    )
+    access = access_obj.produce_ultimate_map(manager.requests_frame)
     # Convert to list of available indices
-    available_indices_for_request = ac.extract_available_indices_from_record(access, manager)
+    available_indices_for_request = access_obj.extract_available_indices_from_record(access, manager.requests_frame)
 
     observability_keys = []
     strategy_keys = []
