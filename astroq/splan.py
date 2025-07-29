@@ -6,50 +6,101 @@ Gurobi model for semester-level observation planning. It is nearly completely ag
 import sys
 import time
 import os
+import math
 import warnings
 warnings.filterwarnings('ignore')
 import logging
-logs = logging.getLogger(__name__)
+from configparser import ConfigParser
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
 import gurobipy as gp
 from gurobipy import GRB
+from astropy.time import Time, TimeDelta
 
 import astroq.io as io
-import astroq.management as mn
 import astroq.request as rq
 import astroq.access as ac
+import astroq.history as hs
+
+logs = logging.getLogger(__name__)
 
 class SemesterPlanner(object):
     """A SemesterPlanner object, from which we can define a Gurobi model, build constraints, and solve semester-level observation schedules."""
 
     def __init__(self, request_set, cf):
-
         logs.debug("Building the SemesterPlanner.")
         self.start_the_clock = time.time()
 
-        manager = mn.data_admin(cf)
-        if manager.current_day != request_set.meta['d1_date']:
-            logs.warning("Mismatch on 'current_date' between config file and request_set file! Using the request_set file's value.")
-            manager.current_day = request_set.meta['d1_date']
-        manager.run_admin()
-
-        # Extract only the needed attributes from manager
-        self.slot_size = manager.slot_size
-        self.current_day = manager.current_day
-        self.all_dates_dict = manager.all_dates_dict
-        self.solve_time_limit = manager.solve_time_limit
-        self.gurobi_output = manager.gurobi_output
-        self.solve_max_gap = manager.solve_max_gap
-        self.requests_frame = manager.requests_frame
-        self.past_history = manager.past_history
-        self.max_bonus = manager.max_bonus
-        self.slots_needed_for_exposure_dict = manager.slots_needed_for_exposure_dict
-        self.output_directory = manager.output_directory
+        # Read config file directly
+        config = ConfigParser()
+        config.read(cf)
         
-
-
+        # Extract configuration parameters directly
+        upstream_path = eval(config.get('required', 'folder'), {"os": os})
+        self.current_day = str(config.get('required', 'current_day'))
+        if self.current_day != request_set.meta['d1_date']:
+            logs.warning("Mismatch on 'current_date' between config file and request_set file! Using the request_set file's value.")
+            self.current_day = request_set.meta['d1_date']
+        
+        semester_directory = upstream_path
+        
+        # Time and slot configuration
+        self.slot_size = int(config.get('other', 'slot_size'))
+        
+        # Solver configuration
+        self.solve_time_limit = int(config.get('gurobi', 'max_solve_time'))
+        self.gurobi_output = config.get('gurobi', 'show_gurobi_output').strip().lower() == "true"
+        self.solve_max_gap = float(config.get('gurobi', 'max_solve_gap'))
+        
+        # Other parameters
+        self.max_bonus = float(config.get('other', 'maximum_bonus_size'))
+        
+        # Output directory
+        self.output_directory = upstream_path + "outputs/"
+        check = os.path.isdir(self.output_directory)
+        if not check:
+            os.makedirs(self.output_directory)
+            file = open(self.output_directory + "runReport.txt", "w")
+            file.close()
+        
+        # Load data files
+        self.requests_frame = pd.read_csv(os.path.join(semester_directory, "inputs/requests.csv"))
+        
+        # Load past history
+        past_file = os.path.join(semester_directory, "inputs/past.csv")
+        self.past_history = hs.process_star_history(past_file)
+        
+        # Build slots required dictionary
+        self.slots_needed_for_exposure_dict = self._build_slots_required_dictionary()
+        
+        # Calculate semester info based on current_day
+        current_date = datetime.strptime(self.current_day, '%Y-%m-%d')
+        
+        # Determine semester based on date
+        if current_date.month in [8, 9, 10, 11, 12]:
+            semester_letter = 'A'
+            semester_year = current_date.year
+        else:
+            semester_letter = 'B'
+            semester_year = current_date.year - 1
+        
+        # Set semester boundaries
+        if semester_letter == 'A':
+            semester_start_date = f"{semester_year}-08-01"
+            semester_end_date = f"{semester_year + 1}-01-31"
+        else:
+            semester_start_date = f"{semester_year + 1}-02-01"
+            semester_end_date = f"{semester_year + 1}-07-31"
+        
+        # Calculate semester length
+        start_date = datetime.strptime(semester_start_date, '%Y-%m-%d')
+        end_date = datetime.strptime(semester_end_date, '%Y-%m-%d')
+        semester_length = (end_date - start_date).days + 1
+        
+        # Build date dictionary
+        self.all_dates_dict, all_dates_array = self._build_date_dictionary(semester_start_date, semester_length)
         
         self.request_set = request_set
         self.observability_tuples = list(request_set.observability.itertuples(index=False, name=None))
@@ -146,6 +197,43 @@ class SemesterPlanner(object):
             self.absolute_max_obs_allowed_dict = absolute_max_obs_allowed_dict
             self.past_nights_observed_dict = past_nights_observed_dict
         logs.debug("Initializing complete.")
+
+    def _build_date_dictionary(self, semester_start_date, semester_length):
+        """
+        Builds a dictionary where keys are the calendar dates within the semester and values are the
+        corresponding day numbers of the semester.
+        """
+        all_dates = {}
+        date_formal = Time(semester_start_date, format='iso', scale='utc')
+        date = str(date_formal)[:10]
+        all_dates[date] = 0
+        for i in range(1, semester_length):
+            date_formal += TimeDelta(1, format='jd')
+            date = str(date_formal)[:10]
+            all_dates[date] = i
+        return all_dates, list(all_dates.keys())
+
+    def _build_slots_required_dictionary(self, always_round_up_flag=False):
+        """
+        Computes the slots needed for a given exposure for all requests.
+        """
+        logs.info("Determining slots needed for exposures.")
+        slots_needed_for_exposure_dict = {}
+        for n, row in self.requests_frame.iterrows():
+            name = row['starname']
+            exposure_time = row['exptime']*row['n_exp'] + 45*(row['n_exp'] - 1)
+            slots_needed_for_exposure_dict[name] = self._compute_slots_required_for_exposure(exposure_time, self.slot_size, always_round_up_flag)
+        return slots_needed_for_exposure_dict
+
+    def _compute_slots_required_for_exposure(self, exposure_time, slot_size, always_round_up_flag):
+        """
+        Computes the number of slots needed for a given exposure time.
+        """
+        time_per_slot = slot_size / 60.0  # Convert minutes to hours
+        if always_round_up_flag:
+            return math.ceil(exposure_time / time_per_slot)
+        else:
+            return round(exposure_time / time_per_slot)
 
     def constraint_reserve_multislot_exposures(self):
         """
