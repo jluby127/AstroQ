@@ -164,7 +164,21 @@ class NightPlanner(object):
 
         backup_starlist = pd.read_csv(self.manager.backup_file)
         self.manager.requests_frame = backup_starlist
-        available_indices = ac.Access().produce_ultimate_map(self.manager, self.manager.requests_frame, running_backup_stars=True)
+        # Create Access object with required parameters
+        access_obj = ac.Access(
+            semester_start_date=self.manager.semester_start_date,
+            semester_length=self.manager.semester_length,
+            slot_size=self.manager.slot_size,
+            observatory=self.manager.observatory,
+            current_day=self.manager.current_day,
+            all_dates_dict=self.manager.all_dates_dict,
+            custom_file=self.manager.custom_file,
+            allocation_file=self.manager.allocation_file,
+            past_history=self.manager.past_history,
+            today_starting_night=self.manager.today_starting_night,
+            slots_needed_for_exposure_dict=self.manager.slots_needed_for_exposure_dict
+        )
+        available_indices = access_obj.produce_ultimate_map(self.manager.requests_frame, running_backup_stars=True)
         slots_available_tonight_for_star = {k: len(v[0]) for k, v in available_indices.items()}
         stars_with_sufficient_availability_tonight = [k for k, v in slots_available_tonight_for_star.items() if v > int(0.25*int(diff_minutes/5))]
 

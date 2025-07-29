@@ -128,7 +128,21 @@ def process_stars(manager):
     # Create a starmap of the times when we cannot observe due to twilight and allocation constraints
     # Used in the birdseye view plot to blackout the unavailble squares
 
-    access = ac.Access().produce_ultimate_map(manager, manager.requests_frame)
+    # Create Access object with required parameters
+    access_obj = ac.Access(
+        semester_start_date=manager.semester_start_date,
+        semester_length=manager.semester_length,
+        slot_size=manager.slot_size,
+        observatory=manager.observatory,
+        current_day=manager.current_day,
+        all_dates_dict=manager.all_dates_dict,
+        custom_file=manager.custom_file,
+        allocation_file=manager.allocation_file,
+        past_history=manager.past_history,
+        today_starting_night=manager.today_starting_night,
+        slots_needed_for_exposure_dict=manager.slots_needed_for_exposure_dict
+    )
+    access = access_obj.produce_ultimate_map(manager.requests_frame)
     nulltime = access['is_alloc'][0]
     nulltime = 1 - nulltime
     # nulltime = pad_rows_top(nulltime, manager.semester_length)
