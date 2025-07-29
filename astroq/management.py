@@ -122,13 +122,31 @@ class data_admin(object):
         self.past_history = hs.process_star_history(self.past_file)
         self.slots_needed_for_exposure_dict = self.build_slots_required_dictionary()
 
-        # Removed get_semester_info call - semester info will be handled differently
-        # Placeholder values for now
-        semester_start_date = "2024-08-01"
-        semester_end_date = "2025-01-31" 
-        semester_length = 184
-        semester_year = 2024
-        semester_letter = "A"
+        # Calculate semester info based on current_day
+        from datetime import datetime
+        current_date = datetime.strptime(self.current_day, '%Y-%m-%d')
+        
+        # Determine semester based on date
+        if current_date.month in [8, 9, 10, 11, 12]:
+            semester_letter = 'A'
+            semester_year = current_date.year
+        else:
+            semester_letter = 'B'
+            semester_year = current_date.year - 1
+        
+        # Set semester boundaries
+        if semester_letter == 'A':
+            semester_start_date = f"{semester_year}-08-01"
+            semester_end_date = f"{semester_year + 1}-01-31"
+        else:
+            semester_start_date = f"{semester_year + 1}-02-01"
+            semester_end_date = f"{semester_year + 1}-07-31"
+        
+        # Calculate semester length
+        start_date = datetime.strptime(semester_start_date, '%Y-%m-%d')
+        end_date = datetime.strptime(semester_end_date, '%Y-%m-%d')
+        semester_length = (end_date - start_date).days + 1
+        
         all_dates_dict, all_dates_array = build_date_dictionary(semester_start_date, semester_length)
         n_nights_in_semester = len(all_dates_dict) - all_dates_dict[self.current_day]
         logs.debug("Total semester length: ", semester_length)
