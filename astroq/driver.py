@@ -53,14 +53,8 @@ def bench(args):
     manager = mn.data_admin(cf)
     manager.run_admin()
 
-    # Build request set on the fly from config file
-    request_set = rq.RequestSet(cf)
-    # print out the last rows of strategy to ensure the size of the model looks right
-    print("Last 5 rows of Request Set here: ")
-    print(request_set.strategy[-5:])
-
-    # Run the schedule
-    schedule = splan.SemesterPlanner(request_set, cf)
+    # Run the schedule directly from config file
+    schedule = splan.SemesterPlanner(cf)
     schedule.run_model()
     return
 
@@ -129,11 +123,8 @@ def kpfcc_plan_semester(args):
     cf = args.config_file
     print(f'kpfcc_plan_semester function: config_file is {cf}')
 
-    # Build request set on the fly from config file
-    request_set = rq.RequestSet(cf)
-    
-    # Run the semester planner
-    semester_planner = splan.SemesterPlanner(request_set, cf)
+    # Run the semester planner directly from config file
+    semester_planner = splan.SemesterPlanner(cf)
     semester_planner.run_model()
     return
 
@@ -141,10 +132,8 @@ def schedule(args):
     cf = args.config_file
     print(f'schedule function: config_file is {cf}')
     
-    # Build request set on the fly from config file
-    request_set = rq.RequestSet(cf)
-    
-    schedule = splan.SemesterPlanner(request_set, cf)
+    # Create semester planner directly from config file
+    schedule = splan.SemesterPlanner(cf)
     schedule.run_model()
     return
 

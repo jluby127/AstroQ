@@ -222,7 +222,7 @@ class Access:
         access = np.rec.fromarrays(list(access.values()), names=list(access.keys()))
         return access
 
-    def extract_available_indices_from_record(self, access, requests_frame):
+    def observability(self, requests_frame):
         """
         Extract available indices dictionary from the record array returned by produce_ultimate_map
         
@@ -233,7 +233,7 @@ class Access:
         Returns:
             dict: Dictionary where keys are target names and values are lists of available slots per night
         """
-        available_indices_for_request = {}
+        access = self.produce_ultimate_map(requests_frame)
         ntargets, nnights, nslots = access.shape
         
         # specify indeces of 3D observability array
@@ -246,14 +246,10 @@ class Access:
              'islot':islot.flatten()}
         )
         df['is_observable'] = access.is_observable.flatten()
-        available_indices_for_request = {}
-        for itarget in range(ntargets):
-            temp = []
-            for inight in range(nnights):
-                temp.append(list(islot[itarget,inight,access.is_observable[itarget,inight,:]]))
-
-            available_indices_for_request[requests_frame.iloc[itarget]['starname']] = temp
-        return available_indices_for_request
+        df = pd.merge(requests_frame[['starname']].reset_index(drop=True),df,left_index=True,right_on='itarget')
+        namemap = {'starname':'id','inight':'d','islot':'s'}
+        df = df.query('is_observable').rename(columns=namemap)[namemap.values()]
+        return df
 
 # Core mapping functions from maps.py
 
@@ -286,13 +282,3 @@ def pull_allocation(date, numdays, instrument):
 
     all_dates_dict, all_dates_array = mn.build_date_dictionary(date, numdays)
     return allo, all_dates_dict
-
-
-
-
-
-
-
-
-
-
