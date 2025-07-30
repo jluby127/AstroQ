@@ -160,7 +160,6 @@ class data_admin(object):
         self.today_starting_night = today_starting_night
         self.semester_grid = np.arange(0, self.n_nights_in_semester, 1)
         self.quarters_grid = np.arange(0, self.n_quarters_in_night, 1)
-
     def build_slots_required_dictionary(self, always_round_up_flag=False):
         """
         Computes the slots needed for a given exposure for all requests.

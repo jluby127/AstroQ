@@ -622,6 +622,16 @@ def build_static_plots(config_file):
     generate_birds_eye(manager, data[2], all_stars_list, 'all_stars_birdseye.html')
     # generate_single_star_maps(manager, manager.requests_frame['starname'][0])
 
+def build_static_plots(config_file):
+    manager = mn.data_admin(config_file)
+    manager.run_admin()
+    data = read_star_objects(manager.reports_directory + "admin/" + manager.current_day + '/star_objects.pkl')
+    all_stars_list = [obj for obj_list in data[0].values() for obj in obj_list]
+    cof_builder(all_stars_list, manager, 'admin/' + manager.current_day + '/all_stars_COF.html')
+    cof_builder(list(data[1].values()), manager, 'admin/' + manager.current_day + '/all_programs_COF.html', flag=True)
+    generate_birds_eye(manager, data[2], all_stars_list, 'admin/' + manager.current_day + '/all_stars_birdseye.html')
+    generate_single_star_maps(manager, manager.requests_frame['starname'][0])
+
 def save_interactive_observing_plan(observing_plan):
     from pathlib import Path
 

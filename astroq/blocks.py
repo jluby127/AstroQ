@@ -97,7 +97,7 @@ def pull_allocation_info(start_date, numdays, instrument, savepath):
         awarded_programs = df['ProjCode'].unique()
         df['start'] = pd.to_datetime(df['Date'] + ' ' + df['StartTime']).dt.strftime('%Y-%m-%dT%H:%M')
         df['stop']  = pd.to_datetime(df['Date'] + ' ' + df['EndTime']).dt.strftime('%Y-%m-%dT%H:%M')
-        allocation_frame = df[['start', 'stop']].copy()
+        allocation_frame = df[['start', 'stop']].copy() # TODO: add observer and comment
     except:
         print("ERROR: allocation information not found. Double check date and instrument. Saving an empty file.")
         allocation_frame = pd.DataFrame(columns=['start', 'stop'])

@@ -31,7 +31,7 @@ class TestClass(unittest.TestCase):
         dr.bench(argparse.Namespace(config_file='examples/bench/config_benchmark.ini', number_slots=12, thin=10))
 
     def test_prep(self):
-        dr.kpfcc_prep(argparse.Namespace(config_file='/Users/jack/Desktop/test_folder/test_config.ini'))
+        dr.kpfcc_prep(argparse.Namespace(config_file='/Users/jack/Desktop/test_folder/test_config.ini', allo_source='db', past_source='db'))
 
     def test_plot(self):
         dr.plot_pkl(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))

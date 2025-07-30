@@ -12,14 +12,14 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 import requests
-
 from astropy.time import Time, TimeDelta
 import astropy as apy
 import astropy.units as u
 import astroplan as apl
-import astroq.weather as wh
 
-# Set up logging
+import astroq.weather as wh
+import astroq.management as mn
+
 logs = logging.getLogger(__name__)
 
 import astroq.management as mn
@@ -186,6 +186,15 @@ class Access:
         is_alloc = allocated_mask
         is_alloc = np.ones_like(is_altaz, dtype=bool) & is_alloc[np.newaxis,:,:] # shape = (ntargets, nnights, nslots)
 
+        # run the loss simulation
+
+        is_clear = np.ones_like(is_altaz, dtype=bool)
+        run_weather_loss = False
+        if run_weather_loss:
+            loss_stats_this_semester = wh.get_loss_stats(self)
+            is_clear = wh.simulate_weather_losses(self, loss_stats_this_semester, covariance=0.14, run_weather_loss=self.run_weather_loss)
+            wh.write_out_weather_stats(self, is_clear)
+
         is_observable_now = np.logical_and.reduce([
             is_altaz,
             is_future,
@@ -216,6 +225,7 @@ class Access:
             'is_custom':is_custom,
             'is_inter': is_inter,
             'is_alloc': is_alloc,
+            'is_clear': is_clear,
             'is_observable_now': is_observable_now,
             'is_observable': is_observable
         }
