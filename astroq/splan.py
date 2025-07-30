@@ -77,10 +77,13 @@ class SemesterPlanner(object):
         
         # Load data files
         self.requests_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/requests.csv"))
-        self.strategy = self.requests_frame[['starname','n_intra_min','n_intra_max','tau_intra','n_inter_max','tau_inter']]
-        self.strategy = self.strategy.rename(columns={'starname':'id'})
-        self.strategy['t_visit'] = (self.requests_frame['exptime'] / 60 / self.slot_size).clip(lower=1).round().astype(int) 
 
+        # Build strategy dataframe. Note exptime is in minutes and tau_intra is in hours they are both converted to slots here
+        strategy = self.requests_frame[['starname','n_intra_min','n_intra_max','n_inter_max','tau_inter']]
+        strategy = strategy.rename(columns={'starname':'id'})
+        strategy['t_visit'] = (self.requests_frame['exptime'] / 60 / self.slot_size).clip(lower=1).round().astype(int) 
+        strategy['tau_intra'] = (self.requests_frame['tau_intra'] * 60 / self.slot_size).round().astype(int) 
+        self.strategy = strategy
 
         # Load past history
         self.past_history = hs.process_star_history(self.past_file)

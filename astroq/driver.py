@@ -200,10 +200,10 @@ def requests_vs_schedule(args):
     sf = args.schedule_file
     print(f'requests_vs_schedule function: config_file is {cf}')
     print(f'requests_vs_schedule function: schedule_file is {sf}')
-
-    # Build request set on the fly from config file
-    req_object = rq.RequestSet(cf)
-    req = req_object.strategy
+    # Create semester planner to get strategy data
+    semester_planner = splan.SemesterPlanner(cf)
+    semester_planner.run_model()
+    req = semester_planner.strategy
     sch = pd.read_csv(sf)
     sch = sch.sort_values(by=['d', 's']).reset_index(drop=True) # Re-order into the real schedule
     # First, ensure no repeated day/slot pairs (does allow missing pairs)
@@ -280,7 +280,7 @@ def requests_vs_schedule(args):
                 assert min_day_gaps >= tau_inter, tau_inter_err
 
     # 5) tau_intra: There must be at least tau_intra slots between successive observations of a target in a single night
-        slot_duration = req_object.meta['slot_duration'] # Slot duration in minutes
+        slot_duration = semester_planner.meta['slot_duration'] # Slot duration in minutes
         slots_per_hour = 60/slot_duration
         tau_intra_hrs = star_request['tau_intra'].values[0] # min num of hours before another obs
         tau_intra_slots = tau_intra_hrs * slots_per_hour
