@@ -26,8 +26,6 @@ from astropy.time import TimeDelta
 from io import BytesIO
 import imageio.v3 as iio
 import base64
-from collections import defaultdict
-import pickle
 
 from astropy.time import Time
 from astropy.time import TimeDelta
@@ -35,7 +33,6 @@ import astropy as apy
 import astropy.units as u
 import astroplan as apl
 
-import astroq.management as mn
 import astroq.io as io_mine
 import sys
 sys.path.append("/Users/jack/Documents/github/ttp/ttp/")
@@ -842,14 +839,23 @@ def get_slew_animation(manager, data, animationStep=120):
     slew_animation_html = f'<img src="data:image/gif;base64,{gif_base64}" alt="Observing Animation"/>'
     return slew_animation_html
 
-def get_script_plan(manager, data):
+def get_script_plan(manager, data, config_file=None):
     """Generate script plan HTML table from TTP data."""
     
-    # Import the shared helper function from nplan module
-    from astroq.nplan import get_nightly_times_from_allocation
+    # Create NightPlanner to get allocation times
+    from astroq.nplan import NightPlanner
+    if config_file is None:
+        # Fallback: try to get config path from manager attributes
+        config_file = getattr(manager, 'config_file', None)
+        if config_file is None:
+            config_file = getattr(manager, 'config_path', None)
+        if config_file is None:
+            raise ValueError("config_file parameter is required when manager doesn't have config_file or config_path attribute")
+    
+    night_planner = NightPlanner(config_file)
     
     # Get start time from allocation file instead of nightly_start_stop_times
-    obs_start_time, _ = get_nightly_times_from_allocation(manager, manager.current_day)
+    obs_start_time, _ = night_planner.get_nightly_times_from_allocation(manager.current_day)
     
     round_two_requests = [] # just for now
     lines = io_mine.write_starlist(manager.requests_frame, data[0].plotly, obs_start_time, data[0].extras,round_two_requests, str(manager.current_day), manager.reports_directory)
