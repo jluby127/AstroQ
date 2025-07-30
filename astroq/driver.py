@@ -18,7 +18,7 @@ import astroq.webapp as app
 import astroq.weather as wh
 import astroq.dynamic as dn
 import astroq.access as ac
-
+from datetime import datetime
 import logging
 log = logging.getLogger(__name__)
 log.setLevel(logging.ERROR)
