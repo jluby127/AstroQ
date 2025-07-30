@@ -42,7 +42,7 @@ gray = 'rgb(210,210,210)'
 clear = 'rgba(255,255,255,1)'
 labelsize = 38
 
-def get_cof(manager, all_stars):
+def get_cof(semester_planner, all_stars):
     '''
     Return the html string for a plotly figure showing the COF for a selection of stars
 
@@ -51,11 +51,11 @@ def get_cof(manager, all_stars):
 
     fig = go.Figure()
     fig.update_layout(plot_bgcolor=gray, paper_bgcolor=clear) #autosize=True,margin=dict(l=40, r=40, t=40, b=40),
-    burn_line = np.linspace(0, 100, len(manager.all_dates_array))
+    burn_line = np.linspace(0, 100, len(semester_planner.all_dates_array))
     for b in range(len(burn_line)):
         burn_line[b] = np.round(burn_line[b],2)
     fig.add_trace(go.Scatter(
-        x=manager.all_dates_array,
+        x=semester_planner.all_dates_array,
         y=burn_line,
         mode='lines',
         line=dict(color='black', width=2, dash='dash'),
@@ -64,11 +64,11 @@ def get_cof(manager, all_stars):
     ))
 
     lines = []
-    cume_observe = np.zeros(len(manager.all_dates_array))
+    cume_observe = np.zeros(len(semester_planner.all_dates_array))
     max_value = 0
     for i in range(len(all_stars)):
         fig.add_trace(go.Scatter(
-            x=manager.all_dates_array,
+            x=semester_planner.all_dates_array,
             y=all_stars[i].cume_observe_pct,
             mode='lines',
             line=dict(color=all_stars[i].star_color_rgb, width=2),
@@ -83,7 +83,7 @@ def get_cof(manager, all_stars):
 
     cume_observe_pct = (cume_observe / max_value) * 100
     fig.add_trace(go.Scatter(
-        x=manager.all_dates_array,
+        x=semester_planner.all_dates_array,
         y=cume_observe_pct,
         mode='lines',
         line=dict(color=all_stars[0].program_color_rgb, width=2),
@@ -93,8 +93,8 @@ def get_cof(manager, all_stars):
     ))
 
     fig.add_vrect(
-            x0=manager.current_day,
-            x1=manager.current_day,
+            x0=semester_planner.current_day,
+            x1=semester_planner.current_day,
             annotation_text="Today",
             line_dash="dash",
             fillcolor=None,
@@ -132,7 +132,7 @@ def get_cof(manager, all_stars):
     cof_html = pio.to_html(fig, full_html=True, include_plotlyjs='cdn')
     return cof_html
 
-def get_birdseye(manager, availablity, all_stars):
+def get_birdseye(semester_planner, availablity, all_stars):
     '''
     Return the html string for a plotly figure showing the COF for a selection of stars
 
@@ -212,18 +212,18 @@ def get_birdseye(manager, availablity, all_stars):
         )
      # X-axis: ticks every 23 days, plus the last day
     x_tick_step = 23
-    x_tickvals = list(range(0, manager.semester_length, x_tick_step))
-    if (manager.semester_length - 1) not in x_tickvals:
-        x_tickvals.append(manager.semester_length - 1)
+    x_tickvals = list(range(0, semester_planner.semester_length, x_tick_step))
+    if (semester_planner.semester_length - 1) not in x_tickvals:
+        x_tickvals.append(semester_planner.semester_length - 1)
     x_ticktext = [str(val + 1) for val in x_tickvals]
 
     # Y-axis: ticks every 2 hours, using slot_size
-    n_slots = int(24 * 60 // manager.slot_size)
-    slots_per_2hr = int(2 * 60 // manager.slot_size)
+    n_slots = int(24 * 60 // semester_planner.slot_size)
+    slots_per_2hr = int(2 * 60 // semester_planner.slot_size)
     y_tickvals = list(range(0, n_slots, slots_per_2hr))
     y_ticktext = []
     for slot in y_tickvals:
-        total_minutes = slot * manager.slot_size
+        total_minutes = slot * semester_planner.slot_size
         hours = total_minutes // 60
         minutes = total_minutes % 60
         y_ticktext.append(f"{hours:02.0f}:{minutes:02.0f}")
@@ -256,7 +256,7 @@ def get_birdseye(manager, availablity, all_stars):
     birdseye_html = pio.to_html(fig, full_html=True, include_plotlyjs='cdn')
     return birdseye_html
 
-def get_tau_inter_line(manager, all_stars):
+def get_tau_inter_line(all_stars):
     """
     Create an interactive scatter plot grouped by program, using provided colors for each point.
     Points from the same program will share a legend entry and color.
@@ -653,15 +653,11 @@ def get_football(manager, all_stars):#RA_grid, DEC_grid, Z_grid, request_df):
 
 
 
-def get_ladder(manager, data):
+def get_ladder(data):
     """Create an interactive plot which illustrates the solution.
 
     Args:
-        orderData (dict): Formatted and ordered schedule from the
-            model object
-        current_day (string): Date of observations, to be included in the
-            filename
-        outputdir (str): Folder in which to save the html link to the plot
+        data: TTP data containing the schedule information
     """
     # with open(manager.reports_directory + 'observer/' + manager.current_day + '/ttp_data.pkl', 'rb') as f:
     #     data = pickle.load(f)
@@ -753,13 +749,13 @@ def createTelSlewPath(stamps, changes, pointings, animationStep=120):
 
     return stamps
 
-def get_slew_animation(manager, data, animationStep=120):
-    '''
-    Produce the animation slew path GIF (in memory, no intermediate files).
+def get_slew_animation(data, animationStep=120):
+    """Create an animated GIF showing telescope slew path during observations.
 
-    model (object) - the model object returned out from the TTP's model.py
-    animationStep (int) - the time, in seconds, between animation still frames. Default to 120s.
-    '''
+    Args:
+        data: TTP data containing the schedule information
+        animationStep (int): the time, in seconds, between animation still frames. Default to 120s.
+    """
     # with open(manager.reports_directory + 'observer/' + manager.current_day + '/ttp_data.pkl', 'rb') as f:
     #     data = pickle.load(f)
     model = data[0]
@@ -814,7 +810,7 @@ def get_slew_animation(manager, data, animationStep=120):
         # Plot stars
         for j in range(len(model.schedule['Starname'])):
             color = 'orange' if names[j] in observed_list else 'white'
-            # ax.scatter(alt[j][i], az[j][i], color=color, marker='*')
+            # ax.scatter(alt[j][i], color=color, marker='*')
             ax.scatter(alt[i][j], az[i][j], color=color, marker='*')
 
         # Draw telescope path
@@ -839,38 +835,33 @@ def get_slew_animation(manager, data, animationStep=120):
     slew_animation_html = f'<img src="data:image/gif;base64,{gif_base64}" alt="Observing Animation"/>'
     return slew_animation_html
 
-def get_script_plan(manager, data, config_file=None):
+def get_script_plan(config_file, data):
     """Generate script plan HTML table from TTP data."""
     
-    # Create NightPlanner to get allocation times
+    # Create both SemesterPlanner and NightPlanner to get all needed data
     from astroq.nplan import NightPlanner
-    if config_file is None:
-        # Fallback: try to get config path from manager attributes
-        config_file = getattr(manager, 'config_file', None)
-        if config_file is None:
-            config_file = getattr(manager, 'config_path', None)
-        if config_file is None:
-            raise ValueError("config_file parameter is required when manager doesn't have config_file or config_path attribute")
+    import astroq.splan as splan
     
+    semester_planner = splan.SemesterPlanner(config_file)
     night_planner = NightPlanner(config_file)
     
     # Get start time from allocation file instead of nightly_start_stop_times
-    obs_start_time, _ = night_planner.get_nightly_times_from_allocation(manager.current_day)
+    obs_start_time, _ = night_planner.get_nightly_times_from_allocation(semester_planner.current_day)
     
     round_two_requests = [] # just for now
-    lines = io_mine.write_starlist(manager.requests_frame, data[0].plotly, obs_start_time, data[0].extras,round_two_requests, str(manager.current_day), manager.reports_directory)
+    lines = io_mine.write_starlist(semester_planner.requests_frame, data[0].plotly, obs_start_time, data[0].extras, round_two_requests, str(semester_planner.current_day), night_planner.reports_directory)
     observing_plan = pd.DataFrame([io_mine.parse_star_line(line) for line in lines])
     observing_plan = observing_plan[observing_plan.iloc[:, 0].str.strip() != '']
     observing_plan_html = dataframe_to_html(observing_plan, sort_column=11)
     return observing_plan_html
 
 
-def get_requests_frame(manager, filter_condition=None):
+def get_requests_frame(semester_planner, filter_condition=None):
     """
-    Load manager.requests_frame and render in HTML
+    Load semester_planner.requests_frame and render in HTML
 
     Arguments:
-        manager (manager): Manager object holding requests_frame
+        semester_planner (SemesterPlanner): SemesterPlanner object holding requests_frame
         filter_condition (str): String specifying any desired filters
             to apply to loaded frame. Defaults to empty (no cuts)
 
@@ -879,7 +870,7 @@ def get_requests_frame(manager, filter_condition=None):
 
     """
 
-    req_frame = manager.requests_frame
+    req_frame = semester_planner.requests_frame
     if filter_condition is not None:
         req_frame = req_frame.query(filter_condition)
     req_frame_html = dataframe_to_html(req_frame, sort_column=0)
@@ -887,7 +878,7 @@ def get_requests_frame(manager, filter_condition=None):
     return req_frame_html
 
 
-def plot_path_2D_interactive(manager, data):
+def plot_path_2D_interactive(data):
     """Create an interactive Plotly plot showing telescope azimuth and altitude paths with UTC times and white background."""
 
     # with open(manager.reports_directory + 'observer/' + manager.current_day + '/ttp_data.pkl', 'rb') as f:

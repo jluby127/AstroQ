@@ -47,9 +47,7 @@ def bench(args):
     print(f'Request frame thinned: {original_size} -> {new_size} rows (factor of {thin})')
     
     requests_frame.to_csv(os.path.join(semester_directory, "inputs/Requests.csv"))
-    manager = mn.data_admin(cf)
-    manager.run_admin()
-
+    
     # Run the schedule directly from config file
     schedule = splan.SemesterPlanner(cf)
     schedule.run_model()
@@ -133,48 +131,39 @@ def plot_static(args):
 def ttp(args):
     cf = args.config_file
     print(f'ttp function: config_file is {cf}')
-    manager = mn.data_admin(cf)
-    manager.run_admin()
     
     # Use the new NightPlanner class for object-oriented night planning
     night_planner = nplan.NightPlanner(cf)
     night_planner.run_ttp()
-    # Removed: night_planner.produce_bright_backups()
     return
 
-def get_history(args):
-    cf = args.config_file
-    print(f'get_history function: config_file is {cf}')
-    manager = mn.data_admin(cf)
-    manager.run_admin()
-    # raw_histories = ob.pull_OB_histories(manager.semesterID)
-    raw_histories = ob.pull_OB_histories('2025A')
-    obhist = hs.write_OB_histories_to_csv(manager, raw_histories)
-    past_history = hs.process_star_history(manager.past_file)
-    return
 
 def get_dynamics(args):
     cf = args.config_file
     print(f'get_dynamics function: config_file is {cf}')
-    manager = mn.data_admin(cf)
-    manager.run_admin()
-    data_astroq = pl.read_star_objects(manager.reports_directory + "star_objects.pkl")
-    # all_stars_list = [star_obj for star_obj_list in data_astroq[0].values() for star_obj in star_obj_list]
-    table_reqframe_html = dn.get_requests_frame(manager, filter_condition=None)
-    fig_cof_html = dn.get_cof(manager, list(data_astroq[1].values()))
-    fig_birdseye_html = dn.get_birdseye(manager, data_astroq[2], list(data_astroq[1].values()))
-    # dn.interactive_sky_with_static_heatmap(manager, 'U001') # This is broken, need to rethink what it means to have a twilight map.
 
-    ttp_path = os.path.join(manager.reports_directory, "ttp_data.pkl")
+    
+    # Use NightPlanner for reports_directory
+    night_planner = nplan.NightPlanner(cf)
+    data_astroq = pl.read_star_objects(night_planner.reports_directory + "star_objects.pkl")
+    # all_stars_list = [star_obj for star_obj_list in data_astroq[0].values() for star_obj in star_obj_list]
+    
+    # Create SemesterPlanner for get_cof, get_birdseye, and get_requests_frame
+    semester_planner = splan.SemesterPlanner(cf)
+    table_reqframe_html = dn.get_requests_frame(semester_planner, filter_condition=None)
+    fig_cof_html = dn.get_cof(semester_planner, list(data_astroq[1].values()))
+    fig_birdseye_html = dn.get_birdseye(semester_planner, data_astroq[2], list(data_astroq[1].values()))
+
+    ttp_path = os.path.join(night_planner.reports_directory , "ttp_data.pkl")
     if os.path.exists(ttp_path):
         data_ttp = pl.read_star_objects(ttp_path)
-        script_table_html = dn.get_script_plan(manager, data_ttp, cf)
-        ladder_html = dn.get_ladder(manager, data_ttp)
-        slew_animation_html = dn.get_slew_animation(manager, data_ttp, animationStep=120)
-        slew_path_html = dn.plot_path_2D_interactive(manager, data_ttp)
+        script_table_html = dn.get_script_plan(cf, data_ttp)
+        ladder_html = dn.get_ladder(data_ttp)
+        slew_animation_html = dn.get_slew_animation(data_ttp, animationStep=120)
+        slew_path_html = dn.plot_path_2D_interactive(data_ttp)
 
     # TODO: need to fix this.
-    #dn.get_tau_inter_line(manager, list(data_astroq[0].values())[0])
+    #dn.get_tau_inter_line(list(data_astroq[0].values())[0])
 
 def requests_vs_schedule(args):
     cf = args.config_file
