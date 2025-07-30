@@ -11,7 +11,7 @@ import warnings
 warnings.filterwarnings('ignore')
 import logging
 from configparser import ConfigParser
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
@@ -20,7 +20,6 @@ from gurobipy import GRB
 from astropy.time import Time, TimeDelta
 
 import astroq.io as io
-import astroq.request as rq
 import astroq.access as ac
 import astroq.history as hs
 
@@ -29,7 +28,7 @@ logs = logging.getLogger(__name__)
 class SemesterPlanner(object):
     """A SemesterPlanner object, from which we can define a Gurobi model, build constraints, and solve semester-level observation schedules."""
 
-    def __init__(self, request_set, cf):
+    def __init__(self, cf):
         logs.debug("Building the SemesterPlanner.")
         self.start_the_clock = time.time()
 
@@ -40,14 +39,13 @@ class SemesterPlanner(object):
         # Extract configuration parameters directly
         upstream_path = eval(config.get('required', 'folder'), {"os": os})
         self.current_day = str(config.get('required', 'current_day'))
-        if self.current_day != request_set.meta['d1_date']:
-            logs.warning("Mismatch on 'current_date' between config file and request_set file! Using the request_set file's value.")
-            self.current_day = request_set.meta['d1_date']
+        self.observatory = config.get('required', 'observatory')
+        self.slot_size = int(config.get('other', 'slot_size'))
+        self.n_quarters_in_night = int(config.get('other', 'quarters_in_night'))
+        self.n_hours_in_night = int(config.get('other', 'hours_in_night'))
+        self.daily_starting_time = str(config.get('other', 'daily_starting_time'))
         
         semester_directory = upstream_path
-        
-        # Time and slot configuration
-        self.slot_size = int(config.get('other', 'slot_size'))
         
         # Solver configuration
         self.solve_time_limit = int(config.get('gurobi', 'max_solve_time'))
@@ -65,47 +63,51 @@ class SemesterPlanner(object):
             file = open(self.output_directory + "runReport.txt", "w")
             file.close()
         
+        # Set up file paths
+        self.semester_directory = upstream_path
+        self.past_file = os.path.join(self.semester_directory, "inputs/past.csv")
+        self.custom_file = os.path.join(self.semester_directory, "inputs/custom.csv")
+        
+        # Resolve allocation file path
+        allocation_file_config = str(config.get('options', 'allocation_file'))
+        if os.path.isabs(allocation_file_config):
+            self.allocation_file = allocation_file_config
+        else:
+            self.allocation_file = os.path.join(self.semester_directory, allocation_file_config)
+        
         # Load data files
-        self.requests_frame = pd.read_csv(os.path.join(semester_directory, "inputs/requests.csv"))
-        
+        self.requests_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/requests.csv"))
+        self.strategy = self.requests_frame[['starname','n_intra_min','n_intra_max','tau_intra','n_inter_max','tau_inter']]
+        self.strategy = self.strategy.rename(columns={'starname':'id'})
+        self.strategy['t_visit'] = (self.requests_frame['exptime'] / 60 / self.slot_size).clip(lower=1).round().astype(int) 
+
+
         # Load past history
-        past_file = os.path.join(semester_directory, "inputs/past.csv")
-        self.past_history = hs.process_star_history(past_file)
+        self.past_history = hs.process_star_history(self.past_file)
         
-        # Build slots required dictionary
+        # Build slots needed dictionary
         self.slots_needed_for_exposure_dict = self._build_slots_required_dictionary()
         
-        # Calculate semester info based on current_day
-        current_date = datetime.strptime(self.current_day, '%Y-%m-%d')
-        
-        # Determine semester based on date
-        if current_date.month in [8, 9, 10, 11, 12]:
-            semester_letter = 'A'
-            semester_year = current_date.year
-        else:
-            semester_letter = 'B'
-            semester_year = current_date.year - 1
-        
-        # Set semester boundaries
-        if semester_letter == 'A':
-            semester_start_date = f"{semester_year}-08-01"
-            semester_end_date = f"{semester_year + 1}-01-31"
-        else:
-            semester_start_date = f"{semester_year + 1}-02-01"
-            semester_end_date = f"{semester_year + 1}-07-31"
-        
-        # Calculate semester length
-        start_date = datetime.strptime(semester_start_date, '%Y-%m-%d')
-        end_date = datetime.strptime(semester_end_date, '%Y-%m-%d')
-        semester_length = (end_date - start_date).days + 1
+        # Calculate semester info
+        self._calculate_semester_info()
         
         # Build date dictionary
-        self.all_dates_dict, all_dates_array = self._build_date_dictionary(semester_start_date, semester_length)
+        self.all_dates_dict, self.all_dates_array = self._build_date_dictionary()
         
-        self.request_set = request_set
-        self.observability_tuples = list(request_set.observability.itertuples(index=False, name=None))
+        # Calculate slot info
+        self._calculate_slot_info()
+        
+        # Build strategy and observability data
+        self.observability = self._build_observability()
+        # Build meta data
+        daily_starting_time = str(config.get('other', 'daily_starting_time'))
+        current_day = str(config.get('required', 'current_day'))
+        slot_size = int(config.get('other', 'slot_size'))
+        self.meta = {"s1_time":daily_starting_time, "d1_date":current_day, "slot_duration":slot_size}
 
-        self.joiner = pd.merge(self.request_set.strategy, self.request_set.observability, on=['id'])
+        self.observability_tuples = list(self.observability.itertuples(index=False, name=None))
+
+        self.joiner = pd.merge(self.strategy, self.observability, on=['id'])
         # add dummy columns for easier joins
         self.joiner['id2'] = self.joiner['id']
         self.joiner['d2'] = self.joiner['d']
@@ -155,7 +157,7 @@ class SemesterPlanner(object):
         # Yrs is technically a 1D matrix indexed by tuples.
         # But in practice best think of it as a 2D square matrix of requests r and slots s, with gaps.
         # Slot s for request r will be 1 to indicate starting an exposure for that request in that slot
-        observability_array = list(self.request_set.observability.itertuples(index=False, name=None))
+        observability_array = list(self.observability.itertuples(index=False, name=None))
         self.Yrds = self.model.addVars(observability_array, vtype = GRB.BINARY, name = 'Requests_Slots')
 
         if len(self.observability_nights) != 0:
@@ -172,7 +174,7 @@ class SemesterPlanner(object):
         desired_max_obs_allowed_dict = {}
         absolute_max_obs_allowed_dict = {}
         past_nights_observed_dict = {}
-        for name in self.schedulable_requests:
+        for name in self.all_requests:
             idx = self.requests_frame.index[self.requests_frame['starname']==name][0]
             if name in list(self.past_history.keys()):
                 past_nights_observed = self.past_history[name].total_n_unique_nights
@@ -198,38 +200,122 @@ class SemesterPlanner(object):
             self.past_nights_observed_dict = past_nights_observed_dict
         logs.debug("Initializing complete.")
 
-    def _build_date_dictionary(self, semester_start_date, semester_length):
-        """
-        Builds a dictionary where keys are the calendar dates within the semester and values are the
-        corresponding day numbers of the semester.
-        """
-        all_dates = {}
-        date_formal = Time(semester_start_date, format='iso', scale='utc')
-        date = str(date_formal)[:10]
-        all_dates[date] = 0
-        for i in range(1, semester_length):
-            date_formal += TimeDelta(1, format='jd')
-            date = str(date_formal)[:10]
-            all_dates[date] = i
-        return all_dates, list(all_dates.keys())
+    def _calculate_semester_info(self):
+        """Calculate semester information based on current day."""
+        current_date = datetime.strptime(self.current_day, '%Y-%m-%d')
+        
+        # Determine semester based on date
+        if current_date.month in [8, 9, 10, 11, 12]:
+            semester_letter = 'A'
+            semester_year = current_date.year
+        else:
+            semester_letter = 'B'
+            semester_year = current_date.year - 1
+        
+        # Set semester boundaries
+        if semester_letter == 'A':
+            semester_start_date = f"{semester_year}-08-01"
+            semester_end_date = f"{semester_year + 1}-01-31"
+        else:
+            semester_start_date = f"{semester_year + 1}-02-01"
+            semester_end_date = f"{semester_year + 1}-07-31"
+        
+        # Calculate semester length
+        start_date = datetime.strptime(semester_start_date, '%Y-%m-%d')
+        end_date = datetime.strptime(semester_end_date, '%Y-%m-%d')
+        semester_length = (end_date - start_date).days + 1
+        
+        self.semester_start_date = semester_start_date
+        self.semester_length = semester_length
+        self.semester_letter = semester_letter
+
+    def _build_date_dictionary(self):
+        """Build date dictionary for the semester."""
+        start_date = datetime.strptime(self.semester_start_date, '%Y-%m-%d')
+        end_date = datetime.strptime(self.semester_start_date, '%Y-%m-%d') + timedelta(days=self.semester_length - 1)
+        
+        all_dates_dict = {}
+        all_dates_array = []
+        
+        current_date = start_date
+        day_index = 0
+        
+        while current_date <= end_date:
+            date_str = current_date.strftime('%Y-%m-%d')
+            all_dates_dict[date_str] = day_index
+            all_dates_array.append(date_str)
+            current_date += timedelta(days=1)
+            day_index += 1
+        
+        return all_dates_dict, all_dates_array
+
+    def _calculate_slot_info(self):
+        """Calculate slot-related information."""
+        # Calculate slots per quarter and night
+        self.n_slots_in_quarter = int(((self.n_hours_in_night * 60) / self.n_quarters_in_night) / self.slot_size)
+        self.n_slots_in_night = self.n_slots_in_quarter * self.n_quarters_in_night
+        
+        # Calculate remaining semester info
+        self.n_nights_in_semester = len(self.all_dates_dict) - self.all_dates_dict[self.current_day]
+        self.n_slots_in_semester = self.n_slots_in_night * self.n_nights_in_semester
+        
+        # Calculate today's starting positions
+        self.today_starting_slot = self.all_dates_dict[self.current_day] * self.n_slots_in_night
+        self.today_starting_night = self.all_dates_dict[self.current_day]
 
     def _build_slots_required_dictionary(self, always_round_up_flag=False):
-        """
-        Computes the slots needed for a given exposure for all requests.
-        """
-        logs.info("Determining slots needed for exposures.")
+        """Build dictionary mapping star names to required slots."""
         slots_needed_for_exposure_dict = {}
         for n, row in self.requests_frame.iterrows():
             name = row['starname']
-            exposure_time = row['exptime']*row['n_exp'] + 45*(row['n_exp'] - 1)
-            slots_needed_for_exposure_dict[name] = self._compute_slots_required_for_exposure(exposure_time, self.slot_size, always_round_up_flag)
+            exposure_time = float(row['exptime'])
+            
+            if always_round_up_flag:
+                slots_needed = int(np.ceil(exposure_time / (self.slot_size * 60.0)))
+            else:
+                slots_needed = int(np.round(exposure_time / (self.slot_size * 60.0)))
+            
+            slots_needed_for_exposure_dict[name] = slots_needed
+        
         return slots_needed_for_exposure_dict
+
+    def _build_observability(self):
+        """
+        Build strategy and observability dataframes directly from config file.
+        This replaces the need for a RequestSet object.
+        """
+        # Create Access object with parameters from config
+        access_obj = ac.Access(
+            semester_start_date=self.semester_start_date,
+            semester_length=self.semester_length,
+            slot_size=self.slot_size,
+            observatory=self.observatory,
+            current_day=self.current_day,
+            all_dates_dict=self.all_dates_dict,
+            custom_file=self.custom_file,
+            allocation_file=self.allocation_file,
+            past_history=self.past_history,
+            today_starting_night=self.today_starting_night,
+            slots_needed_for_exposure_dict=self.slots_needed_for_exposure_dict
+        )
+        observability = access_obj.observability(self.requests_frame)
+
+        return observability
 
     def _compute_slots_required_for_exposure(self, exposure_time, slot_size, always_round_up_flag):
         """
-        Computes the number of slots needed for a given exposure time.
+        Compute the number of slots required for a given exposure time.
+        
+        Args:
+            exposure_time: Exposure time in minutes
+            slot_size: Slot size in minutes
+            always_round_up_flag: If True, always round up to the next slot
+            
+        Returns:
+            Number of slots required
         """
-        time_per_slot = slot_size / 60.0  # Convert minutes to hours
+        time_per_slot = slot_size / 60.0  # Convert slot_size to hours
+        
         if always_round_up_flag:
             return math.ceil(exposure_time / time_per_slot)
         else:
@@ -246,14 +332,14 @@ class SemesterPlanner(object):
         no other observations are scheduled during these slots.
         """
         logs.info("Constraint 2: Reserve slots for for multi-slot exposures.")
-        max_t_visit = self.request_set.strategy.t_visit.max() # longest exposure time
-        R_ds = self.request_set.observability.groupby(['d','s'])['id'].apply(set).to_dict()
+        max_t_visit = self.strategy.t_visit.max() # longest exposure time
+        R_ds = self.observability.groupby(['d','s'])['id'].apply(set).to_dict()
         R_geq_t_visit = {} # dictionary of requests where t_visit is greater than or equal to t_visit
-        strategy = self.request_set.strategy
+        strategy = self.strategy
         for t_visit in range(1,max_t_visit+1):
             R_geq_t_visit[t_visit] = set(strategy[strategy.t_visit >= t_visit]['id'])
 
-        for d,s in self.request_set.observability.drop_duplicates(['d','s'])[['d','s']].itertuples(index=False, name=None):
+        for d,s in self.observability.drop_duplicates(['d','s'])[['d','s']].itertuples(index=False, name=None):
             rhs = []
             for delta in range(1,max_t_visit):
                 s_shift = s - delta
