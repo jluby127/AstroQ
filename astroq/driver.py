@@ -17,6 +17,7 @@ import astroq.history as hs
 import astroq.webapp as app
 import astroq.weather as wh
 import astroq.dynamic as dn
+import astroq.access as ac
 
 import logging
 log = logging.getLogger(__name__)
@@ -66,7 +67,48 @@ def kpfcc(args):
 def kpfcc_prep(args):
     cf = args.config_file
     print(f'kpfcc_prep function: config_file is {cf}')
-    mn.prepare_new_semester(cf)
+    config = ConfigParser()
+    config.read(cf)
+
+    savepath = str(config.get('global', 'savepath'))
+    semester = str(config.get('global', 'semester'))
+    start_date = str(config.get('global', 'semester_start_day'))
+    end_date = str(config.get('global', 'semester_end_day'))
+    start = datetime.strptime(start_date, "%Y-%m-%d")
+    end = datetime.strptime(end_date, "%Y-%m-%d")
+    n_days = (end - start).days
+
+    # First capture the allocation info
+    allo_source = args.allo_source
+    allocation_file = str(config.get('global', 'allocation_file'))
+    if allo_source == 'db':
+        print(f'Pulling allocation information from database')
+        awarded_programs = ob.pull_allocation_info(start_date, n_days, 'KPF-CC', savepath+allocation_file)
+        awarded_programs = [semester + "_" + val for val in awarded_programs if val != 'U268'] #temporary because PI made a mistake. 
+    else:
+        print(f'Using allocation information from file: {allo_source}')
+        awarded_programs = ac.format_keck_allocation_info(allo_source, savepath+allocation_file)
+        awarded_programs = [semester + "_" + val for val in awarded_programs if val != 'U268'] #temporary because PI made a mistake. 
+
+    # Next get the request sheet
+    request_file = str(config.get('global', 'request_file'))
+    OBs = ob.pull_OBs(semester)
+    good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram = ob.get_request_sheet(OBs, awarded_programs, savepath + request_file)
+
+    # Next get the past history 
+    past_source = args.past_source
+    past_file = str(config.get('global', 'past_file'))
+    if past_source == 'db':
+        print(f'Pulling past history information from database')
+        raw_history = hs.pull_OB_histories(semester)
+        obhist = hs.write_OB_histories_to_csv(raw_history, savepath + past_file)
+    else:
+        print(f'Using past history information from file: {past_source}')
+        obhist = hs.write_OB_histories_to_csv_JUMP(good_obs, past_source, savepath + past_file)
+
+    # This is where the custom times info pull will go
+    custom_file = str(config.get('global', 'custom_file'))
+
     return
 
 def kpfcc_data(args):

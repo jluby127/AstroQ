@@ -30,9 +30,8 @@ class TestClass(unittest.TestCase):
     def test_bench(self):
         dr.bench(argparse.Namespace(config_file='examples/bench/config_benchmark.ini', number_slots=12, thin=10))
 
-    # def test_prep(self):
-    #     # test the creation of all upstream files, including the allocation map
-    #     dr.kpfcc_prep(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
+    def test_prep(self):
+        dr.kpfcc_prep(argparse.Namespace(config_file='/Users/jack/Desktop/test_folder/test_config.ini'))
 
     def test_plot(self):
         dr.plot_pkl(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
@@ -50,27 +49,27 @@ class TestClass(unittest.TestCase):
     def test_dynamic_plotting(self):
         dr.get_dynamics(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
 
-    # def test_webapp(self):
-    #     config_path = 'examples/hello_world/config_hello_world.ini'
+    def test_webapp(self):
+        config_path = 'examples/hello_world/config_hello_world.ini'
 
-    #     # Launch Flask in a thread
-    #     def run():
-    #         launch_app(config_path, flag=True)
+        # Launch Flask in a thread
+        def run():
+            launch_app(config_path, flag=True)
 
-    #     thread = threading.Thread(target=run, daemon=True)
-    #     thread.start()
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
 
-    #     time.sleep(3)  # Wait for server to be ready
-    #     try:
-    #         response = requests.get("http://127.0.0.1:5000")
-    #         assert response.status_code == 200
-    #     finally:
-    #         # Gracefully shut down the Flask app
-    #         try:
-    #             requests.get("http://127.0.0.1:5000/shutdown")
-    #         except requests.exceptions.RequestException:
-    #             pass  # The server might already be down
-    #         thread.join(timeout=5)
+        time.sleep(3)  # Wait for server to be ready
+        try:
+            response = requests.get("http://127.0.0.1:5000")
+            assert response.status_code == 200
+        finally:
+            # Gracefully shut down the Flask app
+            try:
+                requests.get("http://127.0.0.1:5000/shutdown")
+            except requests.exceptions.RequestException:
+                pass  # The server might already be down
+            thread.join(timeout=5)
 
     def test_requests_vs_schedule(self):
         sch = 'examples/hello_world/outputs/semester_plan.csv'
