@@ -93,13 +93,17 @@ def pull_allocation_info(start_date, numdays, instrument, savepath):
     try:
         data = requests.get(url, params=params)
         data_json = json.loads(data.text)
+        df = pd.DataFrame(data_json)
+        awarded_programs = df['ProjCode'].unique()
         df['start'] = pd.to_datetime(df['Date'] + ' ' + df['StartTime']).dt.strftime('%Y-%m-%dT%H:%M')
         df['stop']  = pd.to_datetime(df['Date'] + ' ' + df['EndTime']).dt.strftime('%Y-%m-%dT%H:%M')
         allocation_frame = df[['start', 'stop']].copy()
     except:
         print("ERROR: allocation information not found. Double check date and instrument. Saving an empty file.")
         allocation_frame = pd.DataFrame(columns=['start', 'stop'])
-    allocation_frame.to_csv(savepath +'allocation.csv', index=False)
+        awarded_programs = []
+    allocation_frame.to_csv(savepath, index=False)
+    return awarded_programs
 
 def get_request_sheet(OBs, awarded_programs, savepath):
     good_obs, bad_obs_values, bad_obs_hasFields = sort_good_bad(OBs, awarded_programs)
@@ -176,6 +180,9 @@ def create_checks_dataframes(OBs, exception_fields):
         if 'schedule.desired_num_visits_per_night' not in value_df.columns:
             value_df['schedule.desired_num_visits_per_night'] = 1
             presence_df['schedule.desired_num_visits_per_night'] = True
+        else:
+            value_df['schedule.desired_num_visits_per_night'] = 1
+            presence_df['schedule.desired_num_visits_per_night'] = True
 
         if 'schedule.minimum_num_visits_per_night' in value_df.columns:
             if 'schedule.desired_num_visits_per_night' in value_df.columns:
@@ -244,7 +251,6 @@ def cast_columns(df):
                 }
 
     df = df.copy()
-
     for col, dtype in type_dict.items():
         if col in df.columns:
             if dtype in ['Int64', 'Float64']:
