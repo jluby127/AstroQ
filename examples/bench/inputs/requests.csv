@@ -1,2 +1,2 @@
-,Unnamed: 0.1,Unnamed: 0,starname,program_code,ra,dec,exptime,n_exp,n_intra_max,n_intra_min,n_inter_max,tau_inter,tau_intra
-0,0,0,Star0000,Program1,332.9560844954618,-19.989141347447955,300,1,1,1,40,1,0
+,Unnamed: 0.3,Unnamed: 0.2,Unnamed: 0.1,Unnamed: 0,starname,program_code,ra,dec,exptime,n_exp,n_intra_max,n_intra_min,n_inter_max,tau_inter,tau_intra
+0,0,0,0,0,Star0000,Program1,332.9560844954618,-19.989141347447955,300,1,1,1,40,1,0
