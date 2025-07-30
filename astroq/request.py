@@ -77,6 +77,7 @@ def define_indices_for_requests(manager):
     we will use to cut/filter/merge r,d,s tuples
     """
     access = ac.produce_ultimate_map(manager, manager.requests_frame)
+    manager.access = access
     # Convert to list of available indices
     available_indices_for_request = ac.extract_available_indices_from_record(access, manager)
 

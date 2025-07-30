@@ -55,17 +55,17 @@ def main():
                             )
     psr_bench.set_defaults(func=astroq.driver.bench)
 
-    ## subcommand of astroq: plot -- run the plotting suite
-    # psr_plot = subpsr.add_parser('plot', parents=[psr_parent],
-    #                               description='Run the plotting suite',
-    #                               prefix_chars='-'
-    #                               )
-    # psr_plot.add_argument('-cf', '--config_file',
-    #                           type=str,
-    #                           required=True,
-    #                           help="Relative path of config file."
-    #                           )
-    # psr_plot.set_defaults(func=astroq.driver.plot)
+    # subcommand of astroq: plot -- run the plotting suite
+    psr_plot = subpsr.add_parser('plot', parents=[psr_parent],
+                                  description='Run the plotting suite',
+                                  prefix_chars='-'
+                                  )
+    psr_plot.add_argument('-cf', '--config_file',
+                              type=str,
+                              required=True,
+                              help="Relative path of config file."
+                              )
+    psr_plot.set_defaults(func=astroq.driver.plot)
 
     ## subcommand of astroq: schedule -- Schedule observation requests
     psr_schedule = subpsr.add_parser('schedule', parents=[psr_parent],
@@ -116,12 +116,12 @@ def main():
                                 )
     psr_kpfcc_prep.add_argument('-as', '--allo_source',
                             type=str,
-                            required=True,
+                            default="db",
                             help="Absolute path of observatory-provided allocation file. Use 'db' to pull from the database."
                               )
     psr_kpfcc_prep.add_argument('-ps', '--past_source',
                             type=str,
-                            required=True,
+                            default="db",
                             help="Absolute path of a past history file. Use 'db' to pull from the database."
                               )
     psr_kpfcc_prep.set_defaults(func=astroq.driver.kpfcc_prep)

@@ -110,12 +110,12 @@ def kpfcc_prep(args):
     allocation_file = str(config.get('global', 'allocation_file'))
     if allo_source == 'db':
         print(f'Pulling allocation information from database')
-        awarded_programs = ob.pull_allocation_info(start_date, n_days, 'KPF-CC', savepath+allocation_file)
-        awarded_programs = [semester + "_" + val for val in awarded_programs if val != 'U268'] #temporary because PI made a mistake. 
+        hours_by_program = ob.pull_allocation_info(start_date, n_days, 'KPF-CC', savepath+allocation_file)
+        awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())] 
     else:
         print(f'Using allocation information from file: {allo_source}')
-        awarded_programs = ac.format_keck_allocation_info(allo_source, savepath+allocation_file)
-        awarded_programs = [semester + "_" + val for val in awarded_programs if val != 'U268'] #temporary because PI made a mistake. 
+        hours_by_program = ac.format_keck_allocation_info(allo_source, savepath+allocation_file)
+        awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())]
 
     # Next get the request sheet
     request_file = str(config.get('global', 'request_file'))
@@ -212,6 +212,13 @@ def plot_pkl(args):
 def plot_static(args):
     cf = args.config_file
     print(f'plot function: config_file is {cf}')
+    pl.build_static_plots(cf)
+    return
+
+def plot(args):
+    cf = args.config_file
+    print(f'plot function: config_file is {cf}')
+    pl.build_semester_webapp_pkl(cf)
     pl.build_static_plots(cf)
     return
 

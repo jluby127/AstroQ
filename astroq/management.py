@@ -54,14 +54,15 @@ class data_admin(object):
         self.daily_ending_time  = f"{(int(self.daily_starting_time.split(':')[0]) + self.n_hours_in_night) % 24:02d}:{int(self.daily_starting_time.split(':')[1]):02d}"
 
         # Resolve allocation file path relative to semester directory
-        allocation_file_config = str(config.get('options', 'allocation_file'))
-        if os.path.isabs(allocation_file_config):
-            self.allocation_file = allocation_file_config
-        else:
-            self.allocation_file = os.path.join(self.semester_directory, allocation_file_config)
-        self.past_file = os.path.join(self.semester_directory, "past.csv")
+        # allocation_file_config = str(config.get('options', 'allocation_file'))
+        # if os.path.isabs(allocation_file_config):
+        #     self.allocation_file = allocation_file_config
+        # else:
+        #     self.allocation_file = os.path.join(self.semester_directory, allocation_file_config)
+        self.allocation_file = os.path.join(self.semester_directory, "inputs/allocation.csv")
+        self.past_file = os.path.join(self.semester_directory, "inputs/past.csv")
         self.special_map_file = os.path.join(self.semester_directory, "inputs/specialMaps_" + str(self.slot_size) + "minSlots.txt")
-        self.custom_file = os.path.join(self.semester_directory, "custom.csv")
+        self.custom_file = os.path.join(self.semester_directory, "inputs/custom.csv")
         self.zero_out_file = os.path.join(self.semester_directory, "inputs/zero_out.csv")
         self.nonqueue_map_file = os.path.join(self.semester_directory, "inputs/NonQueueMap"  + str(self.slot_size) + ".txt")
         self.nonqueue_file = os.path.join(self.semester_directory, "inputs/NonQueueMap.csv")
@@ -110,7 +111,19 @@ class data_admin(object):
         Given today's date, collate all important information about the semester.
         """
         # build out some paths here, so that if current_day changes due to request_set.json file, it is reflected properly
-        self.requests_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/Requests.csv"))
+        self.requests_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/request.csv"))
+        
+        # Handle NaN values in critical columns to prevent downstream errors
+        nan_columns = ['n_intra_max', 'n_intra_min', 'tau_intra', 'n_inter_max', 'tau_inter']
+        for col in nan_columns:
+            if col in self.requests_frame.columns:
+                if col == 'tau_intra':
+                    # tau_intra should default to 0 if NaN
+                    self.requests_frame[col] = self.requests_frame[col].fillna(0)
+                else:
+                    # All other columns should default to 1 if NaN
+                    self.requests_frame[col] = self.requests_frame[col].fillna(1)
+        
         # self.twilight_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/twilight_times.csv"), parse_dates=True)
 
         self.output_directory = self.upstream_path  + "outputs/" + str(self.current_day) + "/"
@@ -120,8 +133,6 @@ class data_admin(object):
         check = os.path.isdir(self.output_directory)
         if not check:
             os.makedirs(self.output_directory)
-            file = open(self.output_directory + "runReport.txt", "w") # later append to this file
-            file.close()
 
         # Get semester parameters and define important quantities
         self.past_history = hs.process_star_history(self.past_file)
@@ -156,6 +167,7 @@ class data_admin(object):
         self.today_starting_night = today_starting_night
         self.semester_grid = np.arange(0, self.n_nights_in_semester, 1)
         self.quarters_grid = np.arange(0, self.n_quarters_in_night, 1)
+
     def build_slots_required_dictionary(self, always_round_up_flag=False):
         """
         Computes the slots needed for a given exposure for all requests.
@@ -173,7 +185,7 @@ class data_admin(object):
         slots_needed_for_exposure_dict = {}
         for n,row in self.requests_frame.iterrows():
             name = row['starname']
-            exposure_time = row['exptime']*row['n_exp'] + 45*(row['n_exp'] - 1)
+            exposure_time = row['exptime']*row['n_exp'] + 45*(row['n_exp'] - 1) + 180*row['n_intra_max']
             slots_needed_for_exposure_dict[name] = compute_slots_required_for_exposure(exposure_time, self.slot_size, always_round_up_flag)
         return slots_needed_for_exposure_dict
 

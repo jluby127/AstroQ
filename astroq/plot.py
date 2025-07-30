@@ -119,6 +119,9 @@ class StarPlotter(object):
                 d = int(sched['d'])
                 s = int(sched['s'])
                 starmap[d, s] = 1
+                reserve_slots = manager.slots_needed_for_exposure_dict[self.starname]
+                for r in range(1, reserve_slots):
+                    starmap[d, s+r] = 1
         self.starmap = starmap.T
         # assert np.shape(starmap) == (manager.semester_length, int((24 * 60) / manager.slot_size)), np.shape(starmap)
         # assert np.shape(starmap) == (10, 4), np.shape(starmap)
@@ -151,7 +154,6 @@ def process_stars(manager):
         newstar = StarPlotter(row['starname'])
         newstar.get_map(manager)
         newstar.get_stats(manager.requests_frame, manager.slot_size)
-        print(list(manager.past_history.keys()))
         if newstar.starname in list(manager.past_history.keys()):
             newstar.observations_past = manager.past_history[newstar.starname].n_obs_on_nights
         else:
@@ -242,7 +244,7 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
 
     fig = go.Figure()
     # fig.update_layout(width=1200, height=800, plot_bgcolor=clear, paper_bgcolor=clear)
-    fig.update_layout(width=800, height=600, plot_bgcolor=clear, paper_bgcolor=clear)
+    fig.update_layout(width=1800, height=800, plot_bgcolor=clear, paper_bgcolor=clear)
 
     if len(all_stars) > 1 or all_stars[0].allow_mapview == False:
         fig.add_trace(go.Heatmap(
@@ -348,8 +350,11 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
         template="plotly_white",
         showlegend=True,
         legend=dict(
-            font=dict(size=labelsize-10)
-        )
+            font=dict(size=labelsize-10),
+            x=1.02,  # Position legend outside the plot
+            y=1.0
+        ),
+        margin=dict(l=40, r=120, t=40, b=40)  # Add right margin for legend
     )
     # import pdb; pdb.set_trace()
     if filename != '':
@@ -365,7 +370,7 @@ def generate_birds_eye(manager, availablity, all_stars, filename=''):
             fig,
             manager.reports_directory + "admin/" + manager.current_day + '/birdseye_static.png',
             format="png",
-            width=1200,
+            width=1800,
             height=800,
             scale=1,
         )
@@ -436,10 +441,10 @@ def cof_builder(all_stars, manager, filename='', flag=False):
         yaxis_title="Request % Complete",
         showlegend=True,
         legend=dict(
-            x=0.98,
-            y=0.05,
-            xanchor='right',
-            yanchor='bottom',
+            x=0.02,
+            y=0.98,
+            xanchor='left',
+            yanchor='top',
             bgcolor='rgba(255,255,255,0.7)',
             bordercolor='black',
             borderwidth=1,
@@ -487,9 +492,16 @@ def cof_builder(all_stars, manager, filename='', flag=False):
 
 def generate_single_star_maps(manager, starname):
 
-    access = ac.mod_produce_ultimate_map(manager, starname)
-    all_maps = [is_altaz, is_alloc, is_night, is_moon, is_inter, is_future]
-    mapnames = ['is_altaz', 'is_alloc', 'is_custom', 'is_moon', 'is_inter', 'is_future', ]
+    # Check if the star exists in the requests frame
+    if starname not in manager.requests_frame['starname'].values:
+        raise ValueError(f"Star '{starname}' not found in requests frame")
+    
+    # Find the index of the star in the requests frame
+    star_index = manager.requests_frame[manager.requests_frame['starname'] == starname].index[0]
+    
+    # Pass the full requests frame to produce_ultimate_map
+    access = ac.produce_ultimate_map(manager, manager.requests_frame)
+    mapnames = ['is_altaz', 'is_alloc', 'is_custom', 'is_moon', 'is_inter', 'is_future']
 
     forecast = pd.read_csv(manager.future_forecast)  # columns: id, d, s
     n_nights = manager.semester_length
@@ -505,18 +517,20 @@ def generate_single_star_maps(manager, starname):
     rgb_strings = [f"rgb({int(r*255)}, {int(g*255)}, {int(b*255)})" for r, g, b in colors]
     fig = go.Figure()
 
-    for i in range(len(all_maps)):
-        int_array = all_maps[i][0].astype(int).T
-        int_array = 1 - int_array
-        fig.add_trace(go.Heatmap(
-            z=int_array,
-            colorscale=[[0, 'rgba(0,0,0,0)'], [1, 'rgba(211, 211, 211, 1.0)']],
-            zmin=0, zmax=1,
-            opacity=0.5,
-            showscale=False,
-            name=mapnames[i],
-            showlegend=True,
-        ))
+    for i, mapname in enumerate(mapnames):
+        if mapname in access.dtype.names:
+            # Extract the 2D array for this specific star (star_index is the star dimension)
+            int_array = access[mapname][star_index].astype(int).T
+            int_array = 1 - int_array
+            fig.add_trace(go.Heatmap(
+                z=int_array,
+                colorscale=[[0, 'rgba(0,0,0,0)'], [1, 'rgba(211, 211, 211, 1.0)']],
+                zmin=0, zmax=1,
+                opacity=0.5,
+                showscale=False,
+                name=mapname,
+                showlegend=True,
+            ))
 
     fig.add_trace(go.Heatmap(
         z=starmap,
@@ -569,8 +583,15 @@ def generate_single_star_maps(manager, starname):
         template="plotly_white",
         showlegend=True,
         legend=dict(
+            x=0.02,
+            y=0.98,
+            xanchor='left',
+            yanchor='top',
+            bgcolor='rgba(255,255,255,0.7)',
+            bordercolor='black',
+            borderwidth=1,
             font=dict(size=labelsize-10)
-        )
+        ),
     )
     # if filename != '':
     #     fileout_path = manager.reports_directory + filename

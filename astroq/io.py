@@ -20,57 +20,74 @@ import matplotlib.pyplot as pt
 import re
 
 import astroq.history as hs
+import astroq.access as ac
 
-def build_fullness_report(combined_semester_schedule, manager, round_info):
+def build_fullness_report(serialized_output_sparse, manager, round_info):
     """
     Determine how full the schedule is: slots available, slots scheduled, and slots required
 
     Args:
-        combined_semester_schedule (array): a 2D array of dimensions n_nights_in_semester by
-                                            n_slots_in_night where elements denote how the slot is
-                                            used: target, twilight, weather, not scheduled.
-        allocation_map_2D (array): a 2D array where rows represent a night and columns represent
-                                   the quarter within that night. Values are 1 if that
-                                   night/quarter is allocated and 0 if not.
+        serialized_output_sparse (DataFrame): DataFrame with columns ['r', 'd', 's'] containing scheduled targets
         manager (obj): a data_admin object
+        round_info (str): Round information for the report
 
     Returns:
         None
     """
+    import astroq.access as ac
+    import math
+    
     file_path = manager.output_directory + "runReport.txt"
     print(f"Writing to: {file_path}")
+    
+    # Get access records array to determine available slots
+    access = ac.produce_ultimate_map(manager, manager.requests_frame)
+    
+    # Calculate total available slots using is_alloc (sum of one slice = available slots)
+    total_available_slots = np.sum(access['is_alloc'][0])  # Use first target's slice since all targets have same allocation
+    
+    # Calculate total scheduled slots from serialized output
+    total_scheduled_slots = len(serialized_output_sparse)
+    
+    # Add reserved slots for multi-slot exposures
+    total_reserved_slots = 0
+    for _, row in serialized_output_sparse.iterrows():
+        target_name = row['r']
+        # Find the target in requests frame
+        target_request = manager.requests_frame[manager.requests_frame['starname'] == target_name]
+        if len(target_request) > 0:
+            # Get slots needed for this exposure
+            slots_needed = manager.slots_needed_for_exposure_dict.get(target_name, 1)
+            # Add reserved slots (excluding the starting slot which is already counted)
+            total_reserved_slots += max(0, slots_needed - 1)
+    
+    # Total slots used (scheduled + reserved)
+    total_slots_used = total_scheduled_slots + total_reserved_slots
+    
+    # Calculate total slots requested
+    total_slots_requested = 0
+    for _, row in manager.requests_frame.iterrows():
+        slots_needed_per_visit = manager.slots_needed_for_exposure_dict[row['starname']]
+        total_slots_requested += int(row['n_inter_max']) * int(slots_needed_per_visit) * int(row['n_intra_max'])
+    
+    # Calculate utilization percentages
+    utilization_available = (total_slots_used / total_available_slots * 100) if total_available_slots > 0 else 0
+    utilization_requested = (total_slots_used / total_slots_requested * 100) if total_slots_requested > 0 else 0
+    
+    # Write report
     with open(manager.output_directory + "runReport.txt", "a") as file:
         file.write("Stats for " + str(round_info) + "\n")
         file.write("------------------------------------------------------" + "\n")
-        listnames = list(manager.requests_frame['starname'])
-        unavailable = 0
-        unused = 0
-        used = 0
-        for b, item1 in enumerate(combined_semester_schedule):
-            for c, item2 in enumerate(combined_semester_schedule[b]):
-                if "X" in combined_semester_schedule[b][c] or "*" in combined_semester_schedule[b][c] \
-                        or "W" in combined_semester_schedule[b][c]:
-                    unavailable += 1
-                if combined_semester_schedule[b][c] == "":
-                    unused += 1
-                if combined_semester_schedule[b][c] in listnames or "RM___" in combined_semester_schedule[b][c]:
-                    used += 1
-        available = unused + used
-        # Simplified - assume all slots are allocated
-        allocated = manager.n_nights_in_semester * manager.n_slots_in_night
-        file.write("N slots in semester:" + str(np.prod(combined_semester_schedule.shape)) + "\n")
-        file.write("N available slots:" + str(allocated) + "\n")
-        file.write("N slots scheduled: " + str(used) + "\n")
-        file.write("N slots left empty: " + str(allocated-used) + "\n")
-
-        total_slots_requested = 0
-        for i in range(len(manager.requests_frame)):
-            total_slots_requested += manager.requests_frame['n_inter_max'][i]* \
-                math.ceil(manager.requests_frame['exptime'][i]/(manager.slot_size*60.))
-        file.write("N slots requested (total): " + str(total_slots_requested) + "\n")
-        percentage = np.round((used*100)/allocated,3)
-        file.write("Percent full: " + str(percentage) + "%." + "\n")
-        file.close()
+        file.write(f"Total starting slots: {total_scheduled_slots} ({total_scheduled_slots * manager.slot_size / 60:.1f} hours)\n")
+        file.write(f"Total reserved slots: {total_reserved_slots} ({total_reserved_slots * manager.slot_size / 60:.1f} hours)\n")
+        file.write(f"Total scheduled slots: {total_slots_used} ({total_slots_used * manager.slot_size / 60:.1f} hours)\n")
+        file.write(f"Total requested slots: {total_slots_requested} ({total_slots_requested * manager.slot_size / 60:.1f} hours)\n")
+        file.write(f"Utilization of requested time: {utilization_requested:.1f}%\n")
+        file.write("---\n")
+        file.write(f"Total available slots: {total_available_slots} ({total_available_slots * manager.slot_size / 60:.1f} hours)\n")
+        file.write(f"Empty available slots: {total_available_slots - total_slots_used} ({(total_available_slots - total_slots_used) * manager.slot_size / 60:.1f} hours)\n")
+        file.write(f"Utilization of available time: {utilization_available:.1f}%\n")
+        file.write("---\n")
 
 def write_out_results(manager, theta, round, start_the_clock):
     """
@@ -124,14 +141,12 @@ def serialize_schedule(Yrds, manager):
     dense1.to_csv(manager.output_directory + "serialized_outputs_dense_v1.csv", index=False, na_rep="")
 
     dense2 = dense1.copy()
-    isNight = np.array(manager.twilight_map_remaining_2D).flatten()
-    isAlloc = np.array(manager.allocation_map_2D).flatten()
-    isClear = np.array(manager.weather_diff).flatten()
+    access = ac.produce_ultimate_map(manager, manager.requests_frame) #temp until we pickle the manager and read it in
+    isAlloc = access['is_alloc'].flatten()
+    isClear = access['is_clear'].flatten()
     # have to go backwards otherwise you're adding stars into slots and then testing if the star is in the next slot
     for slot in range(manager.n_slots_in_semester-1, -1, -1):
         name_string = ""
-        if isNight[slot] == 0:
-            name_string += "*"
         if isAlloc[slot] == 0:
             name_string += "X"
         if isClear[slot] == 1:
