@@ -137,7 +137,7 @@ def ttp(args):
     manager.run_admin()
     
     # Use the new NightPlanner class for object-oriented night planning
-    night_planner = nplan.NightPlanner(manager)
+    night_planner = nplan.NightPlanner(cf)
     night_planner.run_ttp()
     # Removed: night_planner.produce_bright_backups()
     return
@@ -168,7 +168,7 @@ def get_dynamics(args):
     ttp_path = os.path.join(manager.reports_directory, "ttp_data.pkl")
     if os.path.exists(ttp_path):
         data_ttp = pl.read_star_objects(ttp_path)
-        script_table_html = dn.get_script_plan(manager, data_ttp)
+        script_table_html = dn.get_script_plan(manager, data_ttp, cf)
         ladder_html = dn.get_ladder(manager, data_ttp)
         slew_animation_html = dn.get_slew_animation(manager, data_ttp, animationStep=120)
         slew_path_html = dn.plot_path_2D_interactive(manager, data_ttp)
