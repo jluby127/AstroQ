@@ -98,12 +98,25 @@ def pull_allocation_info(start_date, numdays, instrument, savepath):
         df['start'] = pd.to_datetime(df['Date'] + ' ' + df['StartTime']).dt.strftime('%Y-%m-%dT%H:%M')
         df['stop']  = pd.to_datetime(df['Date'] + ' ' + df['EndTime']).dt.strftime('%Y-%m-%dT%H:%M')
         allocation_frame = df[['start', 'stop']].copy() # TODO: add observer and comment
+        
+        # Calculate hours for each row
+        start_times = pd.to_datetime(df['start'])
+        stop_times = pd.to_datetime(df['stop'])
+        hours_per_row = (stop_times - start_times).dt.total_seconds() / 3600
+        
+        # Add ProjCode and hours to the dataframe
+        df['hours'] = hours_per_row
+        
+        # Calculate total hours per ProjCode
+        hours_by_program = df.groupby('ProjCode')['hours'].sum().round(3).to_dict()
+        
     except:
         print("ERROR: allocation information not found. Double check date and instrument. Saving an empty file.")
         allocation_frame = pd.DataFrame(columns=['start', 'stop'])
         awarded_programs = []
+        hours_by_program = {}
     allocation_frame.to_csv(savepath, index=False)
-    return awarded_programs
+    return hours_by_program
 
 def get_request_sheet(OBs, awarded_programs, savepath):
     good_obs, bad_obs_values, bad_obs_hasFields = sort_good_bad(OBs, awarded_programs)
@@ -332,6 +345,42 @@ def sort_good_bad(OBs, awarded_programs):
 
     ra_list = trimmed_good['ra'].astype(str).tolist()
     dec_list = trimmed_good['dec'].astype(str).tolist()
+    
+    # Try to create SkyCoord and handle invalid coordinates
+    valid_indices = []
+    invalid_targets = []
+    
+    for i, (ra, dec) in enumerate(zip(ra_list, dec_list)):
+        try:
+            # Test if this coordinate pair is valid
+            test_coord = SkyCoord(ra=ra, dec=dec, unit=(u.hourangle, u.deg))
+            valid_indices.append(i)
+        except Exception as e:
+            # Get the target info for reporting
+            target_id = trimmed_good.iloc[i].get('_id', 'Unknown ID')
+            target_name = trimmed_good.iloc[i].get('target.target_name', 'Unknown Name')
+            invalid_targets.append({
+                'id': target_id,
+                'starname': target_name,
+                'ra': ra,
+                'dec': dec,
+                'error': str(e)
+            })
+    
+    # Print information about invalid targets
+    if invalid_targets:
+        print(f"Warning: {len(invalid_targets)} targets have invalid coordinates and will be removed:")
+        for target in invalid_targets:
+            print(f"  ID: {target['id']}, Star: {target['starname']}, RA: {target['ra']}, Dec: {target['dec']}")
+            print(f"    Error: {target['error']}")
+    
+    # Filter to only valid coordinates
+    if len(valid_indices) < len(trimmed_good):
+        trimmed_good = trimmed_good.iloc[valid_indices].reset_index(drop=True)
+        ra_list = [ra_list[i] for i in valid_indices]
+        dec_list = [dec_list[i] for i in valid_indices]
+    
+    # Now create SkyCoord with only valid coordinates
     coords = SkyCoord(ra=ra_list, dec=dec_list, unit=(u.hourangle, u.deg))
     trimmed_good['ra'] = coords.ra.deg
     trimmed_good['dec'] = coords.dec.deg

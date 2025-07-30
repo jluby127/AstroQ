@@ -101,6 +101,10 @@ def produce_ultimate_map(manager, rf, running_backup_stars=False):
         custom_times_frame['stop'] = custom_times_frame['stop'].apply(Time)
         for _, row in custom_times_frame.iterrows():
             starname = row['starname']
+            # Skip if the star is not in the current requests frame
+            if starname not in starname_to_index:
+                print(f"Warning: Star '{starname}' in custom times file not found in requests frame, skipping")
+                continue
             mask = (slotmidpoint >= row['start']) & (slotmidpoint <= row['stop'])
             star_ind = starname_to_index[starname]
             current_map = is_custom[star_ind]
@@ -137,9 +141,10 @@ def produce_ultimate_map(manager, rf, running_backup_stars=False):
     # run the loss simulation
     loss_stats_this_semester = wh.get_loss_stats(manager)
     is_clear = wh.simulate_weather_losses(manager, loss_stats_this_semester, covariance=0.14, run_weather_loss=manager.run_weather_loss)
-    write_out_weather_stats(manager, is_clear)
+    # write_out_weather_stats(manager, is_clear)
+    is_clear = np.tile(is_clear[np.newaxis, :, :], (ntargets, 1, 1))
 
-    is_observable_now = np.logical_and.reduce([
+    is_observable_now = np.logical_and.reduce(np.stack([
         is_altaz,
         is_future,
         is_moon,
@@ -147,7 +152,7 @@ def produce_ultimate_map(manager, rf, running_backup_stars=False):
         is_inter,
         is_alloc,
         is_clear
-    ])
+    ]), axis=0)
 
     # the target does not violate any of the observability limits in that specific slot, but
     # it does not mean it can be started at the slot. retroactively grow mask to accomodate multishot exposures.
@@ -284,10 +289,7 @@ def format_keck_allocation_info(input_file, output_file):
         
     Returns:
         unique_proj_codes: (list) - the unique ProjCode values
-    """
-    import pandas as pd
-    import re
-    
+    """    
     # Read the CSV file
     df = pd.read_csv(input_file)
     
@@ -304,11 +306,20 @@ def format_keck_allocation_info(input_file, output_file):
         'stop': df['Date'] + 'T' + times['stop_time']
     })
 
-    # Get unique ProjCode values
-    unique_proj_codes = df['ProjCode'].unique().tolist()
+    # Calculate hours for each row
+    start_times = pd.to_datetime(result['start'])
+    stop_times = pd.to_datetime(result['stop'])
+    hours_per_row = (stop_times - start_times).dt.total_seconds() / 3600
+    
+    # Add ProjCode and hours to the result dataframe
+    result['ProjCode'] = df['ProjCode']
+    result['hours'] = hours_per_row
+    
+    # Calculate total hours per ProjCode
+    hours_by_program = result.groupby('ProjCode')['hours'].sum().round(3).to_dict()
     
     result.to_csv(output_file, index=False)
-    return unique_proj_codes
+    return hours_by_program
 
 def convert_allocation_info_to_binary(manager, allocation):
     # Generate the binary map for allocations this semester

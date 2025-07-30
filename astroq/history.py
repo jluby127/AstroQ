@@ -65,8 +65,21 @@ def write_OB_histories_to_csv_JUMP(requests_frame, jump_file, output_file):
     """
     Convert a JUMP-style CSV to the OB histories format and write to CSV.
     """
-    # Load the jump file
-    df = pd.read_csv(jump_file)
+    # Check if file is empty or doesn't exist
+    if not os.path.exists(jump_file) or os.path.getsize(jump_file) == 0:
+        # Create empty DataFrame with expected columns
+        empty_df = pd.DataFrame(columns=['id', 'target', 'semid', 'timestamp', 'exposure_start_time', 'exposure_time', 'observer'])
+        empty_df.to_csv(output_file, index=False)
+        return empty_df
+    
+    try:
+        # Load the jump file
+        df = pd.read_csv(jump_file)
+    except pd.errors.EmptyDataError:
+        # Create empty DataFrame with expected columns
+        empty_df = pd.DataFrame(columns=['id', 'target', 'semid', 'timestamp', 'exposure_start_time', 'exposure_time', 'observer'])
+        empty_df.to_csv(output_file, index=False)
+        return empty_df
     
     # Crossmatch star names
     df['target'] = df['star_id'].apply(crossmatch_star_name)
@@ -152,7 +165,16 @@ def process_star_history(filename):
       date_last_observed, total_n_exposures, total_n_visits, total_n_unique_nights, total_open_shutter_time
     Each key is for one target (star).
     """
-    df = pd.read_csv(filename)
+    # Check if file is empty or doesn't exist
+    if not os.path.exists(filename) or os.path.getsize(filename) == 0:
+        # Create empty DataFrame with expected columns
+        df = pd.DataFrame(columns=['id', 'target', 'semid', 'timestamp', 'exposure_start_time', 'exposure_time', 'observer'])
+    else:
+        try:
+            df = pd.read_csv(filename)
+        except pd.errors.EmptyDataError:
+            # Create empty DataFrame with expected columns
+            df = pd.DataFrame(columns=['id', 'target', 'semid', 'timestamp', 'exposure_start_time', 'exposure_time', 'observer'])
     StarHistory = namedtuple('StarHistory', [
         'id',
         'date_last_observed',

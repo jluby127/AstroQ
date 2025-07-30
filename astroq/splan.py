@@ -589,3 +589,16 @@ class SemesterPlanner(object):
         selected_df = self.manager.requests_frame[self.manager.requests_frame['starname'].isin(selected)].copy()
         # Save to CSV with new name
         selected_df.to_csv(os.path.join(self.manager.output_directory, 'request_selected.csv'), index=False)
+        
+        # Create runReport.txt
+        start_time = time.time()
+        
+        # Create serialized output for reporting
+        serialized_output_sparse = pd.DataFrame(columns=['r', 'd', 's'])
+        for (r, d, s), var in self.Yrds.items():
+            if var.x > 0:
+                serialized_output_sparse = serialized_output_sparse.append({'r': r, 'd': d, 's': s}, ignore_index=True)
+        
+        # Write the fullness report
+        io.build_fullness_report(serialized_output_sparse, self.manager, self.round_info)
+        io.write_out_results(self.manager, self.theta, self.round_info, start_time)
