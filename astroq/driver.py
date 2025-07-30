@@ -1,15 +1,12 @@
-import argparse
 import os
-import sys
 import json
 import pandas as pd
 import numpy as np
-import math
+
 from configparser import ConfigParser
-from argparse import Namespace
+
 
 import astroq.splan as splan
-import astroq.request as rq
 import astroq.management as mn
 import astroq.benchmarking as bn
 import astroq.blocks as ob
@@ -68,14 +65,6 @@ def kpfcc(args):
 
     return
 
-def kpfcc_build(args):
-    cf = args.config_file
-    print(f'kpfcc_build function: config_file is {cf}')
-
-    # Build request set on the fly from config file
-    request_set = rq.RequestSet(cf)
-    return
-
 def kpfcc_prep(args):
     cf = args.config_file
     print(f'kpfcc_prep function: config_file is {cf}')
@@ -128,14 +117,6 @@ def kpfcc_plan_semester(args):
     semester_planner.run_model()
     return
 
-def schedule(args):
-    cf = args.config_file
-    print(f'schedule function: config_file is {cf}')
-    
-    # Create semester planner directly from config file
-    schedule = splan.SemesterPlanner(cf)
-    schedule.run_model()
-    return
 
 def plot_pkl(args):
     cf = args.config_file
@@ -292,80 +273,4 @@ def requests_vs_schedule(args):
                             f"two obs of {star} are not spaced by enough slots "
                             f"(scheduled: {min_slot_diffs} slots; required: {tau_intra_slots} slots)")
             assert min_slot_diffs >= tau_intra_slots, tau_intra_err
-#
-# def make_simulated_history(args):
-#
-#     cf = args.config_file
-#     print(f'make_simulated_history function: config_file is {cf}')
-#     config = ConfigParser()
-#     config.read(cf)
-#     upstream_path = eval(config.get('required', 'folder'), {"os": os})
-#     semester_directory = upstream_path
-#     requests_frame = bn.build_toy_model_from_paper(12)
-#     requests_frame.to_csv(os.path.join(semester_directory, "inputs/Requests.csv"))
-#     manager = mn.data_admin(cf)
-#     manager.run_admin()
-#
-#     # Run a weather-loss model that will serve as truth for all runs of the semester
-#     loss_stats_remaining = wh.get_loss_stats(manager)
-#     loss_stats_remaining = [x + 0.2 for x in loss_stats_remaining]
-#     allocation_remaining_post_weather_loss, weather_diff_remaining, weather_diff_remaining_1D, \
-#         days_lost = wh.simulate_weather_losses(manager.allocation_remaining, loss_stats_remaining, \
-#         covariance=0.14, run_weather_loss=True, plot=False, outputdir=manager.output_directory)
-#
-#     reshaped = weather_diff_remaining_1D.reshape((184, 4))
-#     weathered_days = np.where(np.any(reshaped == 1, axis=1))[0].tolist()
-#     print("# of on-sky days lost to weather: ", len(weathered_days))
-#
-#     # Run from start of semester with no weather loss to get a first forecast
-#     # this is equivalent to running the bench, so let's use the function
-#     myargs = Namespace(config_file='bench/config_benchmark.ini', number_slots=12, number_requests=1)
-#     bench(myargs)
-#     pl.run_plot_suite(cf)
-#     # Save the original forecast
-#     forecast = pd.read_csv(manager.output_directory + 'raw_combined_semester_schedule_Round2.txt')
-#     forecast = np.array(forecast.values)
-#
-#     test_dates=["2018-08-15", "2018-09-01", "2018-09-15", "2018-10-01", "2018-10-15", "2018-11-01", "2018-11-15", "2018-12-01", "2018-12-15","2019-01-01","2019-01-15"]
-#     for i in range(len(test_dates)):
-#         # Construct the simulated past history, including the lost observations due to weather
-#         all_dfs = []
-#         day_index = manager.all_dates_dict[test_dates[i]]
-#         for j in range(day_index):
-#             if j not in weathered_days:
-#                 stars_for_night = [x for x in forecast[j] if x not in ("X", "*X", "", "Past") and not (isinstance(x, float) and math.isnan(x))]
-#                 stars_for_night = list(set(stars_for_night))
-#                 if stars_for_night != []:
-#                     today = manager.all_dates_array[j]
-#                     stamps = [today + ' 12:00:00.000000+00:00']*len(stars_for_night) #time doesn't matter, date does.
-#                     today_frame = pd.DataFrame({'star_id':stars_for_night, 'utctime':stamps})
-#                     all_dfs.append(today_frame)
-#         #update the day, then run admin to create new folders
-#         line_number = 7
-#         new_date = test_dates[i]
-#         new_content = f"current_day = {new_date}"
-#         with open(cf, "r") as f:
-#             lines = f.readlines()
-#         lines[line_number - 1] = new_content + "\n"
-#         with open(cf, "w") as f:
-#             f.writelines(lines)
-#         manager = mn.data_admin(cf)
-#         manager.run_admin()
-#
-#         # write out the simulated past history twice, the inputs version will be over-written, the outputs version will not
-#         final_df = pd.concat(all_dfs, ignore_index=True)
-#         final_df.to_csv(manager.upstream_path + "inputs/queryJumpDatabase.csv", index=False)
-#         final_df.to_csv(manager.output_directory + "queryJumpDatabase.csv", index=False)
-#
-#         # rerun the build and scheduler from the new date forward
-#         strategy, observable = rq.define_indices_for_requests(manager)
-#         meta = rq.build_meta(cf)
-#         request_set = rq.RequestSet(meta, strategy, observable)
-#         # print out the last rows of strategy to ensure the size of the model looks right
-#         request_set.to_json(os.path.join(manager.output_directory, "request_set.json"))
-#         # Run the schedule
-#         schedule = splan.SemesterPlanner(request_set, cf)
-#         schedule.run_model()
-#         # Run the plot suite
-#         pl.run_plot_suite(cf)
-#     return
+
