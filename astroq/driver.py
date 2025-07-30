@@ -22,11 +22,6 @@ import astroq.access as ac
 import logging
 log = logging.getLogger(__name__)
 log.setLevel(logging.ERROR)
-# log.debug("Debug message")
-# log.info("Info message")
-# log.warning("Warning message here")
-# log.error("Error message")
-# log.critical("Critical message")
 
 def bench(args):
     cf = args.config_file
