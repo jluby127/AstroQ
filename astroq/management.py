@@ -13,7 +13,6 @@ import pandas as pd
 from astropy.time import Time
 from astropy.time import TimeDelta
 from configparser import ConfigParser
-from types import SimpleNamespace
 import logging
 logs = logging.getLogger(__name__)
 
@@ -22,8 +21,6 @@ DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')
 EXAMPLEDIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'examples')
 
 import astroq.history as hs
-import astroq.access as ac
-import astroq.weather as wh
 
 class data_admin(object):
     """A Data Admin object, from which we can easily pass around information.
