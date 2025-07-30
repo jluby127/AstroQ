@@ -61,14 +61,17 @@ class NightPlanner(object):
         from configparser import ConfigParser
         config = ConfigParser()
         config.read(config_file)
-        self.upstream_path = eval(config.get('required', 'folder'), {"os": os})
+        
+        # Get workdir from global section
+        workdir = str(config.get('global', 'workdir'))
+        self.upstream_path = workdir
         self.semester_directory = self.upstream_path
-        self.current_day = str(config.get('required', 'current_day'))
+        self.current_day = str(config.get('global', 'current_day'))
         self.output_directory = self.upstream_path + "outputs/"
         self.reports_directory = self.upstream_path + "outputs/"
         
-        # Set up allocation file path
-        allocation_file_config = str(config.get('options', 'allocation_file'))
+        # Set up allocation file path from data section
+        allocation_file_config = str(config.get('data', 'allocation_file'))
         if os.path.isabs(allocation_file_config):
             self.allocation_file = allocation_file_config
         else:
@@ -78,8 +81,12 @@ class NightPlanner(object):
         DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')
         self.backup_file = os.path.join(DATADIR, "bright_backups_frame.csv")
         
-        # Set up custom file path
-        self.custom_file = os.path.join(self.semester_directory, "inputs/custom.csv")
+        # Set up custom file path from data section
+        custom_file_config = str(config.get('data', 'custom_file'))
+        if os.path.isabs(custom_file_config):
+            self.custom_file = custom_file_config
+        else:
+            self.custom_file = os.path.join(self.semester_directory, custom_file_config)
         
         # Create SemesterPlanner to get all the helper methods and properties
         # This avoids duplicating semester calculation logic

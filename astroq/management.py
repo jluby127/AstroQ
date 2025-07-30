@@ -37,49 +37,56 @@ class data_admin(object):
         config = ConfigParser()
         config.read(config_path)
 
-        self.upstream_path = eval(config.get('required', 'folder'), {"os": os})
-
-        self.current_day = str(config.get('required', 'current_day'))
+        # Get workdir from global section
+        workdir = str(config.get('global', 'workdir'))
+        self.upstream_path = workdir
         self.semester_directory = self.upstream_path
         self.reports_directory = self.upstream_path + 'outputs/'
-        self.observatory = config.get('required', 'observatory')
 
-        self.slot_size = int(config.get('other', 'slot_size'))
-        self.n_quarters_in_night = int(config.get('other', 'quarters_in_night'))
-        self.n_hours_in_night = int(config.get('other', 'hours_in_night'))
-        self.daily_starting_time = str(config.get('other', 'daily_starting_time'))
-        self.daily_ending_time  = f"{(int(self.daily_starting_time.split(':')[0]) + self.n_hours_in_night) % 24:02d}:{int(self.daily_starting_time.split(':')[1]):02d}"
+        self.current_day = str(config.get('global', 'current_day'))
+        self.observatory = config.get('global', 'observatory')
 
-        # Resolve allocation file path relative to semester directory
-        allocation_file_config = str(config.get('options', 'allocation_file'))
+        # Get semester parameters from semester section
+        self.slot_size = int(config.get('semester', 'slot_size'))
+        self.run_weather_loss = eval(config.get('semester', 'run_weather_loss'))
+        self.random_seed = int(config.get('semester', 'random_seed'))
+        np.random.seed(self.random_seed)
+        self.run_round_two = config.get('semester', 'run_bonus_round').strip().lower() == "true"
+        self.max_bonus = float(config.get('semester', 'maximum_bonus_size'))
+        self.solve_time_limit = int(config.get('semester', 'max_solve_time'))
+        self.solve_max_gap = float(config.get('semester', 'max_solve_gap'))
+        self.gurobi_output = config.get('semester', 'show_gurobi_output').strip().lower() == "true"
+
+        # Get file paths from data section
+        allocation_file_config = str(config.get('data', 'allocation_file'))
         if os.path.isabs(allocation_file_config):
             self.allocation_file = allocation_file_config
         else:
             self.allocation_file = os.path.join(self.semester_directory, allocation_file_config)
-        self.past_file = os.path.join(self.semester_directory, "inputs/past.csv")
-        # Removed special_map_file, zero_out_file, nonqueue_map_file - these will be handled differently
-        self.custom_file = os.path.join(self.semester_directory, "inputs/custom.csv")
+        
+        past_file_config = str(config.get('data', 'past_file'))
+        if os.path.isabs(past_file_config):
+            self.past_file = past_file_config
+        else:
+            self.past_file = os.path.join(self.semester_directory, past_file_config)
+        
+        custom_file_config = str(config.get('data', 'custom_file'))
+        if os.path.isabs(custom_file_config):
+            self.custom_file = custom_file_config
+        else:
+            self.custom_file = os.path.join(self.semester_directory, custom_file_config)
+        
         self.nonqueue_file = os.path.join(self.semester_directory, "inputs/NonQueueMap.csv")
         self.future_forecast = os.path.join(self.semester_directory, "outputs/semester_plan.csv")
 
-        self.random_seed = int(config.get('options', 'random_seed'))
-        np.random.seed(self.random_seed)
-        self.run_weather_loss = eval(config.get('options', 'run_weather_loss'))#.strip().lower() == "true"
-
         self.DATADIR = DATADIR
-        self.gurobi_output = config.get('gurobi', 'show_gurobi_output').strip().lower() == "true"
-        self.plot_results = config.get('options', 'run_plots').strip().lower() == "true"
-        self.run_plots = config.get('options', 'run_plots').strip().lower() == "true"
-        self.solve_time_limit = int(config.get('gurobi', 'max_solve_time'))
-        self.solve_max_gap = float(config.get('gurobi', 'max_solve_gap'))
-
-        self.run_scheduler = config.get('options', 'run_scheduler').strip().lower() == "true"
-        self.run_ttp = config.get('options', 'run_ttp').strip().lower() == "true"
-        self.run_round_two = config.get('options', 'run_bonus_round').strip().lower() == "true"
-        self.max_bonus = float(config.get('other', 'maximum_bonus_size'))
+        self.plot_results = True  # Default to True for plotting
+        self.run_plots = True     # Default to True for plotting
+        self.run_scheduler = True # Default to True for scheduling
+        self.run_ttp = True       # Default to True for TTP
 
         self.folder_forecasts = os.path.join(self.semester_directory, "/data/first_forecasts/")
-        self.run_backup_scripts = config.get('other', 'generate_backup_script').strip().lower() == "true"
+        self.run_backup_scripts = False  # Default to False
         self.backup_file = os.path.join(DATADIR,"bright_backups_frame.csv")
         self.backup_observability_file = os.path.join(DATADIR,"bright_backup_observability.csv")
 
