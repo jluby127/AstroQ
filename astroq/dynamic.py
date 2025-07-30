@@ -339,24 +339,27 @@ def get_tau_inter_line(all_stars):
     return tau_inter_line_html
 
 
-def compute_seasonality(manager, starnames, ras, decs, semester='B'):
+def compute_seasonality(semester_planner, starnames, ras, decs, semester='B'):
     """
     Combine all maps for a target to produce the final map
 
     Args:
-        requests_frame (dataframe): the pandas dataframe containing request information
-        running_backup_stars (bool): if true, then do not run the extra map of stepping back in time to account for the starting slot fitting into the night
+        semester_planner (SemesterPlanner): the semester planner object containing configuration
+        starnames (list): list of star names
+        ras (array): right ascension values in degrees
+        decs (array): declination values in degrees
+        semester (str): semester identifier ('A' or 'B')
     Returns:
         available_indices_for_request (dictionary): keys are the starnames and values are a 1D array
                                                   the indices where available_slots_for_request is 1.
 
     """
     # Prepatory work
-    nslots = manager.n_slots_in_night
-    nnights = manager.n_nights_in_semester
-    observatory = manager.observatory
-    start_time = manager.daily_starting_time
-    slot_size = manager.slot_size
+    nslots = semester_planner.n_slots_in_night
+    nnights = semester_planner.n_nights_in_semester
+    observatory = semester_planner.observatory
+    start_time = semester_planner.daily_starting_time
+    slot_size = semester_planner.slot_size
     
     if semester=='A':
         start_date = '2025-02-01'
@@ -377,7 +380,7 @@ def compute_seasonality(manager, starnames, ras, decs, semester='B'):
     start = date + "T" + start_time
     daily_start = Time(start, location=keck.location)
     daily_end = daily_start + TimeDelta(1.0, format='jd') # full day from start of first night
-    tmp_slot_size = TimeDelta(manager.slot_size*u.min)
+    tmp_slot_size = TimeDelta(semester_planner.slot_size*u.min)
     t = Time(np.arange(daily_start.jd, daily_end.jd, tmp_slot_size.jd), format='jd',location=keck.location)
     t = t[np.argsort(t.sidereal_time('mean'))] # sort by lst
 
@@ -398,7 +401,7 @@ def compute_seasonality(manager, starnames, ras, decs, semester='B'):
     is_altaz0 &= ~fail
     # computing slot midpoint for all nights in semester 2D array (slots, nights)
     slotmidpoint0 = daily_start + (np.arange(nslots) + 0.5) *  slot_size * u.min
-    # days = np.arange(manager.n_nights_in_semester) * u.day
+    # days = np.arange(semester_planner.n_nights_in_semester) * u.day
     days = np.arange(nnights) * u.day
     slotmidpoint = (slotmidpoint0[np.newaxis,:] + days[:,np.newaxis])
     # 3D mask
@@ -423,10 +426,10 @@ def compute_seasonality(manager, starnames, ras, decs, semester='B'):
 
     # True if obseravtion occurs at night
     # Create a simple night mask (all slots available)
-    is_night = np.ones((manager.n_nights_in_semester, manager.n_slots_in_night), dtype=bool)
+    is_night = np.ones((semester_planner.n_nights_in_semester, semester_planner.n_slots_in_night), dtype=bool)
     is_night = np.ones_like(is_altaz, dtype=bool) & is_night
 
-#     is_alloc = manager.allocation_map_2D.astype(bool) # shape = (nnights, nslots)
+#     is_alloc = semester_planner.allocation_map_2D.astype(bool) # shape = (nnights, nslots)
 #     is_alloc = np.ones_like(is_altaz, dtype=bool) & is_alloc[np.newaxis,:,:] # shape = (ntargets, nnights, nslots)
 
     is_observable_now = np.logical_and.reduce([
@@ -458,7 +461,7 @@ def compute_seasonality(manager, starnames, ras, decs, semester='B'):
     return available_nights_onsky
 
 
-def get_football(manager, all_stars):#RA_grid, DEC_grid, Z_grid, request_df):
+def get_football(semester_planner, all_stars):#RA_grid, DEC_grid, Z_grid, request_df):
     """
     "Football plot"
     Interactive sky map with static heatmap background and interactive star points.
@@ -515,8 +518,8 @@ def get_football(manager, all_stars):#RA_grid, DEC_grid, Z_grid, request_df):
     }
     grid_frame = pd.DataFrame(grid_stars)
 
-    available_nights_onsky_requests = compute_seasonality(manager, starnames, ras, decs, semester='A')
-    grid_frame['nights_observable'] = compute_seasonality(manager, grid_frame['starname'], grid_frame['ra'], grid_frame['dec'], semester='A')
+    available_nights_onsky_requests = compute_seasonality(semester_planner, starnames, ras, decs, semester='A')
+    grid_frame['nights_observable'] = compute_seasonality(semester_planner, grid_frame['starname'], grid_frame['ra'], grid_frame['dec'], semester='A')
 
     from scipy.interpolate import griddata
     NIGHTS_grid = griddata(
@@ -659,8 +662,7 @@ def get_ladder(data):
     Args:
         data: TTP data containing the schedule information
     """
-    # with open(manager.reports_directory + 'observer/' + manager.current_day + '/ttp_data.pkl', 'rb') as f:
-    #     data = pickle.load(f)
+
     orderData = data[0].plotly
 
     # reverse the order so that the plot flows from top to bottom with time
@@ -756,8 +758,7 @@ def get_slew_animation(data, animationStep=120):
         data: TTP data containing the schedule information
         animationStep (int): the time, in seconds, between animation still frames. Default to 120s.
     """
-    # with open(manager.reports_directory + 'observer/' + manager.current_day + '/ttp_data.pkl', 'rb') as f:
-    #     data = pickle.load(f)
+
     model = data[0]
 
     # Set up animation times
@@ -881,8 +882,7 @@ def get_requests_frame(semester_planner, filter_condition=None):
 def plot_path_2D_interactive(data):
     """Create an interactive Plotly plot showing telescope azimuth and altitude paths with UTC times and white background."""
 
-    # with open(manager.reports_directory + 'observer/' + manager.current_day + '/ttp_data.pkl', 'rb') as f:
-    #     data = pickle.load(f)
+
     model = data[0]
 
     names = list(model.schedule['Starname'])
