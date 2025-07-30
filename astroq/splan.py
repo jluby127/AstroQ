@@ -36,44 +36,45 @@ class SemesterPlanner(object):
         config = ConfigParser()
         config.read(cf)
         
-        # Extract configuration parameters directly
-        upstream_path = eval(config.get('required', 'folder'), {"os": os})
-        self.current_day = str(config.get('required', 'current_day'))
-        self.observatory = config.get('required', 'observatory')
-        self.slot_size = int(config.get('other', 'slot_size'))
-        self.n_quarters_in_night = int(config.get('other', 'quarters_in_night'))
-        self.n_hours_in_night = int(config.get('other', 'hours_in_night'))
-        self.daily_starting_time = str(config.get('other', 'daily_starting_time'))
+        # Extract configuration parameters from new format
+        workdir = str(config.get('global', 'workdir'))
+        self.semester_directory = workdir
+        self.current_day = str(config.get('global', 'current_day'))
+        self.observatory = config.get('global', 'observatory')
         
-        semester_directory = upstream_path
-        
-        # Solver configuration
-        self.solve_time_limit = int(config.get('gurobi', 'max_solve_time'))
-        self.gurobi_output = config.get('gurobi', 'show_gurobi_output').strip().lower() == "true"
-        self.solve_max_gap = float(config.get('gurobi', 'max_solve_gap'))
-        
-        # Other parameters
-        self.max_bonus = float(config.get('other', 'maximum_bonus_size'))
+        # Get semester parameters from semester section
+        self.slot_size = config.getint('semester', 'slot_size')
+        self.solve_time_limit = config.getint('semester', 'max_solve_time')
+        self.gurobi_output = config.getboolean('semester', 'show_gurobi_output')
+        self.solve_max_gap = config.getfloat('semester', 'max_solve_gap')
+        self.max_bonus = config.getfloat('semester', 'maximum_bonus_size')
         
         # Output directory
-        self.output_directory = upstream_path + "outputs/"
+        self.output_directory = workdir + "outputs/"
         check = os.path.isdir(self.output_directory)
         if not check:
             os.makedirs(self.output_directory)
             file = open(self.output_directory + "runReport.txt", "w")
             file.close()
         
-        # Set up file paths
-        self.semester_directory = upstream_path
-        self.past_file = os.path.join(self.semester_directory, "inputs/past.csv")
-        self.custom_file = os.path.join(self.semester_directory, "inputs/custom.csv")
-        
-        # Resolve allocation file path
-        allocation_file_config = str(config.get('options', 'allocation_file'))
+        # Set up file paths from data section
+        allocation_file_config = str(config.get('data', 'allocation_file'))
         if os.path.isabs(allocation_file_config):
             self.allocation_file = allocation_file_config
         else:
             self.allocation_file = os.path.join(self.semester_directory, allocation_file_config)
+        
+        past_file_config = str(config.get('data', 'past_file'))
+        if os.path.isabs(past_file_config):
+            self.past_file = past_file_config
+        else:
+            self.past_file = os.path.join(self.semester_directory, past_file_config)
+        
+        custom_file_config = str(config.get('data', 'custom_file'))
+        if os.path.isabs(custom_file_config):
+            self.custom_file = custom_file_config
+        else:
+            self.custom_file = os.path.join(self.semester_directory, custom_file_config)
         
         # Load data files
         self.requests_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/requests.csv"))
@@ -102,11 +103,6 @@ class SemesterPlanner(object):
         
         # Build strategy and observability data
         self.observability = self._build_observability()
-        # Build meta data
-        daily_starting_time = str(config.get('other', 'daily_starting_time'))
-        current_day = str(config.get('required', 'current_day'))
-        slot_size = int(config.get('other', 'slot_size'))
-        self.meta = {"s1_time":daily_starting_time, "d1_date":current_day, "slot_duration":slot_size}
 
         self.observability_tuples = list(self.observability.itertuples(index=False, name=None))
 

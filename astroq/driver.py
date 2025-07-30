@@ -65,7 +65,10 @@ def kpfcc_prep(args):
     config = ConfigParser()
     config.read(cf)
 
-    savepath = str(config.get('global', 'savepath'))
+    # Get workdir from global section
+    workdir = str(config.get('global', 'workdir'))
+    savepath = workdir
+    
     semester = str(config.get('global', 'semester'))
     start_date = str(config.get('global', 'semester_start_day'))
     end_date = str(config.get('global', 'semester_end_day'))
@@ -75,7 +78,7 @@ def kpfcc_prep(args):
 
     # First capture the allocation info
     allo_source = args.allo_source
-    allocation_file = str(config.get('global', 'allocation_file'))
+    allocation_file = str(config.get('data', 'allocation_file'))
     if allo_source == 'db':
         print(f'Pulling allocation information from database')
         awarded_programs = ob.pull_allocation_info(start_date, n_days, 'KPF-CC', savepath+allocation_file)
@@ -86,13 +89,13 @@ def kpfcc_prep(args):
         awarded_programs = [semester + "_" + val for val in awarded_programs if val != 'U268'] #temporary because PI made a mistake. 
 
     # Next get the request sheet
-    request_file = str(config.get('global', 'request_file'))
+    request_file = str(config.get('data', 'request_file'))
     OBs = ob.pull_OBs(semester)
     good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram = ob.get_request_sheet(OBs, awarded_programs, savepath + request_file)
 
     # Next get the past history 
     past_source = args.past_source
-    past_file = str(config.get('global', 'past_file'))
+    past_file = str(config.get('data', 'past_file'))
     if past_source == 'db':
         print(f'Pulling past history information from database')
         raw_history = hs.pull_OB_histories(semester)
@@ -102,7 +105,7 @@ def kpfcc_prep(args):
         obhist = hs.write_OB_histories_to_csv_JUMP(good_obs, past_source, savepath + past_file)
 
     # This is where the custom times info pull will go
-    custom_file = str(config.get('global', 'custom_file'))
+    custom_file = str(config.get('data', 'custom_file'))
 
     return
 
@@ -287,7 +290,7 @@ def requests_vs_schedule(args):
                 assert min_day_gaps >= tau_inter, tau_inter_err
 
     # 5) tau_intra: There must be at least tau_intra slots between successive observations of a target in a single night
-        slot_duration = semester_planner.meta['slot_duration'] # Slot duration in minutes
+        slot_duration = semester_planner.slot_size # Slot duration in minutes
         slots_per_hour = 60/slot_duration
         tau_intra_hrs = star_request['tau_intra'].values[0] # min num of hours before another obs
         tau_intra_slots = tau_intra_hrs * slots_per_hour
