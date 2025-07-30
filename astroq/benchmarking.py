@@ -13,7 +13,6 @@ import random
 from configparser import ConfigParser
 from argparse import Namespace
 
-import astroq.request as rq
 import astroq.driver as dr
 
 # In the paper, we used random seed = 24.

@@ -1,5 +1,4 @@
 import astroq.driver as dr
-import astroq.request as rq
 import astroq.benchmarking as bn
 import argparse
 from configparser import ConfigParser
@@ -22,11 +21,11 @@ class TestClass(unittest.TestCase):
         dr.kpfcc(argparse.Namespace(kpfcc_subcommand=None))
 
     def test_helloworld(self):
-        dr.schedule(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
+        dr.kpfcc_plan_semester(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
 
     def test_round2_weather(self):
         dr.kpfcc_prep(argparse.Namespace(config_file='examples/hello_world/config_hello_world_yesbonus.ini'))
-        dr.schedule(argparse.Namespace(config_file='examples/hello_world/config_hello_world_yesbonus.ini'))
+        dr.kpfcc_plan_semester(argparse.Namespace(config_file='examples/hello_world/config_hello_world_yesbonus.ini'))
 
     def test_bench(self):
         dr.bench(argparse.Namespace(config_file='examples/bench/config_benchmark.ini', number_slots=12, thin=10))
