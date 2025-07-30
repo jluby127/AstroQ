@@ -67,22 +67,6 @@ def main():
                               )
     psr_plot.set_defaults(func=astroq.driver.plot_pkl)
 
-    ## subcommand of astroq: schedule -- Schedule observation requests
-    psr_schedule = subpsr.add_parser('schedule', parents=[psr_parent],
-                                      description="Schedule observation requests",
-                                      prefix_chars="-"
-                                     )
-    psr_schedule.add_argument('-rf', '--request_file',
-                              type=str,
-                              required=True,
-                              help="Relative path of request file."
-                              )
-    psr_schedule.add_argument('-cf', '--config_file',
-                              type=str,
-                              required=True,
-                              help="Relative path of config file."
-                              )
-    psr_schedule.set_defaults(func=astroq.driver.schedule)
 
     ## subcommand of astroq: kpfcc -- Do KPFCC stuff
     psr_kpfcc = subpsr.add_parser('kpfcc', parents=[psr_parent],
@@ -91,18 +75,6 @@ def main():
                                   )
     kpfcc_subpsr = psr_kpfcc.add_subparsers(title='kpfcc subcommands', dest='kpfcc_subcommand')
     psr_kpfcc.set_defaults(func=astroq.driver.kpfcc)
-
-    ## subcommand of kpfcc: build -- Build observation requests
-    psr_kpfcc_build = kpfcc_subpsr.add_parser('build', #parents=[psr_parent],
-                                               description="Build observation requests",
-                                               prefix_chars="-"
-                                               )
-    psr_kpfcc_build.add_argument('-cf', '--config_file',
-                              type=str,
-                              required=True,
-                              help="Relative path of config file."
-                                )
-    psr_kpfcc_build.set_defaults(func=astroq.driver.kpfcc_build)
 
     ## subcommand of kpfcc: prepare -- Prep for a new semester
     psr_kpfcc_prep = kpfcc_subpsr.add_parser('prep', #parents=[psr_parent],
