@@ -101,6 +101,7 @@ class NightPlanner(object):
         self.today_starting_night = self.semester_planner.today_starting_night
         self.past_history = self.semester_planner.past_history
         self.slots_needed_for_exposure_dict = self.semester_planner.slots_needed_for_exposure_dict
+        self.run_weather_loss = self.semester_planner.run_weather_loss
         
     def get_nightly_times_from_allocation(self, current_day):
         """
@@ -185,13 +186,20 @@ class NightPlanner(object):
 
         observe_order_file = os.path.join(observers_path,'night_plan.csv')
         plotting.writeStarList(solution.plotly, observation_start_time, self.current_day,
-                            outputpath=observe_order_file)
+                            outputdir=observers_path)
         plotting.plot_path_2D(solution,outputdir=observers_path)
         plotting.nightPlan(solution.plotly, self.current_day, outputdir=observers_path)
-        obs_and_times = pd.read_csv(observe_order_file)
+        
+        # Check if the file was created before trying to read it
+        if os.path.exists(observe_order_file):
+            obs_and_times = pd.read_csv(observe_order_file)
+        else:
+            print(f"Warning: {observe_order_file} was not created by writeStarList")
+            obs_and_times = pd.DataFrame()  # Create empty DataFrame as fallback
         io.write_starlist(selected_df, solution.plotly, observation_start_time, solution.extras,
                             [], str(self.current_day), observers_path)
         print("The optimal path through the sky for the selected stars is found. Clear skies!")
+        return save_data
 
     def produce_bright_backups(self, nstars_max=100):
         """
@@ -224,7 +232,8 @@ class NightPlanner(object):
             allocation_file=self.allocation_file,
             past_history=self.past_history,
             today_starting_night=self.today_starting_night,
-            slots_needed_for_exposure_dict=self.slots_needed_for_exposure_dict
+            slots_needed_for_exposure_dict=self.slots_needed_for_exposure_dict,
+            run_weather_loss=self.run_weather_loss
         )
         available_indices = access_obj.produce_ultimate_map(self.requests_frame, running_backup_stars=True)
         slots_available_tonight_for_star = {k: len(v[0]) for k, v in available_indices.items()}

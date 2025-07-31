@@ -44,7 +44,7 @@ class Access:
     
     def __init__(self, semester_start_date, semester_length, slot_size, observatory, 
                  current_day, all_dates_dict, custom_file, allocation_file, 
-                 past_history, today_starting_night, slots_needed_for_exposure_dict):
+                 past_history, today_starting_night, slots_needed_for_exposure_dict, run_weather_loss):
         """
         Initialize the Access object with explicit parameters.
         
@@ -72,6 +72,7 @@ class Access:
         self.past_history = past_history
         self.today_starting_night = today_starting_night
         self.slots_needed_for_exposure_dict = slots_needed_for_exposure_dict
+        self.run_weather_loss = run_weather_loss
     
     def produce_ultimate_map(self, rf, running_backup_stars=False):
         """
@@ -187,9 +188,12 @@ class Access:
 
         # run the weather loss simulation
         is_clear = np.ones_like(is_altaz, dtype=bool)
-        loss_stats_this_semester = wh.get_loss_stats(self)
-        is_clear = wh.simulate_weather_losses(self, loss_stats_this_semester, covariance=0.14, run_weather_loss=self.run_weather_loss)
-        wh.write_out_weather_stats(self, is_clear)
+        if self.run_weather_loss:
+            loss_stats_this_semester = wh.get_loss_stats(self)
+            is_clear = wh.simulate_weather_losses(self, loss_stats_this_semester, covariance=0.14, run_weather_loss=self.run_weather_loss)
+            wh.write_out_weather_stats(self, is_clear)
+        else:
+            print("Pretending weather is always clear!")
 
         is_observable_now = np.logical_and.reduce([
             is_altaz,

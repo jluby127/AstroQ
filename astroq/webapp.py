@@ -21,7 +21,8 @@ def index():
     if selected_page == "Overview":
         labels = ["All Programs COF", "Bird's Eye"]
         for label in labels:
-            fig_html = dn.get_cof(semester_planner, all_stars_list) if label == "All Programs COF" else dn.get_birdseye(semester_planner, data_astroq[2], all_stars_list)
+            fig = dn.get_cof(semester_planner, all_stars_list) if label == "All Programs COF" else dn.get_birdseye(semester_planner, data_astroq[2], all_stars_list)
+            fig_html = pio.to_html(fig, full_html=True, include_plotlyjs='cdn')
             figures_html.append(fig_html)
 
     return render_template("index.html", figures_html=figures_html, pages=pages, selected_page=selected_page)
@@ -33,8 +34,10 @@ def admin():
     
     table_reqframe_html = dn.get_requests_frame(semester_planner, filter_condition=None)
     tables_html = [table_reqframe_html]
-    fig_cof_html = dn.get_cof(semester_planner, list(data_astroq[1].values()))
-    fig_birdseye_html = dn.get_birdseye(semester_planner, data_astroq[2], list(data_astroq[1].values()))
+    fig_cof = dn.get_cof(semester_planner, list(data_astroq[1].values()))
+    fig_birdseye = dn.get_birdseye(semester_planner, data_astroq[2], list(data_astroq[1].values()))
+    fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
+    fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
     figures_html = [fig_cof_html, fig_birdseye_html]
 
     return render_template("admin.html", tables_html=tables_html, figures_html=figures_html)
@@ -57,8 +60,10 @@ def single_program(programname):
     table_reqframe_html = dn.get_requests_frame(semester_planner, filter_condition=f"program_code=='{programname}'")
     tables_html = [table_reqframe_html]
 
-    fig_cof_html = dn.get_cof(semester_planner, star_obj_list)
-    fig_birdseye_html = dn.get_birdseye(semester_planner, data_astroq[2], star_obj_list)
+    fig_cof = dn.get_cof(semester_planner, star_obj_list)
+    fig_birdseye = dn.get_birdseye(semester_planner, data_astroq[2], star_obj_list)
+    fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
+    fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
     figures_html = [fig_cof_html, fig_birdseye_html]
 
     return render_template("semesterplan.html", programname=programname, tables_html=tables_html, figures_html=figures_html)
@@ -85,8 +90,10 @@ def single_star(starname):
             if object_compare_starname == compare_starname:
                 table_reqframe_html = dn.get_requests_frame(semester_planner, filter_condition=f"starname=='{true_starname}'")
 
-                fig_cof_html = dn.get_cof(semester_planner, [data_astroq[0][program][star_ind]])
-                fig_birdseye_html = dn.get_birdseye(semester_planner, data_astroq[2], [star_obj])
+                fig_cof = dn.get_cof(semester_planner, [data_astroq[0][program][star_ind]])
+                fig_birdseye = dn.get_birdseye(semester_planner, data_astroq[2], [star_obj])
+                fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
+                fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
 
                 tables_html = [table_reqframe_html]
                 figures_html = [fig_cof_html, fig_birdseye_html]
@@ -101,10 +108,17 @@ def nightplan():
     plots = ['script_table', 'slewgif', 'ladder', 'slewpath']
 
     if data_ttp is not None:
-        script_table_html = dn.get_script_plan(config_file, data_ttp)
-        ladder_html = dn.get_ladder(data_ttp)
+        script_table_df = dn.get_script_plan(config_file, data_ttp)
+        ladder_fig = dn.get_ladder(data_ttp)
         slew_animation_html = dn.get_slew_animation(data_ttp, animationStep=120)
-        slew_path_html = dn.plot_path_2D_interactive(data_ttp)
+        slew_path_fig = dn.plot_path_2D_interactive(data_ttp)
+        
+        # Convert dataframe to HTML
+        script_table_html = dn.dataframe_to_html(script_table_df, sort_column=11)
+        # Convert figures to HTML
+        ladder_html = pio.to_html(ladder_fig, full_html=True, include_plotlyjs='cdn')
+        slew_path_html = pio.to_html(slew_path_fig, full_html=True, include_plotlyjs='cdn')
+        
         figure_html_list = [script_table_html, ladder_html, slew_animation_html, slew_path_html]
 
     else:
