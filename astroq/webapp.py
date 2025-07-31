@@ -1,4 +1,5 @@
 import os
+import base64
 from flask import Flask, render_template, request
 import numpy as np
 import plotly.io as pio
@@ -110,7 +111,7 @@ def nightplan():
     if data_ttp is not None:
         script_table_df = dn.get_script_plan(config_file, data_ttp)
         ladder_fig = dn.get_ladder(data_ttp)
-        slew_animation_html = dn.get_slew_animation(data_ttp, animationStep=120)
+        slew_animation_gif_buf = dn.get_slew_animation(data_ttp, animationStep=120)
         slew_path_fig = dn.plot_path_2D_interactive(data_ttp)
         
         # Convert dataframe to HTML
@@ -118,6 +119,11 @@ def nightplan():
         # Convert figures to HTML
         ladder_html = pio.to_html(ladder_fig, full_html=True, include_plotlyjs='cdn')
         slew_path_html = pio.to_html(slew_path_fig, full_html=True, include_plotlyjs='cdn')
+        
+        # Convert GIF buffer to HTML
+        gif_base64 = base64.b64encode(slew_animation_gif_buf.getvalue()).decode('utf-8')
+        slew_animation_html = f'<img src="data:image/gif;base64,{gif_base64}" alt="Observing Animation"/>'
+        slew_animation_gif_buf.close()
         
         figure_html_list = [script_table_html, ladder_html, slew_animation_html, slew_path_html]
 

@@ -2,6 +2,7 @@ import os
 import json
 import pandas as pd
 import numpy as np
+import base64
 
 from configparser import ConfigParser
 
@@ -43,15 +44,13 @@ def bench(args):
     # Load the requests frame and thin it
     config = ConfigParser()
     config.read(cf)
-    semester_directory = eval(config.get('required', 'folder'), {"os": os})
+    semester_directory = config.get('global', 'workdir')
     requests_frame = pd.read_csv(os.path.join(semester_directory, "inputs/requests.csv"))
     original_size = len(requests_frame)
     requests_frame = requests_frame.iloc[::thin]
     new_size = len(requests_frame)
     print(f'Request frame thinned: {original_size} -> {new_size} rows (factor of {thin})')
-    
-    requests_frame.to_csv(os.path.join(semester_directory, "inputs/Requests.csv"))
-    
+        
     # Run the schedule directly from config file
     schedule = splan.SemesterPlanner(cf)
     schedule.run_model()
@@ -167,7 +166,7 @@ def plot_static(args):
         data_ttp = pl.read_star_objects(ttp_plot_pkl_path)
         script_table_df = dn.get_script_plan(cf, data_ttp)
         ladder_fig = dn.get_ladder(data_ttp)
-        slew_animation_html = dn.get_slew_animation(data_ttp, animationStep=120)
+        slew_animation_gif_buf = dn.get_slew_animation(data_ttp, animationStep=120)
         slew_path_fig = dn.plot_path_2D_interactive(data_ttp)
         # write the static versions to the reports directory
         script_table_df.to_csv(os.path.join(saveout, "script_table.csv"), index=False)
@@ -207,8 +206,13 @@ def get_dynamics(args):
         data_ttp = pl.read_star_objects(ttp_path)
         script_table_html = dn.get_script_plan(cf, data_ttp)
         ladder_html = dn.get_ladder(data_ttp)
-        slew_animation_html = dn.get_slew_animation(data_ttp, animationStep=120)
+        slew_animation_gif_buf = dn.get_slew_animation(data_ttp, animationStep=120)
         slew_path_html = dn.plot_path_2D_interactive(data_ttp)
+        
+        # Convert GIF buffer to HTML for web display
+        gif_base64 = base64.b64encode(slew_animation_gif_buf.getvalue()).decode('utf-8')
+        slew_animation_html = f'<img src="data:image/gif;base64,{gif_base64}" alt="Observing Animation"/>'
+        slew_animation_gif_buf.close()
 
     # TODO: need to fix this.
     #dn.get_tau_inter_line(list(data_astroq[0].values())[0])

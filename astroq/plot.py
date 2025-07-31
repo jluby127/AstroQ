@@ -6,25 +6,24 @@ Example usage:
     import plotting_functions as ptf
 """
 
+# Standard library imports
 import os
-import pandas as pd
-import numpy as np
-import json
-import seaborn as sns
-import plotly.graph_objects as go
-import plotly.express as px
-import plotly.io as pio
-from astropy.time import Time
-from astropy.time import TimeDelta
-
-from collections import defaultdict
 import pickle
+from collections import defaultdict
 
-import astroq.management as mn
-import astroq.history as hs
+# Third-party imports
+import numpy as np
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import plotly.io as pio
+import seaborn as sns
+from astropy.time import Time, TimeDelta
+
+# Local imports
 import astroq.access as ac
-import astroq.io as io
-import ttp.plotting as plotting
+import astroq.management as mn
+
 
 labelsize = 38
 
