@@ -740,11 +740,14 @@ def createTelSlewPath(stamps, changes, pointings, animationStep=120):
     return stamps
 
 def get_slew_animation(data, animationStep=120):
-    """Create an animated GIF showing telescope slew path during observations.
+    """Create a list of matplotlib figures showing telescope slew path during observations.
 
     Args:
         data: TTP data containing the schedule information
         animationStep (int): the time, in seconds, between animation still frames. Default to 120s.
+        
+    Returns:
+        list: List of matplotlib Figure objects representing each frame of the animation
     """
 
     model = data[0]
@@ -778,8 +781,8 @@ def get_slew_animation(data, animationStep=120):
     theta = np.arange(model.observatory.deckAzLim1 / 180, model.observatory.deckAzLim2 / 180, 1. / 180) * np.pi
     allaround = np.arange(0., 360 / 180, 1. / 180) * np.pi
 
-    # Create GIF frames in memory
-    gif_frames = []
+    # Create list of matplotlib figures
+    figures = []
     for i in range(len(t)):
         fig = Figure(figsize=(6, 6))
         ax = fig.add_subplot(111, projection='polar')
@@ -799,30 +802,14 @@ def get_slew_animation(data, animationStep=120):
         # Plot stars
         for j in range(len(model.schedule['Starname'])):
             color = 'orange' if names[j] in observed_list else 'white'
-            # ax.scatter(alt[j][i], color=color, marker='*')
             ax.scatter(alt[i][j], az[i][j], color=color, marker='*')
 
         # Draw telescope path
         ax.plot(tel_az[:i], tel_zen[:i], color='orange')
+        
+        figures.append(fig)
 
-        # Save frame to memory
-        buf = BytesIO()
-        fig.savefig(buf, format='png', dpi=100)
-        buf.seek(0)
-        gif_frames.append(iio.imread(buf))
-        buf.close()
-
-    # Write GIF to memory
-    gif_buf = BytesIO()
-    iio.imwrite(gif_buf, gif_frames, format='gif', loop=0, duration=0.3)  # 0.3s per frame
-    gif_buf.seek(0)
-
-    # Encode in base64 for HTML embedding
-    gif_base64 = base64.b64encode(gif_buf.read()).decode('utf-8')
-    gif_buf.close()
-
-    slew_animation_html = f'<img src="data:image/gif;base64,{gif_base64}" alt="Observing Animation"/>'
-    return slew_animation_html
+    return figures
 
 def get_script_plan(config_file, data):
     """Generate script plan HTML table from TTP data."""

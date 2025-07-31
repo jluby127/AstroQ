@@ -185,8 +185,9 @@ class NightPlanner(object):
             pickle.dump(save_data, f)
 
         observe_order_file = os.path.join(observers_path,'night_plan.csv')
+        observe_order_txt = os.path.join(observers_path, f"ObserveOrder_{self.current_day}.txt")
         plotting.writeStarList(solution.plotly, observation_start_time, self.current_day,
-                            outputdir=observers_path)
+                            observe_order_txt)
         plotting.plot_path_2D(solution,outputdir=observers_path)
         plotting.nightPlan(solution.plotly, self.current_day, outputdir=observers_path)
         
@@ -255,8 +256,10 @@ class NightPlanner(object):
                                     target_list, observatory, backups_path,
                                     runtime=10, optgap=0.05)
 
+        backup_order_file = os.path.join(backups_path, 'night_plan.csv')
+        backup_order_txt = os.path.join(backups_path, f"ObserveOrder_{self.current_day}.txt")
         plotting.writeStarList(solution_b.plotly, observation_start_time, self.current_day,
-                                    outputdir = backups_path)
+                                    backup_order_txt)
         plotting.plot_path_2D(solution_b, outputdir = backups_path)
         plotting.nightPlan(solution_b.plotly, self.current_day, outputdir = backups_path)
         obs_and_times_b = pd.read_csv(backups_path + 'night_plan.csv')

@@ -166,7 +166,7 @@ def plot_static(args):
         data_ttp = pl.read_star_objects(ttp_plot_pkl_path)
         script_table_df = dn.get_script_plan(cf, data_ttp)
         ladder_fig = dn.get_ladder(data_ttp)
-        slew_animation_gif_buf = dn.get_slew_animation(data_ttp, animationStep=120)
+        slew_animation_figures = dn.get_slew_animation(data_ttp, animationStep=120)
         slew_path_fig = dn.plot_path_2D_interactive(data_ttp)
         # write the static versions to the reports directory
         script_table_df.to_csv(os.path.join(saveout, "script_table.csv"), index=False)
@@ -184,38 +184,6 @@ def ttp(args):
     night_planner.run_ttp()
     return
 
-
-def get_dynamics(args):
-    cf = args.config_file
-    print(f'get_dynamics function: config_file is {cf}')
-
-    
-    # Use NightPlanner for reports_directory
-    night_planner = nplan.NightPlanner(cf)
-    data_astroq = pl.read_star_objects(night_planner.reports_directory + "star_objects.pkl")
-    # all_stars_list = [star_obj for star_obj_list in data_astroq[0].values() for star_obj in star_obj_list]
-    
-    # Create SemesterPlanner for get_cof, get_birdseye, and get_requests_frame
-    semester_planner = splan.SemesterPlanner(cf)
-    table_reqframe_html = dn.get_requests_frame(semester_planner, filter_condition=None)
-    fig_cof_html = dn.get_cof(semester_planner, list(data_astroq[1].values()))
-    fig_birdseye_html = dn.get_birdseye(semester_planner, data_astroq[2], list(data_astroq[1].values()))
-
-    ttp_path = os.path.join(night_planner.reports_directory , "ttp_data.pkl")
-    if os.path.exists(ttp_path):
-        data_ttp = pl.read_star_objects(ttp_path)
-        script_table_html = dn.get_script_plan(cf, data_ttp)
-        ladder_html = dn.get_ladder(data_ttp)
-        slew_animation_gif_buf = dn.get_slew_animation(data_ttp, animationStep=120)
-        slew_path_html = dn.plot_path_2D_interactive(data_ttp)
-        
-        # Convert GIF buffer to HTML for web display
-        gif_base64 = base64.b64encode(slew_animation_gif_buf.getvalue()).decode('utf-8')
-        slew_animation_html = f'<img src="data:image/gif;base64,{gif_base64}" alt="Observing Animation"/>'
-        slew_animation_gif_buf.close()
-
-    # TODO: need to fix this.
-    #dn.get_tau_inter_line(list(data_astroq[0].values())[0])
 
 def requests_vs_schedule(args):
     cf = args.config_file
