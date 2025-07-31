@@ -7,7 +7,6 @@ import logging
 import os
 
 # Local imports
-from astroq import driver
 
 __version__ = '2.1.0'
 DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data')

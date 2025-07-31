@@ -11,11 +11,6 @@ import os
 import warnings
 
 # Third-party imports
-import astroplan as apl
-import astropy as apy
-from astropy.coordinates import Angle, SkyCoord
-from astropy.time import Time, TimeDelta
-import astropy.units as u
 import numpy as np
 import pandas as pd
 

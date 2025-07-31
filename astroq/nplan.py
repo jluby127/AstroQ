@@ -19,7 +19,7 @@ import pickle
 # Third-party imports
 import numpy as np
 import pandas as pd
-from astropy.time import Time, TimeDelta
+from astropy.time import Time
 
 # Local imports
 import astroq.access as ac

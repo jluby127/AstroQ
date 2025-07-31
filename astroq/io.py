@@ -7,13 +7,11 @@ Example usage:
 """
 
 # Standard library imports
-import math
 import os
 import re
-import time
 
 # Third-party imports
-from astropy.coordinates import Angle, SkyCoord
+from astropy.coordinates import SkyCoord
 from astropy.time import Time, TimeDelta
 from astropy import units as u
 import numpy as np

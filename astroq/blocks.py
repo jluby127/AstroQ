@@ -14,7 +14,6 @@ import numpy as np
 import pandas as pd
 import requests
 from astropy.coordinates import SkyCoord
-from astropy.time import Time
 import astropy.units as u
 
 exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', 'metadata.history',
