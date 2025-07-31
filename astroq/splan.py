@@ -42,8 +42,12 @@ class SemesterPlanner(object):
         self.current_day = str(config.get('global', 'current_day'))
         self.observatory = config.get('global', 'observatory')
         
+        self.n_hours_in_night = 24 # later we will delete this
+        self.n_quarters_in_night = 4 # later we will delete this
+
         # Get semester parameters from semester section
         self.slot_size = config.getint('semester', 'slot_size')
+        self.run_weather_loss = config.getboolean('semester', 'run_weather_loss')
         self.solve_time_limit = config.getint('semester', 'max_solve_time')
         self.gurobi_output = config.getboolean('semester', 'show_gurobi_output')
         self.solve_max_gap = config.getfloat('semester', 'max_solve_gap')
@@ -295,7 +299,8 @@ class SemesterPlanner(object):
             allocation_file=self.allocation_file,
             past_history=self.past_history,
             today_starting_night=self.today_starting_night,
-            slots_needed_for_exposure_dict=self.slots_needed_for_exposure_dict
+            slots_needed_for_exposure_dict=self.slots_needed_for_exposure_dict,
+            run_weather_loss=self.run_weather_loss
         )
         observability = access_obj.observability(self.requests_frame)
 

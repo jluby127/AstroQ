@@ -129,8 +129,7 @@ def get_cof(semester_planner, all_stars, static=False):
             zeroline=False
         ),
     )
-    cof_html = pio.to_html(fig, full_html=True, include_plotlyjs='cdn')
-    return cof_html
+    return fig
 
 def get_birdseye(semester_planner, availablity, all_stars):
     '''
@@ -253,8 +252,7 @@ def get_birdseye(semester_planner, availablity, all_stars):
             font=dict(size=labelsize-10)
         )
     )
-    birdseye_html = pio.to_html(fig, full_html=True, include_plotlyjs='cdn')
-    return birdseye_html
+    return fig
 
 def get_tau_inter_line(all_stars):
     """
@@ -335,8 +333,9 @@ def get_tau_inter_line(all_stars):
         height=600,
         width=800
     )
-    tau_inter_line_html = pio.to_html(fig, full_html=True, include_plotlyjs='cdn')
-    return tau_inter_line_html
+    # tau_inter_line_html = pio.to_html(fig, full_html=True, include_plotlyjs='cdn')
+    # return tau_inter_line_html
+    return fig    
 
 
 def compute_seasonality(semester_planner, starnames, ras, decs):
@@ -645,8 +644,9 @@ def get_football(semester_planner, all_stars):#RA_grid, DEC_grid, Z_grid, reques
             )
         ]
     )
-    skymap_html = pio.to_html(fig, full_html=True, include_plotlyjs='cdn')
-    return skymap_html
+    # skymap_html = pio.to_html(fig, full_html=True, include_plotlyjs='cdn')
+    # return skymap_html
+    return fig
 
 
 
@@ -701,8 +701,7 @@ def get_ladder(data):
             ifixer -= 1
 
     fig.update_layout(xaxis_range=[0,orderData['Start Exposure'][0] + orderData["Total Exp Time (min)"][0]])
-    ladder_html = pio.to_html(fig, full_html=True, include_plotlyjs='cdn')
-    return ladder_html
+    return fig
 
 
 def createTelSlewPath(stamps, changes, pointings, animationStep=120):
@@ -734,14 +733,15 @@ def createTelSlewPath(stamps, changes, pointings, animationStep=120):
                 stamps[j] = pointings[i]
 
     # Add edge cases of the first and last telescope pointing
-    k = 0
-    while stamps[k] == 0:
-        stamps[k] = pointings[0]
-        k += 1
-    l = len(stamps)-1
-    while stamps[l] == 0:
-        stamps[l] = pointings[-1]
-        l -= 1
+    if len(stamps) > 0:
+        k = 0
+        while k < len(stamps) and stamps[k] == 0:
+            stamps[k] = pointings[0]
+            k += 1
+        l = len(stamps)-1
+        while l >= 0 and stamps[l] == 0:
+            stamps[l] = pointings[-1]
+            l -= 1
 
     return stamps
 
@@ -847,30 +847,10 @@ def get_script_plan(config_file, data):
     lines = io_mine.write_starlist(semester_planner.requests_frame, data[0].plotly, obs_start_time, data[0].extras, round_two_requests, str(semester_planner.current_day), night_planner.reports_directory)
     observing_plan = pd.DataFrame([io_mine.parse_star_line(line) for line in lines])
     observing_plan = observing_plan[observing_plan.iloc[:, 0].str.strip() != '']
-    observing_plan_html = dataframe_to_html(observing_plan, sort_column=11)
-    return observing_plan_html
+    return observing_plan
 
 
-def get_requests_frame(semester_planner, filter_condition=None):
-    """
-    Load semester_planner.requests_frame and render in HTML
 
-    Arguments:
-        semester_planner (SemesterPlanner): SemesterPlanner object holding requests_frame
-        filter_condition (str): String specifying any desired filters
-            to apply to loaded frame. Defaults to empty (no cuts)
-
-    Returns:
-        req_frame_html (str): HTML string representing filtered frame
-
-    """
-
-    req_frame = semester_planner.requests_frame
-    if filter_condition is not None:
-        req_frame = req_frame.query(filter_condition)
-    req_frame_html = dataframe_to_html(req_frame, sort_column=0)
-
-    return req_frame_html
 
 
 def plot_path_2D_interactive(data):
@@ -956,8 +936,7 @@ def plot_path_2D_interactive(data):
         yaxis2_title="Altitude (deg)",
         template="plotly_white"
     )
-    slew_path_html = pio.to_html(fig, full_html=True, include_plotlyjs='cdn')
-    return slew_path_html
+    return fig
 
 def dataframe_to_html(dataframe, sort_column=0):
     """

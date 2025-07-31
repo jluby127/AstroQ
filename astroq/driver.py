@@ -155,23 +155,24 @@ def plot_static(args):
     if os.path.exists(semester_plot_pkl_path):
         data_astroq = pl.read_star_objects(semester_plot_pkl_path)
         # build the interactive plots
-        fig_cof_html = dn.get_cof(semester_planner, list(data_astroq[1].values()))
-        fig_birdseye_html = dn.get_birdseye(semester_planner, data_astroq[2], list(data_astroq[1].values()))
+        fig_cof = dn.get_cof(semester_planner, list(data_astroq[1].values()))
+        fig_birdseye = dn.get_birdseye(semester_planner, data_astroq[2], list(data_astroq[1].values()))
         # write the static versions to the reports directory
-        fig_cof_html.write_html(os.path.join(saveout, "all_programs_COF.html"))
-        fig_birdseye_html.write_html(os.path.join(saveout, "all_stars_birdseye.html"))
+        fig_cof.write_image(os.path.join(saveout, "all_programs_COF.png"), width=1200, height=800)
+        fig_birdseye.write_image(os.path.join(saveout, "all_stars_birdseye.png"), width=1200, height=800)
 
     ttp_plot_pkl_path = os.path.join(semester_planner.output_directory, "ttp_data.pkl")
     if os.path.exists(ttp_plot_pkl_path):
         # build the interactive plots
         data_ttp = pl.read_star_objects(ttp_plot_pkl_path)
-        script_table_html = dn.get_script_plan(cf, data_ttp)
-        ladder_html = dn.get_ladder(data_ttp)
+        script_table_df = dn.get_script_plan(cf, data_ttp)
+        ladder_fig = dn.get_ladder(data_ttp)
         slew_animation_html = dn.get_slew_animation(data_ttp, animationStep=120)
-        slew_path_html = dn.plot_path_2D_interactive(data_ttp)
+        slew_path_fig = dn.plot_path_2D_interactive(data_ttp)
         # write the static versions to the reports directory
-        ladder_html.write_html(os.path.join(saveout, "ladder_plot.html"))
-        slew_path_html.write_html(os.path.join(saveout, "slew_path_plot.html"))
+        script_table_df.to_csv(os.path.join(saveout, "script_table.csv"), index=False)
+        ladder_fig.write_image(os.path.join(saveout, "ladder_plot.png"), width=1200, height=800)
+        slew_path_fig.write_image(os.path.join(saveout, "slew_path_plot.png"), width=1200, height=800)
     
     return
 

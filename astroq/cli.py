@@ -98,23 +98,7 @@ def main():
                               )
     psr_kpfcc_prep.set_defaults(func=astroq.driver.kpfcc_prep)
 
-    ## subcommand of kpfcc: data -- pull latest OB database
-    psr_kpfcc_data = kpfcc_subpsr.add_parser('data', #parents=[psr_parent],
-                                               description="Pull the OB database from Keck",
-                                               prefix_chars="-"
-                                               )
-    psr_kpfcc_data.add_argument('-pf', '--pull_file',
-                              type=str,
-                              required=True,
-                              help="Path to the file that determines how to pull from the database."
-                                )
-    psr_kpfcc_data.add_argument('-df', '--database_file',
-                              type=str,
-                              required=True,
-                              help="Path to save the good OBs request sheet."
-                                )
-    psr_kpfcc_data.set_defaults(func=astroq.driver.kpfcc_data)
-
+ 
     ## subcommand of kpfcc: webapp -- launch web app to view interactive plots
     psr_kpfcc_webapp = kpfcc_subpsr.add_parser('webapp', #parents=[psr_parent],
                                                description="Launch web app to view interactive plots",

@@ -140,7 +140,8 @@ def process_stars(semester_planner):
         allocation_file=semester_planner.allocation_file,
         past_history=semester_planner.past_history,
         today_starting_night=semester_planner.today_starting_night,
-        slots_needed_for_exposure_dict=semester_planner.slots_needed_for_exposure_dict
+        slots_needed_for_exposure_dict=semester_planner.slots_needed_for_exposure_dict,
+        run_weather_loss=semester_planner.run_weather_loss
     )
     access = access_obj.produce_ultimate_map(semester_planner.requests_frame)
     nulltime = access['is_alloc'][0]
@@ -249,6 +250,6 @@ def read_star_objects(savepath):
 
 def build_semester_webapp_pkl(semester_planner):
     stars_in_program, programs_as_stars, nulltime = process_stars(semester_planner)
-    save_path = semester_planner.reports_directory
+    save_path = semester_planner.output_directory
     os.makedirs(save_path, exist_ok = True)
     write_star_objects(save_path, [stars_in_program, programs_as_stars, nulltime])

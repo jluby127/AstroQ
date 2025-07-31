@@ -22,7 +22,7 @@ from astropy.coordinates import Angle
 import astroplan as apl
 import astropy.units as u
 
-import astroq.access as ac
+DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')
 
 def get_loss_stats(manager):
     """
@@ -34,7 +34,7 @@ def get_loss_stats(manager):
     Returns:
         loss_stats_this_semester (array): each element is the percent of total loss for nights,
     """
-    historical_weather_data = pd.read_csv(os.path.join(manager.DATADIR,"maunakea_weather_loss_data.csv"))
+    historical_weather_data = pd.read_csv(os.path.join(DATADIR,"maunakea_weather_loss_data.csv"))
     loss_stats_this_semester = []
     for i, item in enumerate(manager.all_dates_array):
         ind = historical_weather_data.index[historical_weather_data['Date'] == \
@@ -42,7 +42,7 @@ def get_loss_stats(manager):
         loss_stats_this_semester.append(historical_weather_data['% Total Loss'][ind])
     return loss_stats_this_semester
 
-def simulate_weather_losses(manager, loss_stats, covariance=0.14, run_weather_loss=False):
+def simulate_weather_losses(manager, loss_stats, covariance=0.14):
     """
     Simulate nights totally lost to weather usine historical data
 
@@ -57,23 +57,20 @@ def simulate_weather_losses(manager, loss_stats, covariance=0.14, run_weather_lo
     """
     previous_day_was_lost = False
     is_clear = np.ones((manager.n_nights_in_semester, int((24*60)/ manager.slot_size)),dtype=bool)
-    if run_weather_loss:
-        for i in range(len(loss_stats)):
-            if i != today_index:
-                value_to_beat = loss_stats[i]
-                if previous_day_was_lost:
-                    value_to_beat += covariance
-                roll_the_dice = np.random.uniform(0.0,1.0)
+    for i in range(len(loss_stats)):
+        if i != today_index:
+            value_to_beat = loss_stats[i]
+            if previous_day_was_lost:
+                value_to_beat += covariance
+            roll_the_dice = np.random.uniform(0.0,1.0)
 
-                if roll_the_dice < value_to_beat:
-                    # the night is simulated a total loss
-                    is_clear[i] = np.zeros(len(allocation_post_losses[i]))
-                    previous_day_was_lost = True
-                else:
-                    previous_day_was_lost = False
-        logs.info("Total nights simulated as weathered out: " + str(np.any(is_clear, axis=1).sum()) + " of " + str(len(is_clear)) + " nights remaining.")
-    else:
-        logs.info('Pretending weather is always good!')
+            if roll_the_dice < value_to_beat:
+                # the night is simulated a total loss
+                is_clear[i] = np.zeros(len(allocation_post_losses[i]))
+                previous_day_was_lost = True
+            else:
+                previous_day_was_lost = False
+    logs.info("Total nights simulated as weathered out: " + str(np.any(is_clear, axis=1).sum()) + " of " + str(len(is_clear)) + " nights remaining.")
 
     return is_clear
 
