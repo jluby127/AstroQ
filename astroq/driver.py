@@ -19,7 +19,6 @@ import astroq.blocks as ob
 import astroq.dynamic as dn
 import astroq.history as hs
 import astroq.io as io
-import astroq.management as mn
 import astroq.nplan as nplan
 import astroq.plot as pl
 import astroq.splan as splan

@@ -3,7 +3,6 @@ import astroq.benchmarking as bn
 import argparse
 from configparser import ConfigParser
 import os
-import astroq.management as mn
 import astroq.splan as splan
 import astroq.plot as pl
 import astroq.dynamic as dn
