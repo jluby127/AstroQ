@@ -299,12 +299,15 @@ class SemesterPlanner(object):
             observatory=self.observatory,
             current_day=self.current_day,
             all_dates_dict=self.all_dates_dict,
+            all_dates_array=self.all_dates_array,
+            n_nights_in_semester=self.n_nights_in_semester,
             custom_file=self.custom_file,
             allocation_file=self.allocation_file,
             past_history=self.past_history,
             today_starting_night=self.today_starting_night,
             slots_needed_for_exposure_dict=self.slots_needed_for_exposure_dict,
-            run_weather_loss=self.run_weather_loss
+            run_weather_loss=self.run_weather_loss,
+            output_directory=self.output_directory
         )
         observability = access_obj.observability(self.requests_frame)
 

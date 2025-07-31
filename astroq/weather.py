@@ -26,41 +26,43 @@ logs = logging.getLogger(__name__)
 
 DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')
 
-def get_loss_stats(manager):
+def get_loss_stats(all_dates_array):
     """
     Get the loss probabilities for this semester's dates
 
     Args:
-        manager (obj): a data_admin object
+        all_dates_array (array): Array of date strings for the semester
 
     Returns:
         loss_stats_this_semester (array): each element is the percent of total loss for nights,
     """
     historical_weather_data = pd.read_csv(os.path.join(DATADIR,"maunakea_weather_loss_data.csv"))
     loss_stats_this_semester = []
-    for i, item in enumerate(manager.all_dates_array):
+    for i, item in enumerate(all_dates_array):
         ind = historical_weather_data.index[historical_weather_data['Date'] == \
-            manager.all_dates_array[i][5:]].tolist()[0]
+            all_dates_array[i][5:]].tolist()[0]
         loss_stats_this_semester.append(historical_weather_data['% Total Loss'][ind])
     return loss_stats_this_semester
 
-def simulate_weather_losses(manager, loss_stats, covariance=0.14):
+def simulate_weather_losses(semester_length, n_nights_in_semester, slot_size, loss_stats, covariance=0.14):
     """
-    Simulate nights totally lost to weather usine historical data
+    Simulate nights totally lost to weather using historical data
 
     Args:
-        loss_stats (array): 1D array of manager.semester_length where elements are the
+        semester_length (int): Total number of nights in the semester
+        n_nights_in_semester (int): Number of remaining nights in the semester
+        slot_size (int): Size of time slots in minutes
+        loss_stats (array): 1D array of semester_length where elements are the
                             percent of the time that night is totally lost to weather
         covariance (float): the added percent that tomorrow will be lost if today is lost
-        run_weather_loss (boolean): a flag that turns on/off weather simulation entirely
 
     Returns:
         is_clear (array): Trues represent clear nights, Falses represent weathered nights
     """
     previous_day_was_lost = False
-    is_clear = np.ones((manager.n_nights_in_semester, int((24*60)/ manager.slot_size)),dtype=bool)
+    is_clear = np.ones((n_nights_in_semester, int((24*60)/ slot_size)),dtype=bool)
     for i in range(len(loss_stats)):
-        if i != today_index:
+        if i < n_nights_in_semester:  # Only process remaining nights
             value_to_beat = loss_stats[i]
             if previous_day_was_lost:
                 value_to_beat += covariance
@@ -68,59 +70,10 @@ def simulate_weather_losses(manager, loss_stats, covariance=0.14):
 
             if roll_the_dice < value_to_beat:
                 # the night is simulated a total loss
-                is_clear[i] = np.zeros(len(allocation_post_losses[i]))
+                is_clear[i] = np.zeros(is_clear.shape[1])  # Set all slots to False
                 previous_day_was_lost = True
             else:
                 previous_day_was_lost = False
-    logs.info("Total nights simulated as weathered out: " + str(np.any(is_clear, axis=1).sum()) + " of " + str(len(is_clear)) + " nights remaining.")
+    logs.info("Total nights simulated as weathered out: " + str(np.sum(~np.any(is_clear, axis=1))) + " of " + str(len(is_clear)) + " nights remaining.")
 
     return is_clear
-
-def write_out_weather_stats(manager, is_clear):
-    """
-    Write out data on the results of the weather simulation. For comparing acrossing MCMC simulations
-
-    Args:
-        is_clear (array): 2D array, Trues represent clear nights, Falses represent weathered nights
-
-    Returns:
-        None
-    """
-    sim_results = []
-    allocation_statii = []
-    results = []
-    filename_weather = manager.output_directory + 'Weather_Simulation_Results.csv'
-    for a in range(len(is_clear)):
-        if a < manager.all_dates_dict[manager.current_day]:
-            sim_result = 'Past'
-            allocation_status = "Past"
-            result = "Past"
-        elif a == manager.all_dates_dict[manager.current_day]:
-            sim_result = '???'
-            allocation_status = "True"
-            result = "???"
-        else:
-            # Extra -1 because the days_lost array does not include today
-            if days_lost[a - manager.all_dates_dict[manager.current_day] - 1] == 1:
-                sim_result = 'Poor'
-            else:
-                sim_result = 'Clear'
-            if np.sum(allocation[a - manager.all_dates_dict[manager.current_day]]) >= 1:
-                allocation_status = 'True'
-            else:
-                allocation_status = 'False'
-
-            if allocation_status == 'True' and sim_result == 'Poor':
-                result = 'Lost'
-            elif allocation_status == 'True' and sim_result == 'Clear':
-                result = 'Go'
-            elif allocation_status == 'False' and sim_result == 'Clear':
-                result = 'Miss'
-            else:
-                result = 'Eh'
-        sim_results.append(sim_result)
-        allocation_statii.append(allocation_status)
-        results.append(result)
-    weather_frame = pd.DataFrame({'Date':manager.all_dates_array, 'Allocated':allocation_statii,
-                                    'SimWeather':sim_results, 'Designation':results})
-    weather_frame.to_csv(filename_weather, index=False)

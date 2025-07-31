@@ -43,8 +43,9 @@ class Access:
     """
     
     def __init__(self, semester_start_date, semester_length, slot_size, observatory, 
-                 current_day, all_dates_dict, custom_file, allocation_file, 
-                 past_history, today_starting_night, slots_needed_for_exposure_dict, run_weather_loss):
+                 current_day, all_dates_dict, all_dates_array, n_nights_in_semester,
+                 custom_file, allocation_file, past_history, today_starting_night, 
+                 slots_needed_for_exposure_dict, run_weather_loss, output_directory):
         """
         Initialize the Access object with explicit parameters.
         
@@ -55,11 +56,15 @@ class Access:
             observatory: Observatory name/location
             current_day: Current day identifier
             all_dates_dict: Dictionary mapping dates to day numbers
+            all_dates_array: Array of date strings for the semester
+            n_nights_in_semester: Number of remaining nights in the semester
             custom_file: Path to custom times file
             allocation_file: Path to allocation file
             past_history: Past observation history
             today_starting_night: Starting night number for today
             slots_needed_for_exposure_dict: Dictionary mapping star names to required slots
+            run_weather_loss: Whether to run weather loss simulation
+            output_directory: Directory for output files
         """
         self.semester_start_date = semester_start_date
         self.semester_length = semester_length
@@ -67,12 +72,15 @@ class Access:
         self.observatory = observatory
         self.current_day = current_day
         self.all_dates_dict = all_dates_dict
+        self.all_dates_array = all_dates_array
+        self.n_nights_in_semester = n_nights_in_semester
         self.custom_file = custom_file
         self.allocation_file = allocation_file
         self.past_history = past_history
         self.today_starting_night = today_starting_night
         self.slots_needed_for_exposure_dict = slots_needed_for_exposure_dict
         self.run_weather_loss = run_weather_loss
+        self.output_directory = output_directory
     
     def produce_ultimate_map(self, rf, running_backup_stars=False):
         """
@@ -189,9 +197,14 @@ class Access:
         # run the weather loss simulation
         is_clear = np.ones_like(is_altaz, dtype=bool)
         if self.run_weather_loss:
-            loss_stats_this_semester = wh.get_loss_stats(self)
-            is_clear = wh.simulate_weather_losses(self, loss_stats_this_semester, covariance=0.14, run_weather_loss=self.run_weather_loss)
-            wh.write_out_weather_stats(self, is_clear)
+            loss_stats_this_semester = wh.get_loss_stats(self.all_dates_array)
+            is_clear = wh.simulate_weather_losses(
+                self.semester_length, 
+                self.n_nights_in_semester, 
+                self.slot_size, 
+                loss_stats_this_semester, 
+                covariance=0.14
+            )
         else:
             print("Pretending weather is always clear!")
 
