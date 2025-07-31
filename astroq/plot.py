@@ -15,11 +15,9 @@ import pickle
 import numpy as np
 import pandas as pd
 import seaborn as sns
-from astropy.time import Time, TimeDelta
 
 # Local imports
 import astroq.access as ac
-import astroq.management as mn
 
 
 labelsize = 38
@@ -58,8 +56,6 @@ class StarPlotter(object):
         self.tau_intra = int(requests_frame['tau_intra'][index])
         self.n_inter_max = int(requests_frame['n_inter_max'][index])
         self.tau_inter = int(requests_frame['tau_inter'][index])
-        self.slots_per_night = mn.compute_slots_required_for_exposure(self.exptime, slot_size, False)*self.n_intra_max
-        self.slots_per_visit = mn.compute_slots_required_for_exposure(self.exptime, slot_size, False)
         self.expected_nobs_per_night = self.n_exp * self.n_intra_max
         self.total_observations_requested = self.expected_nobs_per_night * self.n_inter_max
 
