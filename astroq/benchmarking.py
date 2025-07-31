@@ -1,20 +1,11 @@
 """
 Module for preparing the benchmark tests
-
 """
-import json
-import os
-import sys
-import numpy as np
-import matplotlib.pyplot as pt
-import pandas as pd
-import math
-import random
-from configparser import ConfigParser
-from argparse import Namespace
 
-import astroq.request as rq
-import astroq.driver as dr
+# Third-party imports
+import matplotlib.pyplot as pt
+import numpy as np
+import pandas as pd
 
 # In the paper, we used random seed = 24.
 np.random.seed(24)

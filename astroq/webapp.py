@@ -1,11 +1,28 @@
+"""
+Web application module for AstroQ.
+"""
+
+# Standard library imports
+import base64
 import os
-from flask import Flask, render_template, request
+import threading
+from io import BytesIO
+        
+# Third-party imports
+import imageio.v3 as iio
 import numpy as np
 import plotly.io as pio
+from flask import Flask, render_template, request
+
+# Local imports
+import astroq.access as ac
+import astroq.benchmarking as bn
+import astroq.blocks as ob
+import astroq.history as hs
+import astroq.io as io
+import astroq.nplan as nplan
 import astroq.plot as pl
-import astroq.management as mn
-import astroq.dynamic as dn
-import threading
+import astroq.splan as splan
 
 app = Flask(__name__, template_folder="../templates")
 
@@ -20,7 +37,8 @@ def index():
     if selected_page == "Overview":
         labels = ["All Programs COF", "Bird's Eye"]
         for label in labels:
-            fig_html = dn.get_cof(manager, all_stars_list) if label == "All Programs COF" else dn.get_birdseye(manager, data_astroq[2], all_stars_list)
+            fig = pl.get_cof(semester_planner, all_stars_list) if label == "All Programs COF" else pl.get_birdseye(semester_planner, data_astroq[2], all_stars_list)
+            fig_html = pio.to_html(fig, full_html=True, include_plotlyjs='cdn')
             figures_html.append(fig_html)
 
     return render_template("index.html", figures_html=figures_html, pages=pages, selected_page=selected_page)
@@ -30,10 +48,12 @@ def index():
 def admin():
     all_stars_from_all_programs = np.concatenate(list(data_astroq[0].values()))
     
-    table_reqframe_html = dn.get_requests_frame(manager, filter_condition=None)
+    table_reqframe_html = pl.get_requests_frame(semester_planner, filter_condition=None)
     tables_html = [table_reqframe_html]
-    fig_cof_html = dn.get_cof(manager, list(data_astroq[1].values()))
-    fig_birdseye_html = dn.get_birdseye(manager, data_astroq[2], list(data_astroq[1].values()))
+    fig_cof = pl.get_cof(semester_planner, list(data_astroq[1].values()))
+    fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], list(data_astroq[1].values()))
+    fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
+    fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
     figures_html = [fig_cof_html, fig_birdseye_html]
 
     return render_template("admin.html", tables_html=tables_html, figures_html=figures_html)
@@ -53,11 +73,13 @@ def single_program(programname):
 
     star_obj_list = list(data_astroq[0][programname])
 
-    table_reqframe_html = dn.get_requests_frame(manager, filter_condition=f"program_code=='{programname}'")
+    table_reqframe_html = pl.get_requests_frame(semester_planner, filter_condition=f"program_code=='{programname}'")
     tables_html = [table_reqframe_html]
 
-    fig_cof_html = dn.get_cof(manager, star_obj_list)
-    fig_birdseye_html = dn.get_birdseye(manager, data_astroq[2], star_obj_list)
+    fig_cof = pl.get_cof(semester_planner, star_obj_list)
+    fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], star_obj_list)
+    fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
+    fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
     figures_html = [fig_cof_html, fig_birdseye_html]
 
     return render_template("semesterplan.html", programname=programname, tables_html=tables_html, figures_html=figures_html)
@@ -82,10 +104,12 @@ def single_star(starname):
             object_compare_starname = true_starname.lower().replace(' ', '')
             
             if object_compare_starname == compare_starname:
-                table_reqframe_html = dn.get_requests_frame(manager, filter_condition=f"starname=='{true_starname}'")
+                table_reqframe_html = pl.get_requests_frame(semester_planner, filter_condition=f"starname=='{true_starname}'")
 
-                fig_cof_html = dn.get_cof(manager, [data_astroq[0][program][star_ind]])
-                fig_birdseye_html = dn.get_birdseye(manager, data_astroq[2], [star_obj])
+                fig_cof = pl.get_cof(semester_planner, [data_astroq[0][program][star_ind]])
+                fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], [star_obj])
+                fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
+                fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
 
                 tables_html = [table_reqframe_html]
                 figures_html = [fig_cof_html, fig_birdseye_html]
@@ -100,10 +124,34 @@ def nightplan():
     plots = ['script_table', 'slewgif', 'ladder', 'slewpath']
 
     if data_ttp is not None:
-        script_table_html = dn.get_script_plan(manager, data_ttp)
-        ladder_html = dn.get_ladder(manager, data_ttp)
-        slew_animation_html = dn.get_slew_animation(manager, data_ttp, animationStep=120)
-        slew_path_html = dn.plot_path_2D_interactive(manager, data_ttp)
+        script_table_df = pl.get_script_plan(config_file, data_ttp)
+        ladder_fig = pl.get_ladder(data_ttp)
+        slew_animation_figures = pl.get_slew_animation(data_ttp, animationStep=120)
+        slew_path_fig = pl.plot_path_2D_interactive(data_ttp)
+        
+        # Convert dataframe to HTML
+        script_table_html = pl.dataframe_to_html(script_table_df, sort_column=11)
+        # Convert figures to HTML
+        ladder_html = pio.to_html(ladder_fig, full_html=True, include_plotlyjs='cdn')
+        slew_path_html = pio.to_html(slew_path_fig, full_html=True, include_plotlyjs='cdn')
+        
+        # Convert matplotlib figures to GIF and then to HTML
+        gif_frames = []
+        for fig in slew_animation_figures:
+            buf = BytesIO()
+            fig.savefig(buf, format='png', dpi=100)
+            buf.seek(0)
+            gif_frames.append(iio.imread(buf))
+            buf.close()
+        
+        gif_buf = BytesIO()
+        iio.imwrite(gif_buf, gif_frames, format='gif', loop=0, duration=0.3)
+        gif_buf.seek(0)
+        
+        gif_base64 = base64.b64encode(gif_buf.getvalue()).decode('utf-8')
+        slew_animation_html = f'<img src="data:image/gif;base64,{gif_base64}" alt="Observing Animation"/>'
+        gif_buf.close()
+        
         figure_html_list = [script_table_html, ladder_html, slew_animation_html, slew_path_html]
 
     else:
@@ -123,15 +171,16 @@ def run_server_coverage():
     nightplan()
 
 def launch_app(config_file, flag=False):
-    global data_astroq, data_ttp, manager, all_stars_list
+    global data_astroq, data_ttp, semester_planner, night_planner, all_stars_list
 
-    manager = mn.data_admin(config_file)
-    manager.run_admin()
+    # Create SemesterPlanner and NightPlanner instead of manager
+    semester_planner = splan.SemesterPlanner(config_file)
+    night_planner = nplan.NightPlanner(config_file)
 
-    data_astroq = pl.read_star_objects(manager.reports_directory + "admin/" + manager.current_day + "/star_objects.pkl")
+    data_astroq = pl.read_star_objects(night_planner.reports_directory + "star_objects.pkl")
     all_stars_list = [star_obj for star_obj_list in data_astroq[0].values() for star_obj in star_obj_list]
 
-    ttp_path = os.path.join(manager.reports_directory, "observer/", manager.current_day, "/ttp_data.pkl")
+    ttp_path = os.path.join(night_planner.reports_directory, "ttp_data.pkl")
     if os.path.exists(ttp_path):
         data_ttp = pl.read_star_objects(ttp_path)
     else:

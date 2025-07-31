@@ -1,78 +1,30 @@
-import argparse
-import os
-import sys
-import json
-import pandas as pd
-import numpy as np
-import math
-from configparser import ConfigParser
-from argparse import Namespace
-from datetime import datetime
+"""
+Driver module for AstroQ command line interface and main functionality.
+"""
 
-import astroq.splan as splan
-import astroq.request as rq
-import astroq.management as mn
+# Standard library imports
+import logging
+import os
+from datetime import datetime
+from configparser import ConfigParser
+
+# Third-party imports
+import numpy as np
+import pandas as pd
+
+# Local imports
+import astroq.access as ac
 import astroq.benchmarking as bn
 import astroq.blocks as ob
-import astroq.plot as pl
+import astroq.history as hs
 import astroq.io as io
 import astroq.nplan as nplan
-import astroq.history as hs
+import astroq.plot as pl
+import astroq.splan as splan
 import astroq.webapp as app
-import astroq.weather as wh
-import astroq.dynamic as dn
-import astroq.access as ac
 
-import logging
 log = logging.getLogger(__name__)
 log.setLevel(logging.ERROR)
-# log.debug("Debug message")
-# log.info("Info message")
-# log.warning("Warning message here")
-# log.error("Error message")
-# log.critical("Critical message")
-
-def bench(args):
-    nS = args.number_slots
-    cf = args.config_file
-    thin = getattr(args, 'thin', 1)  # Default to 1 if thin not provided
-    print(f'bench function: config_file is {cf}')
-    print(f'bench function: n_Slots for single visits is {nS}')
-    print(f'bench function: thinning factor is {thin}')
-
-    # Initialize manager and compute request set on the fly
-    # This is a hacky workaround. run_admin needs this file to exist. This can
-    # lead to race conditions if benchmarking is run in parallel.
-    config = ConfigParser()
-    config.read(cf)
-    upstream_path = eval(config.get('required', 'folder'), {"os": os})
-    semester_directory = upstream_path
-    requests_frame = bn.build_toy_model_from_paper(nS)
-    
-    # Apply thinning if specified
-    if thin > 1:
-        original_size = len(requests_frame)
-        requests_frame = requests_frame.iloc[::thin].reset_index(drop=True)
-        new_size = len(requests_frame)
-        print(f'Request frame thinned: {original_size} -> {new_size} rows (factor of {thin})')
-    
-    requests_frame.to_csv(os.path.join(semester_directory, "inputs/Requests.csv"))
-    manager = mn.data_admin(cf)
-    manager.run_admin()
-
-    # Build observability maps and request set
-    strategy, observable = rq.define_indices_for_requests(manager)
-    meta = rq.build_meta(cf)
-    request_set = rq.RequestSet(meta, strategy, observable)
-    # print out the last rows of strategy to ensure the size of the model looks right
-    print("Last 5 rows of Request Set here: ")
-    print(request_set.strategy[-5:])
-    request_set.to_json(os.path.join(manager.output_directory, "request_set.json"))
-
-    # Run the schedule
-    schedule = splan.SemesterPlanner(request_set, cf)
-    schedule.run_model()
-    return
 
 def kpfcc(args):
     """
@@ -81,19 +33,29 @@ def kpfcc(args):
     if args.kpfcc_subcommand is None:
         print("run astroq kpfcc --help for helpfile")
         return
-
     return
 
-def kpfcc_build(args):
+def bench(args):
     cf = args.config_file
-    print(f'kpfcc_build function: config_file is {cf}')
+    number_slots = args.number_slots
+    thin = args.thin
+    print(f'bench function: config_file is {cf}')
+    print(f'bench function: number_slots is {number_slots}')
+    print(f'bench function: thin is {thin}')
 
-    manager = mn.data_admin(cf)
-    manager.run_admin()
-    strategy, observable = rq.define_indices_for_requests(manager)
-    meta = rq.build_meta(cf)
-    request_set = rq.RequestSet(meta, strategy, observable)
-    request_set.to_json(manager.output_directory + "request_set.json")
+    # Load the requests frame and thin it
+    config = ConfigParser()
+    config.read(cf)
+    semester_directory = config.get('global', 'workdir')
+    requests_frame = pd.read_csv(os.path.join(semester_directory, "inputs/requests.csv"))
+    original_size = len(requests_frame)
+    requests_frame = requests_frame.iloc[::thin]
+    new_size = len(requests_frame)
+    print(f'Request frame thinned: {original_size} -> {new_size} rows (factor of {thin})')
+        
+    # Run the schedule directly from config file
+    schedule = splan.SemesterPlanner(cf)
+    schedule.run_model()
     return
 
 def kpfcc_prep(args):
@@ -102,7 +64,10 @@ def kpfcc_prep(args):
     config = ConfigParser()
     config.read(cf)
 
-    savepath = str(config.get('global', 'savepath'))
+    # Get workdir from global section
+    workdir = str(config.get('global', 'workdir'))
+    savepath = workdir
+    
     semester = str(config.get('global', 'semester'))
     start_date = str(config.get('global', 'semester_start_day'))
     end_date = str(config.get('global', 'semester_end_day'))
@@ -112,7 +77,7 @@ def kpfcc_prep(args):
 
     # First capture the allocation info
     allo_source = args.allo_source
-    allocation_file = str(config.get('global', 'allocation_file'))
+    allocation_file = str(config.get('data', 'allocation_file'))
     if allo_source == 'db':
         print(f'Pulling allocation information from database')
         awarded_programs = ob.pull_allocation_info(start_date, n_days, 'KPF-CC', savepath+allocation_file)
@@ -123,13 +88,20 @@ def kpfcc_prep(args):
         awarded_programs = [semester + "_" + val for val in awarded_programs if val != 'U268'] #temporary because PI made a mistake. 
 
     # Next get the request sheet
-    request_file = str(config.get('global', 'request_file'))
+    request_file = str(config.get('data', 'request_file'))
     OBs = ob.pull_OBs(semester)
     good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram = ob.get_request_sheet(OBs, awarded_programs, savepath + request_file)
+    send_emails_with = []
+    for i in range(len(bad_obs_values)):
+        if bad_obs_values['metadata.semid'][i] in awarded_programs:
+            send_emails_with.append(ob.inspect_row(bad_obs_hasFields, bad_obs_values, i))
+    '''
+    this is where code to automatically send emails will go. Not implemented yet.
+    '''
 
     # Next get the past history 
     past_source = args.past_source
-    past_file = str(config.get('global', 'past_file'))
+    past_file = str(config.get('data', 'past_file'))
     if past_source == 'db':
         print(f'Pulling past history information from database')
         raw_history = hs.pull_OB_histories(semester)
@@ -139,32 +111,8 @@ def kpfcc_prep(args):
         obhist = hs.write_OB_histories_to_csv_JUMP(good_obs, past_source, savepath + past_file)
 
     # This is where the custom times info pull will go
-    custom_file = str(config.get('global', 'custom_file'))
+    custom_file = str(config.get('data', 'custom_file'))
 
-    return
-
-def kpfcc_data(args):
-    pull_file = args.pull_file
-    savepath = args.database_file
-    print(f'kpfcc_data function: pull_file is {pull_file}')
-    print(f'kpfcc_data function: saving to {savepath}')
-
-    with open(pull_file, "r") as f:
-        data = json.load(f)
-    semester = data["semester"]
-    awarded_programs = data["awarded_programs"]
-    if not os.path.exists(savepath):
-        os.makedirs(savepath)
-    OBs = ob.pull_OBs(semester)
-    good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram = ob.get_request_sheet(OBs, awarded_programs, savepath + "/Requests.csv")
-
-    send_emails_with = []
-    for i in range(len(bad_obs_values)):
-        if bad_obs_values['metadata.semid'][i] in awarded_programs:
-            send_emails_with.append(ob.inspect_row(bad_obs_hasFields, bad_obs_values, i))
-    '''
-    this is where code to automatically send emails will go. Not implemented yet.
-    '''
     return
 
 def kpfcc_webapp(args):
@@ -184,94 +132,70 @@ def kpfcc_plan_semester(args):
     cf = args.config_file
     print(f'kpfcc_plan_semester function: config_file is {cf}')
 
-    # Build request set on the fly (no longer need separate build step)
-    manager = mn.data_admin(cf)
-    manager.run_admin()
-    
-    # Build observability maps and request set
-    strategy, observable = rq.define_indices_for_requests(manager)
-    meta = rq.build_meta(cf)
-    request_set = rq.RequestSet(meta, strategy, observable)
-    
-    # Run the semester planner
-    semester_planner = splan.SemesterPlanner(request_set, cf)
+    # Run the semester planner directly from config file
+    semester_planner = splan.SemesterPlanner(cf)
     semester_planner.run_model()
     return
 
-def schedule(args):
-    rf = args.request_file
-    cf = args.config_file
-    print(f'schedule function: request_file is {rf}')
-    print(f'schedule function: config_file is {cf}')
-    request_set = rq.read_json(rf)
-    schedule = splan.SemesterPlanner(request_set, cf)
-    schedule.run_model()
-    return
-
 def plot_pkl(args):
-    cf = args.config_file
-    print(f'plot function: config_file is {cf}')
-    pl.build_semester_webapp_pkl(cf)
+    cf = args.path_to_semester_planner
+    print(f'plot_pkl function: using semester_planner from {cf}')
+    with open(cf, "rb") as f:
+        semester_planner = pickle.load(f)
+    pl.build_semester_webapp_pkl(semester_planner)
     return
 
 def plot_static(args):
-    cf = args.config_file
-    print(f'plot function: config_file is {cf}')
-    pl.build_static_plots(cf)
+    cf = args.path_to_semester_planner
+    print(f'plot_pkl function: using semester_planner from {cf}')
+
+    saveout = semester_planner.output_directory + "/static_plots/"
+    os.makedirs(saveout, exist_ok = True)
+
+    semester_plot_pkl_path = os.path.join(semester_planner.output_directory, "star_objects.pkl")
+    if os.path.exists(semester_plot_pkl_path):
+        data_astroq = pl.read_star_objects(semester_plot_pkl_path)
+        # build the interactive plots
+        fig_cof = pl.get_cof(semester_planner, list(data_astroq[1].values()))
+        fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], list(data_astroq[1].values()))
+        # write the static versions to the reports directory
+        fig_cof.write_image(os.path.join(saveout, "all_programs_COF.png"), width=1200, height=800)
+        fig_birdseye.write_image(os.path.join(saveout, "all_stars_birdseye.png"), width=1200, height=800)
+
+    ttp_plot_pkl_path = os.path.join(semester_planner.output_directory, "ttp_data.pkl")
+    if os.path.exists(ttp_plot_pkl_path):
+        # build the interactive plots
+        data_ttp = pl.read_star_objects(ttp_plot_pkl_path)
+        script_table_df = pl.get_script_plan(cf, data_ttp)
+        ladder_fig = pl.get_ladder(data_ttp)
+        slew_animation_figures = pl.get_slew_animation(data_ttp, animationStep=120)
+        slew_path_fig = pl.plot_path_2D_interactive(data_ttp)
+        # write the static versions to the reports directory
+        script_table_df.to_csv(os.path.join(saveout, "script_table.csv"), index=False)
+        ladder_fig.write_image(os.path.join(saveout, "ladder_plot.png"), width=1200, height=800)
+        slew_path_fig.write_image(os.path.join(saveout, "slew_path_plot.png"), width=1200, height=800)
+    
     return
 
 def ttp(args):
     cf = args.config_file
     print(f'ttp function: config_file is {cf}')
-    manager = mn.data_admin(cf)
-    manager.run_admin()
     
     # Use the new NightPlanner class for object-oriented night planning
-    night_planner = nplan.NightPlanner(manager)
+    night_planner = nplan.NightPlanner(cf)
     night_planner.run_ttp()
-    # Removed: night_planner.produce_bright_backups()
     return
 
-def get_history(args):
-    cf = args.config_file
-    print(f'get_history function: config_file is {cf}')
-    manager = mn.data_admin(cf)
-    manager.run_admin()
-    # raw_histories = ob.pull_OB_histories(manager.semesterID)
-    raw_histories = ob.pull_OB_histories('2025A')
-    obhist = hs.write_OB_histories_to_csv(manager, raw_histories)
-    past_history = hs.process_star_history(manager.past_file)
-    return
-
-def get_dynamics(args):
-    cf = args.config_file
-    print(f'get_dynamics function: config_file is {cf}')
-    manager = mn.data_admin(cf)
-    manager.run_admin()
-    data_astroq = pl.read_star_objects(manager.reports_directory + "admin/" + manager.current_day + "/star_objects.pkl")
-    # all_stars_list = [star_obj for star_obj_list in data_astroq[0].values() for star_obj in star_obj_list]
-    table_reqframe_html = dn.get_requests_frame(manager, filter_condition=None)
-    fig_cof_html = dn.get_cof(manager, list(data_astroq[1].values()))
-    fig_birdseye_html = dn.get_birdseye(manager, data_astroq[2], list(data_astroq[1].values()))
-    # dn.interactive_sky_with_static_heatmap(manager, 'U001') # This is broken, need to rethink what it means to have a twilight map.
-
-    ttp_path = os.path.join(manager.reports_directory,"observer",manager.current_day,"ttp_data.pkl")
-    if os.path.exists(ttp_path):
-        data_ttp = pl.read_star_objects(ttp_path)
-        script_table_html = dn.get_script_plan(manager, data_ttp)
-        ladder_html = dn.get_ladder(manager, data_ttp)
-        slew_animation_html = dn.get_slew_animation(manager, data_ttp, animationStep=120)
-        slew_path_html = dn.plot_path_2D_interactive(manager, data_ttp)
-    dn.get_tau_inter_line(manager, list(data_astroq[0].values())[0])
 
 def requests_vs_schedule(args):
-    rf = args.request_file
+    cf = args.config_file
     sf = args.schedule_file
-    print(f'kpfcc_data function: request_set_file is {rf}')
-    print(f'kpfcc_data function: serialized_output_file to {sf}')
-
-    req_object = rq.read_json(rf)
-    req = req_object.strategy
+    print(f'requests_vs_schedule function: config_file is {cf}')
+    print(f'requests_vs_schedule function: schedule_file is {sf}')
+    # Create semester planner to get strategy data
+    semester_planner = splan.SemesterPlanner(cf)
+    semester_planner.run_model()
+    req = semester_planner.strategy
     sch = pd.read_csv(sf)
     sch = sch.sort_values(by=['d', 's']).reset_index(drop=True) # Re-order into the real schedule
     # First, ensure no repeated day/slot pairs (does allow missing pairs)
@@ -348,7 +272,7 @@ def requests_vs_schedule(args):
                 assert min_day_gaps >= tau_inter, tau_inter_err
 
     # 5) tau_intra: There must be at least tau_intra slots between successive observations of a target in a single night
-        slot_duration = req_object.meta.slot_duration # Slot duration in minutes
+        slot_duration = semester_planner.slot_size # Slot duration in minutes
         slots_per_hour = 60/slot_duration
         tau_intra_hrs = star_request['tau_intra'].values[0] # min num of hours before another obs
         tau_intra_slots = tau_intra_hrs * slots_per_hour
@@ -360,80 +284,4 @@ def requests_vs_schedule(args):
                             f"two obs of {star} are not spaced by enough slots "
                             f"(scheduled: {min_slot_diffs} slots; required: {tau_intra_slots} slots)")
             assert min_slot_diffs >= tau_intra_slots, tau_intra_err
-#
-# def make_simulated_history(args):
-#
-#     cf = args.config_file
-#     print(f'make_simulated_history function: config_file is {cf}')
-#     config = ConfigParser()
-#     config.read(cf)
-#     upstream_path = eval(config.get('required', 'folder'), {"os": os})
-#     semester_directory = upstream_path
-#     requests_frame = bn.build_toy_model_from_paper(12)
-#     requests_frame.to_csv(os.path.join(semester_directory, "inputs/Requests.csv"))
-#     manager = mn.data_admin(cf)
-#     manager.run_admin()
-#
-#     # Run a weather-loss model that will serve as truth for all runs of the semester
-#     loss_stats_remaining = wh.get_loss_stats(manager)
-#     loss_stats_remaining = [x + 0.2 for x in loss_stats_remaining]
-#     allocation_remaining_post_weather_loss, weather_diff_remaining, weather_diff_remaining_1D, \
-#         days_lost = wh.simulate_weather_losses(manager.allocation_remaining, loss_stats_remaining, \
-#         covariance=0.14, run_weather_loss=True, plot=False, outputdir=manager.output_directory)
-#
-#     reshaped = weather_diff_remaining_1D.reshape((184, 4))
-#     weathered_days = np.where(np.any(reshaped == 1, axis=1))[0].tolist()
-#     print("# of on-sky days lost to weather: ", len(weathered_days))
-#
-#     # Run from start of semester with no weather loss to get a first forecast
-#     # this is equivalent to running the bench, so let's use the function
-#     myargs = Namespace(config_file='bench/config_benchmark.ini', number_slots=12, number_requests=1)
-#     bench(myargs)
-#     pl.run_plot_suite(cf)
-#     # Save the original forecast
-#     forecast = pd.read_csv(manager.output_directory + 'raw_combined_semester_schedule_Round2.txt')
-#     forecast = np.array(forecast.values)
-#
-#     test_dates=["2018-08-15", "2018-09-01", "2018-09-15", "2018-10-01", "2018-10-15", "2018-11-01", "2018-11-15", "2018-12-01", "2018-12-15","2019-01-01","2019-01-15"]
-#     for i in range(len(test_dates)):
-#         # Construct the simulated past history, including the lost observations due to weather
-#         all_dfs = []
-#         day_index = manager.all_dates_dict[test_dates[i]]
-#         for j in range(day_index):
-#             if j not in weathered_days:
-#                 stars_for_night = [x for x in forecast[j] if x not in ("X", "*X", "", "Past") and not (isinstance(x, float) and math.isnan(x))]
-#                 stars_for_night = list(set(stars_for_night))
-#                 if stars_for_night != []:
-#                     today = manager.all_dates_array[j]
-#                     stamps = [today + ' 12:00:00.000000+00:00']*len(stars_for_night) #time doesn't matter, date does.
-#                     today_frame = pd.DataFrame({'star_id':stars_for_night, 'utctime':stamps})
-#                     all_dfs.append(today_frame)
-#         #update the day, then run admin to create new folders
-#         line_number = 7
-#         new_date = test_dates[i]
-#         new_content = f"current_day = {new_date}"
-#         with open(cf, "r") as f:
-#             lines = f.readlines()
-#         lines[line_number - 1] = new_content + "\n"
-#         with open(cf, "w") as f:
-#             f.writelines(lines)
-#         manager = mn.data_admin(cf)
-#         manager.run_admin()
-#
-#         # write out the simulated past history twice, the inputs version will be over-written, the outputs version will not
-#         final_df = pd.concat(all_dfs, ignore_index=True)
-#         final_df.to_csv(manager.upstream_path + "inputs/queryJumpDatabase.csv", index=False)
-#         final_df.to_csv(manager.output_directory + "queryJumpDatabase.csv", index=False)
-#
-#         # rerun the build and scheduler from the new date forward
-#         strategy, observable = rq.define_indices_for_requests(manager)
-#         meta = rq.build_meta(cf)
-#         request_set = rq.RequestSet(meta, strategy, observable)
-#         # print out the last rows of strategy to ensure the size of the model looks right
-#         request_set.to_json(os.path.join(manager.output_directory, "request_set.json"))
-#         # Run the schedule
-#         schedule = splan.SemesterPlanner(request_set, cf)
-#         schedule.run_model()
-#         # Run the plot suite
-#         pl.run_plot_suite(cf)
-#     return
+
