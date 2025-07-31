@@ -7,17 +7,12 @@ Example usage:
 """
 
 # Standard library imports
-import json
 import os
-from collections import defaultdict, namedtuple
+from collections import namedtuple
 
 # Third-party imports
-import numpy as np
 import pandas as pd
 import requests
-from astropy.coordinates import Angle, SkyCoord
-from astropy.time import Time, TimeDelta
-import astropy.units as u
 
 
 def pull_OB_histories(semester):
