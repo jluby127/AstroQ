@@ -2,15 +2,6 @@
 Module for preparing the benchmark tests
 """
 
-# Standard library imports
-import json
-import math
-import os
-import random
-import sys
-from argparse import Namespace
-from configparser import ConfigParser
-
 # Third-party imports
 import matplotlib.pyplot as pt
 import numpy as np
