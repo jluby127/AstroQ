@@ -16,7 +16,6 @@ import pandas as pd
 import astroq.access as ac
 import astroq.benchmarking as bn
 import astroq.blocks as ob
-import astroq.dynamic as dn
 import astroq.history as hs
 import astroq.io as io
 import astroq.nplan as nplan
@@ -157,8 +156,8 @@ def plot_static(args):
     if os.path.exists(semester_plot_pkl_path):
         data_astroq = pl.read_star_objects(semester_plot_pkl_path)
         # build the interactive plots
-        fig_cof = dn.get_cof(semester_planner, list(data_astroq[1].values()))
-        fig_birdseye = dn.get_birdseye(semester_planner, data_astroq[2], list(data_astroq[1].values()))
+        fig_cof = pl.get_cof(semester_planner, list(data_astroq[1].values()))
+        fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], list(data_astroq[1].values()))
         # write the static versions to the reports directory
         fig_cof.write_image(os.path.join(saveout, "all_programs_COF.png"), width=1200, height=800)
         fig_birdseye.write_image(os.path.join(saveout, "all_stars_birdseye.png"), width=1200, height=800)
@@ -167,10 +166,10 @@ def plot_static(args):
     if os.path.exists(ttp_plot_pkl_path):
         # build the interactive plots
         data_ttp = pl.read_star_objects(ttp_plot_pkl_path)
-        script_table_df = dn.get_script_plan(cf, data_ttp)
-        ladder_fig = dn.get_ladder(data_ttp)
-        slew_animation_figures = dn.get_slew_animation(data_ttp, animationStep=120)
-        slew_path_fig = dn.plot_path_2D_interactive(data_ttp)
+        script_table_df = pl.get_script_plan(cf, data_ttp)
+        ladder_fig = pl.get_ladder(data_ttp)
+        slew_animation_figures = pl.get_slew_animation(data_ttp, animationStep=120)
+        slew_path_fig = pl.plot_path_2D_interactive(data_ttp)
         # write the static versions to the reports directory
         script_table_df.to_csv(os.path.join(saveout, "script_table.csv"), index=False)
         ladder_fig.write_image(os.path.join(saveout, "ladder_plot.png"), width=1200, height=800)
