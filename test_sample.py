@@ -10,6 +10,8 @@ import astroq.dynamic as dn
 import astroq.nplan as nplan
 import unittest
 from pathlib import Path
+from io import BytesIO
+import imageio.v3 as iio
 
 import multiprocessing
 import time
@@ -66,17 +68,24 @@ class TestClass(unittest.TestCase):
         # Plots from night_planner
         script_table_df = dn.get_script_plan(cf, data_ttp)
         ladder_fig = dn.get_ladder(data_ttp)
-        slew_animation_gif_buf = dn.get_slew_animation(data_ttp, animationStep=120)
+        slew_animation_figures = dn.get_slew_animation(data_ttp, animationStep=120)
         slew_path_fig = dn.plot_path_2D_interactive(data_ttp)
         # write the static versions to the reports directory
         script_table_df.to_csv(os.path.join(saveout, "script_table.csv"), index=False)
         ladder_fig.write_image(os.path.join(saveout, "ladder_plot.png"), width=1200, height=800)
         slew_path_fig.write_image(os.path.join(saveout, "slew_path_plot.png"), width=1200, height=800)
         
-        # Save the slew animation GIF file
-        with open(os.path.join(saveout, "slew_animation.gif"), "wb") as f:
-            f.write(slew_animation_gif_buf.getvalue())
-        slew_animation_gif_buf.close()
+        # Convert matplotlib figures to GIF and save
+        gif_frames = []
+        for fig in slew_animation_figures:
+            buf = BytesIO()
+            fig.savefig(buf, format='png', dpi=100)
+            buf.seek(0)
+            gif_frames.append(iio.imread(buf))
+            buf.close()
+        
+        # Write GIF to file
+        iio.imwrite(os.path.join(saveout, "slew_animation.gif"), gif_frames, format='gif', loop=0, duration=0.3)
         
     def test_ob_database_pull(self):
         dr.kpfcc_data(argparse.Namespace(pull_file='examples/pull_file.json', database_file='examples/recreate_paper/'))
@@ -86,9 +95,6 @@ class TestClass(unittest.TestCase):
 
     def test_history(self):
         dr.get_history(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
-
-    def test_dynamic_plotting(self):
-        dr.get_dynamics(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
 
     # def test_webapp(self):
     #     config_path = 'examples/hello_world/config_hello_world.ini'

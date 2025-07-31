@@ -8,6 +8,8 @@ import astroq.dynamic as dn
 import astroq.splan as splan
 import astroq.nplan as nplan
 import threading
+from io import BytesIO
+import imageio.v3 as iio
 
 app = Flask(__name__, template_folder="../templates")
 
@@ -111,7 +113,7 @@ def nightplan():
     if data_ttp is not None:
         script_table_df = dn.get_script_plan(config_file, data_ttp)
         ladder_fig = dn.get_ladder(data_ttp)
-        slew_animation_gif_buf = dn.get_slew_animation(data_ttp, animationStep=120)
+        slew_animation_figures = dn.get_slew_animation(data_ttp, animationStep=120)
         slew_path_fig = dn.plot_path_2D_interactive(data_ttp)
         
         # Convert dataframe to HTML
@@ -120,10 +122,22 @@ def nightplan():
         ladder_html = pio.to_html(ladder_fig, full_html=True, include_plotlyjs='cdn')
         slew_path_html = pio.to_html(slew_path_fig, full_html=True, include_plotlyjs='cdn')
         
-        # Convert GIF buffer to HTML
-        gif_base64 = base64.b64encode(slew_animation_gif_buf.getvalue()).decode('utf-8')
+        # Convert matplotlib figures to GIF and then to HTML
+        gif_frames = []
+        for fig in slew_animation_figures:
+            buf = BytesIO()
+            fig.savefig(buf, format='png', dpi=100)
+            buf.seek(0)
+            gif_frames.append(iio.imread(buf))
+            buf.close()
+        
+        gif_buf = BytesIO()
+        iio.imwrite(gif_buf, gif_frames, format='gif', loop=0, duration=0.3)
+        gif_buf.seek(0)
+        
+        gif_base64 = base64.b64encode(gif_buf.getvalue()).decode('utf-8')
         slew_animation_html = f'<img src="data:image/gif;base64,{gif_base64}" alt="Observing Animation"/>'
-        slew_animation_gif_buf.close()
+        gif_buf.close()
         
         figure_html_list = [script_table_html, ladder_html, slew_animation_html, slew_path_html]
 
