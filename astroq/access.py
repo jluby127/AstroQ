@@ -22,18 +22,6 @@ from astropy.time import Time, TimeDelta
 # Local imports
 import astroq.weather as wh
 
-logs = logging.getLogger(__name__)
-
-# Define list of observatories which are currently supported.
-# To add an obseratory/telescope, add the Astroplan resolvable name to the list in generate_night_plan
-# Then add the same name to the appropriate element of the locations dictionary.
-# If necessary, add a location to the locations dictionary, if so, add the location to each of the
-# pre_sunrise and post_sunrise dictionaries. Ensure times are 14 hours apart, at least one hour
-# before the earliest sunset and one hour after the latest sunrise of the year.
-locations = {"Keck Observatory":"Hawaii", "Kitt Peak National Observatory":"Arizona"}
-pre_sunset = {'Hawaii':'03:30', 'Arizona':'05:00'}
-post_sunrise = {'Hawaii':'17:30', 'Arizona':'14:00'}
-
 class Access:
     """
     Access class that provides accessibility computation functionality.
@@ -184,7 +172,6 @@ class Access:
         allocated_times_frame = pd.read_csv(self.allocation_file)
         allocated_times_frame['start'] = allocated_times_frame['start'].apply(Time)
         allocated_times_frame['stop'] = allocated_times_frame['stop'].apply(Time)
-        allocated_times_map = []
         allocated_mask = np.zeros((nnights, nslots), dtype=bool)
         for i in range(len(allocated_times_frame)):
             start_time = allocated_times_frame['start'].iloc[i]

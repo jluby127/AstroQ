@@ -17,7 +17,6 @@ import gurobipy as gp
 from gurobipy import GRB
 import numpy as np
 import pandas as pd
-from astropy.time import Time, TimeDelta
 
 # Local imports
 import astroq.access as ac
@@ -34,7 +33,6 @@ class SemesterPlanner(object):
 
     def __init__(self, cf):
         logs.debug("Building the SemesterPlanner.")
-        self.start_the_clock = time.time()
 
         # Read config file directly
         config = ConfigParser()
@@ -45,9 +43,6 @@ class SemesterPlanner(object):
         self.semester_directory = workdir
         self.current_day = str(config.get('global', 'current_day'))
         self.observatory = config.get('global', 'observatory')
-        
-        self.n_hours_in_night = 24 # later we will delete this
-        self.n_quarters_in_night = 4 # later we will delete this
 
         # Get semester parameters from semester section
         self.slot_size = config.getint('semester', 'slot_size')
@@ -234,7 +229,6 @@ class SemesterPlanner(object):
         
         self.semester_start_date = semester_start_date
         self.semester_length = semester_length
-        self.semester_letter = semester_letter
 
     def _build_date_dictionary(self):
         """Build date dictionary for the semester."""
@@ -258,16 +252,14 @@ class SemesterPlanner(object):
 
     def _calculate_slot_info(self):
         """Calculate slot-related information."""
-        # Calculate slots per quarter and night
-        self.n_slots_in_quarter = int(((self.n_hours_in_night * 60) / self.n_quarters_in_night) / self.slot_size)
-        self.n_slots_in_night = self.n_slots_in_quarter * self.n_quarters_in_night
+        # Calculate slots per night (simplified calculation)
+        self.n_slots_in_night = int((24 * 60) / self.slot_size)
         
         # Calculate remaining semester info
         self.n_nights_in_semester = len(self.all_dates_dict) - self.all_dates_dict[self.current_day]
         self.n_slots_in_semester = self.n_slots_in_night * self.n_nights_in_semester
         
         # Calculate today's starting positions
-        self.today_starting_slot = self.all_dates_dict[self.current_day] * self.n_slots_in_night
         self.today_starting_night = self.all_dates_dict[self.current_day]
 
     def _build_slots_required_dictionary(self, always_round_up_flag=False):
@@ -312,25 +304,6 @@ class SemesterPlanner(object):
         observability = access_obj.observability(self.requests_frame)
 
         return observability
-
-    def _compute_slots_required_for_exposure(self, exposure_time, slot_size, always_round_up_flag):
-        """
-        Compute the number of slots required for a given exposure time.
-        
-        Args:
-            exposure_time: Exposure time in minutes
-            slot_size: Slot size in minutes
-            always_round_up_flag: If True, always round up to the next slot
-            
-        Returns:
-            Number of slots required
-        """
-        time_per_slot = slot_size / 60.0  # Convert slot_size to hours
-        
-        if always_round_up_flag:
-            return math.ceil(exposure_time / time_per_slot)
-        else:
-            return round(exposure_time / time_per_slot)
 
     def constraint_reserve_multislot_exposures(self):
         """
@@ -604,7 +577,6 @@ class SemesterPlanner(object):
 
 
     def run_model(self):
-        self.round_info = 'Round1'
         self.build_model_round1()
         self.optimize_model()
         self.serialize_results_csv()
