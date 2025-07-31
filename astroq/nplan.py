@@ -222,12 +222,15 @@ class NightPlanner(object):
             observatory=self.observatory,
             current_day=self.current_day,
             all_dates_dict=self.all_dates_dict,
+            all_dates_array=self.all_dates_array,
+            n_nights_in_semester=self.n_nights_in_semester,
             custom_file=self.custom_file,
             allocation_file=self.allocation_file,
             past_history=self.past_history,
             today_starting_night=self.today_starting_night,
             slots_needed_for_exposure_dict=self.slots_needed_for_exposure_dict,
-            run_weather_loss=self.run_weather_loss
+            run_weather_loss=self.run_weather_loss,
+            output_directory=self.output_directory
         )
         available_indices = access_obj.produce_ultimate_map(self.requests_frame, running_backup_stars=True)
         slots_available_tonight_for_star = {k: len(v[0]) for k, v in available_indices.items()}
