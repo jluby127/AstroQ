@@ -42,7 +42,7 @@ gray = 'rgb(210,210,210)'
 clear = 'rgba(255,255,255,1)'
 labelsize = 38
 
-def get_cof(semester_planner, all_stars):
+def get_cof(semester_planner, all_stars, static=False):
     '''
     Return the html string for a plotly figure showing the COF for a selection of stars
 
@@ -339,7 +339,7 @@ def get_tau_inter_line(all_stars):
     return tau_inter_line_html
 
 
-def compute_seasonality(semester_planner, starnames, ras, decs, semester='B'):
+def compute_seasonality(semester_planner, starnames, ras, decs):
     """
     Combine all maps for a target to produce the final map
 
@@ -348,7 +348,6 @@ def compute_seasonality(semester_planner, starnames, ras, decs, semester='B'):
         starnames (list): list of star names
         ras (array): right ascension values in degrees
         decs (array): declination values in degrees
-        semester (str): semester identifier ('A' or 'B')
     Returns:
         available_indices_for_request (dictionary): keys are the starnames and values are a 1D array
                                                   the indices where available_slots_for_request is 1.
@@ -360,13 +359,8 @@ def compute_seasonality(semester_planner, starnames, ras, decs, semester='B'):
     observatory = semester_planner.observatory
     start_time = semester_planner.daily_starting_time
     slot_size = semester_planner.slot_size
-    
-    if semester=='A':
-        start_date = '2025-02-01'
-    elif semester=='B':
-        start_date = '2025-08-01'
-    else:
-        print("invalid semester. Choose A or B.")
+    start_date = semester_planner.semester_start_date
+
     date_formal = Time(start_date,format='iso',scale='utc')
     date = str(date_formal)[:10]
     ntargets = len(starnames)
@@ -518,8 +512,8 @@ def get_football(semester_planner, all_stars):#RA_grid, DEC_grid, Z_grid, reques
     }
     grid_frame = pd.DataFrame(grid_stars)
 
-    available_nights_onsky_requests = compute_seasonality(semester_planner, starnames, ras, decs, semester='A')
-    grid_frame['nights_observable'] = compute_seasonality(semester_planner, grid_frame['starname'], grid_frame['ra'], grid_frame['dec'], semester='A')
+    available_nights_onsky_requests = compute_seasonality(semester_planner, starnames, ras, decs)
+    grid_frame['nights_observable'] = compute_seasonality(semester_planner, grid_frame['starname'], grid_frame['ra'], grid_frame['dec'])
 
     from scipy.interpolate import griddata
     NIGHTS_grid = griddata(

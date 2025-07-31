@@ -162,8 +162,8 @@ class Access:
                     is_custom[star_ind] = current_map | mask
 
         # TODO add in logic to remove stars that are not observable, currently code is a no-op
-        # Set to False if internight cadence is violated
 
+        # Set to False if internight cadence is violated
         is_inter = np.ones((ntargets, nnights, nslots),dtype=bool)
         for itarget in range(ntargets):
             name = rf.iloc[itarget]['starname']
@@ -182,18 +182,14 @@ class Access:
             stop_time = allocated_times_frame['stop'].iloc[i]
             mask = (slotmidpoint >= start_time) & (slotmidpoint <= stop_time)
             allocated_mask |= mask
-
         is_alloc = allocated_mask
         is_alloc = np.ones_like(is_altaz, dtype=bool) & is_alloc[np.newaxis,:,:] # shape = (ntargets, nnights, nslots)
 
-        # run the loss simulation
-
+        # run the weather loss simulation
         is_clear = np.ones_like(is_altaz, dtype=bool)
-        run_weather_loss = False
-        if run_weather_loss:
-            loss_stats_this_semester = wh.get_loss_stats(self)
-            is_clear = wh.simulate_weather_losses(self, loss_stats_this_semester, covariance=0.14, run_weather_loss=self.run_weather_loss)
-            wh.write_out_weather_stats(self, is_clear)
+        loss_stats_this_semester = wh.get_loss_stats(self)
+        is_clear = wh.simulate_weather_losses(self, loss_stats_this_semester, covariance=0.14, run_weather_loss=self.run_weather_loss)
+        wh.write_out_weather_stats(self, is_clear)
 
         is_observable_now = np.logical_and.reduce([
             is_altaz,
@@ -201,7 +197,8 @@ class Access:
             is_moon,
             is_custom,
             is_inter,
-            is_alloc
+            is_alloc,
+            is_clear
         ])
 
         # the target does not violate any of the observability limits in that specific slot, but
@@ -260,35 +257,3 @@ class Access:
         namemap = {'starname':'id','inight':'d','islot':'s'}
         df = df.query('is_observable').rename(columns=namemap)[namemap.values()]
         return df
-
-# Core mapping functions from maps.py
-
-
-
-def pull_allocation(date, numdays, instrument):
-    base_url = "https://www3.keck.hawaii.edu/api/getSchedule/?cmd=getSchedule"
-    params = {
-        'date': date,
-        'numdays': numdays,
-        'instrument':instrument
-    }
-    response = requests.get(base_url, params=params)
-    if response.status_code == 200:
-        data = response.json()
-    else:
-        print(f"Error: {response.status_code}, {response.text}")
-        return None
-
-    dates = []
-    starts = []
-    ends = []
-    fractions = []
-    for i in range(len(data)):
-        dates.append(data[i]['Date'])
-        starts.append(data[i]['StartTime'])
-        ends.append(data[i]['EndTime'])
-        fractions.append(data[i]['FractionOfNight'])
-    allo = pd.DataFrame({"Date":dates, "Start":starts, "End":ends, "Fraction":fractions})
-
-    all_dates_dict, all_dates_array = mn.build_date_dictionary(date, numdays)
-    return allo, all_dates_dict

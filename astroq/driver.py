@@ -23,6 +23,15 @@ import logging
 log = logging.getLogger(__name__)
 log.setLevel(logging.ERROR)
 
+def kpfcc(args):
+    """
+    Main KPFCC command line interface.
+    """
+    if args.kpfcc_subcommand is None:
+        print("run astroq kpfcc --help for helpfile")
+        return
+    return
+
 def bench(args):
     cf = args.config_file
     number_slots = args.number_slots
@@ -34,8 +43,7 @@ def bench(args):
     # Load the requests frame and thin it
     config = ConfigParser()
     config.read(cf)
-    upstream_path = eval(config.get('required', 'folder'), {"os": os})
-    semester_directory = upstream_path
+    semester_directory = eval(config.get('required', 'folder'), {"os": os})
     requests_frame = pd.read_csv(os.path.join(semester_directory, "inputs/requests.csv"))
     original_size = len(requests_frame)
     requests_frame = requests_frame.iloc[::thin]
@@ -47,16 +55,6 @@ def bench(args):
     # Run the schedule directly from config file
     schedule = splan.SemesterPlanner(cf)
     schedule.run_model()
-    return
-
-def kpfcc(args):
-    """
-    Main KPFCC command line interface.
-    """
-    if args.kpfcc_subcommand is None:
-        print("run astroq kpfcc --help for helpfile")
-        return
-
     return
 
 def kpfcc_prep(args):
@@ -92,6 +90,13 @@ def kpfcc_prep(args):
     request_file = str(config.get('data', 'request_file'))
     OBs = ob.pull_OBs(semester)
     good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram = ob.get_request_sheet(OBs, awarded_programs, savepath + request_file)
+    send_emails_with = []
+    for i in range(len(bad_obs_values)):
+        if bad_obs_values['metadata.semid'][i] in awarded_programs:
+            send_emails_with.append(ob.inspect_row(bad_obs_hasFields, bad_obs_values, i))
+    '''
+    this is where code to automatically send emails will go. Not implemented yet.
+    '''
 
     # Next get the past history 
     past_source = args.past_source
@@ -107,30 +112,6 @@ def kpfcc_prep(args):
     # This is where the custom times info pull will go
     custom_file = str(config.get('data', 'custom_file'))
 
-    return
-
-def kpfcc_data(args):
-    pull_file = args.pull_file
-    savepath = args.database_file
-    print(f'kpfcc_data function: pull_file is {pull_file}')
-    print(f'kpfcc_data function: saving to {savepath}')
-
-    with open(pull_file, "r") as f:
-        data = json.load(f)
-    semester = data["semester"]
-    awarded_programs = data["awarded_programs"]
-    if not os.path.exists(savepath):
-        os.makedirs(savepath)
-    OBs = ob.pull_OBs(semester)
-    good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram = ob.get_request_sheet(OBs, awarded_programs, savepath + "/Requests.csv")
-
-    send_emails_with = []
-    for i in range(len(bad_obs_values)):
-        if bad_obs_values['metadata.semid'][i] in awarded_programs:
-            send_emails_with.append(ob.inspect_row(bad_obs_hasFields, bad_obs_values, i))
-    '''
-    this is where code to automatically send emails will go. Not implemented yet.
-    '''
     return
 
 def kpfcc_webapp(args):
@@ -155,17 +136,43 @@ def kpfcc_plan_semester(args):
     semester_planner.run_model()
     return
 
-
 def plot_pkl(args):
-    cf = args.config_file
-    print(f'plot function: config_file is {cf}')
-    pl.build_semester_webapp_pkl(cf)
+    cf = args.path_to_semester_planner
+    print(f'plot_pkl function: using semester_planner from {cf}')
+    with open(cf, "rb") as f:
+        semester_planner = pickle.load(f)
+    pl.build_semester_webapp_pkl(semester_planner)
     return
 
 def plot_static(args):
-    cf = args.config_file
-    print(f'plot function: config_file is {cf}')
-    pl.build_static_plots(cf)
+    cf = args.path_to_semester_planner
+    print(f'plot_pkl function: using semester_planner from {cf}')
+
+    saveout = semester_planner.output_directory + "/static_plots/"
+    os.makedirs(saveout, exist_ok = True)
+
+    semester_plot_pkl_path = os.path.join(semester_planner.output_directory, "star_objects.pkl")
+    if os.path.exists(semester_plot_pkl_path):
+        data_astroq = pl.read_star_objects(semester_plot_pkl_path)
+        # build the interactive plots
+        fig_cof_html = dn.get_cof(semester_planner, list(data_astroq[1].values()))
+        fig_birdseye_html = dn.get_birdseye(semester_planner, data_astroq[2], list(data_astroq[1].values()))
+        # write the static versions to the reports directory
+        fig_cof_html.write_html(os.path.join(saveout, "all_programs_COF.html"))
+        fig_birdseye_html.write_html(os.path.join(saveout, "all_stars_birdseye.html"))
+
+    ttp_plot_pkl_path = os.path.join(semester_planner.output_directory, "ttp_data.pkl")
+    if os.path.exists(ttp_plot_pkl_path):
+        # build the interactive plots
+        data_ttp = pl.read_star_objects(ttp_plot_pkl_path)
+        script_table_html = dn.get_script_plan(cf, data_ttp)
+        ladder_html = dn.get_ladder(data_ttp)
+        slew_animation_html = dn.get_slew_animation(data_ttp, animationStep=120)
+        slew_path_html = dn.plot_path_2D_interactive(data_ttp)
+        # write the static versions to the reports directory
+        ladder_html.write_html(os.path.join(saveout, "ladder_plot.html"))
+        slew_path_html.write_html(os.path.join(saveout, "slew_path_plot.html"))
+    
     return
 
 def ttp(args):
