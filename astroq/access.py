@@ -7,22 +7,22 @@ This module combines functionality for:
 - Comprehensive observability maps
 - Allocation and scheduling constraints
 """
+
+# Standard library imports
 import logging
-import numpy as np
-import pandas as pd
-from pathlib import Path
-import requests
-from astropy.time import Time, TimeDelta
+
+# Third-party imports
 import astropy as apy
 import astropy.units as u
 import astroplan as apl
+import numpy as np
+import pandas as pd
+from astropy.time import Time, TimeDelta
 
+# Local imports
 import astroq.weather as wh
-import astroq.management as mn
 
 logs = logging.getLogger(__name__)
-
-import astroq.management as mn
 
 # Define list of observatories which are currently supported.
 # To add an obseratory/telescope, add the Astroplan resolvable name to the list in generate_night_plan

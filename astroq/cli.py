@@ -1,16 +1,19 @@
 """
 Command Line Interface
 """
+
+# Standard library imports
 import argparse
-import astroq
-import sys
 import os
-import json
-import pandas as pd
-import numpy as np
-import math
+import sys
 from configparser import ConfigParser
-from argparse import Namespace
+
+# Third-party imports
+import numpy as np
+import pandas as pd
+
+# Local imports
+import astroq
 
 # Create the parser at module level
 parser = argparse.ArgumentParser(

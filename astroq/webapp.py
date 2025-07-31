@@ -1,15 +1,24 @@
-import os
+"""
+Web application module for AstroQ.
+"""
+
+# Standard library imports
 import base64
-from flask import Flask, render_template, request
-import numpy as np
-import plotly.io as pio
-import astroq.plot as pl
-import astroq.dynamic as dn
-import astroq.splan as splan
-import astroq.nplan as nplan
+import os
 import threading
 from io import BytesIO
+        
+# Third-party imports
 import imageio.v3 as iio
+import numpy as np
+import plotly.io as pio
+from flask import Flask, render_template, request
+
+# Local imports
+import astroq.dynamic as dn
+import astroq.nplan as nplan
+import astroq.plot as pl
+import astroq.splan as splan
 
 app = Flask(__name__, template_folder="../templates")
 

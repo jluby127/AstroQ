@@ -5,18 +5,20 @@ Designed to be only run as a function call from the generateScript.py script.
 Example usage:
     import processing_functions as pf
 """
+
+# Standard library imports
+import json
 import os
+from collections import defaultdict, namedtuple
+
+# Third-party imports
 import numpy as np
 import pandas as pd
-import json
 import requests
-
 from astropy.coordinates import Angle, SkyCoord
+from astropy.time import Time, TimeDelta
 import astropy.units as u
-from astropy.time import Time
-from astropy.time import TimeDelta
-from collections import defaultdict
-from collections import namedtuple
+
 
 def pull_OB_histories(semester):
     """

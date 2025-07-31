@@ -1,26 +1,30 @@
-import os
-import json
-import pandas as pd
-import numpy as np
-import base64
+"""
+Driver module for AstroQ command line interface and main functionality.
+"""
 
+# Standard library imports
+import logging
+import os
+from datetime import datetime
 from configparser import ConfigParser
 
+# Third-party imports
+import numpy as np
+import pandas as pd
 
-import astroq.splan as splan
-import astroq.management as mn
+# Local imports
+import astroq.access as ac
 import astroq.benchmarking as bn
 import astroq.blocks as ob
-import astroq.plot as pl
-import astroq.io as io
-import astroq.nplan as nplan
-import astroq.history as hs
-import astroq.webapp as app
-import astroq.weather as wh
 import astroq.dynamic as dn
-import astroq.access as ac
-from datetime import datetime
-import logging
+import astroq.history as hs
+import astroq.io as io
+import astroq.management as mn
+import astroq.nplan as nplan
+import astroq.plot as pl
+import astroq.splan as splan
+import astroq.webapp as app
+
 log = logging.getLogger(__name__)
 log.setLevel(logging.ERROR)
 

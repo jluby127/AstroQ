@@ -5,22 +5,26 @@ all requests easily.
 Example usage:
     import admin_functions as af
 """
-import os
-import math
 
+# Standard library imports
+import logging
+import math
+import os
+from configparser import ConfigParser
+
+# Third-party imports
 import numpy as np
 import pandas as pd
-from astropy.time import Time
-from astropy.time import TimeDelta
-from configparser import ConfigParser
-import logging
+from astropy.time import Time, TimeDelta
+
+# Local imports
+import astroq.history as hs
+
 logs = logging.getLogger(__name__)
 
 # from kpfcc import DATADIR
 DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')
 EXAMPLEDIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'examples')
-
-import astroq.history as hs
 
 class data_admin(object):
     """A Data Admin object, from which we can easily pass around information.

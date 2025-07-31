@@ -6,31 +6,31 @@ Example usage:
     import plotting_functions as ptf
 """
 
-import pandas as pd
-import numpy as np
-import seaborn as sns
-import matplotlib.pyplot as plt
-import matplotlib
-matplotlib.use("Agg")  # Ensures safe, headless rendering
-from matplotlib.figure import Figure
-
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import plotly.express as px
-from astropy.time import Time
-from astropy.time import TimeDelta
-# import io
-from io import BytesIO
-import imageio.v3 as iio
+# Standard library imports
 import base64
+from io import BytesIO
 
-from astropy.time import Time
-from astropy.time import TimeDelta
+# Third-party imports
 import astropy as apy
 import astropy.units as u
 import astroplan as apl
+import imageio.v3 as iio
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from matplotlib.figure import Figure
+from plotly.subplots import make_subplots
+import seaborn as sns
+from astropy.time import Time, TimeDelta
 
+# Local imports
 import astroq.io as io_mine
+
+# Configure matplotlib for headless rendering
+matplotlib.use("Agg")
 
 gray = 'rgb(210,210,210)'
 clear = 'rgba(255,255,255,1)'
