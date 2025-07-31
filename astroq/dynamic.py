@@ -6,10 +6,8 @@ Example usage:
     import plotting_functions as ptf
 """
 
-import os
 import pandas as pd
 import numpy as np
-import json
 import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib
@@ -19,7 +17,6 @@ from matplotlib.figure import Figure
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.express as px
-import plotly.io as pio
 from astropy.time import Time
 from astropy.time import TimeDelta
 # import io
@@ -34,9 +31,6 @@ import astropy.units as u
 import astroplan as apl
 
 import astroq.io as io_mine
-import sys
-sys.path.append("/Users/jack/Documents/github/ttp/ttp/")
-#import plotting
 
 gray = 'rgb(210,210,210)'
 clear = 'rgba(255,255,255,1)'
