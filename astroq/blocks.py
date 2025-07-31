@@ -4,13 +4,17 @@ Module for processing data from Keck Observatory's custom made Observing Block (
 Example usage:
     import ob_functions as ob
 """
+
+# Standard library imports
 import json
-import requests
-import pandas as pd
-import numpy as np
 import os
-from astropy.time import Time
+
+# Third-party imports
+import numpy as np
+import pandas as pd
+import requests
 from astropy.coordinates import SkyCoord
+from astropy.time import Time
 import astropy.units as u
 
 exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', 'metadata.history',

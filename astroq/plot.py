@@ -7,16 +7,13 @@ Example usage:
 """
 
 # Standard library imports
+from collections import defaultdict
 import os
 import pickle
-from collections import defaultdict
 
 # Third-party imports
 import numpy as np
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-import plotly.io as pio
 import seaborn as sns
 from astropy.time import Time, TimeDelta
 

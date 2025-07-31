@@ -11,32 +11,25 @@ Main Functions:
 
 See https://github.com/lukehandley/ttp/tree/main for more info about the TTP
 """
-import sys
+
+# Standard library imports
 import os
 import pickle
 
+# Third-party imports
 import numpy as np
 import pandas as pd
-from astropy.time import Time
-from astropy.time import TimeDelta
-import gurobipy as gp
-from gurobipy import GRB
+from astropy.time import Time, TimeDelta
 
-sys.path.append('/Users/jack/Documents/github/ttp/')
+# Local imports
+import astroq.access as ac
+import astroq.io as io
+
+# TTP imports (assuming TTP is installed separately)
 import ttp.formatting as formatting
 import ttp.telescope as telescope
 import ttp.plotting as plotting
 import ttp.model as model
-
-import astroq.weather as wt
-import astroq.io as io
-import astroq.access as ac
-
-named_colors = ['blue', 'red', 'green', 'gold', 'maroon', 'gray', 'orange', 'magenta', 'purple']
-
-
-
-
 
 class NightPlanner(object):
     """

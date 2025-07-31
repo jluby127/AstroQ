@@ -3,25 +3,29 @@ Module that defines the SemesterPlanner class. This class is responsible for def
 Gurobi model for semester-level observation planning. It is nearly completely agnostic to all astronomy knowledge.
 
 """
-import sys
-import time
-import os
-import math
-import warnings
-warnings.filterwarnings('ignore')
+
+# Standard library imports
 import logging
+import os
+import time
+import warnings
 from configparser import ConfigParser
 from datetime import datetime, timedelta
 
-import numpy as np
-import pandas as pd
+# Third-party imports
 import gurobipy as gp
 from gurobipy import GRB
+import numpy as np
+import pandas as pd
 from astropy.time import Time, TimeDelta
 
-import astroq.io as io
+# Local imports
 import astroq.access as ac
 import astroq.history as hs
+import astroq.io as io
+
+# Suppress warnings
+warnings.filterwarnings('ignore')
 
 logs = logging.getLogger(__name__)
 

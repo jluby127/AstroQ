@@ -5,20 +5,21 @@ call from the generateScript.py script.
 Example usage:
     import reporting_functions as rf
 """
-import os
-import math
-import time
-from astropy.time import Time
-from astropy.time import TimeDelta
-from astropy.coordinates import Angle
-from astropy.coordinates import SkyCoord
-from astropy import units as u
 
+# Standard library imports
+import math
+import os
+import re
+import time
+
+# Third-party imports
+from astropy.coordinates import Angle, SkyCoord
+from astropy.time import Time, TimeDelta
+from astropy import units as u
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as pt
-import re
 
+# Local imports
 import astroq.history as hs
 
 def build_fullness_report(combined_semester_schedule, manager, round_info):

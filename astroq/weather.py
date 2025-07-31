@@ -4,23 +4,25 @@ Module defining functions to perform weather loss simulations
 Example usage:
     import weather as wh
 """
+
+# Standard library imports
+import logging
 import os
-import math
+import warnings
+
+# Third-party imports
+import astroplan as apl
+import astropy as apy
+from astropy.coordinates import Angle, SkyCoord
+from astropy.time import Time, TimeDelta
+import astropy.units as u
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as pt
-import warnings
-warnings.filterwarnings('ignore')
-import logging
-logs = logging.getLogger(__name__)
 
-from astropy.time import Time
-from astropy.time import TimeDelta
-import astropy as apy
-from astropy.coordinates import SkyCoord
-from astropy.coordinates import Angle
-import astroplan as apl
-import astropy.units as u
+# Suppress warnings
+warnings.filterwarnings('ignore')
+
+logs = logging.getLogger(__name__)
 
 DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')
 
