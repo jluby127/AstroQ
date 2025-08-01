@@ -133,7 +133,6 @@ class SemesterPlanner(object):
         
         # Calculate remaining semester info
         self.n_nights_in_semester = len(self.all_dates_dict) - self.all_dates_dict[self.current_day]
-        self.n_slots_in_semester = self.n_slots_in_night * self.n_nights_in_semester
         
         # Calculate today's starting positions
         self.today_starting_night = self.all_dates_dict[self.current_day]
