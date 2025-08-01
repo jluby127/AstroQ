@@ -29,7 +29,7 @@ from matplotlib.figure import Figure
 from plotly.subplots import make_subplots
 
 # Local imports
-import astroq.access as ac
+
 import astroq.io as io_mine
 
 # Configure matplotlib for headless rendering
@@ -137,9 +137,8 @@ def process_stars(semester_planner):
     # Create a starmap of the times when we cannot observe due to twilight and allocation constraints
     # Used in the birdseye view plot to blackout the unavailble squares
 
-    # Create Access object from semester planner configuration
-    access_obj = ac.Access(semester_planner)
-    access = access_obj.produce_ultimate_map(semester_planner.requests_frame)
+    # Use existing Access object from semester planner
+    access = semester_planner.access.produce_ultimate_map(semester_planner.requests_frame)
     nulltime = access['is_alloc'][0]
     nulltime = 1 - nulltime
     nulltime = np.array(nulltime).T

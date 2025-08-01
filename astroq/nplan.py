@@ -22,7 +22,7 @@ import pandas as pd
 from astropy.time import Time
 
 # Local imports
-import astroq.access as ac
+
 import astroq.io as io
 
 # TTP imports (assuming TTP is installed separately)
@@ -214,9 +214,8 @@ class NightPlanner(object):
 
         backup_starlist = pd.read_csv(self.backup_file)
         self.requests_frame = backup_starlist
-        # Create Access object from semester planner configuration
-        access_obj = ac.Access(self.semester_planner)
-        available_indices = access_obj.produce_ultimate_map(self.requests_frame, running_backup_stars=True)
+        # Use existing Access object from semester planner
+        available_indices = self.semester_planner.access.produce_ultimate_map(self.requests_frame, running_backup_stars=True)
         slots_available_tonight_for_star = {k: len(v[0]) for k, v in available_indices.items()}
         stars_with_sufficient_availability_tonight = [k for k, v in slots_available_tonight_for_star.items() if v > int(0.25*int(diff_minutes/5))]
 

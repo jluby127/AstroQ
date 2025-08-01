@@ -34,12 +34,25 @@ class SemesterPlanner(object):
     constraints, and solve semester-level observation schedules."""
 
     def __init__(self, cf):
+        """Initialize SemesterPlanner with clean, organized setup."""
         logs.debug("Building the SemesterPlanner.")
+        
+        # Phase 1: Break down massive constructor into focused methods
+        self._load_config(cf)
+        self._setup_directories()
+        self._load_and_process_data()
+        self._build_optimization_structures()
+        self._initialize_model()
+        
+        logs.debug("Initializing complete.")
 
-        # ===== CONFIG FILE PARSING =====
+    # ===== HELPER METHODS FOR INITIALIZATION =====
+    
+    def _load_config(self, config_file):
+        """Extract all configuration parameters from the config file."""
         # Read config file directly
         config = ConfigParser()
-        config.read(cf)
+        config.read(config_file)
         
         # Extract global configuration parameters
         workdir = str(config.get('global', 'workdir'))
@@ -62,20 +75,19 @@ class SemesterPlanner(object):
         self.past_file = self._resolve_file_path(str(config.get('data', 'past_file')))
         self.custom_file = self._resolve_file_path(str(config.get('data', 'custom_file')))
         
-        # Calculate semester length
-        start_date = datetime.strptime(self.semester_start_date, '%Y-%m-%d')
-        end_date = datetime.strptime(self.semester_end_date, '%Y-%m-%d')
-        self.semester_length = (end_date - start_date).days + 1
-        
-        # =====  Set up output directory =====
-        self.output_directory = workdir + "outputs/"
+
+
+    def _setup_directories(self):
+        """Set up output directories and create necessary files."""
+        self.output_directory = self.semester_directory + "outputs/"
         check = os.path.isdir(self.output_directory)
         if not check:
             os.makedirs(self.output_directory)
             file = open(self.output_directory + "runReport.txt", "w")
             file.close()
-        
-        # ===== DATA LOADING AND PROCESSING =====
+
+    def _load_and_process_data(self):
+        """Load CSV files and build core data structures."""
         # Load data files
         self.requests_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/requests.csv"))
 
@@ -94,14 +106,43 @@ class SemesterPlanner(object):
         self.slots_needed_for_exposure_dict = self.strategy.set_index('id')['t_visit'].to_dict()
         
         # Build date dictionary
-        self.all_dates_dict, self.all_dates_array = self._build_date_dictionary()
+        start_date = datetime.strptime(self.semester_start_date, '%Y-%m-%d')
+        end_date = datetime.strptime(self.semester_end_date, '%Y-%m-%d')
+        
+        self.all_dates_dict = {}
+        self.all_dates_array = []
+        
+        current_date = start_date
+        day_index = 0
+        
+        while current_date <= end_date:
+            date_str = current_date.strftime('%Y-%m-%d')
+            self.all_dates_dict[date_str] = day_index
+            self.all_dates_array.append(date_str)
+            current_date += timedelta(days=1)
+            day_index += 1
+        
+        # Calculate semester length (optimized using all_dates_dict length)
+        self.semester_length = len(self.all_dates_dict)
         
         # Calculate slot info
-        self._calculate_slot_info()
+        # Calculate slots per night (simplified calculation)
+        self.n_slots_in_night = int((24 * 60) / self.slot_size)
+        
+        # Calculate remaining semester info
+        self.n_nights_in_semester = len(self.all_dates_dict) - self.all_dates_dict[self.current_day]
+        self.n_slots_in_semester = self.n_slots_in_night * self.n_nights_in_semester
+        
+        # Calculate today's starting positions
+        self.today_starting_night = self.all_dates_dict[self.current_day]
         
         # Build strategy and observability data
-        self.observability = self._build_observability()
+        # Create Access object from semester planner configuration
+        self.access = ac.Access(self)
+        self.observability = self.access.observability(self.requests_frame)
 
+    def _build_optimization_structures(self):
+        """Build joiner dataframes and optimization lookup tables."""
         # ===== BUILD JOINER =====
         self.observability_tuples = list(self.observability.itertuples(index=False, name=None))
         self.joiner = pd.merge(self.strategy, self.observability, on=['id'])
@@ -123,8 +164,8 @@ class SemesterPlanner(object):
         self.single_visit_requests = [item for item in self.schedulable_requests if item not in self.multi_visit_requests]
         for name in list(self.requests_frame['starname']):
             if name not in self.schedulable_requests:
-                logs.warning("Target " + name + " has no valid day/slot pairs and "
-                           "therefore is effectively removed from the model.")
+                            logs.warning(f"Target {name} has no valid day/slot pairs and "
+                       "therefore is effectively removed from the model.")
 
         # Construct a few useful joins
         # Get each request's full list of valid d/s pairs
@@ -153,6 +194,8 @@ class SemesterPlanner(object):
         # Get all request id's that are valid on a given day
         self.unique_request_on_day_pairs = self.joiner.copy().drop_duplicates(['id','d'])
 
+    def _initialize_model(self):
+        """Create Gurobi model and decision variables."""
         self.model = gp.Model('Semester_Scheduler')
         # Yrs is technically a 1D matrix indexed by tuples.
         # But in practice best think of it as a 2D square matrix of requests r and
@@ -203,60 +246,14 @@ class SemesterPlanner(object):
             self.desired_max_obs_allowed_dict = desired_max_obs_allowed_dict
             self.absolute_max_obs_allowed_dict = absolute_max_obs_allowed_dict
             self.past_nights_observed_dict = past_nights_observed_dict
-        logs.debug("Initializing complete.")
 
+    # ===== UTILITY METHODS =====
+    
     def _resolve_file_path(self, config_path):
         """Resolve relative or absolute file paths."""
         if os.path.isabs(config_path):
             return config_path
         return os.path.join(self.semester_directory, config_path)
-
-
-    def _build_date_dictionary(self):
-        """Build date dictionary for the semester."""
-        start_date = datetime.strptime(self.semester_start_date, '%Y-%m-%d')
-        end_date = datetime.strptime(self.semester_end_date, '%Y-%m-%d')
-        
-        all_dates_dict = {}
-        all_dates_array = []
-        
-        current_date = start_date
-        day_index = 0
-        
-        while current_date <= end_date:
-            date_str = current_date.strftime('%Y-%m-%d')
-            all_dates_dict[date_str] = day_index
-            all_dates_array.append(date_str)
-            current_date += timedelta(days=1)
-            day_index += 1
-        
-        return all_dates_dict, all_dates_array
-
-    def _calculate_slot_info(self):
-        """Calculate slot-related information."""
-        # Calculate slots per night (simplified calculation)
-        self.n_slots_in_night = int((24 * 60) / self.slot_size)
-        
-        # Calculate remaining semester info
-        self.n_nights_in_semester = len(self.all_dates_dict) - self.all_dates_dict[self.current_day]
-        self.n_slots_in_semester = self.n_slots_in_night * self.n_nights_in_semester
-        
-        # Calculate today's starting positions
-        self.today_starting_night = self.all_dates_dict[self.current_day]
-
-
-
-    def _build_observability(self):
-        """
-        Build strategy and observability dataframes directly from config file.
-        This replaces the need for a RequestSet object.
-        """
-        # Create Access object from semester planner configuration
-        access_obj = ac.Access(self)
-        observability = access_obj.observability(self.requests_frame)
-
-        return observability
-
     def constraint_reserve_multislot_exposures(self):
         """
         According to Eq X in Lubin et al. 2025.
@@ -329,7 +326,7 @@ class SemesterPlanner(object):
                 ds_pairs = zip(list(np.array(slots_to_constrain_future.d3).flatten()), list(np.array(slots_to_constrain_future.s3).flatten()))
                 self.model.addConstr((gp.quicksum(self.Yrds[row.id,row.d,s2] for s2 in constrained_slots_tonight)/row.n_intra_max \
                      <= (1 - (gp.quicksum(self.Yrds[row.id,d3,s3] for d3, s3 in ds_pairs)))), \
-                    'enforce_internight_cadence_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
+                    f'enforce_internight_cadence_{row.id}_{row.d}d_{row.s}s')
             # else:
             #     # For request r, there are no (d,s) pairs that are within "inter
             #     # cadence" days of the given day d, therefore nothing to
@@ -471,7 +468,7 @@ class SemesterPlanner(object):
                 slots_to_constrain_tonight_intra = list(intracadence_frame.loc[(row.id, row.d, row.s)][0])
                 self.model.addConstr((self.Yrds[row.id,row.d,row.s] <= (self.Wrd[row.id, row.d] - (gp.quicksum(self.Yrds[row.id,row.d,s3] \
                     for s3 in slots_to_constrain_tonight_intra)))), \
-                    'enforce_intranight_cadence_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
+                    f'enforce_intranight_cadence_{row.id}_{row.d}d_{row.s}s')
 
     def constraint_set_min_max_visits_per_night(self):
         """
@@ -488,12 +485,12 @@ class SemesterPlanner(object):
             all_valid_slots_tonight = list(grouped_s.loc[(row.id, row.d)]['s'])
             if row.id in self.multi_visit_requests:
                 self.model.addConstr((((gp.quicksum(self.Yrds[row.id, row.d,s3] for s3 in all_valid_slots_tonight)))) <= \
-                    row.n_intra_max*self.Wrd[row.id, row.d], 'enforce_max_visits1_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
+                    row.n_intra_max*self.Wrd[row.id, row.d], f'enforce_max_visits1_{row.id}_{row.d}d_{row.s}s')
                 self.model.addConstr((((gp.quicksum(self.Yrds[row.id,row.d,s3] for s3 in all_valid_slots_tonight)))) >= \
-                    row.n_intra_min*self.Wrd[row.id, row.d], 'enforce_min_visits_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
+                    row.n_intra_min*self.Wrd[row.id, row.d], f'enforce_min_visits_{row.id}_{row.d}d_{row.s}s')
             else:
                 self.model.addConstr((((gp.quicksum(self.Yrds[row.id,row.d,s3] for s3 in all_valid_slots_tonight)))) <= \
-                    row.n_intra_max, 'enforce_min_visits_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
+                    row.n_intra_max, f'enforce_min_visits_{row.id}_{row.d}d_{row.s}s')
 
     def optimize_model(self):
         logs.debug("Begin model solve.")
@@ -521,7 +518,7 @@ class SemesterPlanner(object):
                     logs.critical('%s' % c.GenConstrName)
         else:
             logs.debug("Model Successfully Solved.")
-        logs.info("Time to finish solver: {:.3f}".format(time.time()-t1))
+        logs.info(f"Time to finish solver: {time.time()-t1:.3f}")
 
 
     def run_model(self):

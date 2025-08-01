@@ -9,7 +9,6 @@ This module combines functionality for:
 """
 
 # Standard library imports
-from typing import Dict, List, Optional, Union
 
 # Third-party imports
 import astropy as apy
