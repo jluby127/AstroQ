@@ -15,12 +15,13 @@ See https://github.com/lukehandley/ttp/tree/main for more info about the TTP
 # Standard library imports
 import os
 import pickle
+from configparser import ConfigParser
 
 # Third-party imports
 import numpy as np
 import pandas as pd
 from astropy.time import Time, TimeDelta
-
+        
 # Local imports
 import astroq.access as ac
 import astroq.io as io
@@ -62,6 +63,11 @@ class NightPlanner(object):
         self.current_day = str(config.get('global', 'current_day'))
         self.output_directory = self.upstream_path + "outputs/"
         self.reports_directory = self.upstream_path + "outputs/"
+
+        # Get night plan specific parameters
+        self.max_solve_gap = config.getfloat('night', 'max_solve_gap')
+        self.max_solve_time = config.getint('night', 'max_solve_time')
+        self.show_gurobi_output = config.getboolean('night', 'show_gurobi_output')
         
         # Set up allocation file path from data section
         allocation_file_config = str(config.get('data', 'allocation_file'))
@@ -71,8 +77,14 @@ class NightPlanner(object):
             self.allocation_file = os.path.join(self.semester_directory, allocation_file_config)
             
         # Set up backup file path
-        DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')
-        self.backup_file = os.path.join(DATADIR, "bright_backups_frame.csv")
+        # DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')
+        # self.backup_file = os.path.join(DATADIR, "bright_backups_frame.csv")
+        filler_file_config = str(config.get('data', 'filler_file'))
+        if os.path.isabs(filler_file_config):
+            self.filler_file = filler_file_config
+        else:
+            self.filler_file = os.path.join(self.semester_directory, filler_file_config)
+
         
         # Set up custom file path from data section
         custom_file_config = str(config.get('data', 'custom_file'))
@@ -81,10 +93,14 @@ class NightPlanner(object):
         else:
             self.custom_file = os.path.join(self.semester_directory, custom_file_config)
         
-        # Create SemesterPlanner to get all the helper methods and properties
-        # This avoids duplicating semester calculation logic
-        import astroq.splan as splan
-        self.semester_planner = splan.SemesterPlanner(config_file)
+        # Load SemesterPlanner from pickle file instead of creating new one
+        config = ConfigParser()
+        config.read(config_file)
+        workdir = str(config.get('global', 'workdir')) + "/outputs/"
+        semester_planner_pkl = os.path.join(workdir, 'semester_planner.pkl')
+        
+        with open(semester_planner_pkl, 'rb') as f:
+            self.semester_planner = pickle.load(f)
         
         # Pull properties from SemesterPlanner for consistency
         self.semester_start_date = self.semester_planner.semester_start_date
@@ -145,7 +161,7 @@ class NightPlanner(object):
         target_list = formatting.theTTP(filename)
 
         solution = model.TTPModel(observation_start_time, observation_stop_time, target_list,
-                                    observatory, observers_path, runtime=10, optgap=0.01, useHighEl=False)
+                                    observatory, observers_path, runtime=self.max_solve_time, optgap=self.max_solve_gap, useHighEl=False)
 
         gurobi_model_backup = solution.gurobi_model  # backup the attribute, probably don't need this
         del solution.gurobi_model                   # remove attribute so pickle works
@@ -192,7 +208,7 @@ class NightPlanner(object):
         diff_minutes = int(abs((observation_stop_time - observation_start_time).to('min').value))
         print("Minutes on sky: ", diff_minutes)
 
-        backup_starlist = pd.read_csv(self.backup_file)
+        backup_starlist = pd.read_csv(self.filler_file)
         self.requests_frame = backup_starlist
         # Create Access object with required parameters
         access_obj = ac.Access(

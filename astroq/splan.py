@@ -34,13 +34,15 @@ logs = logging.getLogger(__name__)
 class SemesterPlanner(object):
     """A SemesterPlanner object, from which we can define a Gurobi model, build constraints, and solve semester-level observation schedules."""
 
-    def __init__(self, cf):
+    def __init__(self, cf, run_band3):
         logs.debug("Building the SemesterPlanner.")
         self.start_the_clock = time.time()
 
         # Read config file directly
         config = ConfigParser()
         config.read(cf)
+        self.run_band3 = run_band3
+
         
         # Extract configuration parameters from new format
         workdir = str(config.get('global', 'workdir'))
@@ -74,7 +76,10 @@ class SemesterPlanner(object):
         else:
             self.allocation_file = os.path.join(self.semester_directory, allocation_file_config)
 
-        request_file_config = str(config.get('data', 'request_file'))
+        if self.run_band3:
+            request_file_config = str(config.get('data', 'filler_file'))
+        else:
+            request_file_config = str(config.get('data', 'request_file'))
         if os.path.isabs(request_file_config):
             self.request_file = request_file_config
         else:
@@ -103,6 +108,9 @@ class SemesterPlanner(object):
         self.requests_frame['n_intra_max'] = self.requests_frame['n_intra_max'].replace('None', np.nan).fillna(1)
         self.requests_frame['n_intra_min'] = self.requests_frame['n_intra_min'].replace('None', np.nan).fillna(1)
         self.requests_frame['tau_intra'] = self.requests_frame['tau_intra'].replace('None', np.nan).fillna(0)
+        self.requests_frame['weather_band'] = self.requests_frame['weather_band'].replace('None', np.nan).fillna(0)
+        self.requests_frame['unique_id'] = self.requests_frame['unique_id'].astype(str)
+        self.requests_frame['starname'] = self.requests_frame['starname'].astype(str)
 
 
         # Build strategy dataframe. Note exptime is in minutes and tau_intra is in hours they are both converted to slots here
@@ -294,12 +302,14 @@ class SemesterPlanner(object):
         for n, row in self.requests_frame.iterrows():
             name = row['starname']
             exposure_time = float(row['exptime'])
-            overhead = 45*float(row['n_exp'] - 1) + 180*float(row['n_intra_max'])
+            overhead = 45*float(row['n_exp'] - 1) #+ 180*float(row['n_intra_max'])
             
             if always_round_up_flag:
                 slots_needed = int(np.ceil((exposure_time + overhead) / (self.slot_size * 60.0)))
             else:
                 slots_needed = int(np.round((exposure_time + overhead) / (self.slot_size * 60.0)))
+            if slots_needed < 1:
+                slots_needed = 1
             
             slots_needed_for_exposure_dict[name] = slots_needed
         
@@ -326,7 +336,8 @@ class SemesterPlanner(object):
             today_starting_night=self.today_starting_night,
             slots_needed_for_exposure_dict=self.slots_needed_for_exposure_dict,
             run_weather_loss=self.run_weather_loss,
-            output_directory=self.output_directory
+            output_directory=self.output_directory,
+            run_band3=self.run_band3
         )
         # Store the full access record array for later use
         self.access_record = self.access_obj.produce_ultimate_map(self.requests_frame)

@@ -68,7 +68,7 @@ class StarPlotter(object):
             None. Sets self.observations_past as a dict: {date: n_obs}
         """
         # Filter to this star
-        star_obs_past = past[past['target'] == self.starname]
+        star_obs_past = past[past['target'] == str(self.starname)]
         # Parse date from timestamp and group by date
         star_obs_past = star_obs_past.copy()
         star_obs_past['date'] = star_obs_past['timestamp'].str[:10]
@@ -84,8 +84,10 @@ class StarPlotter(object):
             all_dates_array (list): List of all dates in the semester, indexed by 'd'
         """
         forecast_df = pd.read_csv(forecast_file)
+        forecast_df['r'] = forecast_df['r'].astype(str)
+
         # Only keep rows for this star
-        star_rows = forecast_df[forecast_df['r'] == self.starname]
+        star_rows = forecast_df[forecast_df['r'] == str(self.starname)]
         # Count number of slots scheduled per night (d)
         observations_future = {}
         for d, group in star_rows.groupby('d'):
@@ -107,11 +109,11 @@ class StarPlotter(object):
         n_slots = int((24 * 60) / semester_planner.slot_size)
         starmap = np.zeros((n_nights, n_slots), dtype=int)
         for _, sched in forecast_df.iterrows():
-            if sched['r'] == self.starname:
+            if str(sched['r']) == str(self.starname):
                 d = int(sched['d'])
                 s = int(sched['s'])
                 starmap[d, s] = 1
-                reserve_slots = semester_planner.slots_needed_for_exposure_dict[self.starname]
+                reserve_slots = semester_planner.slots_needed_for_exposure_dict[str(self.starname)]
                 for r in range(1, reserve_slots):
                     starmap[d, s+r] = 1
         self.starmap = starmap.T
@@ -162,9 +164,13 @@ def process_stars(semester_planner):
 
         # Create consistent colors across programs, and random colors for each star within programs
         newstar.program_color_rgb = program_colors_rgb_vals[newstar.program]
-        newstar.star_color_rgb = rgb_strings[np.random.randint(0, len(rgb_strings)-1)]
+        # Ensure rgb_strings has at least one element before random selection
+        if len(rgb_strings) > 1:
+            newstar.star_color_rgb = rgb_strings[np.random.randint(0, len(rgb_strings)-1)]
+        else:
+            newstar.star_color_rgb = rgb_strings[0]
         newstar.draw_lines = False
-        newstar.maps_names = ['is_alloc', 'is_custom', 'is_altaz', 'is_moon', 'is_inter', 'is_future']
+        newstar.maps_names = ['is_alloc', 'is_custom', 'is_altaz', 'is_moon', 'is_inter', 'is_future', 'is_clear', 'is_observable_now']
         newstar.maps = [access[name] for name in newstar.maps_names] 
         newstar.allow_mapview = True
 
