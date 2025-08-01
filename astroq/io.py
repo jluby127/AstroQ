@@ -23,7 +23,7 @@ import pandas as pd
 import astroq.history as hs
 import astroq.access as ac
 
-def serialize_schedule(Yrds, output_directory):
+def serialize_schedule(Yrds, semester_planner):
     """
     Turns the non-square matrix of the solution into a square matrix and starts the human readable
     solution by filling in the slots where a star's exposre is started.
@@ -39,21 +39,23 @@ def serialize_schedule(Yrds, output_directory):
     df['value'] = [Yrds[k].x for k in Yrds.keys()]
     sparse = df.query('value>0').copy()
     sparse.drop(columns=['value'], inplace=True)
-    sparse.to_csv(output_directory + "semester_plan.csv", index=False, na_rep="")
+    sparse.to_csv(semester_planner.output_directory + "semester_plan.csv", index=False, na_rep="")
+    semester_planner.future_forecast = "semester_plan.csv"
 
-    day, slot = np.mgrid[:manager.semester_length,:manager.n_slots_in_night]
+    day, slot = np.mgrid[:semester_planner.semester_length,:semester_planner.n_slots_in_night]
     dense1 = pd.DataFrame(dict(d=day.flatten(), s=slot.flatten()))
     dense1 = pd.merge(dense1, sparse, left_on=['d','s'],right_on=['d','s'],how='left')
     dense1['r'] = dense1['r'].fillna('')
     # dense1 has keys for all days and slots, where no star was scheduled to start its observation, the r column is blank
-    dense1.to_csv(manager.output_directory + "serialized_outputs_dense_v1.csv", index=False, na_rep="")
+    dense1.to_csv(semester_planner.output_directory + "serialized_outputs_dense_v1.csv", index=False, na_rep="")
 
     dense2 = dense1.copy()
-    access = ac.produce_ultimate_map(manager, manager.requests_frame) #temp until we pickle the manager and read it in
+    # Use the stored access record from the first run (no need to recompute)
+    access = semester_planner.access_record
     isAlloc = access['is_alloc'].flatten()
     isClear = access['is_clear'].flatten()
     # have to go backwards otherwise you're adding stars into slots and then testing if the star is in the next slot
-    for slot in range(manager.n_slots_in_semester-1, -1, -1):
+    for slot in range(semester_planner.n_slots_in_semester-1, -1, -1):
         name_string = ""
         if isAlloc[slot] == 0:
             name_string += "X"
@@ -61,14 +63,14 @@ def serialize_schedule(Yrds, output_directory):
             name_string += "W"
         dense2.loc[slot, 'r'] = name_string + str(dense2.loc[slot, 'r'])
 
-        if dense2.loc[slot, 'r'] in list(manager.requests_frame['starname']):
-            slots_needed = manager.slots_needed_for_exposure_dict[dense2.loc[slot, 'r']]
+        if dense2.loc[slot, 'r'] in list(semester_planner.requests_frame['starname']):
+            slots_needed = semester_planner.slots_needed_for_exposure_dict[dense2.loc[slot, 'r']]
             if slots_needed > 1:
                 for t in range(1, slots_needed):
                     dense2.loc[slot + t, 'r'] = str(dense2.loc[slot + t, 'r']) + str(dense2.loc[slot, 'r'])
 
     # dense2 has keys for all days and slots, manually fill in the reserved slots for each observation and fill in Past/Twilight/Weather info
-    dense2.to_csv(manager.output_directory + "serialized_outputs_dense_v2.csv", index=False, na_rep="")
+    dense2.to_csv(semester_planner.output_directory + "serialized_outputs_dense_v2.csv", index=False, na_rep="")
 
 def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars, current_day,
                     outputdir, version='nominal'):

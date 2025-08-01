@@ -11,6 +11,8 @@ import time
 import warnings
 from configparser import ConfigParser
 from datetime import datetime, timedelta
+import pickle
+
 
 # Third-party imports
 import gurobipy as gp
@@ -71,6 +73,12 @@ class SemesterPlanner(object):
             self.allocation_file = allocation_file_config
         else:
             self.allocation_file = os.path.join(self.semester_directory, allocation_file_config)
+
+        request_file_config = str(config.get('data', 'request_file'))
+        if os.path.isabs(request_file_config):
+            self.request_file = request_file_config
+        else:
+            self.request_file = os.path.join(self.semester_directory, request_file_config)
         
         past_file_config = str(config.get('data', 'past_file'))
         if os.path.isabs(past_file_config):
@@ -85,7 +93,15 @@ class SemesterPlanner(object):
             self.custom_file = os.path.join(self.semester_directory, custom_file_config)
         
         # Load data files
-        self.requests_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/requests.csv"))
+        requests_file_path = os.path.join(self.semester_directory, self.request_file)
+        if not os.path.exists(requests_file_path):
+            raise FileNotFoundError(f"Requests file not found: {requests_file_path}")
+        self.requests_frame = pd.read_csv(requests_file_path)
+
+        # Fill NaN values with defaults --- for now in early 2025B since we had issues with the webform.c
+        self.requests_frame['n_intra_max'] = self.requests_frame['n_intra_max'].fillna(1)
+        self.requests_frame['n_intra_min'] = self.requests_frame['n_intra_min'].fillna(1)
+        self.requests_frame['tau_intra'] = self.requests_frame['tau_intra'].fillna(0)
 
         # Build strategy dataframe. Note exptime is in minutes and tau_intra is in hours they are both converted to slots here
         strategy = self.requests_frame[['starname','n_intra_min','n_intra_max','n_inter_max','tau_inter']]
@@ -292,7 +308,7 @@ class SemesterPlanner(object):
         This replaces the need for a RequestSet object.
         """
         # Create Access object with parameters from config
-        access_obj = ac.Access(
+        self.access_obj = ac.Access(
             semester_start_date=self.semester_start_date,
             semester_length=self.semester_length,
             slot_size=self.slot_size,
@@ -309,7 +325,9 @@ class SemesterPlanner(object):
             run_weather_loss=self.run_weather_loss,
             output_directory=self.output_directory
         )
-        observability = access_obj.observability(self.requests_frame)
+        # Store the full access record array for later use
+        self.access_record = self.access_obj.produce_ultimate_map(self.requests_frame)
+        observability = self.access_obj.observability(self.requests_frame, access=self.access_record)
 
         return observability
 
@@ -645,3 +663,17 @@ class SemesterPlanner(object):
         selected_df = self.requests_frame[self.requests_frame['starname'].isin(selected)].copy()
         # Save to CSV with new name
         selected_df.to_csv(os.path.join(self.output_directory, 'request_selected.csv'), index=False)
+
+        # --- Save semester_planner to pickle file ---
+        planner_pickle_path = os.path.join(self.output_directory, 'semester_planner.pkl')
+        
+        # Create a copy of self without unpicklable objects
+        planner_copy = type(self).__new__(type(self))
+        for attr_name, attr_value in self.__dict__.items():
+            # Skip Gurobi model and variables which can't be pickled
+            if attr_name in ['model', 'Yrds', 'Wrd', 'theta']:
+                continue
+            setattr(planner_copy, attr_name, attr_value)
+        
+        with open(planner_pickle_path, 'wb') as f:
+            pickle.dump(planner_copy, f)

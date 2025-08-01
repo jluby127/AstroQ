@@ -36,7 +36,7 @@ gray = 'rgb(210,210,210)'
 clear = 'rgba(255,255,255,1)'
 labelsize = 38
 
-def get_cof(semester_planner, all_stars, static=False):
+def get_cof(semester_planner, all_stars):
     '''
     Return the html string for a plotly figure showing the COF for a selection of stars
 
@@ -97,14 +97,17 @@ def get_cof(semester_planner, all_stars, static=False):
             annotation_position="bottom left"
         )
     fig.update_layout(
+        width=1200,
+        height=800,
         xaxis_title="Calendar Date",
         yaxis_title="Request % Complete",
         showlegend=True,
         legend=dict(
-            x=0.98,
-            y=0.05,
-            xanchor='right',
-            yanchor='bottom',
+            orientation="h",
+            x=0.5,
+            y=-0.35,
+            xanchor='center',
+            yanchor='top',
             bgcolor='rgba(255,255,255,0.7)',
             bordercolor='black',
             borderwidth=1,
@@ -122,6 +125,7 @@ def get_cof(semester_planner, all_stars, static=False):
             showgrid=False,
             zeroline=False
         ),
+        margin=dict(b=350)  # Add bottom margin for legend
     )
     return fig
 
@@ -222,6 +226,8 @@ def get_birdseye(semester_planner, availablity, all_stars):
         y_ticktext.append(f"{hours:02.0f}:{minutes:02.0f}")
 
     fig.update_layout(
+        width=1200,
+        height=800,
         yaxis_title="Slot in Night",
         xaxis_title="Night in Semester",
         xaxis=dict(
@@ -243,8 +249,17 @@ def get_birdseye(semester_planner, availablity, all_stars):
         template="plotly_white",
         showlegend=True,
         legend=dict(
-            font=dict(size=labelsize-10)
-        )
+            orientation="h",
+            x=0.5,
+            y=-0.35,
+            xanchor='center',
+            yanchor='top',
+            font=dict(size=labelsize-10),
+            bgcolor='rgba(255,255,255,0.7)',
+            bordercolor='black',
+            borderwidth=1
+        ),
+        margin=dict(b=250)  # Add bottom margin for legend
     )
     return fig
 
