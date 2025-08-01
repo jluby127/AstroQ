@@ -50,13 +50,11 @@ class Access:
         self.slots_needed_for_exposure_dict = semester_planner.slots_needed_for_exposure_dict
         self.run_weather_loss = semester_planner.run_weather_loss
         
-        # Extract pre-computed date attributes (no need to recompute)
+        # Extract pre-computed date attributes and history (no need to recompute)
         self.all_dates_dict = semester_planner.all_dates_dict
         self.all_dates_array = semester_planner.all_dates_array
         self.n_nights_in_semester = semester_planner.n_nights_in_semester
-        
-        # Load past history
-        self.past_history = hs.process_star_history(self.past_history_file)
+        self.past_history = semester_planner.past_history
 
     
     def _setup_observing_context(self, rf):
