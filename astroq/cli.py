@@ -139,14 +139,14 @@ def main():
     psr_kpfcc_plan_night.set_defaults(func=astroq.driver.ttp)
 
     ## subcommand of astroq: compare -- compare request set and schedule file
-    psr_compare = subpsr.add_parser('comp', parents=[psr_parent],
+    psr_compare = subpsr.add_parser('compare', parents=[psr_parent],
                                     description='Compare request set and schedule for consistency',
                                     prefix_chars='-'
                                     )
-    psr_compare.add_argument('-rf', '--request_file',
+    psr_compare.add_argument('-cf', '--config_file',
                               type=str,
                               required=True,
-                              help="Relative path of request set file."
+                              help="Relative path of config file."
                               )
     psr_compare.add_argument('-sf', '--schedule_file',
                               type=str,
