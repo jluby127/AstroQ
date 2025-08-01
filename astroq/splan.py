@@ -64,8 +64,8 @@ class SemesterPlanner(object):
         check = os.path.isdir(self.output_directory)
         if not check:
             os.makedirs(self.output_directory)
-            file = open(self.output_directory + "runReport.txt", "w")
-            file.close()
+            # file = open(self.output_directory + "runReport.txt", "w")
+            # file.close()
         
         # Set up file paths from data section
         allocation_file_config = str(config.get('data', 'allocation_file'))
@@ -327,6 +327,30 @@ class SemesterPlanner(object):
         )
         # Store the full access record array for later use
         self.access_record = self.access_obj.produce_ultimate_map(self.requests_frame)
+        
+        # Debug trace: examine access arrays for specific stars
+        print("=== ACCESS RECORD DEBUG ===")
+        print(f"Access record shape: {self.access_record.shape}")
+        print(f"Access record dtype: {self.access_record.dtype}")
+        print(f"Access record field names: {self.access_record.dtype.names}")
+        
+        # Look for specific stars in the requests frame
+        target_stars = ['HIP24069', 'HIP10540', 'HIP4691']  # Add the stars you want to examine
+        for star in target_stars:
+            if star in self.requests_frame['starname'].values:
+                star_idx = self.requests_frame[self.requests_frame['starname'] == star].index[0]
+                print(f"\n--- {star} (index {star_idx}) ---")
+                print(f"  is_altaz: {self.access_record['is_altaz'][star_idx].sum()} slots available")
+                print(f"  is_future: {self.access_record['is_future'][star_idx].sum()} slots in future")
+                print(f"  is_moon: {self.access_record['is_moon'][star_idx].sum()} slots moon-ok")
+                print(f"  is_custom: {self.access_record['is_custom'][star_idx].sum()} slots custom-ok")
+                print(f"  is_inter: {self.access_record['is_inter'][star_idx].sum()} slots inter-ok")
+                print(f"  is_alloc: {self.access_record['is_alloc'][star_idx].sum()} slots allocated")
+                print(f"  is_clear: {self.access_record['is_clear'][star_idx].sum()} slots clear")
+                print(f"  is_observable: {self.access_record['is_observable'][star_idx].sum()} slots observable")
+            else:
+                print(f"\n--- {star} not found in requests frame ---")
+        
         observability = self.access_obj.observability(self.requests_frame, access=self.access_record)
 
         return observability

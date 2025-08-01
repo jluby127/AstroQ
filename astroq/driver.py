@@ -277,10 +277,10 @@ def requests_vs_schedule(args):
         tau_inter = star_request['tau_inter'].values[0] # min num of nights before another obs
         if tau_inter > 0: # only run this test if the intention is to schedule more than once
             unique_days = np.sort(np.array(list(set(star_schedule.d))))
-            min_day_gaps = np.min(unique_days[1:] - unique_days[:-1])
-            if n_inter_max <= 1: # If only 1 obs per semester, no risk of spacing obs too closely
+            if len(unique_days) <= 1: # If only 1 obs or 1 day, no risk of spacing obs too closely
                 pass
             else:
+                min_day_gaps = np.min(unique_days[1:] - unique_days[:-1])
                 # Require that all gaps are greater than the min gap
                 tau_inter_err = ("tau_inter violated: "
                                 f"two obs of {star} are not spaced by enough days "
