@@ -122,7 +122,7 @@ def nightplan():
     plots = ['script_table', 'slewgif', 'ladder', 'slewpath']
 
     if data_ttp is not None:
-        script_table_df = dn.get_script_plan(config_file, data_ttp)
+        script_table_df = dn.get_script_plan(semester_planner, data_ttp)
         ladder_fig = dn.get_ladder(data_ttp)
         slew_animation_figures = dn.get_slew_animation(data_ttp, animationStep=120)
         slew_path_fig = dn.plot_path_2D_interactive(data_ttp)

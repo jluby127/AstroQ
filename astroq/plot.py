@@ -115,8 +115,6 @@ class StarPlotter(object):
                 for r in range(1, reserve_slots):
                     starmap[d, s+r] = 1
         self.starmap = starmap.T
-        # assert np.shape(starmap) == (semester_planner.semester_length, int((24 * 60) / semester_planner.slot_size)), np.shape(starmap)
-        # assert np.shape(starmap) == (10, 4), np.shape(starmap)
 
 def process_stars(semester_planner):
 

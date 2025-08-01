@@ -25,9 +25,11 @@ from matplotlib.figure import Figure
 from plotly.subplots import make_subplots
 import seaborn as sns
 from astropy.time import Time, TimeDelta
+import os
 
 # Local imports
 import astroq.io as io_mine
+import astroq.nplan
 
 # Configure matplotlib for headless rendering
 matplotlib.use("Agg")
@@ -826,27 +828,93 @@ def get_slew_animation(data, animationStep=120):
 
     return figures
 
-def get_script_plan(config_file, data):
+def get_script_plan(semester_planner, data):
     """Generate script plan HTML table from TTP data."""
+
+    # obs_start_time, _ = astroq.nplan.get_nightly_times_from_allocation(semester_planner.allocation_file, semester_planner.current_day)
     
-    # Create both SemesterPlanner and NightPlanner to get all needed data
-    from astroq.nplan import NightPlanner
-    import astroq.splan as splan
+    # semester_planner.requests_frame['n_intra_max'] = semester_planner.requests_frame['n_intra_max'].replace('None', np.nan).fillna(1)
+    # semester_planner.requests_frame['n_intra_min'] = semester_planner.requests_frame['n_intra_min'].replace('None', np.nan).fillna(1)
+    # semester_planner.requests_frame['tau_intra'] = semester_planner.requests_frame['tau_intra'].replace('None', np.nan).fillna(0.0)
+    # semester_planner.requests_frame['jmag'] = semester_planner.requests_frame['jmag'].replace('None', np.nan).fillna(0.0)
+    # semester_planner.requests_frame['gmag'] = semester_planner.requests_frame['gmag'].replace('None', np.nan).fillna(0.0)
+    # semester_planner.requests_frame['pmra'] = semester_planner.requests_frame['pmra'].replace('None', np.nan).fillna(0.0)
+    # semester_planner.requests_frame['pmdec'] = semester_planner.requests_frame['pmdec'].replace('None', np.nan).fillna(0.0)
+    # semester_planner.requests_frame['epoch'] = semester_planner.requests_frame['epoch'].replace('None', np.nan).fillna(0.0)    
     
-    semester_planner = splan.SemesterPlanner(config_file)
-    night_planner = NightPlanner(config_file)
+    # round_two_requests = [] # just for now
+    # lines = io_mine.write_starlist(semester_planner.requests_frame, data[0].plotly, obs_start_time, data[0].extras, round_two_requests, str(semester_planner.current_day), semester_planner.output_directory)
+    # observing_plan = pd.DataFrame([io_mine.parse_star_line(line) for line in lines])
+    # observing_plan = observing_plan[observing_plan.iloc[:, 0].str.strip() != '']
     
-    # Get start time from allocation file instead of nightly_start_stop_times
-    obs_start_time, _ = night_planner.get_nightly_times_from_allocation(semester_planner.current_day)
+    # Read the script file with proper column names and handle missing values
+    script_file = os.path.join(semester_planner.output_directory, 'script_' + semester_planner.current_day + '_nominal.txt')
     
-    round_two_requests = [] # just for now
-    lines = io_mine.write_starlist(semester_planner.requests_frame, data[0].plotly, obs_start_time, data[0].extras, round_two_requests, str(semester_planner.current_day), night_planner.reports_directory)
-    observing_plan = pd.DataFrame([io_mine.parse_star_line(line) for line in lines])
-    observing_plan = observing_plan[observing_plan.iloc[:, 0].str.strip() != '']
+    # Define column names based on the file format
+    columns = [
+        'starname', 'ra_h', 'ra_m', 'ra_s', 'dec_sign', 'dec_d', 'dec_m', 'dec_s', 
+        'equinox', 'jmag', 'exposure_time', 'visits', 'sc', 'n_exp', 'gmag', 'teff', 
+        'gaia_id', 'instrument', 'priority', 'program', 'obs_time', 'first_avail', 'last_avail'
+    ]
+    
+    # Read the file line by line to handle variable column counts due to star names with spaces
+    lines = []
+    with open(script_file, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line:  # Process all non-empty lines
+                if line.startswith('X'):  # Handle separator line
+                    # Create a row with "XX" for each column
+                    num_columns = len(columns)
+                    formatted_line = ['XX'] * num_columns
+                    lines.append(formatted_line)
+                else:
+                    # Split by spaces and handle the variable structure
+                    parts = line.split()
+                    
+                    # Define star name prefixes that should be combined with the next part
+                    star_prefixes = ['HD', 'HIP', 'KOI', 'Kepler', 'TOI', 'Gaia', 'Gliese', 'gl', 'gj']
+                    
+                    # Check if the first part is a star prefix (case insensitive)
+                    if len(parts) >= 2:
+                        first_part = parts[0].upper()
+                        second_part = parts[1]
+                        
+                        # Check if first part matches any prefix (case insensitive)
+                        is_star_prefix = any(first_part == prefix.upper() for prefix in star_prefixes)
+                        
+                        if is_star_prefix:
+                            # Combine first two parts as star name
+                            star_name = parts[0] + ' ' + parts[1]
+                            ra_dec_parts = parts[2:]
+                        else:
+                            # Single word star name
+                            star_name = parts[0]
+                            ra_dec_parts = parts[1:]
+                    else:
+                        # Fallback for very short lines
+                        star_name = parts[0] if parts else ''
+                        ra_dec_parts = parts[1:] if len(parts) > 1 else []
+                    
+                    # Create a properly formatted line
+                    formatted_line = [star_name] + ra_dec_parts
+                    lines.append(formatted_line)
+    
+    # Create DataFrame from the processed lines
+    if lines:
+        # Pad shorter lines with NaN to match the longest line
+        max_cols = max(len(line) for line in lines)
+        padded_lines = []
+        for line in lines:
+            padded_line = line + [np.nan] * (max_cols - len(line))
+            padded_lines.append(padded_line)
+        
+        observing_plan = pd.DataFrame(padded_lines, columns=columns[:max_cols])
+        # Handle missing values
+        observing_plan = observing_plan.replace(['', 'NoGaiaName'], np.nan)
+    else:
+        observing_plan = pd.DataFrame(columns=columns)
     return observing_plan
-
-
-
 
 
 def plot_path_2D_interactive(data):

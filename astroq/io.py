@@ -71,7 +71,82 @@ def serialize_schedule(Yrds, semester_planner):
 
     # dense2 has keys for all days and slots, manually fill in the reserved slots for each observation and fill in Past/Twilight/Weather info
     dense2.to_csv(semester_planner.output_directory + "serialized_outputs_dense_v2.csv", index=False, na_rep="")
+    
+    # Generate the fullness report
+    build_fullness_report(semester_planner, "Round1")
 
+def build_fullness_report(semester_planner, round_info):
+    """
+    Determine how full the schedule is: slots available, slots scheduled, and slots required
+
+    Args:
+        semester_planner (obj): a SemesterPlanner object
+        round_info (str): information about the optimization round
+
+    Returns:
+        None
+    """
+    file_path = semester_planner.output_directory + "runReport.txt"
+    print(f"Writing to: {file_path}")
+    
+    # Read the semester plan CSV file
+    semester_plan_path = os.path.join(semester_planner.output_directory, "semester_plan.csv")
+    if not os.path.exists(semester_plan_path):
+        print(f"Warning: semester_plan.csv not found at {semester_plan_path}")
+        return
+    
+    schedule_df = pd.read_csv(semester_plan_path)
+    
+    # Get access record data
+    access = semester_planner.access_record
+    is_alloc = access['is_alloc']
+    
+    # Calculate statistics
+    # is_alloc is 3D array, but all 2D arrays are the same, so use the first one
+    is_alloc_2d = is_alloc[0]  # Take the first 2D array
+    total_slots_in_semester = is_alloc_2d.shape[0] * is_alloc_2d.shape[1]  # Total slots = n_nights * n_slots_per_night
+    allocated_slots = np.sum(is_alloc_2d)  # Slots that are allocated (not X)
+    
+    # Calculate scheduled slots (starting slots only)
+    scheduled_starting_slots = len(schedule_df)  # Number of starting slots with stars scheduled
+    
+    # Calculate reserved slots (slots beyond starting slots for multi-slot exposures)
+    reserved_slots = 0
+    for _, row in schedule_df.iterrows():
+        star_name = row['r']
+        if star_name in semester_planner.slots_needed_for_exposure_dict:
+            slots_needed = semester_planner.slots_needed_for_exposure_dict[star_name]
+            reserved_slots += slots_needed - 1  # Subtract 1 because the starting slot is already counted
+    
+    total_scheduled_slots = scheduled_starting_slots + reserved_slots
+    empty_slots = allocated_slots - total_scheduled_slots
+    
+    # Calculate total slots requested using slots_needed_for_exposure_dict and n_intra_max
+    total_slots_requested = 0
+    for i in range(len(semester_planner.requests_frame)):
+        star_name = semester_planner.requests_frame['starname'][i]
+        if star_name in semester_planner.slots_needed_for_exposure_dict:
+            slots_needed = semester_planner.slots_needed_for_exposure_dict[star_name]
+            total_slots_requested += slots_needed * semester_planner.requests_frame['n_intra_max'][i] * semester_planner.requests_frame['n_inter_max'][i]
+    
+    # Calculate percentages
+    percentage_of_available = np.round((total_scheduled_slots * 100) / allocated_slots, 3) if allocated_slots > 0 else 0
+    percentage_of_requested = np.round((total_scheduled_slots * 100) / total_slots_requested, 3) if total_slots_requested > 0 else 0
+    
+    with open(semester_planner.output_directory + "runReport.txt", "w") as file:
+        file.write("Stats for " + str(round_info) + "\n")
+        file.write("------------------------------------------------------" + "\n")
+        file.write("N slots in semester:" + str(total_slots_in_semester) + "\n")
+        file.write("N available slots:" + str(allocated_slots) + "\n")
+        file.write("N starting slots scheduled: " + str(scheduled_starting_slots) + "\n")
+        file.write("N reserved slots: " + str(reserved_slots) + "\n")
+        file.write("N total slots scheduled: " + str(total_scheduled_slots) + "\n")
+        file.write("N slots left empty: " + str(empty_slots) + "\n")
+        file.write("N slots requested (total): " + str(total_slots_requested) + "\n")
+        file.write("Utilization (% of available slots): " + str(percentage_of_available) + "%" + "\n")
+        file.write("Utilization (% of requested slots): " + str(percentage_of_requested) + "%" + "\n")
+        file.close()
+        
 def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars, current_day,
                     outputdir, version='nominal'):
     """
@@ -174,8 +249,24 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
     teff_val = row.get('teff', [5000])[0] if 'teff' in row else 5000
     gaia_id_val = row.get('gaia_id', ['UNKNOWN'])[0] if 'gaia_id' in row else 'UNKNOWN'
     
+    # Convert to float safely, with fallback to defaults
+    try:
+        jmag_val = float(jmag_val) if jmag_val is not None else 15.0
+    except (ValueError, TypeError):
+        jmag_val = 25.0
+    
+    try:
+        gmag_val = float(gmag_val) if gmag_val is not None else 15.0
+    except (ValueError, TypeError):
+        gmag_val = 25.0
+    
+    try:
+        teff_val = float(teff_val) if teff_val is not None else 5000
+    except (ValueError, TypeError):
+        teff_val = 0.0
+    
     jmagstring = ('jmag=' + str(np.round(float(jmag_val),1)) + ' '* \
-        (4-len(str(np.round(jmag_val,1)))))
+        (4-len(str(np.round(float(jmag_val),1)))))
     exposurestring = (' '*(4-len(str(int(row['exptime'][0])))) + \
         str(int(row['exptime'][0])) + '/' + \
         str(int(row['exptime'][0])) + ' '* \
@@ -186,7 +277,7 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
 
     numstring = str(int(row['n_exp'][0])) + "x"
     gmagstring = 'gmag=' + str(np.round(float(gmag_val),1)) + \
-                                                ' '*(4-len(str(np.round(gmag_val,1))))
+                                                ' '*(4-len(str(np.round(float(gmag_val),1))))
     teffstr = 'Teff=' + str(int(teff_val)) + \
                                     ' '*(4-len(str(int(teff_val))))
 
