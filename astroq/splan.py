@@ -3,58 +3,133 @@ Module that defines the SemesterPlanner class. This class is responsible for def
 Gurobi model for semester-level observation planning. It is nearly completely agnostic to all astronomy knowledge.
 
 """
-import sys
-import time
-import os
-import warnings
-warnings.filterwarnings('ignore')
-import logging
-logs = logging.getLogger(__name__)
 
-import numpy as np
-import pandas as pd
+# Standard library imports
+import logging
+import os
+import time
+import warnings
+from configparser import ConfigParser
+from datetime import datetime, timedelta
+
+# Third-party imports
 import gurobipy as gp
 from gurobipy import GRB
+import numpy as np
+import pandas as pd
+from astropy.time import Time, TimeDelta
 
-import astroq.io as io
-import astroq.management as mn
-import astroq.request as rq
+# Local imports
 import astroq.access as ac
+import astroq.history as hs
+import astroq.io as io
+
+# Suppress warnings
+warnings.filterwarnings('ignore')
+
+logs = logging.getLogger(__name__)
 
 class SemesterPlanner(object):
     """A SemesterPlanner object, from which we can define a Gurobi model, build constraints, and solve semester-level observation schedules."""
 
-    def __init__(self, request_set, cf):
-
+    def __init__(self, cf):
         logs.debug("Building the SemesterPlanner.")
         self.start_the_clock = time.time()
 
-        manager = mn.data_admin(cf)
-        if manager.current_day != request_set.meta['d1_date']:
-            logs.warning("Mismatch on 'current_date' between config file and request_set file! Using the request_set file's value.")
-            manager.current_day = request_set.meta['d1_date']
-        manager.run_admin()
+        # Read config file directly
+        config = ConfigParser()
+        config.read(cf)
+        
+        # Extract configuration parameters from new format
+        workdir = str(config.get('global', 'workdir'))
+        self.semester_directory = workdir
+        self.current_day = str(config.get('global', 'current_day'))
+        self.observatory = config.get('global', 'observatory')
+        
+        self.n_hours_in_night = 24 # later we will delete this
+        self.n_quarters_in_night = 4 # later we will delete this
 
-        self.manager = manager
-        self.request_set = request_set
-        self.observability_tuples = list(request_set.observability.itertuples(index=False, name=None))
+        # Get semester parameters from semester section
+        self.slot_size = config.getint('semester', 'slot_size')
+        self.run_weather_loss = config.getboolean('semester', 'run_weather_loss')
+        self.solve_time_limit = config.getint('semester', 'max_solve_time')
+        self.gurobi_output = config.getboolean('semester', 'show_gurobi_output')
+        self.solve_max_gap = config.getfloat('semester', 'max_solve_gap')
+        self.max_bonus = config.getfloat('semester', 'maximum_bonus_size')
+        
+        # Output directory
+        self.output_directory = workdir + "outputs/"
+        check = os.path.isdir(self.output_directory)
+        if not check:
+            os.makedirs(self.output_directory)
+            file = open(self.output_directory + "runReport.txt", "w")
+            file.close()
+        
+        # Set up file paths from data section
+        allocation_file_config = str(config.get('data', 'allocation_file'))
+        if os.path.isabs(allocation_file_config):
+            self.allocation_file = allocation_file_config
+        else:
+            self.allocation_file = os.path.join(self.semester_directory, allocation_file_config)
+        
+        past_file_config = str(config.get('data', 'past_file'))
+        if os.path.isabs(past_file_config):
+            self.past_file = past_file_config
+        else:
+            self.past_file = os.path.join(self.semester_directory, past_file_config)
+        
+        custom_file_config = str(config.get('data', 'custom_file'))
+        if os.path.isabs(custom_file_config):
+            self.custom_file = custom_file_config
+        else:
+            self.custom_file = os.path.join(self.semester_directory, custom_file_config)
+        
+        # Load data files
+        self.requests_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/requests.csv"))
 
-        self.joiner = pd.merge(self.request_set.strategy, self.request_set.observability, on=['id'])
+        # Build strategy dataframe. Note exptime is in minutes and tau_intra is in hours they are both converted to slots here
+        strategy = self.requests_frame[['starname','n_intra_min','n_intra_max','n_inter_max','tau_inter']]
+        strategy = strategy.rename(columns={'starname':'id'})
+        strategy['t_visit'] = (self.requests_frame['exptime'] / 60 / self.slot_size).clip(lower=1).round().astype(int) 
+        strategy['tau_intra'] = (self.requests_frame['tau_intra'] * 60 / self.slot_size).round().astype(int) 
+        self.strategy = strategy
+
+        # Load past history
+        self.past_history = hs.process_star_history(self.past_file)
+        
+        # Build slots needed dictionary
+        self.slots_needed_for_exposure_dict = self._build_slots_required_dictionary()
+        
+        # Calculate semester info
+        self._calculate_semester_info()
+        
+        # Build date dictionary
+        self.all_dates_dict, self.all_dates_array = self._build_date_dictionary()
+        
+        # Calculate slot info
+        self._calculate_slot_info()
+        
+        # Build strategy and observability data
+        self.observability = self._build_observability()
+
+        self.observability_tuples = list(self.observability.itertuples(index=False, name=None))
+
+        self.joiner = pd.merge(self.strategy, self.observability, on=['id'])
         # add dummy columns for easier joins
         self.joiner['id2'] = self.joiner['id']
         self.joiner['d2'] = self.joiner['d']
         self.joiner['s2'] = self.joiner['s']
-        self.joiner['tau_intra'] *= int(60/self.manager.slot_size) # convert hours to slots
+        self.joiner['tau_intra'] *= int(60/self.slot_size) # convert hours to slots
         self.joiner['tau_intra'] += self.joiner['t_visit'] # start the minimum intracadence time from the end of the previous exposure, not the beginning
 
         # Prepare information by construction observability_nights (Wset) and schedulable_requests
         self.observability_nights = self.joiner[self.joiner['n_intra_max'] > 1][['id', 'd']].drop_duplicates().copy()
         self.multi_visit_requests = list(self.observability_nights['id'].unique())
 
-        self.all_requests = list(manager.requests_frame['starname'])
+        self.all_requests = list(self.requests_frame['starname'])
         self.schedulable_requests =  list(self.joiner['id'].unique())
         self.single_visit_requests = [item for item in self.schedulable_requests if item not in self.multi_visit_requests]
-        for name in list(manager.requests_frame['starname']):
+        for name in list(self.requests_frame['starname']):
             if name not in self.schedulable_requests:
                 logs.warning("Target " + name + " has no valid day/slot pairs and therefore is effectively removed from the model.")
 
@@ -85,17 +160,11 @@ class SemesterPlanner(object):
         # Get all request id's that are valid on a given day
         self.unique_request_on_day_pairs = self.joiner.copy().drop_duplicates(['id','d'])
 
-        if self.manager.run_optimal_allocation:
-            if self.manager.semester_grid == [] or self.manager.quarters_grid == []:
-                logs.critical("Missing necessary parameters to run Optimal Allocation \n    ---- A semester grid and a quarters grid is required to run optimal allocation.")
-            if self.manager.max_quarters == 0 or self.manager.max_unique_nights == 0:
-                logs.critical("Missing necessary parameters to run Optimal Allocation \n    ---- Neither Max Quarters nor Max Unique Nights parameters can be zero.")
-
         self.model = gp.Model('Semester_Scheduler')
         # Yrs is technically a 1D matrix indexed by tuples.
         # But in practice best think of it as a 2D square matrix of requests r and slots s, with gaps.
         # Slot s for request r will be 1 to indicate starting an exposure for that request in that slot
-        observability_array = list(self.request_set.observability.itertuples(index=False, name=None))
+        observability_array = list(self.observability.itertuples(index=False, name=None))
         self.Yrds = self.model.addVars(observability_array, vtype = GRB.BINARY, name = 'Requests_Slots')
 
         if len(self.observability_nights) != 0:
@@ -109,34 +178,24 @@ class SemesterPlanner(object):
         # theta is the "shortfall" variable, continous in natural numbers.
         self.theta = self.model.addVars(self.all_requests, name = 'Shortfall')
 
-        if self.manager.run_optimal_allocation:
-            # Anq is a 2D matrix of N_nights_in_semester by N_quarters_in_night
-            # element will be 1 if that night/quarter is allocated to KPF and 0 otherwise
-            self.Anq = self.model.addVars(self.manager.semester_grid, self.manager.quarters_grid, vtype = GRB.BINARY, name = 'Allocation')
-
-            # Un is a 1D matrix of N_nights_in_semester
-            # element will be 1 if at least one quarter in that night is allocated
-            self.Un = self.model.addVars(self.manager.semester_grid, vtype = GRB.BINARY, name = 'On-Sky')
-            self.model.update()
-
         desired_max_obs_allowed_dict = {}
         absolute_max_obs_allowed_dict = {}
         past_nights_observed_dict = {}
-        for name in self.schedulable_requests:
-            idx = self.manager.requests_frame.index[self.manager.requests_frame['starname']==name][0]
-            if name in list(self.manager.past_history.keys()):
-                past_nights_observed = self.manager.past_history[name].total_n_unique_nights
+        for name in self.all_requests:
+            idx = self.requests_frame.index[self.requests_frame['starname']==name][0]
+            if name in list(self.past_history.keys()):
+                past_nights_observed = self.past_history[name].total_n_unique_nights
             else:
                 past_nights_observed = 0
 
             # Safety valve for if the target is over-observed for any reason
-            if past_nights_observed > self.manager.requests_frame['n_inter_max'][idx] + \
-                        int(self.manager.requests_frame['n_inter_max'][idx]*self.manager.max_bonus):
+            if past_nights_observed > self.requests_frame['n_inter_max'][idx] + \
+                        int(self.requests_frame['n_inter_max'][idx]*self.max_bonus):
                 desired_max_obs = past_nights_observed
             else:
-                desired_max_obs = (self.manager.requests_frame['n_inter_max'][idx] - past_nights_observed)
-                absolute_max_obs = (self.manager.requests_frame['n_inter_max'][idx] - past_nights_observed) \
-                        + int(self.manager.requests_frame['n_inter_max'][idx]*self.manager.max_bonus)
+                desired_max_obs = (self.requests_frame['n_inter_max'][idx] - past_nights_observed)
+                absolute_max_obs = (self.requests_frame['n_inter_max'][idx] - past_nights_observed) \
+                        + int(self.requests_frame['n_inter_max'][idx]*self.max_bonus)
                 # second safety valve
                 if past_nights_observed > absolute_max_obs:
                     absolute_max_obs = past_nights_observed
@@ -147,6 +206,131 @@ class SemesterPlanner(object):
             self.absolute_max_obs_allowed_dict = absolute_max_obs_allowed_dict
             self.past_nights_observed_dict = past_nights_observed_dict
         logs.debug("Initializing complete.")
+
+    def _calculate_semester_info(self):
+        """Calculate semester information based on current day."""
+        current_date = datetime.strptime(self.current_day, '%Y-%m-%d')
+        
+        # Determine semester based on date
+        if current_date.month in [8, 9, 10, 11, 12]:
+            semester_letter = 'A'
+            semester_year = current_date.year
+        else:
+            semester_letter = 'B'
+            semester_year = current_date.year - 1
+        
+        # Set semester boundaries
+        if semester_letter == 'A':
+            semester_start_date = f"{semester_year}-08-01"
+            semester_end_date = f"{semester_year + 1}-01-31"
+        else:
+            semester_start_date = f"{semester_year + 1}-02-01"
+            semester_end_date = f"{semester_year + 1}-07-31"
+        
+        # Calculate semester length
+        start_date = datetime.strptime(semester_start_date, '%Y-%m-%d')
+        end_date = datetime.strptime(semester_end_date, '%Y-%m-%d')
+        semester_length = (end_date - start_date).days + 1
+        
+        self.semester_start_date = semester_start_date
+        self.semester_length = semester_length
+        self.semester_letter = semester_letter
+
+    def _build_date_dictionary(self):
+        """Build date dictionary for the semester."""
+        start_date = datetime.strptime(self.semester_start_date, '%Y-%m-%d')
+        end_date = datetime.strptime(self.semester_start_date, '%Y-%m-%d') + timedelta(days=self.semester_length - 1)
+        
+        all_dates_dict = {}
+        all_dates_array = []
+        
+        current_date = start_date
+        day_index = 0
+        
+        while current_date <= end_date:
+            date_str = current_date.strftime('%Y-%m-%d')
+            all_dates_dict[date_str] = day_index
+            all_dates_array.append(date_str)
+            current_date += timedelta(days=1)
+            day_index += 1
+        
+        return all_dates_dict, all_dates_array
+
+    def _calculate_slot_info(self):
+        """Calculate slot-related information."""
+        # Calculate slots per quarter and night
+        self.n_slots_in_quarter = int(((self.n_hours_in_night * 60) / self.n_quarters_in_night) / self.slot_size)
+        self.n_slots_in_night = self.n_slots_in_quarter * self.n_quarters_in_night
+        
+        # Calculate remaining semester info
+        self.n_nights_in_semester = len(self.all_dates_dict) - self.all_dates_dict[self.current_day]
+        self.n_slots_in_semester = self.n_slots_in_night * self.n_nights_in_semester
+        
+        # Calculate today's starting positions
+        self.today_starting_slot = self.all_dates_dict[self.current_day] * self.n_slots_in_night
+        self.today_starting_night = self.all_dates_dict[self.current_day]
+
+    def _build_slots_required_dictionary(self, always_round_up_flag=False):
+        """Build dictionary mapping star names to required slots."""
+        slots_needed_for_exposure_dict = {}
+        for n, row in self.requests_frame.iterrows():
+            name = row['starname']
+            exposure_time = float(row['exptime'])
+            
+            if always_round_up_flag:
+                slots_needed = int(np.ceil(exposure_time / (self.slot_size * 60.0)))
+            else:
+                slots_needed = int(np.round(exposure_time / (self.slot_size * 60.0)))
+            
+            slots_needed_for_exposure_dict[name] = slots_needed
+        
+        return slots_needed_for_exposure_dict
+
+    def _build_observability(self):
+        """
+        Build strategy and observability dataframes directly from config file.
+        This replaces the need for a RequestSet object.
+        """
+        # Create Access object with parameters from config
+        access_obj = ac.Access(
+            semester_start_date=self.semester_start_date,
+            semester_length=self.semester_length,
+            slot_size=self.slot_size,
+            observatory=self.observatory,
+            current_day=self.current_day,
+            all_dates_dict=self.all_dates_dict,
+            all_dates_array=self.all_dates_array,
+            n_nights_in_semester=self.n_nights_in_semester,
+            custom_file=self.custom_file,
+            allocation_file=self.allocation_file,
+            past_history=self.past_history,
+            today_starting_night=self.today_starting_night,
+            slots_needed_for_exposure_dict=self.slots_needed_for_exposure_dict,
+            run_weather_loss=self.run_weather_loss,
+            output_directory=self.output_directory
+        )
+        observability = access_obj.observability(self.requests_frame)
+
+        return observability
+
+    def _compute_slots_required_for_exposure(self, exposure_time, slot_size, always_round_up_flag):
+        """
+        Compute the number of slots required for a given exposure time.
+        
+        Args:
+            exposure_time: Exposure time in minutes
+            slot_size: Slot size in minutes
+            always_round_up_flag: If True, always round up to the next slot
+            
+        Returns:
+            Number of slots required
+        """
+        time_per_slot = slot_size / 60.0  # Convert slot_size to hours
+        
+        if always_round_up_flag:
+            return math.ceil(exposure_time / time_per_slot)
+        else:
+            return round(exposure_time / time_per_slot)
 
     def constraint_reserve_multislot_exposures(self):
         """
@@ -159,14 +343,14 @@ class SemesterPlanner(object):
         no other observations are scheduled during these slots.
         """
         logs.info("Constraint 2: Reserve slots for for multi-slot exposures.")
-        max_t_visit = self.request_set.strategy.t_visit.max() # longest exposure time
-        R_ds = self.request_set.observability.groupby(['d','s'])['id'].apply(set).to_dict()
+        max_t_visit = self.strategy.t_visit.max() # longest exposure time
+        R_ds = self.observability.groupby(['d','s'])['id'].apply(set).to_dict()
         R_geq_t_visit = {} # dictionary of requests where t_visit is greater than or equal to t_visit
-        strategy = self.request_set.strategy
+        strategy = self.strategy
         for t_visit in range(1,max_t_visit+1):
             R_geq_t_visit[t_visit] = set(strategy[strategy.t_visit >= t_visit]['id'])
 
-        for d,s in self.request_set.observability.drop_duplicates(['d','s'])[['d','s']].itertuples(index=False, name=None):
+        for d,s in self.observability.drop_duplicates(['d','s'])[['d','s']].itertuples(index=False, name=None):
             rhs = []
             for delta in range(1,max_t_visit):
                 s_shift = s - delta
@@ -225,120 +409,13 @@ class SemesterPlanner(object):
             #     # rows as a "mask_inter_2", then the if/else won't be needed
             #     continue
 
-    def constraint_set_max_quarters_allocated(self):
-        """
-        According to Eq X in Lubin et al. 2025.
-
-        Attempt to allocate all time awarded to the
-        observing program. The total allocated time
-        may be less than the time awarded due to practical
-        considerations, but cannot exceed it.
-        """
-        logs.info("Constraint: setting max number of quarters that can be allocated.")
-        self.model.addConstr(gp.quicksum(self.Anq[d,q] for d in range(self.manager.n_nights_in_semester) \
-                        for q in range(self.manager.n_quarters_in_night))
-                        <= self.manager.max_quarters, "maximumQuartersAllocated")
-
-    def constraint_set_max_onsky_allocated(self):
-        """
-        According to Eq X in Lubin et al. 2025.
-        Set a limit on the number of unique nights
-        during which observations may be scheduled.
-        """
-        logs.info("Constraint: setting max number of unique nights that can be allocated.")
-        self.model.addConstr(gp.quicksum(self.Un[d] for d in range(self.manager.n_nights_in_semester))
-                            <= self.manager.max_unique_nights, "maximumNightsAllocated")
-
- 
-    def constraint_cannot_observe_if_not_allocated(self):
-        """
-        According to Eq X in Lubin et al. 2025.
-
-        Ensure that no observations are scheduled during quarters
-        in which the telescope is not allocated to the observing
-        program.
-        """
-        logs.info("Constraint: cannot observe if night/quarter is not allocated.")
-        # if quarter is not allocated, all slots in quarter must be zero
-        # note that the twilight times at the front and end of the night have to be respected
-        for id, d, s in zip(self.request_set.observability['id'], self.request_set.observability['d'], self.request_set.observability['s']):
-            # Create a simple night mask for quarter conversion
-            night_mask = np.ones(self.manager.n_slots_in_night, dtype=int)
-            q = rq.convert_slot_to_quarter(d, s, night_mask)
-            self.model.addConstr(self.Yrds[id, d, s] <= self.Anq[d, q], "dontSched_ifNot_Allocated_"+ str(d) + "d_" + str(q) + "q_" + str(s) + "s_" + id, d, id)
-
-    def constraint_max_consecutive_onsky(self):
-        """
-        According to Eq X in Lubin et al. 2025.
-
-        Limit the maximum number of consecutive allocated nights
-        to allow give other observing programs telescope access.
-        """
-        logs.info("Constraint: setting maximum number of consecutive unique nights allocated.")
-        for d in range(self.manager.n_nights_in_semester - self.manager.max_consecutive):
-            self.model.addConstr(gp.quicksum(self.Un[d + t] for t in range(self.manager.max_consecutive)) <= self.manager.max_consecutive - 1, "consecutiveNightsMax_" + str(d) + "d")
-
-    def constraint_minimum_consecutive_offsky(self):
-        """
-        According to Eq X in Lubin et al. 2025.
-
-        Set an upper limit on the number of consecutive unallocated
-        nights. This constraint prevents large gaps in the distribution
-        of allocated nights.
-        """
-        logs.info("Constraint: setting minimum gap in days between allocated unique nights.")
-        # Enforce at least one day allocated every X days (no large gaps)
-        # Note you cannot run this when observatory/instrument has an extended shutdown
-        for d in range(self.manager.n_nights_in_semester - self.manager.min_consecutive):
-            self.model.addConstr(gp.quicksum(self.Un[d + t] for t in range(self.manager.min_consecutive)) >= 2, "noLargeGaps_" + str(d) + "d")
-
-    def constraint_enforce_restricted_nights(self, limit):
-        """
-        According to Eq X and X in Lubin et al. 2025.
-
-        Enforce non-allocated nights AND enforce necessary nights
-        Enforce two constraints:
-            - Specify night/quarter pairs which may not be allocated
-              to the observing program
-            - Specify night/quarter pairs which must be allocated
-              to the observing program
-
-        Args:
-            limit (int): either 0 or 1 to enforce blackout and whiteout, respectively
-        """
-        if limit not in [0, 1]:
-            logs.critical("Limit must be an integer, either 0 (blackout) or 1 (whiteout).")
-        elif limit == 0:
-            filename = self.manager.blackout_file
-        else:
-            filename = self.manager.whiteout_file
-        logs.info("Constraint: enforcing quarters that cannot be chosen.")
-        selections = pd.read_csv(filename)
-        for s in range(len(selections)):
-            night = self.manager.all_dates_dict[selections['Date'][s]]
-            quarter = selections['Quarter'][s]
-            self.model.addConstr(self.Anq[night,quarter] == limit, "enforced_" + str(limit) + "_" + str(night) + "d_" + str(quarter) + 'q')
-
-    def constraint_maximize_baseline(self):
-        """
-        According to Eq X in Lubin et al. 2025.
-
-        Require at least one observation early in the semester
-        and at least one observation late in the semester, where "early"
-        and "late" are defined by the user.
-        """
-        logs.info("Constraint: maximize the baseline of unique nights allocated.")
-        self.model.addConstr(gp.quicksum(self.Un[0 + t] for t in range(self.manager.max_baseline)) >= 1, "maxBase_early")
-        self.model.addConstr(gp.quicksum(self.Un[self.manager.n_nights_in_semester - self.manager.max_baseline + t] for t in range(self.manager.max_baseline)) >= 1, "maxBase_late")
-
-    def constraint_fix_previous_objective(self, epsilon=5):
+    def constraint_fix_previous_objective(self, epsilon=0.03):
         """
         According to Eq X in Lubin et al. 2025.
 
         Round 2:
 
-        "Freeze" the value of the objective function
-        calculated in Round 1, and require that the
+        This constraint ensures that the
         objective function value calculated during
         Round 2 be within a given tolerance of the
         Round 1 value. This constraint ensures that
@@ -346,41 +423,38 @@ class SemesterPlanner(object):
         optimal solution found in Round 1.
         """
         logs.info("Constraint: Fixing the previous solution's objective value.")
-        self.model.addConstr(gp.quicksum(self.theta[name] for name in self.manager.requests_frame['starname']) <= \
-                        self.model.objval + epsilon)
+        self.model.addConstr(gp.quicksum(self.theta[name] for name in self.requests_frame['starname']) <= \
+                    self.model.objval + epsilon)
 
     def set_objective_maximize_slots_used(self):
         """
         According to Eq X in Lubin et al. 2025.
 
-        Round 2:
-
         In Round 2, maximize the number of filled slots,
         i.e., slots during which an exposure occurs.
         """
         logs.info("Objective: Maximize the number of slots used.")
-        self.model.setObjective(gp.quicksum(self.manager.slots_needed_for_exposure_dict[id]*self.Yrds[id,d,s]
-                            for id, d, s in self.observability_tuples), GRB.MAXIMIZE)
-                            # for id, d, s in self.joiner), GRB.MAXIMIZE)
+        self.model.setObjective(gp.quicksum(self.slots_needed_for_exposure_dict[id]*self.Yrds[id,d,s]
+                        for id, d, s in self.observability_tuples), GRB.MAXIMIZE)
+                        # for id, d, s in self.joiner), GRB.MAXIMIZE)
 
     def set_objective_minimize_theta_time_normalized(self):
         """
         According to Eq X in Lubin et al. 2025.
 
-        Define the objective function for Round 1.
-        Minimizing the objective maximizes the number
+        Minimize the total shortfall for the number
         of targets that receive their requested number
         of observations, weighted by the time needed
         to complete one observation.
         """
-        self.model.setObjective(gp.quicksum(self.theta[name]*self.manager.slots_needed_for_exposure_dict[name] for name in self.schedulable_requests), GRB.MINIMIZE)
+        self.model.setObjective(gp.quicksum(self.theta[name]*self.slots_needed_for_exposure_dict[name] for name in self.schedulable_requests), GRB.MINIMIZE)
 
     def constraint_build_theta_multivisit(self):
         """
         According to Eq X in Lubin et al. 2025.
 
         Definition of the "shortfall" matrix, Theta.
-        Elements of Theta are non-negative integers
+        The shortfall is defined for each target,
         giving for each target the difference between
         the number of requested nights for that target
         and the sum of the past and future scheduled
@@ -388,14 +462,14 @@ class SemesterPlanner(object):
         """
         logs.info("Constraint 0: Build theta variable")
         for name in self.schedulable_requests:
-            idx = self.manager.requests_frame.index[self.manager.requests_frame['starname']==name][0]
+            idx = self.requests_frame.index[self.requests_frame['starname']==name][0]
             self.model.addConstr(self.theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
             # Get all (d,s) pairs for which this request is valid.
             all_d = list(set(list(self.all_valid_ds_for_request.loc[name].d)))
             available = list(zip(list(self.all_valid_ds_for_request.loc[name].d), list(self.all_valid_ds_for_request.loc[name].s)))
-            self.model.addConstr(self.theta[name] >= ((self.manager.requests_frame['n_inter_max'][idx] - \
-                        self.past_nights_observed_dict[name]) - (gp.quicksum(self.Yrds[name, d, s] for d, s in available))/self.manager.requests_frame['n_intra_max'][idx]), \
-                        'greater_than_nobs_shortfall_' + str(name))
+            self.model.addConstr(self.theta[name] >= ((self.requests_frame['n_inter_max'][idx] - \
+                    self.past_nights_observed_dict[name]) - (gp.quicksum(self.Yrds[name, d, s] for d, s in available))/self.requests_frame['n_intra_max'][idx]), \
+                    'greater_than_nobs_shortfall_' + str(name))
 
     def constraint_set_max_desired_unique_nights_Wrd(self):
         """
@@ -504,10 +578,10 @@ class SemesterPlanner(object):
     def optimize_model(self):
         logs.debug("Begin model solve.")
         t1 = time.time()
-        self.model.params.TimeLimit = self.manager.solve_time_limit
-        self.model.Params.OutputFlag = self.manager.gurobi_output
+        self.model.params.TimeLimit = self.solve_time_limit
+        self.model.Params.OutputFlag = self.gurobi_output
         # Allow stop at 5% gap to prevent from spending lots of time on marginally better solution
-        self.model.params.MIPGap = self.manager.solve_max_gap
+        self.model.params.MIPGap = self.solve_max_gap
         # More aggressive presolve gives better solution in shorter time
         self.model.params.Presolve = 2
         #self.model.params.Presolve = 0
@@ -548,22 +622,6 @@ class SemesterPlanner(object):
         self.constraint_set_min_max_visits_per_night()
         self.constraint_build_theta_multivisit()
 
-        if self.manager.run_optimal_allocation:
-            self.constraint_set_max_quarters_allocated()
-            self.constraint_set_max_onsky_allocated()
-            self.constraint_relate_allocation_and_onsky()
-            self.constraint_all_portions_of_night_represented()
-            self.constraint_forbidden_quarter_patterns()
-            self.constraint_cannot_observe_if_not_allocated()
-            if os.path.exists(self.manager.blackout_file):
-                self.constraint_enforce_restricted_nights(limit=0)
-            if os.path.exists(self.manager.whiteout_file):
-                self.constraint_enforce_restricted_nights(limit=1)
-            if self.manager.include_aesthetic:
-                self.constraint_max_consecutive_onsky()
-                self.constraint_minimum_consecutive_offsky()
-                self.constraint_maximize_baseline()
-
         self.set_objective_minimize_theta_time_normalized()
         logs.info("Time to build constraints: ", np.round(time.time()-t1,3))
 
@@ -577,28 +635,13 @@ class SemesterPlanner(object):
 
     def serialize_results_csv(self):
         logs.debug("Building human readable schedule.")
-        if self.manager.run_optimal_allocation:
-            self.retrieve_ois_solution()
-
-        io.serialize_schedule(self.Yrds, self.manager,)
+        
+        io.serialize_schedule(self.Yrds, self)
 
         # --- New: Output selected requests for current day ---
-        today_idx = self.manager.all_dates_dict[self.manager.current_day]
+        today_idx = self.all_dates_dict[self.current_day]
         selected = [k[0] for k, v in self.Yrds.items() if v.x > 0 and k[1] == today_idx]
         selected = list(set(selected))
-        selected_df = self.manager.requests_frame[self.manager.requests_frame['starname'].isin(selected)].copy()
+        selected_df = self.requests_frame[self.requests_frame['starname'].isin(selected)].copy()
         # Save to CSV with new name
-        selected_df.to_csv(os.path.join(self.manager.output_directory, 'request_selected.csv'), index=False)
-        
-        # Create runReport.txt
-        start_time = time.time()
-        
-        # Create serialized output for reporting
-        serialized_output_sparse = pd.DataFrame(columns=['r', 'd', 's'])
-        for (r, d, s), var in self.Yrds.items():
-            if var.x > 0:
-                serialized_output_sparse = serialized_output_sparse.append({'r': r, 'd': d, 's': s}, ignore_index=True)
-        
-        # Write the fullness report
-        io.build_fullness_report(serialized_output_sparse, self.manager, self.round_info)
-        io.write_out_results(self.manager, self.theta, self.round_info, start_time)
+        selected_df.to_csv(os.path.join(self.output_directory, 'request_selected.csv'), index=False)
