@@ -6,46 +6,37 @@ Example usage:
     import plotting_functions as ptf
 """
 
-import os
-import pandas as pd
-import numpy as np
-import json
-import seaborn as sns
-import matplotlib.pyplot as plt
-import matplotlib
-matplotlib.use("Agg")  # Ensures safe, headless rendering
-from matplotlib.figure import Figure
-
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-import plotly.express as px
-import plotly.io as pio
-from astropy.time import Time
-from astropy.time import TimeDelta
-# import io
-from io import BytesIO
-import imageio.v3 as iio
+# Standard library imports
 import base64
-from collections import defaultdict
-import pickle
+from io import BytesIO
 
-from astropy.time import Time
-from astropy.time import TimeDelta
+# Third-party imports
 import astropy as apy
 import astropy.units as u
 import astroplan as apl
+import imageio.v3 as iio
+import matplotlib
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from matplotlib.figure import Figure
+from plotly.subplots import make_subplots
+import seaborn as sns
+from astropy.time import Time, TimeDelta
 
-import astroq.management as mn
+# Local imports
 import astroq.io as io_mine
-import sys
-sys.path.append("/Users/jack/Documents/github/ttp/ttp/")
-#import plotting
+
+# Configure matplotlib for headless rendering
+matplotlib.use("Agg")
 
 gray = 'rgb(210,210,210)'
 clear = 'rgba(255,255,255,1)'
 labelsize = 38
 
-def get_cof(manager, all_stars):
+def get_cof(semester_planner, all_stars, static=False):
     '''
     Return the html string for a plotly figure showing the COF for a selection of stars
 
@@ -54,11 +45,11 @@ def get_cof(manager, all_stars):
 
     fig = go.Figure()
     fig.update_layout(plot_bgcolor=gray, paper_bgcolor=clear) #autosize=True,margin=dict(l=40, r=40, t=40, b=40),
-    burn_line = np.linspace(0, 100, len(manager.all_dates_array))
+    burn_line = np.linspace(0, 100, len(semester_planner.all_dates_array))
     for b in range(len(burn_line)):
         burn_line[b] = np.round(burn_line[b],2)
     fig.add_trace(go.Scatter(
-        x=manager.all_dates_array,
+        x=semester_planner.all_dates_array,
         y=burn_line,
         mode='lines',
         line=dict(color='black', width=2, dash='dash'),
@@ -67,11 +58,11 @@ def get_cof(manager, all_stars):
     ))
 
     lines = []
-    cume_observe = np.zeros(len(manager.all_dates_array))
+    cume_observe = np.zeros(len(semester_planner.all_dates_array))
     max_value = 0
     for i in range(len(all_stars)):
         fig.add_trace(go.Scatter(
-            x=manager.all_dates_array,
+            x=semester_planner.all_dates_array,
             y=all_stars[i].cume_observe_pct,
             mode='lines',
             line=dict(color=all_stars[i].star_color_rgb, width=2),
@@ -86,7 +77,7 @@ def get_cof(manager, all_stars):
 
     cume_observe_pct = (cume_observe / max_value) * 100
     fig.add_trace(go.Scatter(
-        x=manager.all_dates_array,
+        x=semester_planner.all_dates_array,
         y=cume_observe_pct,
         mode='lines',
         line=dict(color=all_stars[0].program_color_rgb, width=2),
@@ -96,8 +87,8 @@ def get_cof(manager, all_stars):
     ))
 
     fig.add_vrect(
-            x0=manager.current_day,
-            x1=manager.current_day,
+            x0=semester_planner.current_day,
+            x1=semester_planner.current_day,
             annotation_text="Today",
             line_dash="dash",
             fillcolor=None,
@@ -132,10 +123,9 @@ def get_cof(manager, all_stars):
             zeroline=False
         ),
     )
-    cof_html = pio.to_html(fig, full_html=True, include_plotlyjs='cdn')
-    return cof_html
+    return fig
 
-def get_birdseye(manager, availablity, all_stars):
+def get_birdseye(semester_planner, availablity, all_stars):
     '''
     Return the html string for a plotly figure showing the COF for a selection of stars
 
@@ -215,18 +205,18 @@ def get_birdseye(manager, availablity, all_stars):
         )
      # X-axis: ticks every 23 days, plus the last day
     x_tick_step = 23
-    x_tickvals = list(range(0, manager.semester_length, x_tick_step))
-    if (manager.semester_length - 1) not in x_tickvals:
-        x_tickvals.append(manager.semester_length - 1)
+    x_tickvals = list(range(0, semester_planner.semester_length, x_tick_step))
+    if (semester_planner.semester_length - 1) not in x_tickvals:
+        x_tickvals.append(semester_planner.semester_length - 1)
     x_ticktext = [str(val + 1) for val in x_tickvals]
 
     # Y-axis: ticks every 2 hours, using slot_size
-    n_slots = int(24 * 60 // manager.slot_size)
-    slots_per_2hr = int(2 * 60 // manager.slot_size)
+    n_slots = int(24 * 60 // semester_planner.slot_size)
+    slots_per_2hr = int(2 * 60 // semester_planner.slot_size)
     y_tickvals = list(range(0, n_slots, slots_per_2hr))
     y_ticktext = []
     for slot in y_tickvals:
-        total_minutes = slot * manager.slot_size
+        total_minutes = slot * semester_planner.slot_size
         hours = total_minutes // 60
         minutes = total_minutes % 60
         y_ticktext.append(f"{hours:02.0f}:{minutes:02.0f}")
@@ -256,10 +246,9 @@ def get_birdseye(manager, availablity, all_stars):
             font=dict(size=labelsize-10)
         )
     )
-    birdseye_html = pio.to_html(fig, full_html=True, include_plotlyjs='cdn')
-    return birdseye_html
+    return fig
 
-def get_tau_inter_line(manager, all_stars):
+def get_tau_inter_line(all_stars):
     """
     Create an interactive scatter plot grouped by program, using provided colors for each point.
     Points from the same program will share a legend entry and color.
@@ -338,35 +327,33 @@ def get_tau_inter_line(manager, all_stars):
         height=600,
         width=800
     )
-    tau_inter_line_html = pio.to_html(fig, full_html=True, include_plotlyjs='cdn')
-    return tau_inter_line_html
+    # tau_inter_line_html = pio.to_html(fig, full_html=True, include_plotlyjs='cdn')
+    # return tau_inter_line_html
+    return fig    
 
 
-def compute_seasonality(manager, starnames, ras, decs, semester='B'):
+def compute_seasonality(semester_planner, starnames, ras, decs):
     """
     Combine all maps for a target to produce the final map
 
     Args:
-        requests_frame (dataframe): the pandas dataframe containing request information
-        running_backup_stars (bool): if true, then do not run the extra map of stepping back in time to account for the starting slot fitting into the night
+        semester_planner (SemesterPlanner): the semester planner object containing configuration
+        starnames (list): list of star names
+        ras (array): right ascension values in degrees
+        decs (array): declination values in degrees
     Returns:
         available_indices_for_request (dictionary): keys are the starnames and values are a 1D array
                                                   the indices where available_slots_for_request is 1.
 
     """
     # Prepatory work
-    nslots = manager.n_slots_in_night
-    nnights = manager.n_nights_in_semester
-    observatory = manager.observatory
-    start_time = manager.daily_starting_time
-    slot_size = manager.slot_size
-    
-    if semester=='A':
-        start_date = '2025-02-01'
-    elif semester=='B':
-        start_date = '2025-08-01'
-    else:
-        print("invalid semester. Choose A or B.")
+    nslots = semester_planner.n_slots_in_night
+    nnights = semester_planner.n_nights_in_semester
+    observatory = semester_planner.observatory
+    start_time = semester_planner.daily_starting_time
+    slot_size = semester_planner.slot_size
+    start_date = semester_planner.semester_start_date
+
     date_formal = Time(start_date,format='iso',scale='utc')
     date = str(date_formal)[:10]
     ntargets = len(starnames)
@@ -380,7 +367,7 @@ def compute_seasonality(manager, starnames, ras, decs, semester='B'):
     start = date + "T" + start_time
     daily_start = Time(start, location=keck.location)
     daily_end = daily_start + TimeDelta(1.0, format='jd') # full day from start of first night
-    tmp_slot_size = TimeDelta(manager.slot_size*u.min)
+    tmp_slot_size = TimeDelta(semester_planner.slot_size*u.min)
     t = Time(np.arange(daily_start.jd, daily_end.jd, tmp_slot_size.jd), format='jd',location=keck.location)
     t = t[np.argsort(t.sidereal_time('mean'))] # sort by lst
 
@@ -401,7 +388,7 @@ def compute_seasonality(manager, starnames, ras, decs, semester='B'):
     is_altaz0 &= ~fail
     # computing slot midpoint for all nights in semester 2D array (slots, nights)
     slotmidpoint0 = daily_start + (np.arange(nslots) + 0.5) *  slot_size * u.min
-    # days = np.arange(manager.n_nights_in_semester) * u.day
+    # days = np.arange(semester_planner.n_nights_in_semester) * u.day
     days = np.arange(nnights) * u.day
     slotmidpoint = (slotmidpoint0[np.newaxis,:] + days[:,np.newaxis])
     # 3D mask
@@ -426,10 +413,10 @@ def compute_seasonality(manager, starnames, ras, decs, semester='B'):
 
     # True if obseravtion occurs at night
     # Create a simple night mask (all slots available)
-    is_night = np.ones((manager.n_nights_in_semester, manager.n_slots_in_night), dtype=bool)
+    is_night = np.ones((semester_planner.n_nights_in_semester, semester_planner.n_slots_in_night), dtype=bool)
     is_night = np.ones_like(is_altaz, dtype=bool) & is_night
 
-#     is_alloc = manager.allocation_map_2D.astype(bool) # shape = (nnights, nslots)
+#     is_alloc = semester_planner.allocation_map_2D.astype(bool) # shape = (nnights, nslots)
 #     is_alloc = np.ones_like(is_altaz, dtype=bool) & is_alloc[np.newaxis,:,:] # shape = (ntargets, nnights, nslots)
 
     is_observable_now = np.logical_and.reduce([
@@ -461,7 +448,7 @@ def compute_seasonality(manager, starnames, ras, decs, semester='B'):
     return available_nights_onsky
 
 
-def get_football(manager, all_stars):#RA_grid, DEC_grid, Z_grid, request_df):
+def get_football(semester_planner, all_stars):#RA_grid, DEC_grid, Z_grid, request_df):
     """
     "Football plot"
     Interactive sky map with static heatmap background and interactive star points.
@@ -518,8 +505,8 @@ def get_football(manager, all_stars):#RA_grid, DEC_grid, Z_grid, request_df):
     }
     grid_frame = pd.DataFrame(grid_stars)
 
-    available_nights_onsky_requests = compute_seasonality(manager, starnames, ras, decs, semester='A')
-    grid_frame['nights_observable'] = compute_seasonality(manager, grid_frame['starname'], grid_frame['ra'], grid_frame['dec'], semester='A')
+    available_nights_onsky_requests = compute_seasonality(semester_planner, starnames, ras, decs)
+    grid_frame['nights_observable'] = compute_seasonality(semester_planner, grid_frame['starname'], grid_frame['ra'], grid_frame['dec'])
 
     from scipy.interpolate import griddata
     NIGHTS_grid = griddata(
@@ -651,23 +638,19 @@ def get_football(manager, all_stars):#RA_grid, DEC_grid, Z_grid, request_df):
             )
         ]
     )
-    skymap_html = pio.to_html(fig, full_html=True, include_plotlyjs='cdn')
-    return skymap_html
+    # skymap_html = pio.to_html(fig, full_html=True, include_plotlyjs='cdn')
+    # return skymap_html
+    return fig
 
 
 
-def get_ladder(manager, data):
+def get_ladder(data):
     """Create an interactive plot which illustrates the solution.
 
     Args:
-        orderData (dict): Formatted and ordered schedule from the
-            model object
-        current_day (string): Date of observations, to be included in the
-            filename
-        outputdir (str): Folder in which to save the html link to the plot
+        data: TTP data containing the schedule information
     """
-    # with open(manager.reports_directory + 'observer/' + manager.current_day + '/ttp_data.pkl', 'rb') as f:
-    #     data = pickle.load(f)
+
     orderData = data[0].plotly
 
     # reverse the order so that the plot flows from top to bottom with time
@@ -712,8 +695,7 @@ def get_ladder(manager, data):
             ifixer -= 1
 
     fig.update_layout(xaxis_range=[0,orderData['Start Exposure'][0] + orderData["Total Exp Time (min)"][0]])
-    ladder_html = pio.to_html(fig, full_html=True, include_plotlyjs='cdn')
-    return ladder_html
+    return fig
 
 
 def createTelSlewPath(stamps, changes, pointings, animationStep=120):
@@ -745,26 +727,29 @@ def createTelSlewPath(stamps, changes, pointings, animationStep=120):
                 stamps[j] = pointings[i]
 
     # Add edge cases of the first and last telescope pointing
-    k = 0
-    while stamps[k] == 0:
-        stamps[k] = pointings[0]
-        k += 1
-    l = len(stamps)-1
-    while stamps[l] == 0:
-        stamps[l] = pointings[-1]
-        l -= 1
+    if len(stamps) > 0:
+        k = 0
+        while k < len(stamps) and stamps[k] == 0:
+            stamps[k] = pointings[0]
+            k += 1
+        l = len(stamps)-1
+        while l >= 0 and stamps[l] == 0:
+            stamps[l] = pointings[-1]
+            l -= 1
 
     return stamps
 
-def get_slew_animation(manager, data, animationStep=120):
-    '''
-    Produce the animation slew path GIF (in memory, no intermediate files).
+def get_slew_animation(data, animationStep=120):
+    """Create a list of matplotlib figures showing telescope slew path during observations.
 
-    model (object) - the model object returned out from the TTP's model.py
-    animationStep (int) - the time, in seconds, between animation still frames. Default to 120s.
-    '''
-    # with open(manager.reports_directory + 'observer/' + manager.current_day + '/ttp_data.pkl', 'rb') as f:
-    #     data = pickle.load(f)
+    Args:
+        data: TTP data containing the schedule information
+        animationStep (int): the time, in seconds, between animation still frames. Default to 120s.
+        
+    Returns:
+        list: List of matplotlib Figure objects representing each frame of the animation
+    """
+
     model = data[0]
 
     # Set up animation times
@@ -796,8 +781,8 @@ def get_slew_animation(manager, data, animationStep=120):
     theta = np.arange(model.observatory.deckAzLim1 / 180, model.observatory.deckAzLim2 / 180, 1. / 180) * np.pi
     allaround = np.arange(0., 360 / 180, 1. / 180) * np.pi
 
-    # Create GIF frames in memory
-    gif_frames = []
+    # Create list of matplotlib figures
+    figures = []
     for i in range(len(t)):
         fig = Figure(figsize=(6, 6))
         ax = fig.add_subplot(111, projection='polar')
@@ -817,74 +802,42 @@ def get_slew_animation(manager, data, animationStep=120):
         # Plot stars
         for j in range(len(model.schedule['Starname'])):
             color = 'orange' if names[j] in observed_list else 'white'
-            # ax.scatter(alt[j][i], az[j][i], color=color, marker='*')
             ax.scatter(alt[i][j], az[i][j], color=color, marker='*')
 
         # Draw telescope path
         ax.plot(tel_az[:i], tel_zen[:i], color='orange')
+        
+        figures.append(fig)
 
-        # Save frame to memory
-        buf = BytesIO()
-        fig.savefig(buf, format='png', dpi=100)
-        buf.seek(0)
-        gif_frames.append(iio.imread(buf))
-        buf.close()
+    return figures
 
-    # Write GIF to memory
-    gif_buf = BytesIO()
-    iio.imwrite(gif_buf, gif_frames, format='gif', loop=0, duration=0.3)  # 0.3s per frame
-    gif_buf.seek(0)
-
-    # Encode in base64 for HTML embedding
-    gif_base64 = base64.b64encode(gif_buf.read()).decode('utf-8')
-    gif_buf.close()
-
-    slew_animation_html = f'<img src="data:image/gif;base64,{gif_base64}" alt="Observing Animation"/>'
-    return slew_animation_html
-
-def get_script_plan(manager, data):
-
-    # with open(manager.reports_directory + 'observer/' + manager.current_day + '/ttp_data.pkl', 'rb') as f:
-    #     data = pickle.load(f)
-
+def get_script_plan(config_file, data):
+    """Generate script plan HTML table from TTP data."""
+    
+    # Create both SemesterPlanner and NightPlanner to get all needed data
+    from astroq.nplan import NightPlanner
+    import astroq.splan as splan
+    
+    semester_planner = splan.SemesterPlanner(config_file)
+    night_planner = NightPlanner(config_file)
+    
+    # Get start time from allocation file instead of nightly_start_stop_times
+    obs_start_time, _ = night_planner.get_nightly_times_from_allocation(semester_planner.current_day)
+    
     round_two_requests = [] # just for now
-    nightly_start_stop_times = pd.read_csv(manager.nightly_start_stop_times_file)
-    idx = nightly_start_stop_times[nightly_start_stop_times['Date'] == str(manager.current_day)].index[0]
-    obs_start_time = Time(str(manager.current_day) + "T" + str(nightly_start_stop_times['Start'][idx]))
-    lines = io_mine.write_starlist(manager.requests_frame, data[0].plotly, obs_start_time, data[0].extras,round_two_requests, str(manager.current_day), manager.reports_directory + 'observer/' + manager.current_day)
+    lines = io_mine.write_starlist(semester_planner.requests_frame, data[0].plotly, obs_start_time, data[0].extras, round_two_requests, str(semester_planner.current_day), night_planner.reports_directory)
     observing_plan = pd.DataFrame([io_mine.parse_star_line(line) for line in lines])
     observing_plan = observing_plan[observing_plan.iloc[:, 0].str.strip() != '']
-    observing_plan_html = dataframe_to_html(observing_plan, sort_column=11)
-    return observing_plan_html
+    return observing_plan
 
 
-def get_requests_frame(manager, filter_condition=None):
-    """
-    Load manager.requests_frame and render in HTML
-
-    Arguments:
-        manager (manager): Manager object holding requests_frame
-        filter_condition (str): String specifying any desired filters
-            to apply to loaded frame. Defaults to empty (no cuts)
-
-    Returns:
-        req_frame_html (str): HTML string representing filtered frame
-
-    """
-
-    req_frame = manager.requests_frame
-    if filter_condition is not None:
-        req_frame = req_frame.query(filter_condition)
-    req_frame_html = dataframe_to_html(req_frame, sort_column=0)
-
-    return req_frame_html
 
 
-def plot_path_2D_interactive(manager, data):
+
+def plot_path_2D_interactive(data):
     """Create an interactive Plotly plot showing telescope azimuth and altitude paths with UTC times and white background."""
 
-    # with open(manager.reports_directory + 'observer/' + manager.current_day + '/ttp_data.pkl', 'rb') as f:
-    #     data = pickle.load(f)
+
     model = data[0]
 
     names = list(model.schedule['Starname'])
@@ -964,8 +917,7 @@ def plot_path_2D_interactive(manager, data):
         yaxis2_title="Altitude (deg)",
         template="plotly_white"
     )
-    slew_path_html = pio.to_html(fig, full_html=True, include_plotlyjs='cdn')
-    return slew_path_html
+    return fig
 
 def dataframe_to_html(dataframe, sort_column=0):
     """
