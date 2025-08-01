@@ -1,6 +1,7 @@
 """
-Module that defines the SemesterPlanner class. This class is responsible for defining, building, and solving the
-Gurobi model for semester-level observation planning. It is nearly completely agnostic to all astronomy knowledge.
+Module that defines the SemesterPlanner class. This class is responsible for defining,
+building, and solving the Gurobi model for semester-level observation planning. It is
+nearly completely agnostic to all astronomy knowledge.
 
 """
 
@@ -29,22 +30,26 @@ warnings.filterwarnings('ignore')
 logs = logging.getLogger(__name__)
 
 class SemesterPlanner(object):
-    """A SemesterPlanner object, from which we can define a Gurobi model, build constraints, and solve semester-level observation schedules."""
+    """A SemesterPlanner object, from which we can define a Gurobi model, build
+    constraints, and solve semester-level observation schedules."""
 
     def __init__(self, cf):
         logs.debug("Building the SemesterPlanner.")
 
+        # ===== CONFIG FILE PARSING =====
         # Read config file directly
         config = ConfigParser()
         config.read(cf)
         
-        # Extract configuration parameters from new format
+        # Extract global configuration parameters
         workdir = str(config.get('global', 'workdir'))
         self.semester_directory = workdir
         self.current_day = str(config.get('global', 'current_day'))
         self.observatory = config.get('global', 'observatory')
+        self.semester_start_date = str(config.get('global', 'semester_start_day'))
+        self.semester_end_date = str(config.get('global', 'semester_end_day'))
 
-        # Get semester parameters from semester section
+        # Extract semester parameters
         self.slot_size = config.getint('semester', 'slot_size')
         self.run_weather_loss = config.getboolean('semester', 'run_weather_loss')
         self.solve_time_limit = config.getint('semester', 'max_solve_time')
@@ -52,7 +57,17 @@ class SemesterPlanner(object):
         self.solve_max_gap = config.getfloat('semester', 'max_solve_gap')
         self.max_bonus = config.getfloat('semester', 'maximum_bonus_size')
         
-        # Output directory
+        # Set up file paths from data section
+        self.allocation_file = self._resolve_file_path(str(config.get('data', 'allocation_file')))
+        self.past_file = self._resolve_file_path(str(config.get('data', 'past_file')))
+        self.custom_file = self._resolve_file_path(str(config.get('data', 'custom_file')))
+        
+        # Calculate semester length
+        start_date = datetime.strptime(self.semester_start_date, '%Y-%m-%d')
+        end_date = datetime.strptime(self.semester_end_date, '%Y-%m-%d')
+        self.semester_length = (end_date - start_date).days + 1
+        
+        # Set up output directory
         self.output_directory = workdir + "outputs/"
         check = os.path.isdir(self.output_directory)
         if not check:
@@ -60,29 +75,12 @@ class SemesterPlanner(object):
             file = open(self.output_directory + "runReport.txt", "w")
             file.close()
         
-        # Set up file paths from data section
-        allocation_file_config = str(config.get('data', 'allocation_file'))
-        if os.path.isabs(allocation_file_config):
-            self.allocation_file = allocation_file_config
-        else:
-            self.allocation_file = os.path.join(self.semester_directory, allocation_file_config)
-        
-        past_file_config = str(config.get('data', 'past_file'))
-        if os.path.isabs(past_file_config):
-            self.past_file = past_file_config
-        else:
-            self.past_file = os.path.join(self.semester_directory, past_file_config)
-        
-        custom_file_config = str(config.get('data', 'custom_file'))
-        if os.path.isabs(custom_file_config):
-            self.custom_file = custom_file_config
-        else:
-            self.custom_file = os.path.join(self.semester_directory, custom_file_config)
-        
+        # ===== DATA LOADING AND PROCESSING =====
         # Load data files
         self.requests_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/requests.csv"))
 
-        # Build strategy dataframe. Note exptime is in minutes and tau_intra is in hours they are both converted to slots here
+        # Build strategy dataframe. Note exptime is in minutes and tau_intra is in
+        # hours they are both converted to slots here
         strategy = self.requests_frame[['starname','n_intra_min','n_intra_max','n_inter_max','tau_inter']]
         strategy = strategy.rename(columns={'starname':'id'})
         strategy['t_visit'] = (self.requests_frame['exptime'] / 60 / self.slot_size).clip(lower=1).round().astype(int) 
@@ -92,11 +90,8 @@ class SemesterPlanner(object):
         # Load past history
         self.past_history = hs.process_star_history(self.past_file)
         
-        # Build slots needed dictionary
-        self.slots_needed_for_exposure_dict = self._build_slots_required_dictionary()
-        
-        # Calculate semester info
-        self._calculate_semester_info()
+        # Build slots needed dictionary from strategy dataframe
+        self.slots_needed_for_exposure_dict = self.strategy.set_index('id')['t_visit'].to_dict()
         
         # Build date dictionary
         self.all_dates_dict, self.all_dates_array = self._build_date_dictionary()
@@ -115,9 +110,11 @@ class SemesterPlanner(object):
         self.joiner['d2'] = self.joiner['d']
         self.joiner['s2'] = self.joiner['s']
         self.joiner['tau_intra'] *= int(60/self.slot_size) # convert hours to slots
-        self.joiner['tau_intra'] += self.joiner['t_visit'] # start the minimum intracadence time from the end of the previous exposure, not the beginning
+        self.joiner['tau_intra'] += self.joiner['t_visit']  # start the minimum
+        # intracadence time from the end of the previous exposure, not the beginning
 
-        # Prepare information by construction observability_nights (Wset) and schedulable_requests
+        # Prepare information by construction observability_nights (Wset) and
+        # schedulable_requests
         self.observability_nights = self.joiner[self.joiner['n_intra_max'] > 1][['id', 'd']].drop_duplicates().copy()
         self.multi_visit_requests = list(self.observability_nights['id'].unique())
 
@@ -126,7 +123,8 @@ class SemesterPlanner(object):
         self.single_visit_requests = [item for item in self.schedulable_requests if item not in self.multi_visit_requests]
         for name in list(self.requests_frame['starname']):
             if name not in self.schedulable_requests:
-                logs.warning("Target " + name + " has no valid day/slot pairs and therefore is effectively removed from the model.")
+                logs.warning("Target " + name + " has no valid day/slot pairs and "
+                           "therefore is effectively removed from the model.")
 
         # Construct a few useful joins
         # Get each request's full list of valid d/s pairs
@@ -157,20 +155,25 @@ class SemesterPlanner(object):
 
         self.model = gp.Model('Semester_Scheduler')
         # Yrs is technically a 1D matrix indexed by tuples.
-        # But in practice best think of it as a 2D square matrix of requests r and slots s, with gaps.
-        # Slot s for request r will be 1 to indicate starting an exposure for that request in that slot
+        # But in practice best think of it as a 2D square matrix of requests r and
+        # slots s, with gaps.
+        # Slot s for request r will be 1 to indicate starting an exposure for that
+        # request in that slot
         observability_array = list(self.observability.itertuples(index=False, name=None))
         self.Yrds = self.model.addVars(observability_array, vtype = GRB.BINARY, name = 'Requests_Slots')
 
         if len(self.observability_nights) != 0:
             # Wrd is technically a 1D matrix indexed by tuples.
-            # But in practice best think of it as a 2D square matrix of requests r and nights d, with gaps.
-            # Night d for request r will be 1 to indicate at least one exposure is scheduled for this night.
-            # Note that Wrd is only valid for requests r which have at least 2 visits requested in the night.
+            # But in practice best think of it as a 2D square matrix of requests r
+            # and nights d, with gaps.
+            # Night d for request r will be 1 to indicate at least one exposure is
+            # scheduled for this night.
+            # Note that Wrd is only valid for requests r which have at least 2
+            # visits requested in the night.
             observability_array_onsky = list(self.observability_nights.itertuples(index=False, name=None))
             self.Wrd = self.model.addVars(observability_array_onsky, vtype = GRB.BINARY, name = 'OnSky')
 
-        # theta is the "shortfall" variable, continous in natural numbers.
+        # theta is the "shortfall" variable, continuous in natural numbers.
         self.theta = self.model.addVars(self.all_requests, name = 'Shortfall')
 
         desired_max_obs_allowed_dict = {}
@@ -202,38 +205,17 @@ class SemesterPlanner(object):
             self.past_nights_observed_dict = past_nights_observed_dict
         logs.debug("Initializing complete.")
 
-    def _calculate_semester_info(self):
-        """Calculate semester information based on current day."""
-        current_date = datetime.strptime(self.current_day, '%Y-%m-%d')
-        
-        # Determine semester based on date
-        if current_date.month in [8, 9, 10, 11, 12]:
-            semester_letter = 'A'
-            semester_year = current_date.year
-        else:
-            semester_letter = 'B'
-            semester_year = current_date.year - 1
-        
-        # Set semester boundaries
-        if semester_letter == 'A':
-            semester_start_date = f"{semester_year}-08-01"
-            semester_end_date = f"{semester_year + 1}-01-31"
-        else:
-            semester_start_date = f"{semester_year + 1}-02-01"
-            semester_end_date = f"{semester_year + 1}-07-31"
-        
-        # Calculate semester length
-        start_date = datetime.strptime(semester_start_date, '%Y-%m-%d')
-        end_date = datetime.strptime(semester_end_date, '%Y-%m-%d')
-        semester_length = (end_date - start_date).days + 1
-        
-        self.semester_start_date = semester_start_date
-        self.semester_length = semester_length
+    def _resolve_file_path(self, config_path):
+        """Resolve relative or absolute file paths."""
+        if os.path.isabs(config_path):
+            return config_path
+        return os.path.join(self.semester_directory, config_path)
+
 
     def _build_date_dictionary(self):
         """Build date dictionary for the semester."""
         start_date = datetime.strptime(self.semester_start_date, '%Y-%m-%d')
-        end_date = datetime.strptime(self.semester_start_date, '%Y-%m-%d') + timedelta(days=self.semester_length - 1)
+        end_date = datetime.strptime(self.semester_end_date, '%Y-%m-%d')
         
         all_dates_dict = {}
         all_dates_array = []
@@ -262,21 +244,7 @@ class SemesterPlanner(object):
         # Calculate today's starting positions
         self.today_starting_night = self.all_dates_dict[self.current_day]
 
-    def _build_slots_required_dictionary(self, always_round_up_flag=False):
-        """Build dictionary mapping star names to required slots."""
-        slots_needed_for_exposure_dict = {}
-        for n, row in self.requests_frame.iterrows():
-            name = row['starname']
-            exposure_time = float(row['exptime'])
-            
-            if always_round_up_flag:
-                slots_needed = int(np.ceil(exposure_time / (self.slot_size * 60.0)))
-            else:
-                slots_needed = int(np.round(exposure_time / (self.slot_size * 60.0)))
-            
-            slots_needed_for_exposure_dict[name] = slots_needed
-        
-        return slots_needed_for_exposure_dict
+
 
     def _build_observability(self):
         """
@@ -311,14 +279,15 @@ class SemesterPlanner(object):
 
         Round 1:
 
-        Reserve multiple time slots for exposures that require
-        more than one time slot to complete, and ensure that
-        no other observations are scheduled during these slots.
+        Reserve multiple time slots for exposures that require more than one time
+        slot to complete, and ensure that no other observations are scheduled
+        during these slots.
         """
         logs.info("Constraint 2: Reserve slots for for multi-slot exposures.")
         max_t_visit = self.strategy.t_visit.max() # longest exposure time
         R_ds = self.observability.groupby(['d','s'])['id'].apply(set).to_dict()
-        R_geq_t_visit = {} # dictionary of requests where t_visit is greater than or equal to t_visit
+        R_geq_t_visit = {}  # dictionary of requests where t_visit is greater than
+        # or equal to t_visit
         strategy = self.strategy
         for t_visit in range(1,max_t_visit+1):
             R_geq_t_visit[t_visit] = set(strategy[strategy.t_visit >= t_visit]['id'])
@@ -340,14 +309,14 @@ class SemesterPlanner(object):
 
         Round 1:
 
-        Ensure that the minimum number of days pass between
-        consecutive observations of a given target. If a
-        target is scheduled for observation on a given date,
-        prevent it from being scheduled again until the
-        minimum number of days have passed.
+        Ensure that the minimum number of days pass between consecutive
+        observations of a given target. If a target is scheduled for
+        observation on a given date, prevent it from being scheduled again
+        until the minimum number of days have passed.
         """
         logs.info("Constraint 4: Enforce inter-night cadence.")
-        # Get all (d',s') pairs for a request that must be zero if a (d,s) pair is selected
+        # Get all (d',s') pairs for a request that must be zero if a (d,s) pair
+        # is selected
         # Ensure tau_inter is numeric before the query
         joiner_for_intercadence = self.joiner.copy()
         joiner_for_intercadence['tau_inter'] = pd.to_numeric(joiner_for_intercadence['tau_inter'], errors='coerce')
@@ -358,13 +327,14 @@ class SemesterPlanner(object):
             suffixes=['','3'],on=['id']
         ).query('d + 0 < d3 < d + tau_inter')
         self.intercadence_tracker = intercadence.groupby(['id','d'])[['d3','s3']].agg(list)
-        # When inter-night cadence is 1, there will be no keys to constrain so skip
-        # While the if/else statement would catch these, by shrinking the list here we do fewer
-        # total steps in the loop.
+        # When inter-night cadence is 1, there will be no keys to constrain so
+        # skip. While the if/else statement would catch these, by shrinking the
+        # list here we do fewer total steps in the loop.
         intercadence_valid_tuples = self.joiner.copy()[self.joiner['tau_inter'] > 1]
-        # We don't want duplicate slots on day d because we only need this constraint once per day
-        # With duplicates, the same constraint would be applied to (r, d, s) and (r, d, s+1) which
-        # is superfluous since we are summing over tonight's slots
+        # We don't want duplicate slots on day d because we only need this
+        # constraint once per day. With duplicates, the same constraint would be
+        # applied to (r, d, s) and (r, d, s+1) which is superfluous since we
+        # are summing over tonight's slots
         intercadence_valid_tuples = intercadence_valid_tuples.drop_duplicates(subset=['id', 'd'])
         for i, row in intercadence_valid_tuples.iterrows():
             constrained_slots_tonight = np.array(self.slots_on_day_for_r.loc[(row.id2, row.d2)][0])
@@ -377,9 +347,10 @@ class SemesterPlanner(object):
                      <= (1 - (gp.quicksum(self.Yrds[row.id,d3,s3] for d3, s3 in ds_pairs)))), \
                     'enforce_internight_cadence_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
             # else:
-            #     # For request r, there are no (d,s) pairs that are within "inter cadence" days of the
-            #     # given day d, therefore nothing to constrain. If I can find a way to filter out these
-            #     # rows as a "mask_inter_2", then the if/else won't be needed
+            #     # For request r, there are no (d,s) pairs that are within "inter
+            #     # cadence" days of the given day d, therefore nothing to
+            #     # constrain. If I can find a way to filter out these rows as a
+            #     # "mask_inter_2", then the if/else won't be needed
             #     continue
 
     def constraint_fix_previous_objective(self, epsilon=0.03):
@@ -388,12 +359,10 @@ class SemesterPlanner(object):
 
         Round 2:
 
-        This constraint ensures that the
-        objective function value calculated during
-        Round 2 be within a given tolerance of the
-        Round 1 value. This constraint ensures that
-        Round 2 result in only small changes to the
-        optimal solution found in Round 1.
+        This constraint ensures that the objective function value calculated
+        during Round 2 be within a given tolerance of the Round 1 value.
+        This constraint ensures that Round 2 result in only small changes
+        to the optimal solution found in Round 1.
         """
         logs.info("Constraint: Fixing the previous solution's objective value.")
         self.model.addConstr(gp.quicksum(self.theta[name] for name in self.requests_frame['starname']) <= \
@@ -403,8 +372,8 @@ class SemesterPlanner(object):
         """
         According to Eq X in Lubin et al. 2025.
 
-        In Round 2, maximize the number of filled slots,
-        i.e., slots during which an exposure occurs.
+        In Round 2, maximize the number of filled slots, i.e., slots during
+        which an exposure occurs.
         """
         logs.info("Objective: Maximize the number of slots used.")
         self.model.setObjective(gp.quicksum(self.slots_needed_for_exposure_dict[id]*self.Yrds[id,d,s]
@@ -415,9 +384,8 @@ class SemesterPlanner(object):
         """
         According to Eq X in Lubin et al. 2025.
 
-        Minimize the total shortfall for the number
-        of targets that receive their requested number
-        of observations, weighted by the time needed
+        Minimize the total shortfall for the number of targets that receive
+        their requested number of observations, weighted by the time needed
         to complete one observation.
         """
         self.model.setObjective(gp.quicksum(self.theta[name]*self.slots_needed_for_exposure_dict[name] for name in self.schedulable_requests), GRB.MINIMIZE)
@@ -426,12 +394,10 @@ class SemesterPlanner(object):
         """
         According to Eq X in Lubin et al. 2025.
 
-        Definition of the "shortfall" matrix, Theta.
-        The shortfall is defined for each target,
-        giving for each target the difference between
-        the number of requested nights for that target
-        and the sum of the past and future scheduled
-        observations of that target.
+        Definition of the "shortfall" matrix, Theta. The shortfall is defined
+        for each target, giving for each target the difference between the
+        number of requested nights for that target and the sum of the past
+        and future scheduled observations of that target.
         """
         logs.info("Constraint 0: Build theta variable")
         for name in self.schedulable_requests:
@@ -450,10 +416,9 @@ class SemesterPlanner(object):
 
         Round 1:
 
-        Limit the number of observations scheduled for a given
-        target to the maximum value provided by the PI. This
-        constraint may later be relaxed if Round 2 of scheduling
-        is invoked.
+        Limit the number of observations scheduled for a given target to the
+        maximum value provided by the PI. This constraint may later be relaxed
+        if Round 2 of scheduling is invoked.
         """
         logs.info("Constraining desired maximum observations.")
         for name in self.multi_visit_requests:
@@ -487,8 +452,8 @@ class SemesterPlanner(object):
 
         Round 2:
 
-        Set the maximum number of observations for a target to
-        150% of the original requested number.
+        Set the maximum number of observations for a target to 150% of the
+        original requested number.
         """
         logs.info("Constraining absolute maximum observations.")
         for name in self.multi_visit_requests:
@@ -501,11 +466,10 @@ class SemesterPlanner(object):
         """
         According to Eq X in Lubin et al. 2025.
 
-        Ensure that the minimum number of hours pass between
-        consecutive observations of a given target on the same
-        night. If a target is scheduled for observation at
-        a given time, prevent it from being scheduled again
-        until the minimum number of hours have passed.
+        Ensure that the minimum number of hours pass between consecutive
+        observations of a given target on the same night. If a target is
+        scheduled for observation at a given time, prevent it from being
+        scheduled again until the minimum number of hours have passed.
         """
         logs.info("Constraint 6: Enforce intra-night cadence.")
         # get all combos of slots that must be constrained if given slot is scheduled
@@ -529,9 +493,8 @@ class SemesterPlanner(object):
         """
         According to Eq X in Lubin et al. 2025.
 
-        Require that the number of scheduled visits to a target
-        in a given night falls between the minimum and maximum
-        values supplied by the PI.
+        Require that the number of scheduled visits to a target in a given
+        night falls between the minimum and maximum values supplied by the PI.
         """
         logs.info("Constraint 7: Allow minimum and maximum visits.")
         intracadence_frame_on_day = self.joiner.copy().drop_duplicates(subset=['id', 'd'])
@@ -553,7 +516,8 @@ class SemesterPlanner(object):
         t1 = time.time()
         self.model.params.TimeLimit = self.solve_time_limit
         self.model.Params.OutputFlag = self.gurobi_output
-        # Allow stop at 5% gap to prevent from spending lots of time on marginally better solution
+        # Allow stop at 5% gap to prevent from spending lots of time on
+        # marginally better solution
         self.model.params.MIPGap = self.solve_max_gap
         # More aggressive presolve gives better solution in shorter time
         self.model.params.Presolve = 2
