@@ -1,16 +1,19 @@
 """
 Command Line Interface
 """
+
+# Standard library imports
 import argparse
-import astroq
-import sys
 import os
-import json
-import pandas as pd
-import numpy as np
-import math
+import sys
 from configparser import ConfigParser
-from argparse import Namespace
+
+# Third-party imports
+import numpy as np
+import pandas as pd
+
+# Local imports
+import astroq
 
 # Create the parser at module level
 parser = argparse.ArgumentParser(
@@ -55,7 +58,7 @@ def main():
                             )
     psr_bench.set_defaults(func=astroq.driver.bench)
 
-    # subcommand of astroq: plot -- run the plotting suite
+    ## subcommand of astroq: plot -- run the plotting suite
     psr_plot = subpsr.add_parser('plot', parents=[psr_parent],
                                   description='Run the plotting suite',
                                   prefix_chars='-'
@@ -65,24 +68,13 @@ def main():
                               required=True,
                               help="Relative path of config file."
                               )
-    psr_plot.set_defaults(func=astroq.driver.plot)
-
-    ## subcommand of astroq: schedule -- Schedule observation requests
-    psr_schedule = subpsr.add_parser('schedule', parents=[psr_parent],
-                                      description="Schedule observation requests",
-                                      prefix_chars="-"
-                                     )
-    psr_schedule.add_argument('-rf', '--request_file',
-                              type=str,
-                              required=True,
-                              help="Relative path of request file."
-                              )
-    psr_schedule.add_argument('-cf', '--config_file',
+    psr_plot.set_defaults(func=astroq.driver.plot_pkl)
                               type=str,
                               required=True,
                               help="Relative path of config file."
                               )
-    psr_schedule.set_defaults(func=astroq.driver.schedule)
+    psr_plot.set_defaults(func=astroq.driver.plot_pkl)
+
 
     ## subcommand of astroq: kpfcc -- Do KPFCC stuff
     psr_kpfcc = subpsr.add_parser('kpfcc', parents=[psr_parent],
@@ -91,18 +83,6 @@ def main():
                                   )
     kpfcc_subpsr = psr_kpfcc.add_subparsers(title='kpfcc subcommands', dest='kpfcc_subcommand')
     psr_kpfcc.set_defaults(func=astroq.driver.kpfcc)
-
-    ## subcommand of kpfcc: build -- Build observation requests
-    psr_kpfcc_build = kpfcc_subpsr.add_parser('build', #parents=[psr_parent],
-                                               description="Build observation requests",
-                                               prefix_chars="-"
-                                               )
-    psr_kpfcc_build.add_argument('-cf', '--config_file',
-                              type=str,
-                              required=True,
-                              help="Relative path of config file."
-                                )
-    psr_kpfcc_build.set_defaults(func=astroq.driver.kpfcc_build)
 
     ## subcommand of kpfcc: prepare -- Prep for a new semester
     psr_kpfcc_prep = kpfcc_subpsr.add_parser('prep', #parents=[psr_parent],
@@ -126,23 +106,7 @@ def main():
                               )
     psr_kpfcc_prep.set_defaults(func=astroq.driver.kpfcc_prep)
 
-    ## subcommand of kpfcc: data -- pull latest OB database
-    psr_kpfcc_data = kpfcc_subpsr.add_parser('data', #parents=[psr_parent],
-                                               description="Pull the OB database from Keck",
-                                               prefix_chars="-"
-                                               )
-    psr_kpfcc_data.add_argument('-pf', '--pull_file',
-                              type=str,
-                              required=True,
-                              help="Path to the file that determines how to pull from the database."
-                                )
-    psr_kpfcc_data.add_argument('-df', '--database_file',
-                              type=str,
-                              required=True,
-                              help="Path to save the good OBs request sheet."
-                                )
-    psr_kpfcc_data.set_defaults(func=astroq.driver.kpfcc_data)
-
+ 
     ## subcommand of kpfcc: webapp -- launch web app to view interactive plots
     psr_kpfcc_webapp = kpfcc_subpsr.add_parser('webapp', #parents=[psr_parent],
                                                description="Launch web app to view interactive plots",

@@ -6,25 +6,19 @@ Example usage:
     import plotting_functions as ptf
 """
 
-import os
-import pandas as pd
-import numpy as np
-import json
-import seaborn as sns
-import plotly.graph_objects as go
-import plotly.express as px
-import plotly.io as pio
-from astropy.time import Time
-from astropy.time import TimeDelta
-
+# Standard library imports
 from collections import defaultdict
+import os
 import pickle
 
-import astroq.management as mn
-import astroq.history as hs
+# Third-party imports
+import numpy as np
+import pandas as pd
+import seaborn as sns
+
+# Local imports
 import astroq.access as ac
-import astroq.io as io
-import ttp.plotting as plotting
+
 
 labelsize = 38
 
@@ -62,8 +56,6 @@ class StarPlotter(object):
         self.tau_intra = int(requests_frame['tau_intra'][index])
         self.n_inter_max = int(requests_frame['n_inter_max'][index])
         self.tau_inter = int(requests_frame['tau_inter'][index])
-        self.slots_per_night = mn.compute_slots_required_for_exposure(self.exptime, slot_size, False)*self.n_intra_max
-        self.slots_per_visit = mn.compute_slots_required_for_exposure(self.exptime, slot_size, False)
         self.expected_nobs_per_night = self.n_exp * self.n_intra_max
         self.total_observations_requested = self.expected_nobs_per_night * self.n_inter_max
 
@@ -105,14 +97,14 @@ class StarPlotter(object):
             observations_future[date] = n_slots
         self.observations_future = observations_future
 
-    def get_map(self, manager):
+    def get_map(self, semester_planner):
         """
         Build the starmap for this star using the new schedule format (future_forecast DataFrame with columns r, d, s).
         Only set starmap[d, s] = 1 if sched['r'] == self.starname.
         """
-        forecast_df = pd.read_csv(manager.future_forecast)
-        n_nights = manager.semester_length
-        n_slots = int((24 * 60) / manager.slot_size)
+        forecast_df = pd.read_csv(semester_planner.future_forecast)
+        n_nights = semester_planner.semester_length
+        n_slots = int((24 * 60) / semester_planner.slot_size)
         starmap = np.zeros((n_nights, n_slots), dtype=int)
         for _, sched in forecast_df.iterrows():
             if sched['r'] == self.starname:
@@ -123,24 +115,40 @@ class StarPlotter(object):
                 for r in range(1, reserve_slots):
                     starmap[d, s+r] = 1
         self.starmap = starmap.T
-        # assert np.shape(starmap) == (manager.semester_length, int((24 * 60) / manager.slot_size)), np.shape(starmap)
+        # assert np.shape(starmap) == (semester_planner.semester_length, int((24 * 60) / semester_planner.slot_size)), np.shape(starmap)
         # assert np.shape(starmap) == (10, 4), np.shape(starmap)
 
-def process_stars(manager):
+def process_stars(semester_planner):
 
     # Create a starmap of the times when we cannot observe due to twilight and allocation constraints
     # Used in the birdseye view plot to blackout the unavailble squares
 
-    access = ac.produce_ultimate_map(manager, manager.requests_frame)
+    # Create Access object with required parameters
+    access_obj = ac.Access(
+        semester_start_date=semester_planner.semester_start_date,
+        semester_length=semester_planner.semester_length,
+        slot_size=semester_planner.slot_size,
+        observatory=semester_planner.observatory,
+        current_day=semester_planner.current_day,
+        all_dates_dict=semester_planner.all_dates_dict,
+        all_dates_array=semester_planner.all_dates_array,
+        n_nights_in_semester=semester_planner.n_nights_in_semester,
+        custom_file=semester_planner.custom_file,
+        allocation_file=semester_planner.allocation_file,
+        past_history=semester_planner.past_history,
+        today_starting_night=semester_planner.today_starting_night,
+        slots_needed_for_exposure_dict=semester_planner.slots_needed_for_exposure_dict,
+        run_weather_loss=semester_planner.run_weather_loss,
+        output_directory=semester_planner.output_directory
+    )
+    access = access_obj.produce_ultimate_map(semester_planner.requests_frame)
     nulltime = access['is_alloc'][0]
     nulltime = 1 - nulltime
-    # nulltime = pad_rows_top(nulltime, manager.semester_length)
     nulltime = np.array(nulltime).T
 
-    # Previously, there was a unique call to star names, every row of the request frame should
-    # unique already
-    starnames = manager.requests_frame['starname'].unique()
-    programs = manager.requests_frame['program_code'].unique()
+    # Previously, there was a unique call to star names, every row of the request frame will be unique already when we switch to "id"
+    starnames = semester_planner.requests_frame['starname'].unique()
+    programs = semester_planner.requests_frame['program_code'].unique()
 
     # Make colors consistent for all stars in each program
     colors = sns.color_palette("deep", len(programs))
@@ -149,24 +157,25 @@ def process_stars(manager):
 
     all_stars = []
     i = 0 
-    for i, row in manager.requests_frame.iterrows():
+    for i, row in semester_planner.requests_frame.iterrows():
         # Create a StarPlotter object for each request, fill and compute relavant information
         newstar = StarPlotter(row['starname'])
-        newstar.get_map(manager)
-        newstar.get_stats(manager.requests_frame, manager.slot_size)
-        if newstar.starname in list(manager.past_history.keys()):
-            newstar.observations_past = manager.past_history[newstar.starname].n_obs_on_nights
+        newstar.get_map(semester_planner)
+        newstar.get_stats(semester_planner.requests_frame, semester_planner.slot_size)
+        print(list(semester_planner.past_history.keys()))
+        if newstar.starname in list(semester_planner.past_history.keys()):
+            newstar.observations_past = semester_planner.past_history[newstar.starname].n_obs_on_nights
         else:
             newstar.observations_past = {}
-        newstar.get_future(manager.future_forecast, manager.all_dates_array)
+        newstar.get_future(semester_planner.future_forecast, semester_planner.all_dates_array)
 
         # Create COF arrays for each request
         combined_set = set(list(newstar.observations_past.keys()) + list(newstar.observations_future.keys()))
-        newstar.dates_observe = [newstar.n_exp*newstar.n_intra_max if date in combined_set else 0 for date in manager.all_dates_array]
+        newstar.dates_observe = [newstar.n_exp*newstar.n_intra_max if date in combined_set else 0 for date in semester_planner.all_dates_array]
         # don't assume that all future observations forecast for getting all desired n_intra_max
         for b in range(len(newstar.dates_observe)):
-            if manager.all_dates_array[b] in list(newstar.observations_future.keys()):
-                index = list(newstar.observations_future.keys()).index(manager.all_dates_array[b])
+            if semester_planner.all_dates_array[b] in list(newstar.observations_future.keys()):
+                index = list(newstar.observations_future.keys()).index(semester_planner.all_dates_array[b])
                 newstar.dates_observe[b] *= list(newstar.observations_future.values())[index]
         newstar.cume_observe = np.cumsum(newstar.dates_observe)
         newstar.cume_observe_pct = np.round((np.cumsum(newstar.dates_observe)/newstar.total_observations_requested)*100.,3)
@@ -227,6 +236,7 @@ def process_stars(manager):
 
     return program_dict, programs_as_stars, nulltime
 
+<<<<<<< HEAD
 def pad_rows_top(arr, target_rows):
     current_rows, cols = arr.shape
     missing_rows = target_rows - current_rows
@@ -598,6 +608,8 @@ def generate_single_star_maps(manager, starname):
     #     fig.write_html(fileout_path)
     return fig
 
+=======
+>>>>>>> refactor/config
 def write_star_objects(savepath, data):
     with open(savepath + "star_objects.pkl", "wb") as f:
         pickle.dump(data, f)
@@ -608,95 +620,8 @@ def read_star_objects(savepath):
         loaded_obj_list = pickle.load(f)
     return loaded_obj_list
 
-def build_plot_file(manager):
-    stars_in_program, programs_as_stars, nulltime = process_stars(manager)
-    save_path = manager.reports_directory + "admin/" + manager.current_day + '/'
+def build_semester_webapp_pkl(semester_planner):
+    stars_in_program, programs_as_stars, nulltime = process_stars(semester_planner)
+    save_path = semester_planner.output_directory
     os.makedirs(save_path, exist_ok = True)
     write_star_objects(save_path, [stars_in_program, programs_as_stars, nulltime])
-
-def build_semester_webapp_pkl(config_file):
-    manager = mn.data_admin(config_file)
-    manager.run_admin()
-    build_plot_file(manager)
-
-def build_static_plots(config_file):
-    manager = mn.data_admin(config_file)
-    manager.run_admin()
-    data = read_star_objects(manager.reports_directory + "admin/" + manager.current_day + '/star_objects.pkl')
-    all_stars_list = [obj for obj_list in data[0].values() for obj in obj_list]
-    cof_builder(all_stars_list, manager, 'admin/' + manager.current_day + '/all_stars_COF.html')
-    cof_builder(list(data[1].values()), manager, 'admin/' + manager.current_day + '/all_programs_COF.html', flag=True)
-    generate_birds_eye(manager, data[2], all_stars_list, 'admin/' + manager.current_day + '/all_stars_birdseye.html')
-    # generate_single_star_maps(manager, manager.requests_frame['starname'][0])
-
-def build_static_plots(config_file):
-    manager = mn.data_admin(config_file)
-    manager.run_admin()
-    data = read_star_objects(manager.reports_directory + "admin/" + manager.current_day + '/star_objects.pkl')
-    all_stars_list = [obj for obj_list in data[0].values() for obj in obj_list]
-    cof_builder(all_stars_list, manager, 'admin/' + manager.current_day + '/all_stars_COF.html')
-    cof_builder(list(data[1].values()), manager, 'admin/' + manager.current_day + '/all_programs_COF.html', flag=True)
-    generate_birds_eye(manager, data[2], all_stars_list, 'admin/' + manager.current_day + '/all_stars_birdseye.html')
-    generate_single_star_maps(manager, manager.requests_frame['starname'][0])
-
-def save_interactive_observing_plan(observing_plan):
-    from pathlib import Path
-
-    # Generate the core HTML table (just the <table>...</table>)
-    observing_plan_html = observing_plan.to_html(
-        index=False,
-        border=0,
-        classes='display',
-        escape=False  # Set to True if you have HTML tags in data you want escaped
-    )
-
-    # Full HTML page with DataTables integration
-    full_html = f"""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Observing Plan</title>
-
-    <!-- DataTables CSS -->
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
-
-    <!-- jQuery and DataTables JS -->
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-
-    <style>
-        body {{
-            font-family: Arial, sans-serif;
-            padding: 2em;
-        }}
-        table {{
-            width: 100%;
-        }}
-    </style>
-</head>
-<body>
-
-<h2>Observing Plan</h2>
-
-{observing_plan_html}
-
-<script>
-    $(document).ready(function () {{
-        $('table.display').DataTable({{
-            paging: true,
-            searching: true,
-            responsive: true,
-            pageLength: 100,
-            order: [[11, 'asc']]
-        }});
-    }});
-</script>
-
-</body>
-</html>
-"""
-
-    # Write to file
-    # Path(output_path).write_text(full_html, encoding='utf-8')
-    return full_html

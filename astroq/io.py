@@ -5,124 +5,32 @@ call from the generateScript.py script.
 Example usage:
     import reporting_functions as rf
 """
-import os
-import math
-import time
-from astropy.time import Time
-from astropy.time import TimeDelta
-from astropy.coordinates import Angle
-from astropy.coordinates import SkyCoord
-from astropy import units as u
 
+# Standard library imports
+import math
+import os
+import re
+import time
+
+# Third-party imports
+from astropy.coordinates import Angle, SkyCoord
+from astropy.time import Time, TimeDelta
+from astropy import units as u
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as pt
-import re
 
+# Local imports
 import astroq.history as hs
 import astroq.access as ac
 
-def build_fullness_report(serialized_output_sparse, manager, round_info):
-    """
-    Determine how full the schedule is: slots available, slots scheduled, and slots required
-
-    Args:
-        serialized_output_sparse (DataFrame): DataFrame with columns ['r', 'd', 's'] containing scheduled targets
-        manager (obj): a data_admin object
-        round_info (str): Round information for the report
-
-    Returns:
-        None
-    """
-    import astroq.access as ac
-    import math
-    
-    file_path = manager.output_directory + "runReport.txt"
-    print(f"Writing to: {file_path}")
-    
-    # Get access records array to determine available slots
-    access = ac.produce_ultimate_map(manager, manager.requests_frame)
-    
-    # Calculate total available slots using is_alloc (sum of one slice = available slots)
-    total_available_slots = np.sum(access['is_alloc'][0])  # Use first target's slice since all targets have same allocation
-    
-    # Calculate total scheduled slots from serialized output
-    total_scheduled_slots = len(serialized_output_sparse)
-    
-    # Add reserved slots for multi-slot exposures
-    total_reserved_slots = 0
-    for _, row in serialized_output_sparse.iterrows():
-        target_name = row['r']
-        # Find the target in requests frame
-        target_request = manager.requests_frame[manager.requests_frame['starname'] == target_name]
-        if len(target_request) > 0:
-            # Get slots needed for this exposure
-            slots_needed = manager.slots_needed_for_exposure_dict.get(target_name, 1)
-            # Add reserved slots (excluding the starting slot which is already counted)
-            total_reserved_slots += max(0, slots_needed - 1)
-    
-    # Total slots used (scheduled + reserved)
-    total_slots_used = total_scheduled_slots + total_reserved_slots
-    
-    # Calculate total slots requested
-    total_slots_requested = 0
-    for _, row in manager.requests_frame.iterrows():
-        slots_needed_per_visit = manager.slots_needed_for_exposure_dict[row['starname']]
-        total_slots_requested += int(row['n_inter_max']) * int(slots_needed_per_visit) * int(row['n_intra_max'])
-    
-    # Calculate utilization percentages
-    utilization_available = (total_slots_used / total_available_slots * 100) if total_available_slots > 0 else 0
-    utilization_requested = (total_slots_used / total_slots_requested * 100) if total_slots_requested > 0 else 0
-    
-    # Write report
-    with open(manager.output_directory + "runReport.txt", "a") as file:
-        file.write("Stats for " + str(round_info) + "\n")
-        file.write("------------------------------------------------------" + "\n")
-        file.write(f"Total starting slots: {total_scheduled_slots} ({total_scheduled_slots * manager.slot_size / 60:.1f} hours)\n")
-        file.write(f"Total reserved slots: {total_reserved_slots} ({total_reserved_slots * manager.slot_size / 60:.1f} hours)\n")
-        file.write(f"Total scheduled slots: {total_slots_used} ({total_slots_used * manager.slot_size / 60:.1f} hours)\n")
-        file.write(f"Total requested slots: {total_slots_requested} ({total_slots_requested * manager.slot_size / 60:.1f} hours)\n")
-        file.write(f"Utilization of requested time: {utilization_requested:.1f}%\n")
-        file.write("---\n")
-        file.write(f"Total available slots: {total_available_slots} ({total_available_slots * manager.slot_size / 60:.1f} hours)\n")
-        file.write(f"Empty available slots: {total_available_slots - total_slots_used} ({(total_available_slots - total_slots_used) * manager.slot_size / 60:.1f} hours)\n")
-        file.write(f"Utilization of available time: {utilization_available:.1f}%\n")
-        file.write("---\n")
-
-def write_out_results(manager, theta, round, start_the_clock):
-    """
-    Write the Run Report
-    Args:
-        manager (obj): a data_admin object
-        theta (obj): a Scheduler.theta object
-        rount (str): "Round1" or "Round2"
-        start_the_clock (obj): time object of when the scheduler code began
-
-    Returns:
-        None
-    """
-    filename = open(manager.output_directory + "runReport.txt", "a")
-    theta_n_var = []
-    counter = 0
-    for v in theta.values():
-        varname = v.VarName
-        varval = v.X
-        counter += varval
-    print("Sum of Theta: " + str(counter))
-    filename.write("Sum of Theta: " + str(counter) + "\n")
-    print("Total Time to complete " + round + ": " + str(np.round(time.time()-start_the_clock,3)))
-    filename.write("Total Time to complete " + round +  ": " + str(np.round(time.time()-start_the_clock,3)) + "\n")
-    filename.close()
-
-def serialize_schedule(Yrds, manager):
+def serialize_schedule(Yrds, output_directory):
     """
     Turns the non-square matrix of the solution into a square matrix and starts the human readable
     solution by filling in the slots where a star's exposre is started.
 
     Args:
-        combined_semester_schedule (array): the human readable solution
-        Yns (array): the Gurobi solution with keys of (starname, slot_number) and values 1 or 0.
-        manager (obj): a data_admin object
+        Yrds (array): the Gurobi solution with keys of (starname, day, slot) and values 1 or 0.
+        planner (obj): a SemesterPlanner object
 
     Returns:
         None
@@ -131,8 +39,8 @@ def serialize_schedule(Yrds, manager):
     df['value'] = [Yrds[k].x for k in Yrds.keys()]
     sparse = df.query('value>0').copy()
     sparse.drop(columns=['value'], inplace=True)
-    sparse.to_csv(manager.output_directory + "serialized_outputs_sparse.csv", index=False, na_rep="")
-    
+    sparse.to_csv(output_directory + "semester_plan.csv", index=False, na_rep="")
+
     day, slot = np.mgrid[:manager.semester_length,:manager.n_slots_in_night]
     dense1 = pd.DataFrame(dict(d=day.flatten(), s=slot.flatten()))
     dense1 = pd.merge(dense1, sparse, left_on=['d','s'],right_on=['d','s'],how='left')
@@ -247,16 +155,25 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
     """
 
     equinox = '2000'
+    # Handle missing pmra/pmdec columns with default values
+    pmra = row.get('pmra', [0.0])[0] if 'pmra' in row else 0.0
+    pmdec = row.get('pmdec', [0.0])[0] if 'pmdec' in row else 0.0
     updated_ra, updated_dec = pm_correcter(row['ra'][0], row['dec'][0],
-                                row['pmra'][0], row['pmdec'][0], current_day, equinox=equinox)
+                                pmra, pmdec, current_day, equinox=equinox)
     if updated_dec[0] != "-":
         updated_dec = "+" + updated_dec
 
-    cpsname = hs.cps_star_name(row['starname'][0])
+    cpsname = hs.crossmatch_star_name(row['starname'][0])
     namestring = ' '*(16-len(cpsname[:16])) + cpsname[:16]
 
-    jmagstring = ('jmag=' + str(np.round(float(row['jmag'][0]),1)) + ' '* \
-        (4-len(str(np.round(row['jmag'][0],1)))))
+    # Handle missing columns with default values
+    jmag_val = row.get('jmag', [15.0])[0] if 'jmag' in row else 15.0
+    gmag_val = row.get('gmag', [15.0])[0] if 'gmag' in row else 15.0
+    teff_val = row.get('teff', [5000])[0] if 'teff' in row else 5000
+    gaia_id_val = row.get('gaia_id', ['UNKNOWN'])[0] if 'gaia_id' in row else 'UNKNOWN'
+    
+    jmagstring = ('jmag=' + str(np.round(float(jmag_val),1)) + ' '* \
+        (4-len(str(np.round(jmag_val,1)))))
     exposurestring = (' '*(4-len(str(int(row['exptime'][0])))) + \
         str(int(row['exptime'][0])) + '/' + \
         str(int(row['exptime'][0])) + ' '* \
@@ -266,12 +183,12 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
     scstring = 'sc=' + 'T'
 
     numstring = str(int(row['n_exp'][0])) + "x"
-    gmagstring = 'gmag=' + str(np.round(float(row['gmag'][0]),1)) + \
-                                                ' '*(4-len(str(np.round(row['gmag'][0],1))))
-    teffstr = 'Teff=' + str(int(row['teff'][0])) + \
-                                    ' '*(4-len(str(int(row['teff'][0]))))
+    gmagstring = 'gmag=' + str(np.round(float(gmag_val),1)) + \
+                                                ' '*(4-len(str(np.round(gmag_val,1))))
+    teffstr = 'Teff=' + str(int(teff_val)) + \
+                                    ' '*(4-len(str(int(teff_val))))
 
-    gaiastring = str(row['gaia_id'][0]) + ' '*(25-len(str(row['gaia_id'][0])))
+    gaiastring = str(gaia_id_val) + ' '*(25-len(str(gaia_id_val)))
     programstring = row['program_code'][0]
 
     if filler_flag:
@@ -292,8 +209,10 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
                         + priostring + ' ' + programstring + ' ' + timestring2 +
                          ' ' + first_available  + ' ' + last_available )
 
-    if not pd.isnull(row['Observing Notes'][0]):
-        line += (' ' + str(row['Observing Notes'][0]))
+    # Handle missing Observing Notes column
+    observing_notes = row.get('Observing Notes', [''])[0] if 'Observing Notes' in row else ''
+    if observing_notes and not pd.isnull(observing_notes):
+        line += (' ' + str(observing_notes))
 
     return line
 
