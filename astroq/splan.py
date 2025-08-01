@@ -55,12 +55,11 @@ class SemesterPlanner(object):
         config.read(config_file)
         
         # Extract global configuration parameters
-        workdir = str(config.get('global', 'workdir'))
-        self.semester_directory = workdir
-        self.current_day = str(config.get('global', 'current_day'))
+        self.workdir = config.get('global', 'workdir')
+        self.current_day = config.get('global', 'current_day')
         self.observatory = config.get('global', 'observatory')
-        self.semester_start_date = str(config.get('global', 'semester_start_day'))
-        self.semester_end_date = str(config.get('global', 'semester_end_day'))
+        self.semester_start_date = config.get('global', 'semester_start_day')
+        self.semester_end_date = config.get('global', 'semester_end_day')
 
         # Extract semester parameters
         self.slot_size = config.getint('semester', 'slot_size')
@@ -71,15 +70,20 @@ class SemesterPlanner(object):
         self.max_bonus = config.getfloat('semester', 'maximum_bonus_size')
         
         # Set up file paths from data section
-        self.allocation_file = self._resolve_file_path(str(config.get('data', 'allocation_file')))
-        self.past_file = self._resolve_file_path(str(config.get('data', 'past_file')))
-        self.custom_file = self._resolve_file_path(str(config.get('data', 'custom_file')))
+        self.allocation_file = self._resolve_file_path(config.get('data', 'allocation_file'))
+        self.past_file = self._resolve_file_path(config.get('data', 'past_file'))
+        self.custom_file = self._resolve_file_path(config.get('data', 'custom_file'))
         
+    def _resolve_file_path(self, config_path):
+        """Resolve relative or absolute file paths."""
+        if os.path.isabs(config_path):
+            return config_path
+        return os.path.join(self.workdir, config_path)
 
 
     def _setup_directories(self):
         """Set up output directories and create necessary files."""
-        self.output_directory = self.semester_directory + "outputs/"
+        self.output_directory = self.workdir + "outputs/"
         check = os.path.isdir(self.output_directory)
         if not check:
             os.makedirs(self.output_directory)
@@ -89,7 +93,7 @@ class SemesterPlanner(object):
     def _load_and_process_data(self):
         """Load CSV files and build core data structures."""
         # Load data files
-        self.requests_frame = pd.read_csv(os.path.join(self.semester_directory, "inputs/requests.csv"))
+        self.requests_frame = pd.read_csv(os.path.join(self.workdir, "inputs/requests.csv"))
 
         # Build strategy dataframe. Note exptime is in minutes and tau_intra is in
         # hours they are both converted to slots here
@@ -97,13 +101,11 @@ class SemesterPlanner(object):
         strategy = strategy.rename(columns={'starname':'id'})
         strategy['t_visit'] = (self.requests_frame['exptime'] / 60 / self.slot_size).clip(lower=1).round().astype(int) 
         strategy['tau_intra'] = (self.requests_frame['tau_intra'] * 60 / self.slot_size).round().astype(int) 
-        self.strategy = strategy
+        # Set 'id' as index for efficient lookups
+        self.strategy = strategy.set_index('id')
 
         # Load past history
         self.past_history = hs.process_star_history(self.past_file)
-        
-        # Build slots needed dictionary from strategy dataframe
-        self.slots_needed_for_exposure_dict = self.strategy.set_index('id')['t_visit'].to_dict()
         
         # Build date dictionary
         start_date = datetime.strptime(self.semester_start_date, '%Y-%m-%d')
@@ -150,7 +152,7 @@ class SemesterPlanner(object):
         self.joiner['id2'] = self.joiner['id']
         self.joiner['d2'] = self.joiner['d']
         self.joiner['s2'] = self.joiner['s']
-        self.joiner['tau_intra'] *= int(60/self.slot_size) # convert hours to slots
+
         self.joiner['tau_intra'] += self.joiner['t_visit']  # start the minimum
         # intracadence time from the end of the previous exposure, not the beginning
 
@@ -247,13 +249,9 @@ class SemesterPlanner(object):
             self.absolute_max_obs_allowed_dict = absolute_max_obs_allowed_dict
             self.past_nights_observed_dict = past_nights_observed_dict
 
-    # ===== UTILITY METHODS =====
     
-    def _resolve_file_path(self, config_path):
-        """Resolve relative or absolute file paths."""
-        if os.path.isabs(config_path):
-            return config_path
-        return os.path.join(self.semester_directory, config_path)
+
+    # ===== CONSTRAINT METHODS =====
     def constraint_reserve_multislot_exposures(self):
         """
         According to Eq X in Lubin et al. 2025.
@@ -271,7 +269,7 @@ class SemesterPlanner(object):
         # or equal to t_visit
         strategy = self.strategy
         for t_visit in range(1,max_t_visit+1):
-            R_geq_t_visit[t_visit] = set(strategy[strategy.t_visit >= t_visit]['id'])
+            R_geq_t_visit[t_visit] = set(strategy[strategy.t_visit >= t_visit].index)
 
         for d,s in self.observability.drop_duplicates(['d','s'])[['d','s']].itertuples(index=False, name=None):
             rhs = []
@@ -357,7 +355,7 @@ class SemesterPlanner(object):
         which an exposure occurs.
         """
         logs.info("Objective: Maximize the number of slots used.")
-        self.model.setObjective(gp.quicksum(self.slots_needed_for_exposure_dict[id]*self.Yrds[id,d,s]
+        self.model.setObjective(gp.quicksum(self.strategy.loc[id, 't_visit']*self.Yrds[id,d,s]
                         for id, d, s in self.observability_tuples), GRB.MAXIMIZE)
                         # for id, d, s in self.joiner), GRB.MAXIMIZE)
 
@@ -369,7 +367,7 @@ class SemesterPlanner(object):
         their requested number of observations, weighted by the time needed
         to complete one observation.
         """
-        self.model.setObjective(gp.quicksum(self.theta[name]*self.slots_needed_for_exposure_dict[name] for name in self.schedulable_requests), GRB.MINIMIZE)
+        self.model.setObjective(gp.quicksum(self.theta[name]*self.strategy.loc[name, 't_visit'] for name in self.schedulable_requests), GRB.MINIMIZE)
 
     def constraint_build_theta_multivisit(self):
         """

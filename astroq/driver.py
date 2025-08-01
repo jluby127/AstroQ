@@ -44,8 +44,8 @@ def bench(args):
     # Load the requests frame and thin it
     config = ConfigParser()
     config.read(cf)
-    semester_directory = config.get('global', 'workdir')
-    requests_frame = pd.read_csv(os.path.join(semester_directory, "inputs/requests.csv"))
+    workdir = config.get('global', 'workdir')
+    requests_frame = pd.read_csv(os.path.join(workdir, "inputs/requests.csv"))
     original_size = len(requests_frame)
     requests_frame = requests_frame.iloc[::thin]
     new_size = len(requests_frame)
@@ -63,19 +63,18 @@ def kpfcc_prep(args):
     config.read(cf)
 
     # Get workdir from global section
-    workdir = str(config.get('global', 'workdir'))
-    savepath = workdir
+    savepath = config.get('global', 'workdir')
     
-    semester = str(config.get('global', 'semester'))
-    start_date = str(config.get('global', 'semester_start_day'))
-    end_date = str(config.get('global', 'semester_end_day'))
+    semester = config.get('global', 'semester')
+    start_date = config.get('global', 'semester_start_day')
+    end_date = config.get('global', 'semester_end_day')
     start = datetime.strptime(start_date, "%Y-%m-%d")
     end = datetime.strptime(end_date, "%Y-%m-%d")
     n_days = (end - start).days
 
     # First capture the allocation info
     allo_source = args.allo_source
-    allocation_file = str(config.get('data', 'allocation_file'))
+    allocation_file = config.get('data', 'allocation_file')
     if allo_source == 'db':
         print(f'Pulling allocation information from database')
         awarded_programs = ob.pull_allocation_info(start_date, n_days, 'KPF-CC', savepath+allocation_file)
@@ -86,7 +85,7 @@ def kpfcc_prep(args):
         awarded_programs = [semester + "_" + val for val in awarded_programs if val != 'U268'] #temporary because PI made a mistake. 
 
     # Next get the request sheet
-    request_file = str(config.get('data', 'request_file'))
+    request_file = config.get('data', 'request_file')
     OBs = ob.pull_OBs(semester)
     good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram = ob.get_request_sheet(OBs, awarded_programs, savepath + request_file)
     send_emails_with = []
@@ -99,7 +98,7 @@ def kpfcc_prep(args):
 
     # Next get the past history 
     past_source = args.past_source
-    past_file = str(config.get('data', 'past_file'))
+    past_file = config.get('data', 'past_file')
     if past_source == 'db':
         print(f'Pulling past history information from database')
         raw_history = hs.pull_OB_histories(semester)
@@ -109,7 +108,7 @@ def kpfcc_prep(args):
         obhist = hs.write_OB_histories_to_csv_JUMP(good_obs, past_source, savepath + past_file)
 
     # This is where the custom times info pull will go
-    custom_file = str(config.get('data', 'custom_file'))
+    custom_file = config.get('data', 'custom_file')
 
     return
 

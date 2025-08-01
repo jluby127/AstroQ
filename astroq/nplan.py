@@ -56,30 +56,28 @@ class NightPlanner(object):
         config.read(config_file)
         
         # Get workdir from global section
-        workdir = str(config.get('global', 'workdir'))
-        self.upstream_path = workdir
-        self.semester_directory = self.upstream_path
-        self.current_day = str(config.get('global', 'current_day'))
-        self.output_directory = self.upstream_path + "outputs/"
-        self.reports_directory = self.upstream_path + "outputs/"
+        self.workdir = config.get('global', 'workdir')
+        self.current_day = config.get('global', 'current_day')
+        self.output_directory = self.workdir + "outputs/"
+        self.reports_directory = self.workdir + "outputs/"
         
         # Set up allocation file path from data section
-        allocation_file_config = str(config.get('data', 'allocation_file'))
+        allocation_file_config = config.get('data', 'allocation_file')
         if os.path.isabs(allocation_file_config):
             self.allocation_file = allocation_file_config
         else:
-            self.allocation_file = os.path.join(self.semester_directory, allocation_file_config)
+            self.allocation_file = os.path.join(self.workdir, allocation_file_config)
             
         # Set up backup file path
         DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')
         self.backup_file = os.path.join(DATADIR, "bright_backups_frame.csv")
         
         # Set up custom file path from data section
-        custom_file_config = str(config.get('data', 'custom_file'))
+        custom_file_config = config.get('data', 'custom_file')
         if os.path.isabs(custom_file_config):
             self.custom_file = custom_file_config
         else:
-            self.custom_file = os.path.join(self.semester_directory, custom_file_config)
+            self.custom_file = os.path.join(self.workdir, custom_file_config)
         
         # Create SemesterPlanner to get all the helper methods and properties
         # This avoids duplicating semester calculation logic
@@ -93,7 +91,7 @@ class NightPlanner(object):
         self.all_dates_array = self.semester_planner.all_dates_array
         self.today_starting_night = self.semester_planner.today_starting_night
         self.past_history = self.semester_planner.past_history
-        self.slots_needed_for_exposure_dict = self.semester_planner.slots_needed_for_exposure_dict
+        self.strategy = self.semester_planner.strategy
         self.run_weather_loss = self.semester_planner.run_weather_loss
         
     def get_nightly_times_from_allocation(self, current_day):
@@ -135,7 +133,7 @@ class NightPlanner(object):
         Produce the TTP solution given the results of the autoscheduler.
         Optimizes the nightly observation sequence for scheduled targets.
         """
-        observers_path = self.semester_directory + 'outputs/'
+        observers_path = self.workdir + 'outputs/'
         check1 = os.path.isdir(observers_path)
         if not check1:
             os.makedirs(observers_path)
@@ -202,7 +200,7 @@ class NightPlanner(object):
         Args:
             nstars_max (int): Maximum number of backup stars to include
         """
-        backups_path = self.semester_directory + 'outputs/'
+        backups_path = self.workdir + 'outputs/'
         check = os.path.isdir(backups_path)
         if not check:
             os.makedirs(backups_path)

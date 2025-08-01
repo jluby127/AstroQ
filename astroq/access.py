@@ -47,7 +47,7 @@ class Access:
         self.allocation_file = semester_planner.allocation_file
         self.past_history_file = semester_planner.past_file
         self.today_starting_night = semester_planner.today_starting_night
-        self.slots_needed_for_exposure_dict = semester_planner.slots_needed_for_exposure_dict
+        self.strategy = semester_planner.strategy
         self.run_weather_loss = semester_planner.run_weather_loss
         
         # Extract pre-computed date attributes and history (no need to recompute)
@@ -295,7 +295,7 @@ class Access:
         is_observable = is_observable_now.copy()
         
         for itarget in range(self.ntargets):
-            e_val = self.slots_needed_for_exposure_dict[rf.iloc[itarget]['starname']]
+            e_val = self.strategy.loc[rf.iloc[itarget]['starname'], 't_visit']
             if e_val == 1:
                 continue
                 
