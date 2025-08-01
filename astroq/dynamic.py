@@ -105,7 +105,7 @@ def get_cof(semester_planner, all_stars):
         legend=dict(
             orientation="h",
             x=0.5,
-            y=-0.35,
+            y=-0.5,
             xanchor='center',
             yanchor='top',
             bgcolor='rgba(255,255,255,0.7)',
@@ -125,7 +125,7 @@ def get_cof(semester_planner, all_stars):
             showgrid=False,
             zeroline=False
         ),
-        margin=dict(b=350)  # Add bottom margin for legend
+        margin=dict(b=300)  # Add bottom margin for legend
     )
     return fig
 
