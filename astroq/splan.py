@@ -99,9 +99,11 @@ class SemesterPlanner(object):
         self.requests_frame = pd.read_csv(requests_file_path)
 
         # Fill NaN values with defaults --- for now in early 2025B since we had issues with the webform.c
-        self.requests_frame['n_intra_max'] = self.requests_frame['n_intra_max'].fillna(1)
-        self.requests_frame['n_intra_min'] = self.requests_frame['n_intra_min'].fillna(1)
-        self.requests_frame['tau_intra'] = self.requests_frame['tau_intra'].fillna(0)
+        # Replace "None" strings with NaN first, then fill with defaults
+        self.requests_frame['n_intra_max'] = self.requests_frame['n_intra_max'].replace('None', np.nan).fillna(1)
+        self.requests_frame['n_intra_min'] = self.requests_frame['n_intra_min'].replace('None', np.nan).fillna(1)
+        self.requests_frame['tau_intra'] = self.requests_frame['tau_intra'].replace('None', np.nan).fillna(0)
+
 
         # Build strategy dataframe. Note exptime is in minutes and tau_intra is in hours they are both converted to slots here
         strategy = self.requests_frame[['starname','n_intra_min','n_intra_max','n_inter_max','tau_inter']]
@@ -292,11 +294,12 @@ class SemesterPlanner(object):
         for n, row in self.requests_frame.iterrows():
             name = row['starname']
             exposure_time = float(row['exptime'])
+            overhead = 45*float(row['n_exp'] - 1) + 180*float(row['n_intra_max'])
             
             if always_round_up_flag:
-                slots_needed = int(np.ceil(exposure_time / (self.slot_size * 60.0)))
+                slots_needed = int(np.ceil((exposure_time + overhead) / (self.slot_size * 60.0)))
             else:
-                slots_needed = int(np.round(exposure_time / (self.slot_size * 60.0)))
+                slots_needed = int(np.round((exposure_time + overhead) / (self.slot_size * 60.0)))
             
             slots_needed_for_exposure_dict[name] = slots_needed
         
@@ -328,28 +331,28 @@ class SemesterPlanner(object):
         # Store the full access record array for later use
         self.access_record = self.access_obj.produce_ultimate_map(self.requests_frame)
         
-        # Debug trace: examine access arrays for specific stars
-        print("=== ACCESS RECORD DEBUG ===")
-        print(f"Access record shape: {self.access_record.shape}")
-        print(f"Access record dtype: {self.access_record.dtype}")
-        print(f"Access record field names: {self.access_record.dtype.names}")
+        # # Debug trace: examine access arrays for specific stars
+        # print("=== ACCESS RECORD DEBUG ===")
+        # print(f"Access record shape: {self.access_record.shape}")
+        # print(f"Access record dtype: {self.access_record.dtype}")
+        # print(f"Access record field names: {self.access_record.dtype.names}")
         
-        # Look for specific stars in the requests frame
-        target_stars = ['HIP24069', 'HIP10540', 'HIP4691']  # Add the stars you want to examine
-        for star in target_stars:
-            if star in self.requests_frame['starname'].values:
-                star_idx = self.requests_frame[self.requests_frame['starname'] == star].index[0]
-                print(f"\n--- {star} (index {star_idx}) ---")
-                print(f"  is_altaz: {self.access_record['is_altaz'][star_idx].sum()} slots available")
-                print(f"  is_future: {self.access_record['is_future'][star_idx].sum()} slots in future")
-                print(f"  is_moon: {self.access_record['is_moon'][star_idx].sum()} slots moon-ok")
-                print(f"  is_custom: {self.access_record['is_custom'][star_idx].sum()} slots custom-ok")
-                print(f"  is_inter: {self.access_record['is_inter'][star_idx].sum()} slots inter-ok")
-                print(f"  is_alloc: {self.access_record['is_alloc'][star_idx].sum()} slots allocated")
-                print(f"  is_clear: {self.access_record['is_clear'][star_idx].sum()} slots clear")
-                print(f"  is_observable: {self.access_record['is_observable'][star_idx].sum()} slots observable")
-            else:
-                print(f"\n--- {star} not found in requests frame ---")
+        # # Look for specific stars in the requests frame
+        # target_stars = ['HIP24069', 'HIP10540', 'HIP4691']  # Add the stars you want to examine
+        # for star in target_stars:
+        #     if star in self.requests_frame['starname'].values:
+        #         star_idx = self.requests_frame[self.requests_frame['starname'] == star].index[0]
+        #         print(f"\n--- {star} (index {star_idx}) ---")
+        #         print(f"  is_altaz: {self.access_record['is_altaz'][star_idx].sum()} slots available")
+        #         print(f"  is_future: {self.access_record['is_future'][star_idx].sum()} slots in future")
+        #         print(f"  is_moon: {self.access_record['is_moon'][star_idx].sum()} slots moon-ok")
+        #         print(f"  is_custom: {self.access_record['is_custom'][star_idx].sum()} slots custom-ok")
+        #         print(f"  is_inter: {self.access_record['is_inter'][star_idx].sum()} slots inter-ok")
+        #         print(f"  is_alloc: {self.access_record['is_alloc'][star_idx].sum()} slots allocated")
+        #         print(f"  is_clear: {self.access_record['is_clear'][star_idx].sum()} slots clear")
+        #         print(f"  is_observable: {self.access_record['is_observable'][star_idx].sum()} slots observable")
+        #     else:
+        #         print(f"\n--- {star} not found in requests frame ---")
         
         observability = self.access_obj.observability(self.requests_frame, access=self.access_record)
 

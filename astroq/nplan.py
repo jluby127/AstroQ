@@ -96,40 +96,6 @@ class NightPlanner(object):
         self.slots_needed_for_exposure_dict = self.semester_planner.slots_needed_for_exposure_dict
         self.run_weather_loss = self.semester_planner.run_weather_loss
         
-    def get_nightly_times_from_allocation(self, current_day):
-        """
-        Extract start and stop times for a specific date from allocation.csv.
-        
-        Args:
-            current_day (str): the date to look for in YYYY-MM-DD format
-            
-        Returns:
-            tuple: (start_time, stop_time) as Time objects
-        """
-        allocated_times_frame = pd.read_csv(self.allocation_file)
-        allocated_times_frame['start'] = allocated_times_frame['start'].apply(Time)
-        allocated_times_frame['stop'] = allocated_times_frame['stop'].apply(Time)
-        
-        # Filter for the current day
-        current_day_str = str(current_day)
-        day_allocations = []
-        for _, row in allocated_times_frame.iterrows():
-            start_datetime = str(row['start'])[:10]  # Extract date part (YYYY-MM-DD)
-            if start_datetime == current_day_str:
-                day_allocations.append(row)
-        
-        if not day_allocations:
-            raise ValueError(f"No allocation found for date {current_day_str}")
-        
-        # For multiple allocations on the same day, use the earliest start and latest stop
-        start_times = [row['start'] for row in day_allocations]
-        stop_times = [row['stop'] for row in day_allocations]
-        
-        earliest_start = min(start_times)
-        latest_stop = max(stop_times)
-        
-        return earliest_start, latest_stop
-        
     def run_ttp(self):
         """
         Produce the TTP solution given the results of the autoscheduler.
@@ -142,7 +108,7 @@ class NightPlanner(object):
 
         observatory = telescope.Keck1()
         # Get start/stop times from allocation file
-        observation_start_time, observation_stop_time = self.get_nightly_times_from_allocation(self.current_day)
+        observation_start_time, observation_stop_time = get_nightly_times_from_allocation(self.allocation_file, self.current_day)
         total_time = np.round((observation_stop_time.jd-observation_start_time.jd)*24,3)
         print("Time in Night for Observations: " + str(total_time) + " hours.")
 
@@ -151,6 +117,16 @@ class NightPlanner(object):
         if not os.path.exists(selected_path):
             raise FileNotFoundError(f"{selected_path} not found. Please run the scheduler first.")
         selected_df = pd.read_csv(selected_path)
+        # Fill NaN values with defaults --- for now in early 2025B since we had issues with the webform.c
+        # Replace "None" strings with NaN first, then fill with defaults
+        selected_df['n_intra_max'] = selected_df['n_intra_max'].replace('None', np.nan).fillna(1)
+        selected_df['n_intra_min'] = selected_df['n_intra_min'].replace('None', np.nan).fillna(1)
+        selected_df['tau_intra'] = selected_df['tau_intra'].replace('None', np.nan).fillna(0.0)
+        selected_df['jmag'] = selected_df['jmag'].replace('None', np.nan).fillna(0.0)
+        selected_df['gmag'] = selected_df['gmag'].replace('None', np.nan).fillna(0.0)
+        selected_df['pmra'] = selected_df['pmra'].replace('None', np.nan).fillna(0.0)
+        selected_df['pmdec'] = selected_df['pmdec'].replace('None', np.nan).fillna(0.0)
+        selected_df['epoch'] = selected_df['epoch'].replace('None', np.nan).fillna(0.0)
 
         # Prepare the TTP input DataFrame (matching the old prepare_for_ttp output)
         to_ttp = pd.DataFrame({
@@ -178,11 +154,15 @@ class NightPlanner(object):
             pickle.dump(save_data, f)
 
         observe_order_file = os.path.join(observers_path,'night_plan.csv')
-        observe_order_txt = os.path.join(observers_path, f"ObserveOrder_{self.current_day}.txt")
-        plotting.writeStarList(solution.plotly, observation_start_time, self.current_day,
-                            observe_order_txt)
-        plotting.plot_path_2D(solution,outputdir=observers_path)
-        plotting.nightPlan(solution.plotly, self.current_day, outputdir=observers_path)
+        observe_order_txt = os.path.join(observers_path)#, f"ObserveOrder_{self.current_day}.txt")
+        plotting.writeStarList(solution.plotly, observation_start_time, self.current_day,observe_order_txt)
+        # temporarily open the ObserveOrder file and write in the id numbers.
+        obsord = pd.read_csv(observe_order_txt + f"ObserveOrder_{self.current_day}.txt")
+        obsord['id'] = obsord['Target'].apply(lambda x: selected_df[selected_df['starname'] == x]['unique_id'].iloc[0] if x in selected_df['starname'].values else x)
+        obsord.to_csv(observe_order_txt + f"ObserveOrder_{self.current_day}.txt", index=False)
+
+        # plotting.plot_path_2D(solution,outputdir=observers_path)
+        # plotting.nightPlan(solution.plotly, self.current_day, outputdir=observers_path)
         
         # Check if the file was created before trying to read it
         if os.path.exists(observe_order_file):
@@ -208,7 +188,7 @@ class NightPlanner(object):
             os.makedirs(backups_path)
 
         # Get start/stop times from allocation file
-        observation_start_time, observation_stop_time = self.get_nightly_times_from_allocation(self.current_day)
+        observation_start_time, observation_stop_time = get_nightly_times_from_allocation(self.allocation_file, self.current_day)
         diff_minutes = int(abs((observation_stop_time - observation_start_time).to('min').value))
         print("Minutes on sky: ", diff_minutes)
 
@@ -350,3 +330,39 @@ def prepare_for_ttp(request_frame, night_plan, round_two_targets):
     # Create a temporary planner instance
     temp_planner = NightPlanner(None)
     return temp_planner.prepare_for_ttp(request_frame, night_plan, round_two_targets)
+
+def get_nightly_times_from_allocation(allocation_file, current_day):
+    """
+    Extract start and stop times for a specific date from allocation.csv.
+    
+    Args:
+        allocation_file (str): path to the allocation file
+        current_day (str): the date to look for in YYYY-MM-DD format
+        
+    Returns:
+        tuple: (start_time, stop_time) as Time objects
+    """
+    allocated_times_frame = pd.read_csv(allocation_file)
+    allocated_times_frame['start'] = allocated_times_frame['start'].apply(Time)
+    allocated_times_frame['stop'] = allocated_times_frame['stop'].apply(Time)
+    
+    # Filter for the current day
+    current_day_str = str(current_day)
+    day_allocations = []
+    for _, row in allocated_times_frame.iterrows():
+        start_datetime = str(row['start'])[:10]  # Extract date part (YYYY-MM-DD)
+        if start_datetime == current_day_str:
+            day_allocations.append(row)
+    
+    if not day_allocations:
+        raise ValueError(f"No allocation found for date {current_day_str}")
+    
+    # For multiple allocations on the same day, use the earliest start and latest stop
+    start_times = [row['start'] for row in day_allocations]
+    stop_times = [row['stop'] for row in day_allocations]
+    
+    earliest_start = min(start_times)
+    latest_stop = max(stop_times)
+    
+    return earliest_start, latest_stop
+        
