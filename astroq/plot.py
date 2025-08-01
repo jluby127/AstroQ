@@ -137,24 +137,8 @@ def process_stars(semester_planner):
     # Create a starmap of the times when we cannot observe due to twilight and allocation constraints
     # Used in the birdseye view plot to blackout the unavailble squares
 
-    # Create Access object with required parameters
-    access_obj = ac.Access(
-        semester_start_date=semester_planner.semester_start_date,
-        semester_length=semester_planner.semester_length,
-        slot_size=semester_planner.slot_size,
-        observatory=semester_planner.observatory,
-        current_day=semester_planner.current_day,
-        all_dates_dict=semester_planner.all_dates_dict,
-        all_dates_array=semester_planner.all_dates_array,
-        n_nights_in_semester=semester_planner.n_nights_in_semester,
-        custom_file=semester_planner.custom_file,
-        allocation_file=semester_planner.allocation_file,
-        past_history=semester_planner.past_history,
-        today_starting_night=semester_planner.today_starting_night,
-        slots_needed_for_exposure_dict=semester_planner.slots_needed_for_exposure_dict,
-        run_weather_loss=semester_planner.run_weather_loss,
-        output_directory=semester_planner.output_directory
-    )
+    # Create Access object from semester planner configuration
+    access_obj = ac.Access(semester_planner)
     access = access_obj.produce_ultimate_map(semester_planner.requests_frame)
     nulltime = access['is_alloc'][0]
     nulltime = 1 - nulltime

@@ -9,7 +9,7 @@ This module combines functionality for:
 """
 
 # Standard library imports
-import logging
+from typing import Dict, List, Optional, Union
 
 # Third-party imports
 import astropy as apy
@@ -21,6 +21,7 @@ from astropy.time import Time, TimeDelta
 
 # Local imports
 import astroq.weather as wh
+import astroq.history as hs
 
 class Access:
     """
@@ -30,159 +31,245 @@ class Access:
     and provides an object-oriented interface to the accessibility computation.
     """
     
-    def __init__(self, semester_start_date, semester_length, slot_size, observatory, 
-                 current_day, all_dates_dict, all_dates_array, n_nights_in_semester,
-                 custom_file, allocation_file, past_history, today_starting_night, 
-                 slots_needed_for_exposure_dict, run_weather_loss, output_directory):
+    def __init__(self, semester_planner):
         """
-        Initialize the Access object with explicit parameters.
+        Initialize the Access object from a SemesterPlanner object.
         
         Args:
-            semester_start_date: Start date of the semester
-            semester_length: Total number of nights in the semester
-            slot_size: Size of each time slot in minutes
-            observatory: Observatory name/location
-            current_day: Current day identifier
-            all_dates_dict: Dictionary mapping dates to day numbers
-            all_dates_array: Array of date strings for the semester
-            n_nights_in_semester: Number of remaining nights in the semester
-            custom_file: Path to custom times file
-            allocation_file: Path to allocation file
-            past_history: Past observation history
-            today_starting_night: Starting night number for today
-            slots_needed_for_exposure_dict: Dictionary mapping star names to required slots
-            run_weather_loss: Whether to run weather loss simulation
-            output_directory: Directory for output files
+            semester_planner: SemesterPlanner object containing all configuration
         """
-        self.semester_start_date = semester_start_date
-        self.semester_length = semester_length
-        self.slot_size = slot_size
-        self.observatory = observatory
-        self.current_day = current_day
-        self.all_dates_dict = all_dates_dict
-        self.all_dates_array = all_dates_array
-        self.n_nights_in_semester = n_nights_in_semester
-        self.custom_file = custom_file
-        self.allocation_file = allocation_file
-        self.past_history = past_history
-        self.today_starting_night = today_starting_night
-        self.slots_needed_for_exposure_dict = slots_needed_for_exposure_dict
-        self.run_weather_loss = run_weather_loss
-        self.output_directory = output_directory
+        # Extract core parameters from semester_planner
+        self.semester_start_date = semester_planner.semester_start_date
+        self.semester_length = semester_planner.semester_length
+        self.slot_size = semester_planner.slot_size
+        self.observatory = semester_planner.observatory
+        self.current_day = semester_planner.current_day
+        self.custom_file = semester_planner.custom_file
+        self.allocation_file = semester_planner.allocation_file
+        self.past_history_file = semester_planner.past_file
+        self.today_starting_night = semester_planner.today_starting_night
+        self.slots_needed_for_exposure_dict = semester_planner.slots_needed_for_exposure_dict
+        self.run_weather_loss = semester_planner.run_weather_loss
+        
+        # Extract pre-computed date attributes (no need to recompute)
+        self.all_dates_dict = semester_planner.all_dates_dict
+        self.all_dates_array = semester_planner.all_dates_array
+        self.n_nights_in_semester = semester_planner.n_nights_in_semester
+        
+        # Load past history
+        self.past_history = hs.process_star_history(self.past_history_file)
+
     
-    def produce_ultimate_map(self, rf, running_backup_stars=False):
+    def _setup_observing_context(self, rf):
         """
-        Combine all maps for a target to produce the final map
-
+        Set up shared observing context used by all constraint methods.
+        
         Args:
-            rf (dataframe): request frame
-            running_backup_stars (bool): if true, then do not run the extra map of stepping back in time to account for the starting slot fitting into the night
-
-        Returns:
-            available_indices_for_request (dictionary): keys are the starnames and values are a 1D array
-                                                      the indices where available_slots_for_request is 1.
+            rf: Request frame containing target information
         """
-        # Prepatory work
-        start_date = Time(self.semester_start_date,format='iso',scale='utc')
-        ntargets = len(rf)
-        nnights = self.semester_length # total nights in the full semester
-        nslots = int((24*60)/self.slot_size) # slots in the night
-        slot_size_time = TimeDelta(self.slot_size*u.min)
-
-        # Determine observability
+        # Basic dimensions and timing
+        start_date = Time(self.semester_start_date, format='iso', scale='utc')
+        self.ntargets = len(rf)
+        self.nnights = self.semester_length
+        self.nslots = int((24*60)/self.slot_size)
+        self.slot_size_time = TimeDelta(self.slot_size*u.min)
+        
+        # Target coordinates and observer
         coords = apy.coordinates.SkyCoord(rf.ra * u.deg, rf.dec * u.deg, frame='icrs')
-        targets = apl.FixedTarget(name=rf.starname, coord=coords)
-        keck = apl.Observer.at_site(self.observatory)
-
+        self.targets = apl.FixedTarget(name=rf.starname, coord=coords)
+        self.keck = apl.Observer.at_site(self.observatory)
+        
         # Set up time grid for one night, first night of the semester
-        daily_start = Time(start_date, location=keck.location)
-        daily_end = daily_start + TimeDelta(1.0, format='jd') # full day from start of first night
-        t = Time(np.arange(daily_start.jd, daily_end.jd, slot_size_time.jd), format='jd',location=keck.location)
-        t = t[np.argsort(t.sidereal_time('mean'))] # sort by lst
+        daily_start = Time(start_date, location=self.keck.location)
+        daily_end = daily_start + TimeDelta(1.0, format='jd')
+        self.t = Time(np.arange(daily_start.jd, daily_end.jd, self.slot_size_time.jd), 
+                     format='jd', location=self.keck.location)
+        self.t = self.t[np.argsort(self.t.sidereal_time('mean'))]  # sort by lst
+        
+        # Computing slot midpoint for all nights in semester 2D array (nights, slots)
+        slotmidpoint0 = daily_start + (np.arange(self.nslots) + 0.5) * self.slot_size * u.min
+        days = np.arange(self.nnights) * u.day
+        self.slotmidpoint = (slotmidpoint0[np.newaxis,:] + days[:,np.newaxis])
 
+    def _compute_altaz_mask(self):
+        """
+        Compute altitude/azimuth telescope pointing constraints.
+        
+        Returns:
+            np.ndarray: Boolean mask of shape (ntargets, nnights, nslots)
+        """
         # Compute base alt/az pattern, shape = (ntargets, nslots)
-        coord0 = keck.altaz(t, targets, grid_times_targets=True)
+        coord0 = self.keck.altaz(self.t, self.targets, grid_times_targets=True)
         alt0 = coord0.alt.deg
         az0 = coord0.az.deg
-        # 2D mask (n targets, n slots))
+        
+        # 2D mask (ntargets, nslots)
         is_altaz0 = np.ones_like(alt0, dtype=bool)
-        is_altaz0 &= ~((5.3 < az0 ) & (az0 < 146.2) & (alt0 < 33.3)) # remove nasymth deck
-        # remove min elevation for mid declination stars
-        ismiddec = ((-30 < targets.dec.deg) & (targets.dec.deg < 75))
-        fail = ismiddec[:,np.newaxis] & (alt0 < 30) # broadcast declination array
+        
+        # Remove nasmyth deck constraint
+        is_altaz0 &= ~((5.3 < az0) & (az0 < 146.2) & (alt0 < 33.3))
+        
+        # Remove min elevation for mid declination stars
+        ismiddec = ((-30 < self.targets.dec.deg) & (self.targets.dec.deg < 75))
+        fail = ismiddec[:,np.newaxis] & (alt0 < 30)  # broadcast declination array
         is_altaz0 &= ~fail
-        # all stars must be between 18 and 85 deg
+        
+        # All stars must be between 18 and 85 deg
         fail = (alt0 < 18) | (alt0 > 85)
         is_altaz0 &= ~fail
-        # computing slot midpoint for all nights in semester 2D array (slots, nights)
-        slotmidpoint0 = daily_start + (np.arange(nslots) + 0.5) *  self.slot_size * u.min
-        days = np.arange(nnights) * u.day
-        slotmidpoint = (slotmidpoint0[np.newaxis,:] + days[:,np.newaxis])
-        # 3D mask
-        is_altaz = np.empty((ntargets, nnights, nslots),dtype=bool)
+        
+        # Expand to 3D mask using sidereal time interpolation
+        is_altaz = np.empty((self.ntargets, self.nnights, self.nslots), dtype=bool)
+        
         # Pre-compute the sidereal times for interpolation
-        x = t.sidereal_time('mean').value
-        x_new = slotmidpoint.sidereal_time('mean').value
+        x = self.t.sidereal_time('mean').value
+        x_new = self.slotmidpoint.sidereal_time('mean').value
         idx = np.searchsorted(x, x_new, side='left')
-        idx = np.clip(idx, 0, len(x)-1) # Handle edge cases
+        idx = np.clip(idx, 0, len(x)-1)  # Handle edge cases
         is_altaz = is_altaz0[:,idx]
+        
+        return is_altaz
 
-        is_future = np.ones((ntargets, nnights, nslots),dtype=bool)
+    def _compute_future_mask(self):
+        """
+        Compute future time constraints (can't observe in the past).
+        
+        Returns:
+            np.ndarray: Boolean mask of shape (ntargets, nnights, nslots)
+        """
+        is_future = np.ones((self.ntargets, self.nnights, self.nslots), dtype=bool)
         today_daynumber = self.all_dates_dict[self.current_day]
         is_future[:,:today_daynumber,:] = False
+        return is_future
 
-        # Compute moon accessibility
-        is_moon = np.ones_like(is_altaz, dtype=bool)
-        moon = apy.coordinates.get_moon(slotmidpoint[:,0] , keck.location)
+    def _compute_moon_mask(self):
+        """
+        Compute moon distance constraints (30° minimum separation).
+        
+        Returns:
+            np.ndarray: Boolean mask of shape (ntargets, nnights, nslots)
+        """
+        is_moon = np.ones((self.ntargets, self.nnights, self.nslots), dtype=bool)
+        moon = apy.coordinates.get_moon(self.slotmidpoint[:,0], self.keck.location)
+        
         # Reshaping uses broadcasting to achieve a (ntarget, night) array
         ang_dist = apy.coordinates.angular_separation(
-            targets.ra.reshape(-1,1), targets.dec.reshape(-1,1),
+            self.targets.ra.reshape(-1,1), self.targets.dec.reshape(-1,1),
             moon.ra.reshape(1,-1), moon.dec.reshape(1,-1),
-        ) # (ntargets)
+        )
         is_moon = is_moon & (ang_dist.to(u.deg) > 30*u.deg)[:, :, np.newaxis]
+        return is_moon
 
-        is_custom = np.ones((ntargets, nnights, nslots), dtype=bool)
-        custom_times_frame = pd.read_csv(self.custom_file)
+    def _compute_custom_times_mask(self, rf):
+        """
+        Compute custom time window constraints from CSV file.
+        
+        Args:
+            rf: Request frame for target name mapping
+            
+        Returns:
+            np.ndarray: Boolean mask of shape (ntargets, nnights, nslots)
+        """
+        # Start with all times allowed (True everywhere)
+        is_custom = np.ones((self.ntargets, self.nnights, self.nslots), dtype=bool)
+        df = pd.read_csv(self.custom_file)
+        
         # Check if the file has any data rows (not just header)
-        if len(custom_times_frame) > 0:
-            starname_to_index = {name: idx for idx, name in enumerate(rf['starname'])}
-            custom_times_frame['start'] = custom_times_frame['start'].apply(Time)
-            custom_times_frame['stop'] = custom_times_frame['stop'].apply(Time)
-            for _, row in custom_times_frame.iterrows():
-                starname = row['starname']
-                mask = (slotmidpoint >= row['start']) & (slotmidpoint <= row['stop'])
-                star_ind = starname_to_index[starname]
-                current_map = is_custom[star_ind]
-                if np.all(current_map):  # If all ones, first interval: restrict with AND
-                    is_custom[star_ind] = mask
-                else:  # Otherwise, union with OR
-                    is_custom[star_ind] = current_map | mask
+        if len(df) == 0:
+            return is_custom
+            
+        # Create mapping from starname to target index
+        starname_to_index = {name: idx for idx, name in enumerate(rf['starname'])}
+        
+        # Convert time columns to astropy Time objects
+        df['start'] = df['start'].apply(Time)
+        df['stop'] = df['stop'].apply(Time)
+        
+        # Check for stars in custom file that are not in request frame
+        custom_stars = set(df['starname'].unique())
+        request_stars = set(starname_to_index.keys())
+        missing_stars = custom_stars - request_stars
+        
+        if missing_stars:
+            missing_list = sorted(list(missing_stars))
+            raise ValueError(
+                f"Custom times file contains {len(missing_stars)} star(s) not found in request frame: "
+                f"{', '.join(missing_list)}. Please check that star names in custom.csv match those in request.csv"
+            )
+        
+        # All stars are valid, so no filtering needed
+        # But keep the structure in case we want to add filtering logic later
+        
+        # Process constraints by star using groupby for cleaner logic
+        for starname, star_group in df.groupby('starname'):
+            star_idx = starname_to_index[starname]
+            
+            # Initialize this star's mask as False (no time allowed initially)
+            star_mask = np.zeros((self.nnights, self.nslots), dtype=bool)
+            
+            # Union all time windows for this star
+            for _, interval in star_group.iterrows():
+                interval_mask = ((self.slotmidpoint >= interval['start']) & 
+                               (self.slotmidpoint <= interval['stop']))
+                star_mask |= interval_mask
+            
+            # Apply the combined mask for this star
+            is_custom[star_idx] = star_mask
+        
+        return is_custom
 
-        # TODO add in logic to remove stars that are not observable, currently code is a no-op
-
-        # Set to False if internight cadence is violated
-        is_inter = np.ones((ntargets, nnights, nslots),dtype=bool)
-        for itarget in range(ntargets):
+    def _compute_inter_night_cadence_mask(self, rf):
+        """
+        Compute inter-night cadence constraints.
+        
+        Args:
+            rf: Request frame containing tau_inter values
+            
+        Returns:
+            np.ndarray: Boolean mask of shape (ntargets, nnights, nslots)
+        """
+        is_inter = np.ones((self.ntargets, self.nnights, self.nslots), dtype=bool)
+        
+        for itarget in range(self.ntargets):
             name = rf.iloc[itarget]['starname']
             if name in self.past_history and rf.iloc[itarget]['tau_inter'] > 1:
                 inight_start = self.all_dates_dict[self.past_history.date_last_observed] - self.today_starting_night
-                inight_stop = min(inight_start + rf.iloc[itarget]['tau_inter'],nnights)
-                is_inter[itarget,inight_start:inight_stop,:] = False
+                inight_stop = min(inight_start + rf.iloc[itarget]['tau_inter'], self.nnights)
+                is_inter[itarget, inight_start:inight_stop, :] = False
+        
+        return is_inter
 
+    def _compute_allocation_mask(self):
+        """
+        Compute allocated time window constraints from CSV file.
+        
+        Returns:
+            np.ndarray: Boolean mask of shape (ntargets, nnights, nslots)
+        """
         allocated_times_frame = pd.read_csv(self.allocation_file)
         allocated_times_frame['start'] = allocated_times_frame['start'].apply(Time)
         allocated_times_frame['stop'] = allocated_times_frame['stop'].apply(Time)
-        allocated_mask = np.zeros((nnights, nslots), dtype=bool)
+        
+        allocated_mask = np.zeros((self.nnights, self.nslots), dtype=bool)
         for i in range(len(allocated_times_frame)):
             start_time = allocated_times_frame['start'].iloc[i]
             stop_time = allocated_times_frame['stop'].iloc[i]
-            mask = (slotmidpoint >= start_time) & (slotmidpoint <= stop_time)
+            mask = (self.slotmidpoint >= start_time) & (self.slotmidpoint <= stop_time)
             allocated_mask |= mask
-        is_alloc = allocated_mask
-        is_alloc = np.ones_like(is_altaz, dtype=bool) & is_alloc[np.newaxis,:,:] # shape = (ntargets, nnights, nslots)
+        
+        # Expand to 3D array for all targets
+        is_alloc = np.ones((self.ntargets, self.nnights, self.nslots), dtype=bool) & allocated_mask[np.newaxis,:,:]
+        return is_alloc
 
-        # run the weather loss simulation
-        is_clear = np.ones_like(is_altaz, dtype=bool)
+    def _compute_weather_mask(self):
+        """
+        Compute weather clearness mask using weather simulation.
+        
+        Returns:
+            np.ndarray: Boolean mask of shape (ntargets, nnights, nslots)
+        """
+        is_clear = np.ones((self.ntargets, self.nnights, self.nslots), dtype=bool)
+        
         if self.run_weather_loss:
             loss_stats_this_semester = wh.get_loss_stats(self.all_dates_array)
             is_clear = wh.simulate_weather_losses(
@@ -194,7 +281,57 @@ class Access:
             )
         else:
             print("Pretending weather is always clear!")
+        
+        return is_clear
 
+    def _compute_multi_slot_exposure_mask(self, rf, is_observable_now):
+        """
+        Compute multi-slot exposure constraints by checking consecutive slot availability.
+        
+        Args:
+            rf: Request frame containing starname for lookup
+            is_observable_now: Base observability mask before multi-slot adjustment
+            
+        Returns:
+            np.ndarray: Boolean mask of shape (ntargets, nnights, nslots)
+        """
+        is_observable = is_observable_now.copy()
+        
+        for itarget in range(self.ntargets):
+            e_val = self.slots_needed_for_exposure_dict[rf.iloc[itarget]['starname']]
+            if e_val == 1:
+                continue
+                
+            for shift in range(1, e_val):
+                # Shifts the is_observable_now array to the left by shift
+                # For is_observable to be true, it must be true for all shifts
+                is_observable[itarget, :, :-shift] &= is_observable_now[itarget, :, shift:]
+        
+        return is_observable
+
+    def produce_ultimate_map(self, rf):
+        """
+        Combine all maps for a target to produce the final map.
+
+        Args:
+            rf (dataframe): request frame
+
+        Returns:
+            np.rec.array: Record array containing all constraint masks and final observability
+        """
+        # Set up shared observing context
+        self._setup_observing_context(rf)
+        
+        # Compute individual constraint masks
+        is_altaz = self._compute_altaz_mask()
+        is_future = self._compute_future_mask()
+        is_moon = self._compute_moon_mask()
+        is_custom = self._compute_custom_times_mask(rf)
+        is_inter = self._compute_inter_night_cadence_mask(rf)
+        is_alloc = self._compute_allocation_mask()
+        is_clear = self._compute_weather_mask()
+        
+        # Combine all constraints
         is_observable_now = np.logical_and.reduce([
             is_altaz,
             is_future,
@@ -204,26 +341,16 @@ class Access:
             is_alloc,
             is_clear
         ])
-
-        # the target does not violate any of the observability limits in that specific slot, but
-        # it does not mean it can be started at the slot. retroactively grow mask to accomodate multishot exposures.
-        # Is observable now,
-        is_observable = is_observable_now.copy()
-        if running_backup_stars == False:
-            for itarget in range(ntargets):
-                e_val = self.slots_needed_for_exposure_dict[rf.iloc[itarget]['starname']]
-                if e_val == 1:
-                    continue
-                for shift in range(1, e_val):
-                    # shifts the is_observable_now array to the left by shift
-                    # for is_observable to be true, it must be true for all shifts
-                    is_observable[itarget, :, :-shift] &= is_observable_now[itarget, :, shift:]
-
+        
+        # Apply multi-slot exposure constraints
+        is_observable = self._compute_multi_slot_exposure_mask(rf, is_observable_now)
+        
+        # Package results
         access = {
             'is_altaz': is_altaz,
             'is_future': is_future,
             'is_moon': is_moon,
-            'is_custom':is_custom,
+            'is_custom': is_custom,
             'is_inter': is_inter,
             'is_alloc': is_alloc,
             'is_clear': is_clear,

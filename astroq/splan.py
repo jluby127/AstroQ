@@ -67,7 +67,7 @@ class SemesterPlanner(object):
         end_date = datetime.strptime(self.semester_end_date, '%Y-%m-%d')
         self.semester_length = (end_date - start_date).days + 1
         
-        # Set up output directory
+        # =====  Set up output directory =====
         self.output_directory = workdir + "outputs/"
         check = os.path.isdir(self.output_directory)
         if not check:
@@ -102,8 +102,8 @@ class SemesterPlanner(object):
         # Build strategy and observability data
         self.observability = self._build_observability()
 
+        # ===== BUILD JOINER =====
         self.observability_tuples = list(self.observability.itertuples(index=False, name=None))
-
         self.joiner = pd.merge(self.strategy, self.observability, on=['id'])
         # add dummy columns for easier joins
         self.joiner['id2'] = self.joiner['id']
@@ -251,24 +251,8 @@ class SemesterPlanner(object):
         Build strategy and observability dataframes directly from config file.
         This replaces the need for a RequestSet object.
         """
-        # Create Access object with parameters from config
-        access_obj = ac.Access(
-            semester_start_date=self.semester_start_date,
-            semester_length=self.semester_length,
-            slot_size=self.slot_size,
-            observatory=self.observatory,
-            current_day=self.current_day,
-            all_dates_dict=self.all_dates_dict,
-            all_dates_array=self.all_dates_array,
-            n_nights_in_semester=self.n_nights_in_semester,
-            custom_file=self.custom_file,
-            allocation_file=self.allocation_file,
-            past_history=self.past_history,
-            today_starting_night=self.today_starting_night,
-            slots_needed_for_exposure_dict=self.slots_needed_for_exposure_dict,
-            run_weather_loss=self.run_weather_loss,
-            output_directory=self.output_directory
-        )
+        # Create Access object from semester planner configuration
+        access_obj = ac.Access(self)
         observability = access_obj.observability(self.requests_frame)
 
         return observability
