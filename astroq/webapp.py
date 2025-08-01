@@ -67,13 +67,13 @@ def semesterplan_home():
 @app.route("/semesterplan/<programname>")
 def single_program(programname):
 
-    if programname not in data_astroq[1]:
+    if programname not in data_astroq[0]:
         return f"Error: program '{programname}' not found."
 
     star_obj_list = list(data_astroq[0][programname])
 
-    table_reqframe_html = dn.get_requests_frame(semester_planner, filter_condition=f"program_code=='{programname}'")
-    tables_html = [table_reqframe_html]
+    # table_reqframec_html = dn.get_requests_frame(semester_planner, filter_condition=f"program_code=='{programname}'")
+    tables_html = []#[table_reqframe_html]
 
     fig_cof = dn.get_cof(semester_planner, star_obj_list)
     fig_birdseye = dn.get_birdseye(semester_planner, data_astroq[2], star_obj_list)
@@ -168,12 +168,10 @@ def launch_app(config_file, flag=False):
     with open(semester_planner_pkl, 'rb') as f:
         semester_planner = pickle.load(f)
     
-    night_planner = nplan.NightPlanner(config_file)
-
-    data_astroq = pl.read_star_objects(night_planner.reports_directory + "star_objects.pkl")
+    data_astroq = pl.read_star_objects(semester_planner.output_directory + "star_objects.pkl")
     all_stars_list = [star_obj for star_obj_list in data_astroq[0].values() for star_obj in star_obj_list]
 
-    ttp_path = os.path.join(night_planner.reports_directory, "ttp_data.pkl")
+    ttp_path = os.path.join(semester_planner.output_directory, "ttp_data.pkl")
     if os.path.exists(ttp_path):
         data_ttp = pl.read_star_objects(ttp_path)
     else:
