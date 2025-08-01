@@ -99,6 +99,11 @@ def main():
                             default="db",
                             help="Absolute path of a past history file. Use 'db' to pull from the database."
                               )
+    psr_kpfcc_prep.add_argument('-b3', '--band3_program_code',
+                          type=str,
+                          default="2025B_E473",
+                          help="The program code for the band 3 program."
+                            )
     psr_kpfcc_prep.set_defaults(func=astroq.driver.kpfcc_prep)
 
  
@@ -123,6 +128,12 @@ def main():
                                          type=str,
                                          required=True,
                                          help="Relative path of config file."
+                                         )
+    psr_kpfcc_plan_semester.add_argument('-b3', '--run_band3',
+                                         type=bool,
+                                         required=False,
+                                         default=False,
+                                         help="Turn on to run filler.csv as if it were request.csv"
                                          )
     psr_kpfcc_plan_semester.set_defaults(func=astroq.driver.kpfcc_plan_semester)
 

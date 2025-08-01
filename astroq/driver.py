@@ -93,6 +93,7 @@ def kpfcc_prep(args):
     request_file = str(config.get('data', 'request_file'))
     OBs = ob.pull_OBs(semester)
     good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram = ob.get_request_sheet(OBs, awarded_programs, savepath + request_file)
+    
     send_emails_with = []
     for i in range(len(bad_obs_values)):
         if bad_obs_values['metadata.semid'][i] in awarded_programs:
@@ -100,6 +101,11 @@ def kpfcc_prep(args):
     '''
     this is where code to automatically send emails will go. Not implemented yet.
     '''
+
+    # Now get the bright backup stars information from the designated program code
+    band3_program_code = args.band3_program_code
+    filler_file = str(config.get('data', 'filler_file'))
+    good_obs_backup, bad_obs_values_backup, bad_obs_hasFields_backup, bad_obs_count_by_semid_backup, bad_field_histogram_backup = ob.get_request_sheet(OBs, [band3_program_code], savepath + filler_file)
 
     # Next get the past history 
     past_source = args.past_source
@@ -133,9 +139,11 @@ def kpfcc_plan_semester(args):
     """
     cf = args.config_file
     print(f'kpfcc_plan_semester function: config_file is {cf}')
+    b3 = args.run_band3
+    print(f'kpfcc_plan_semester function: b3 is {b3}')
 
     # Run the semester planner directly from config file
-    semester_planner = splan.SemesterPlanner(cf)
+    semester_planner = splan.SemesterPlanner(cf, b3)
     semester_planner.run_model()
     return
 
@@ -200,6 +208,7 @@ def ttp(args):
     # Use the new NightPlanner class for object-oriented night planning
     night_planner = nplan.NightPlanner(cf)
     night_planner.run_ttp()
+    # night_planner.produce_bright_backups()
     return
 
 

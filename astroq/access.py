@@ -46,7 +46,7 @@ class Access:
     def __init__(self, semester_start_date, semester_length, slot_size, observatory, 
                  current_day, all_dates_dict, all_dates_array, n_nights_in_semester,
                  custom_file, allocation_file, past_history, today_starting_night, 
-                 slots_needed_for_exposure_dict, run_weather_loss, output_directory):
+                 slots_needed_for_exposure_dict, run_weather_loss, output_directory, run_band3):
         """
         Initialize the Access object with explicit parameters.
         
@@ -82,6 +82,7 @@ class Access:
         self.slots_needed_for_exposure_dict = slots_needed_for_exposure_dict
         self.run_weather_loss = run_weather_loss
         self.output_directory = output_directory
+        self.run_band3 = run_band3
     
     def produce_ultimate_map(self, rf, running_backup_stars=False):
         """
@@ -143,6 +144,13 @@ class Access:
         is_future = np.ones((ntargets, nnights, nslots),dtype=bool)
         today_daynumber = self.all_dates_dict[self.current_day]
         is_future[:,:today_daynumber,:] = False
+
+        if self.run_band3:
+            is_backup = np.zeros((ntargets, nnights, nslots),dtype=bool)
+            today_daynumber = self.all_dates_dict[self.current_day]
+            is_backup[:,today_daynumber:today_daynumber+30,:] = True #only allow 30 days of forecasting backup stars
+        else:
+            is_backup = np.ones((ntargets, nnights, nslots),dtype=bool)
 
         # Compute moon accessibility
         is_moon = np.ones_like(is_altaz, dtype=bool)
@@ -224,7 +232,8 @@ class Access:
             is_custom,
             is_inter,
             is_alloc,
-            is_clear
+            is_clear,
+            is_backup,
         ])
 
         # the target does not violate any of the observability limits in that specific slot, but
@@ -249,6 +258,7 @@ class Access:
             'is_inter': is_inter,
             'is_alloc': is_alloc,
             'is_clear': is_clear,
+            'is_backup': is_backup,
             'is_observable_now': is_observable_now,
             'is_observable': is_observable
         }
