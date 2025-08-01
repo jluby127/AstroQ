@@ -11,6 +11,7 @@ from configparser import ConfigParser
 # Third-party imports
 import numpy as np
 import pandas as pd
+import pickle
 
 # Local imports
 import astroq.access as ac
@@ -139,10 +140,17 @@ def kpfcc_plan_semester(args):
     return
 
 def plot_pkl(args):
-    cf = args.path_to_semester_planner
-    print(f'plot_pkl function: using semester_planner from {cf}')
-    with open(cf, "rb") as f:
+    cf = args.config_file
+    print(f'plot_pkl function: config_file is {cf}')
+    config = ConfigParser()
+    config.read(cf)
+    workdir = str(config.get('global', 'workdir')) + "/outputs/"
+    semester_planner_pkl = os.path.join(workdir, 'semester_planner.pkl')
+    
+    with open(semester_planner_pkl, 'rb') as f:
         semester_planner = pickle.load(f)
+    
+    # Create semester planner from config file
     pl.build_semester_webapp_pkl(semester_planner)
     return
 

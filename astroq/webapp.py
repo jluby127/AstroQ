@@ -5,7 +5,9 @@ Web application module for AstroQ.
 # Standard library imports
 import base64
 import os
+import pickle
 import threading
+from configparser import ConfigParser
 from io import BytesIO
         
 # Third-party imports
@@ -44,8 +46,9 @@ def index():
 def admin():
     all_stars_from_all_programs = np.concatenate(list(data_astroq[0].values()))
     
-    table_reqframe_html = dn.get_requests_frame(semester_planner, filter_condition=None)
-    tables_html = [table_reqframe_html]
+    # table_reqframe_html = dn.get_requests_frame(semester_planner, filter_condition=None)
+    # tables_html = [table_reqframe_html]
+    tables_html = []
     fig_cof = dn.get_cof(semester_planner, list(data_astroq[1].values()))
     fig_birdseye = dn.get_birdseye(semester_planner, data_astroq[2], list(data_astroq[1].values()))
     fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
@@ -113,7 +116,6 @@ def single_star(starname):
                 return render_template("star.html", starname=true_starname, tables_html=tables_html, figures_html=figures_html)
     return f"Error, star {starname} not found in programs {list(program_names)}"
 
-
 # Page route for single night plan
 @app.route("/nightplan")
 def nightplan():
@@ -154,23 +156,18 @@ def nightplan():
         figure_html_list = []
     return render_template("nightplan.html", starname=None, figure_html_list=figure_html_list)
 
-def run_server():
-    app.run(debug=False, use_reloader=False)
-
-def run_server_coverage():
-    # Run the Flask server in a background thread
-    server_thread = threading.Thread(target=lambda: app.run(debug=False, use_reloader=False), daemon=True)
-    server_thread.start()
-    admin()
-    single_program('U001')
-    single_star('191939')
-    nightplan()
-
 def launch_app(config_file, flag=False):
     global data_astroq, data_ttp, semester_planner, night_planner, all_stars_list
 
-    # Create SemesterPlanner and NightPlanner instead of manager
-    semester_planner = splan.SemesterPlanner(config_file)
+    # Load SemesterPlanner from pickle file instead of creating new one
+    config = ConfigParser()
+    config.read(config_file)
+    workdir = str(config.get('global', 'workdir')) + "/outputs/"
+    semester_planner_pkl = os.path.join(workdir, 'semester_planner.pkl')
+    
+    with open(semester_planner_pkl, 'rb') as f:
+        semester_planner = pickle.load(f)
+    
     night_planner = nplan.NightPlanner(config_file)
 
     data_astroq = pl.read_star_objects(night_planner.reports_directory + "star_objects.pkl")
@@ -181,21 +178,6 @@ def launch_app(config_file, flag=False):
         data_ttp = pl.read_star_objects(ttp_path)
     else:
         data_ttp = None
-    if flag:
-        run_server_coverage()
-    else:
-        run_server()
 
-@app.route('/shutdown')
-def shutdown():
-    func = request.environ.get('werkzeug.server.shutdown')
-    if func:
-        func()
-    return 'Shutting down...'
-
-if __name__=="__main__":
-
-    cf =  'examples/hello_world/config_hello_world.ini'
-    launch_app(cf)
+    app.run(debug=False, use_reloader=False)
     admin()
-

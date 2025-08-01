@@ -18,6 +18,7 @@ import astroplan as apl
 import numpy as np
 import pandas as pd
 from astropy.time import Time, TimeDelta
+import os
 
 # Local imports
 import astroq.weather as wh
@@ -154,21 +155,29 @@ class Access:
         is_moon = is_moon & (ang_dist.to(u.deg) > 30*u.deg)[:, :, np.newaxis]
 
         is_custom = np.ones((ntargets, nnights, nslots), dtype=bool)
-        custom_times_frame = pd.read_csv(self.custom_file)
-        # Check if the file has any data rows (not just header)
-        if len(custom_times_frame) > 0:
-            starname_to_index = {name: idx for idx, name in enumerate(rf['starname'])}
-            custom_times_frame['start'] = custom_times_frame['start'].apply(Time)
-            custom_times_frame['stop'] = custom_times_frame['stop'].apply(Time)
-            for _, row in custom_times_frame.iterrows():
-                starname = row['starname']
-                mask = (slotmidpoint >= row['start']) & (slotmidpoint <= row['stop'])
-                star_ind = starname_to_index[starname]
-                current_map = is_custom[star_ind]
-                if np.all(current_map):  # If all ones, first interval: restrict with AND
-                    is_custom[star_ind] = mask
-                else:  # Otherwise, union with OR
-                    is_custom[star_ind] = current_map | mask
+        # Handle case where custom file doesn't exist
+        if os.path.exists(self.custom_file):
+            custom_times_frame = pd.read_csv(self.custom_file)
+            # Check if the file has any data rows (not just header)
+            if len(custom_times_frame) > 0:
+                starname_to_index = {name: idx for idx, name in enumerate(rf['starname'])}
+                custom_times_frame['start'] = custom_times_frame['start'].apply(Time)
+                custom_times_frame['stop'] = custom_times_frame['stop'].apply(Time)
+                for _, row in custom_times_frame.iterrows():
+                    starname = row['starname']
+                    # Skip if the star is not in the current requests frame
+                    if starname not in starname_to_index:
+                        print(f"Warning: Star '{starname}' in custom times file not found in requests frame, skipping")
+                        continue
+                    mask = (slotmidpoint >= row['start']) & (slotmidpoint <= row['stop'])
+                    star_ind = starname_to_index[starname]
+                    current_map = is_custom[star_ind]
+                    if np.all(current_map):  # If all ones, first interval: restrict with AND
+                        is_custom[star_ind] = mask
+                    else:  # Otherwise, union with OR
+                        is_custom[star_ind] = current_map | mask
+        else:
+            print(f"Custom times file not found: {self.custom_file}. Using no custom constraints.")
 
         # TODO add in logic to remove stars that are not observable, currently code is a no-op
 
@@ -246,18 +255,19 @@ class Access:
         access = np.rec.fromarrays(list(access.values()), names=list(access.keys()))
         return access
 
-    def observability(self, requests_frame):
+    def observability(self, requests_frame, access=None):
         """
         Extract available indices dictionary from the record array returned by produce_ultimate_map
         
         Args:
-            access: Record array from produce_ultimate_map containing observability masks
             requests_frame: DataFrame containing request information with starname column
+            access: Optional record array from produce_ultimate_map (if None, will compute it)
             
         Returns:
             dict: Dictionary where keys are target names and values are lists of available slots per night
         """
-        access = self.produce_ultimate_map(requests_frame)
+        if access is None:
+            access = self.produce_ultimate_map(requests_frame)
         ntargets, nnights, nslots = access.shape
         
         # specify indeces of 3D observability array
