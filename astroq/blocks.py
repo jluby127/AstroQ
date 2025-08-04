@@ -39,7 +39,7 @@ exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', '
                     'calibration.trigger_ca_h_k', 'calibration.trigger_green', 'calibration.trigger_red',
                     'calibration.wide_flat_pos', 'observation.block_sky', 'observation.nod_e', 'observation.nod_n',
                     'schedule.isNew', 'observation.isNew', 'schedule.comment', 'target.d_ra', 'target.d_dec', 'target.undefined',
-                    'target.ra_deg', 'target.dec_deg', 'observation.undefined', 'schedule.num_visits_per_night',
+                    'target.ra_deg', 'target.dec_deg', 'observation.undefined', 'schedule.num_visits_per_night', 'schedule.undefined',
                     'schedule.desired_num_visits_per_night', 'schedule.minimum_num_visits_per_night', 'history'# NOTE: this line will be removed 
 ]
 
