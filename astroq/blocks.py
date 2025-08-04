@@ -39,7 +39,7 @@ exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', '
                     'calibration.trigger_ca_h_k', 'calibration.trigger_green', 'calibration.trigger_red',
                     'calibration.wide_flat_pos', 'observation.block_sky', 'observation.nod_e', 'observation.nod_n',
                     'schedule.isNew', 'observation.isNew', 'schedule.comment', 'target.d_ra', 'target.d_dec', 'target.undefined',
-                    'target.ra_deg', 'target.dec_deg', 'observation.undefined',
+                    'target.ra_deg', 'target.dec_deg', 'observation.undefined', 'schedule.num_visits_per_night',
                     'schedule.desired_num_visits_per_night', 'schedule.minimum_num_visits_per_night', 'history'# NOTE: this line will be removed 
 ]
 
@@ -308,8 +308,8 @@ def sort_good_bad(OBs, awarded_programs):
         'observation.num_exposures',
         'schedule.num_nights_per_semester',
         'schedule.num_internight_cadence',
-        'schedule.num_visits_per_night',
-        'schedule.num_visits_per_night',
+        'schedule.desired_num_visits_per_night',
+        'schedule.minimum_num_visits_per_night',
         'schedule.num_intranight_cadence',
         'schedule.weather_band',
         'target.gaia_id',
@@ -331,8 +331,8 @@ def sort_good_bad(OBs, awarded_programs):
         'observation.num_exposures':'n_exp',
         'schedule.num_nights_per_semester':'n_inter_max',
         'schedule.num_internight_cadence':'tau_inter',
-        'schedule.num_visits_per_night':'n_intra_max',
-        'schedule.num_visits_per_night':'n_intra_min',
+        'schedule.desired_num_visits_per_night':'n_intra_max',
+        'schedule.minimum_num_visits_per_night':'n_intra_min',
         'schedule.num_intranight_cadence':'tau_intra',
         'schedule.weather_band':'weather_band',
         'target.gaia_id':'gaia_id',

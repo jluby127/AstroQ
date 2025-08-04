@@ -1,0 +1,88 @@
+[
+  {
+    "calibration": {
+      "CalSource": "EtalonFiber",
+      "nExp": 1,
+      "TriggerCaHK": true,
+      "TriggerGreen": true,
+      "TriggerRed": true,
+      "CalND1": "OD 0.1",
+      "CalND2": "OD 0.1",
+      "OpenScienceShutter": true,
+      "OpenSkyShutter": true,
+      "TakeSimulCal": true,
+      "ExpMeterMode": "off",
+      "ExpMeterExpTime": 1,
+      "ExpMeterBin": 1,
+      "ExpMeterThreshold": 50000
+    },
+    "schedule": {
+      "SchedulingMode": "Cadence",
+      "DesiredVisitsPerNight": 1,
+      "MinVisitsPerNight": 1,
+      "NightsPerSemester": 20,
+      "interNightCadenceMin": 2,
+      "intraNightCadenceMin": 0,
+      "MinimumElevation": "30",
+      "MinimumMoonSeparation": "30",
+      "WeatherBand": "7",
+      "AccessibilityMap": "0",
+      "total_observations_requested": 20,
+      "total_time_for_target": 16800,
+      "total_time_for_target_hours": 4.67
+    },
+    "target": {
+      "TargetName": "TOI-1432",
+      "GaiaID": "DR3_1949538745753745408",
+      "twoMASSID": "J21573638+3619177",
+      "tic_id": "256783784",
+      "Parallax": 10.3837,
+      "RadialVelocity": 3.4,
+      "Gmag": 9.930989,
+      "Jmag": 8.811,
+      "Teff": 5590,
+      "RA": "21:57:36.3755110272",
+      "DEC": "+36:19:17.735155104",
+      "ra_deg": 329.4015646293,
+      "dec_deg": 36.321593099,
+      "Equinox": "J2000",
+      "PMRA": 42.546,
+      "PMDEC": -43.924,
+      "Epoch": 2000
+    },
+    "observation": {
+      "Object": "TOI-1432",
+      "nExp": 1,
+      "ExpTime": 600,
+      "TriggerCaHK": true,
+      "TriggerGreen": true,
+      "TriggerRed": true,
+      "ExpMeterMode": "monitor",
+      "AutoExpMeter": true,
+      "ExpMeterExpTime": 1,
+      "ExpMeterThreshold": 50000,
+      "TakeSimulCal": true,
+      "AutoNDFilters": true,
+      "CalND1": "OD 0.1",
+      "CalND2": "OD 0.1",
+      "GuideHere": true
+    },
+    "metadata": {
+      "ObserverID": 4504,
+      "ObserverName": "Jack Lubin",
+      "Semid": "2021B_U043",
+      "Semester": "2021B",
+      "Progid": "U043",
+      "history": [],
+      "Tags": [
+        "imported from legacy targets"
+      ],
+      "ob_feasible": true,
+      "Submitter": "Jack Lubin",
+      "submitted": true,
+      "details": "Passed all infeasibility checks",
+      "status": "SUCCESS",
+      "state": "OBSERVING_BLOCK_SUBMITTED"
+    }
+  }
+]
