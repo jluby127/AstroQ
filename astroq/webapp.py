@@ -1,6 +1,8 @@
 """
 Web application module for AstroQ.
 """
+# Needed on the keck machine, comment out for local testing
+# from socket import gethostname 
 
 # Standard library imports
 import base64
@@ -177,5 +179,9 @@ def launch_app(config_file, flag=False):
     else:
         data_ttp = None
 
+    # comment out for keck machine
     app.run(debug=False, use_reloader=False)
+    # Uncomment for keck machine
+    #app.run(host=gethostname(), debug=False, use_reloader=False)
+    
     admin()
