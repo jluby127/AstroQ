@@ -1,8 +1,6 @@
 """
 Web application module for AstroQ.
 """
-# Needed on the keck machine, comment out for local testing
-# from socket import gethostname 
 
 # Standard library imports
 import base64
@@ -17,12 +15,15 @@ import imageio.v3 as iio
 import numpy as np
 import plotly.io as pio
 from flask import Flask, render_template, request, abort
+from socket import gethostname 
 
 # Local imports
 import astroq.dynamic as dn
 import astroq.nplan as nplan
 import astroq.plot as pl
 import astroq.splan as splan
+
+running_on_keck_machines = False
 
 app = Flask(__name__, template_folder="../templates")
 
@@ -225,7 +226,8 @@ def launch_app(uptree_path):
     global uptree_path
     uptree_path = uptree_path
     
-    # comment out for keck machine
-    app.run(debug=False, use_reloader=False, port=5001)
-    # Uncomment for keck machine
-    #app.run(host=gethostname(), debug=False, use_reloader=False, port=5001)
+    if running_on_keck_machines:
+        app.run(host=gethostname(), debug=False, use_reloader=False, port=50001)
+    else:
+        app.run(debug=True, use_reloader=True, port=50001)
+
