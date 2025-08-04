@@ -165,9 +165,7 @@ class NightPlanner(object):
 
         gurobi_model_backup = solution.gurobi_model  # backup the attribute, probably don't need this
         del solution.gurobi_model                   # remove attribute so pickle works
-        save_data = [solution]
-        with open(self.reports_directory + 'ttp_data.pkl', 'wb') as f:
-            pickle.dump(save_data, f)
+        self.solution = [solution]
 
         observe_order_file = os.path.join(observers_path,'night_plan.csv')
         observe_order_txt = os.path.join(observers_path)#, f"ObserveOrder_{self.current_day}.txt")
@@ -177,9 +175,6 @@ class NightPlanner(object):
         obsord['id'] = obsord['Target'].apply(lambda x: selected_df[selected_df['starname'] == x]['unique_id'].iloc[0] if x in selected_df['starname'].values else x)
         obsord.to_csv(observe_order_txt + f"ObserveOrder_{self.current_day}.txt", index=False)
 
-        # plotting.plot_path_2D(solution,outputdir=observers_path)
-        # plotting.nightPlan(solution.plotly, self.current_day, outputdir=observers_path)
-        
         # Check if the file was created before trying to read it
         if os.path.exists(observe_order_file):
             obs_and_times = pd.read_csv(observe_order_file)
@@ -189,7 +184,8 @@ class NightPlanner(object):
         io.write_starlist(selected_df, solution.plotly, observation_start_time, solution.extras,
                             [], str(self.current_day), observers_path)
         print("The optimal path through the sky for the selected stars is found. Clear skies!")
-        return save_data
+
+        return #save_data
 
     def produce_bright_backups(self, nstars_max=100):
         """

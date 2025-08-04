@@ -90,6 +90,7 @@ class SemesterPlanner(object):
             self.past_file = past_file_config
         else:
             self.past_file = os.path.join(self.semester_directory, past_file_config)
+        self.past_file = "/Users/jack/Desktop/nopast.csv"
         
         custom_file_config = str(config.get('data', 'custom_file'))
         if os.path.isabs(custom_file_config):

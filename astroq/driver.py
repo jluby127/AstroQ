@@ -208,7 +208,19 @@ def ttp(args):
     # Use the new NightPlanner class for object-oriented night planning
     night_planner = nplan.NightPlanner(cf)
     night_planner.run_ttp()
-    # night_planner.produce_bright_backups()
+    # --- Save night_planner to pickle file ---
+    planner_pickle_path = os.path.join(night_planner.output_directory, 'night_planner.pkl')
+    
+    # # Create a copy of self without unpicklable objects
+    # planner_copy = type(self).__new__(type(self))
+    # for attr_name, attr_value in self.__dict__.items():
+    #     # Skip Gurobi model and variables which can't be pickled
+    #     if attr_name in ['model', 'Yrds', 'Wrd', 'theta']:
+    #         continue
+    #     setattr(planner_copy, attr_name, attr_value)
+    
+    with open(planner_pickle_path, 'wb') as f:
+        pickle.dump(night_planner, f)
     return
 
 

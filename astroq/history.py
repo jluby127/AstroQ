@@ -13,7 +13,7 @@ from collections import namedtuple
 # Third-party imports
 import pandas as pd
 import requests
-
+from astropy.time import Time, TimeDelta
 
 def pull_OB_histories(semester):
     """
