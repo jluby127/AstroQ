@@ -112,10 +112,10 @@ def main():
                                                description="Launch web app to view interactive plots",
                                                prefix_chars="-"
                                                )
-    psr_kpfcc_webapp.add_argument('-cf', '--config_file',
+    psr_kpfcc_webapp.add_argument('-up', '--uptree_path',
                               type=str,
                               required=True,
-                              help="Path to config file."
+                              help="Path to the uptree directory (e.g., /Users/jack/Desktop)."
                                 )
     psr_kpfcc_webapp.set_defaults(func=astroq.driver.kpfcc_webapp)
 
