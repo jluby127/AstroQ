@@ -146,7 +146,7 @@ class NightPlanner(object):
 
         # Prepare the TTP input DataFrame (matching the old prepare_for_ttp output)
         to_ttp = pd.DataFrame({
-            "Starname": selected_df["starname"],
+            "Starname": selected_df["starname"].astype(str),
             "RA": selected_df["ra"],
             "Dec": selected_df["dec"],
             "Exposure Time": selected_df["exptime"],

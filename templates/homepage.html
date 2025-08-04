@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AstroQ Navigation</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            line-height: 1.6;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 40px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .navigation-text {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-left: 4px solid #007bff;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            white-space: pre-line;
+            margin: 20px 0;
+        }
+        .examples {
+            background-color: #e9ecef;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+        .example {
+            margin: 10px 0;
+            font-family: 'Courier New', monospace;
+            color: #007bff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>AstroQ Web Application</h1>
+        
+        <div class="navigation-text">{{ navigation_text }}</div>
+        
+        <div class="examples">
+            <h3>Quick Examples:</h3>
+            <div class="example">/2025B/2025-01-15/band1/admin</div>
+            <div class="example">/2025B/2025-01-15/band3/semester_id</div>
+            <div class="example">/2025B/2025-01-15/band1/star/HD4614</div>
+            <div class="example">/2025B/2025-01-15/band3/nightplan</div>
+        </div>
+        
+        <p style="margin-top: 30px; text-align: center; color: #666;">
+            Simply append one of the example URLs above to your current URL to navigate to the desired page.
+        </p>
+    </div>
+</body>
+</html> 

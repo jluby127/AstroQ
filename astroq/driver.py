@@ -128,8 +128,8 @@ def kpfcc_webapp(args):
     Launch web app to view interactive
     plots.
     """
-    config_file = args.config_file
-    app.launch_app(config_file)
+    uptree_path = args.uptree_path
+    app.launch_app(uptree_path)
     return
 
 def kpfcc_plan_semester(args):

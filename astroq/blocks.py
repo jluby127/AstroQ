@@ -124,6 +124,10 @@ def pull_allocation_info(start_date, numdays, instrument, savepath):
 
 def get_request_sheet(OBs, awarded_programs, savepath):
     good_obs, bad_obs_values, bad_obs_hasFields = sort_good_bad(OBs, awarded_programs)
+    
+    # Add "HD" prefix to star names that are only numbers
+    good_obs['starname'] = good_obs['starname'].apply(lambda x: f"HD{x}" if str(x).isdigit() else x)
+    
     # Filter bad OBs to only those in awarded programs
     if 'metadata.semid' in bad_obs_values.columns:
         mask = bad_obs_values['metadata.semid'].isin(awarded_programs)
@@ -133,6 +137,11 @@ def get_request_sheet(OBs, awarded_programs, savepath):
     bad_obs_count_by_semid, bad_field_histogram = analyze_bad_obs(good_obs, bad_obs_values, bad_obs_hasFields, awarded_programs)
     good_obs.sort_values(by='program_code', inplace=True)
     good_obs.reset_index(inplace=True, drop=True)
+    
+    # Cast starname column to strings to ensure proper matching
+    if 'starname' in good_obs.columns:
+        good_obs['starname'] = good_obs['starname'].astype(str)
+    
     good_obs.to_csv(savepath, index=False)
     return good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram
 

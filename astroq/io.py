@@ -165,6 +165,18 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
     Returns:
         None
     """
+    # Cast starname column to strings to ensure proper matching
+    frame['starname'] = frame['starname'].astype(str)
+    
+    # Cast extras star names to strings to ensure proper matching
+    if extras is not None and len(extras) > 0:
+        if hasattr(extras, 'astype'):
+            # If extras is a DataFrame
+            extras['Starname'] = extras['Starname'].astype(str)
+        else:
+            # If extras is a list, convert each star name to string
+            extras['Starname'] = [str(star) for star in extras['Starname']]
+    
     total_exptime = 0
     if not os.path.isdir(outputdir):
         os.mkdir(outputdir)
@@ -175,7 +187,7 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
         filler_flag = solution_frame['Starname'][i] in filler_stars
         row = frame.loc[frame['starname'] == solution_frame['Starname'][i]]
         row.reset_index(inplace=True)
-        total_exptime += float(row['exptime'][0])
+        total_exptime += float(row['exptime'].iloc[0])
 
         start_exposure_hst = str(TimeDelta(solution_frame['Start Exposure'][i]*60,format='sec') + \
                                                 night_start_time)[11:16]
@@ -233,14 +245,14 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
 
     equinox = '2000'
     # Handle missing pmra/pmdec columns with default values
-    pmra = row.get('pmra', [0.0])[0] if 'pmra' in row else 0.0
-    pmdec = row.get('pmdec', [0.0])[0] if 'pmdec' in row else 0.0
-    updated_ra, updated_dec = pm_correcter(row['ra'][0], row['dec'][0],
+    pmra = row.get('pmra', pd.Series([0.0])).iloc[0] if 'pmra' in row else 0.0
+    pmdec = row.get('pmdec', pd.Series([0.0])).iloc[0] if 'pmdec' in row else 0.0
+    updated_ra, updated_dec = pm_correcter(row['ra'].iloc[0], row['dec'].iloc[0],
                                 pmra, pmdec, current_day, equinox=equinox)
     if updated_dec[0] != "-":
         updated_dec = "+" + updated_dec
 
-    cpsname = hs.crossmatch_star_name(row['starname'][0])
+    cpsname = hs.crossmatch_star_name(row['starname'].iloc[0])
     namestring = ' '*(16-len(cpsname[:16])) + cpsname[:16]
 
     # Handle missing columns with default values
@@ -267,22 +279,22 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
     
     jmagstring = ('jmag=' + str(np.round(float(jmag_val),1)) + ' '* \
         (4-len(str(np.round(float(jmag_val),1)))))
-    exposurestring = (' '*(4-len(str(int(row['exptime'][0])))) + \
-        str(int(row['exptime'][0])) + '/' + \
-        str(int(row['exptime'][0])) + ' '* \
-        (4-len(str(int(row['exptime'][0])))))
+    exposurestring = (' '*(4-len(str(int(row['exptime'].iloc[0])))) + \
+        str(int(row['exptime'].iloc[0])) + '/' + \
+        str(int(row['exptime'].iloc[0])) + ' '* \
+        (4-len(str(int(row['exptime'].iloc[0])))))
 
-    ofstring = ('1of' + str(int(row['n_intra_max'][0])))
+    ofstring = ('1of' + str(int(row['n_intra_max'].iloc[0])))
     scstring = 'sc=' + 'T'
 
-    numstring = str(int(row['n_exp'][0])) + "x"
+    numstring = str(int(row['n_exp'].iloc[0])) + "x"
     gmagstring = 'gmag=' + str(np.round(float(gmag_val),1)) + \
                                                 ' '*(4-len(str(np.round(float(gmag_val),1))))
     teffstr = 'Teff=' + str(int(teff_val)) + \
                                     ' '*(4-len(str(int(teff_val))))
 
     gaiastring = str(gaia_id_val) + ' '*(25-len(str(gaia_id_val)))
-    programstring = row['program_code'][0]
+    programstring = row['program_code'].iloc[0]
 
     if filler_flag:
         # All targets added in round 2 bonus round are lower priority

@@ -144,14 +144,7 @@ class Access:
         is_future = np.ones((ntargets, nnights, nslots),dtype=bool)
         today_daynumber = self.all_dates_dict[self.current_day]
         is_future[:,:today_daynumber,:] = False
-
-        if self.run_band3:
-            is_backup = np.zeros((ntargets, nnights, nslots),dtype=bool)
-            today_daynumber = self.all_dates_dict[self.current_day]
-            is_backup[:,today_daynumber:today_daynumber+30,:] = True #only allow 30 days of forecasting backup stars
-        else:
-            is_backup = np.ones((ntargets, nnights, nslots),dtype=bool)
-
+        
         # Compute moon accessibility
         is_moon = np.ones_like(is_altaz, dtype=bool)
         moon = apy.coordinates.get_moon(slotmidpoint[:,0] , keck.location)
@@ -233,7 +226,6 @@ class Access:
             is_inter,
             is_alloc,
             is_clear,
-            is_backup,
         ])
 
         # the target does not violate any of the observability limits in that specific slot, but
@@ -258,7 +250,6 @@ class Access:
             'is_inter': is_inter,
             'is_alloc': is_alloc,
             'is_clear': is_clear,
-            'is_backup': is_backup,
             'is_observable_now': is_observable_now,
             'is_observable': is_observable
         }
