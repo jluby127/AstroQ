@@ -166,19 +166,27 @@ def launch_app(config_file, flag=False):
     config.read(config_file)
     workdir = str(config.get('global', 'workdir')) + "/outputs/"
     semester_planner_pkl = os.path.join(workdir, 'semester_planner.pkl')
+    night_planner_pkl = os.path.join(workdir, 'night_planner.pkl')
     
-    with open(semester_planner_pkl, 'rb') as f:
-        semester_planner = pickle.load(f)
-    
-    data_astroq = pl.read_star_objects(semester_planner.output_directory + "star_objects.pkl")
-    all_stars_list = [star_obj for star_obj_list in data_astroq[0].values() for star_obj in star_obj_list]
+    try:
+        with open(semester_planner_pkl, 'rb') as f:
+            semester_planner = pickle.load(f)
+        data_astroq = pl.process_stars(semester_planner)
+    except:
+        semester_planner = None
+        data_astroq = None
+        print("No semester planner found. Run astroq kpfcc plan-semester -cf {config file} to create it.")
 
-    ttp_path = os.path.join(semester_planner.output_directory, "ttp_data.pkl")
-    if os.path.exists(ttp_path):
-        data_ttp = pl.read_star_objects(ttp_path)
-    else:
+    try:
+        with open(night_planner_pkl, 'rb') as f:
+            night_planner = pickle.load(f)
+            data_ttp = night_planner.solution
+            print(data_ttp)
+    except:
+        night_planner = None
         data_ttp = None
-
+        print("No night planner found. Run astroq kpfcc plan-night -cf {config file} to create it.")
+    
     # comment out for keck machine
     app.run(debug=False, use_reloader=False)
     # Uncomment for keck machine
