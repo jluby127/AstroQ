@@ -221,10 +221,10 @@ def render_nightplan_page():
 
     return render_template("nightplan.html", starname=None, figure_html_list=figure_html_list)
 
-def launch_app(uptree_path):
+def launch_app(uptree_path_param):
     """Launch the Flask app"""
     global uptree_path
-    uptree_path = uptree_path
+    uptree_path = uptree_path_param
     
     if running_on_keck_machines:
         app.run(host=gethostname(), debug=False, use_reloader=False, port=50001)
