@@ -104,7 +104,8 @@ webapp:
 	@echo "🌐 Launching AstroQ webapp..."
 	@echo "📁 Using workdir as uptree path: $(WORKDIR)"
 	# @conda run -n astroq astroq kpfcc webapp -up $(WORKDIR)
-	@$(RUN_SCRIPT_PATH)
+	# @$(RUN_SCRIPT_PATH)
+	@$(WORKDIR)/launch_webapp.sh
 
 # Clean up
 clean:
