@@ -13,14 +13,44 @@ __version__ = '2.1.0'
 DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data')
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(
-    level=logging.WARNING,
-)
-formatter = logging.Formatter('%(levelname)s - %(name)s - %(message)s')
-file_handler = logging.FileHandler('my_log_file.log')
-file_handler.setFormatter(formatter)
 
-logger.handlers.clear()
-logger.addHandler(file_handler)
+# Configure logging to capture everything
+logging.basicConfig(
+    level=logging.INFO,  # Lower level to capture more messages
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('astroq.log'),  # Better filename
+        logging.StreamHandler()  # Also show on console
+    ]
+)
+
+# Set specific logger levels
+logger.setLevel(logging.INFO)
+
+# Redirect stdout and stderr to also go to the log file
+import sys
+from io import StringIO
+
+class TeeLogger:
+    def __init__(self, original_stream, log_file):
+        self.original_stream = original_stream
+        self.log_file = log_file
+        self.buffer = StringIO()
+    
+    def write(self, text):
+        self.original_stream.write(text)
+        self.log_file.write(text)
+        self.log_file.flush()
+    
+    def flush(self):
+        self.original_stream.flush()
+        self.log_file.flush()
+
+# Open log file for stdout/stderr redirection
+log_file = open('astroq.log', 'a', encoding='utf-8')
+
+# Redirect stdout and stderr to both console and log file
+sys.stdout = TeeLogger(sys.stdout, log_file)
+sys.stderr = TeeLogger(sys.stderr, log_file)
 
 # eval(f'logging{loglevel}')

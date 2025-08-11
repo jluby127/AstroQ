@@ -90,7 +90,6 @@ class SemesterPlanner(object):
             self.past_file = past_file_config
         else:
             self.past_file = os.path.join(self.semester_directory, past_file_config)
-        self.past_file = "/Users/jack/Desktop/nopast.csv"
         
         custom_file_config = str(config.get('data', 'custom_file'))
         if os.path.isabs(custom_file_config):
@@ -680,7 +679,7 @@ class SemesterPlanner(object):
         self.constraint_build_theta_multivisit()
 
         self.set_objective_minimize_theta_time_normalized()
-        logs.info("Time to build constraints: ", np.round(time.time()-t1,3))
+        logs.info(f"Time to build constraints: {np.round(time.time()-t1,3):.3f}")
 
     def build_model_round2(self):
         t1 = time.time()
@@ -688,7 +687,7 @@ class SemesterPlanner(object):
         self.constraint_set_max_absolute_unique_nights_Wrd()
         self.constraint_fix_previous_objective()
         self.set_objective_maximize_slots_used()
-        logs.info("Time to build constraints: ", np.round(time.time()-t1,3))
+        logs.info(f"Time to build constraints: {np.round(time.time()-t1,3):.3f}")
 
     def serialize_results_csv(self):
         logs.debug("Building human readable schedule.")

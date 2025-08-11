@@ -74,6 +74,6 @@ def simulate_weather_losses(semester_length, n_nights_in_semester, slot_size, lo
                 previous_day_was_lost = True
             else:
                 previous_day_was_lost = False
-    logs.info("Total nights simulated as weathered out: " + str(np.sum(~np.any(is_clear, axis=1))) + " of " + str(len(is_clear)) + " nights remaining.")
+    logs.info(f"Total nights simulated as weathered out: {np.sum(~np.any(is_clear, axis=1))} of {len(is_clear)} nights remaining.")
 
     return is_clear

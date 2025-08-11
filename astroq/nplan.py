@@ -205,6 +205,11 @@ class NightPlanner(object):
         print("Minutes on sky: ", diff_minutes)
 
         backup_starlist = pd.read_csv(self.filler_file)
+        
+        # Ensure starname column is always interpreted as strings
+        if 'starname' in backup_starlist.columns:
+            backup_starlist['starname'] = backup_starlist['starname'].astype(str)
+        
         self.requests_frame = backup_starlist
         # Create Access object with required parameters
         access_obj = ac.Access(

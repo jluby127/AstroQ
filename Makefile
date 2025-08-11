@@ -9,6 +9,7 @@ START_DATE ?= 2025-08-01
 END_DATE ?= 2026-01-31
 BANDS ?= band1 band3
 WORKDIR ?= /Users/jack/Desktop
+RUN_SCRIPT_PATH ?= /path/to/run.sh
 
 # Derived paths
 SEMESTER_DIR = $(WORKDIR)/$(SEMESTER)
@@ -36,14 +37,16 @@ $(DATE_DIR)/%/plan-night-run: $(DATE_DIR)/%/plan-semester-run
 	@cd $(@D) && conda run -n astroq astroq kpfcc plan-night -cf config.ini
 	@touch $@
 
-# Run plan-semester command
+# Run plan-semester command for band3
+$(DATE_DIR)/band3/plan-semester-run: $(DATE_DIR)/band3/prep-run
+	@echo "📅 Running plan-semester for band3 with -b3 True..."
+	@cd $(@D) && conda run -n astroq astroq kpfcc plan-semester -cf config.ini -b3 True
+	@touch $@
+
+# Run plan-semester command for all other bands
 $(DATE_DIR)/%/plan-semester-run: $(DATE_DIR)/%/prep-run
-	@echo "📅 Running plan-semester for band $(notdir $(@D))..."
-	@cd $(@D) && if [ "$(notdir $(@D))" = "band3" ]; then \
-		conda run -n astroq astroq kpfcc plan-semester -cf config.ini -b3 True; \
-	else \
-		conda run -n astroq astroq kpfcc plan-semester -cf config.ini; \
-	fi
+	@echo "📅 Running plan-semester for band $(notdir $(@D)) without -b3 flag..."
+	@cd $(@D) && conda run -n astroq astroq kpfcc plan-semester -cf config.ini
 	@touch $@
 
 # Run prep command
@@ -71,16 +74,19 @@ create_dirs:
 	@mkdir -p $(DATE_DIR)
 	@echo "✅ Directories created"
 
-# Copy ObserveOrder files to holders directories
-copy_observe_orders: $(foreach band,$(BANDS),$(HOLDERS_DIR)/$(band)/outputs/night_plan.csv)
+# Copy ObserveOrder files to holders directories (doesn't depend on workflow)
+copy_observe_orders:
+	@echo "📋 Copying ObserveOrder files to holders directories..."
+	@for band in $(BANDS); do \
+		echo "📋 Copying ObserveOrder file for band $$band..."; \
+		mkdir -p $(HOLDERS_DIR)/$$band/outputs; \
+		cp $(DATE_DIR)/$$band/outputs/ObserveOrder_$(DATE).txt $(HOLDERS_DIR)/$$band/outputs/night_plan.csv; \
+		echo "✅ ObserveOrder file copied for band $$band"; \
+	done
 	@echo "✅ All ObserveOrder files copied to holders directories!"
 
-# Copy ObserveOrder file for a specific band
-$(HOLDERS_DIR)/%/outputs/night_plan.csv: $(DATE_DIR)/%/plan-night-complete
-	@echo "📋 Copying ObserveOrder file for band $(notdir $(patsubst $(HOLDERS_DIR)/%,%,$(dir $@)))..."
-	@mkdir -p $(@D)
-	@cp $(DATE_DIR)/$(notdir $(patsubst $(HOLDERS_DIR)/%,%,$(dir $@)))/outputs/ObserveOrder_$(DATE).txt $@
-	@echo "✅ ObserveOrder file copied for band $(notdir $(patsubst $(HOLDERS_DIR)/%,%,$(dir $@)))"
+# Note: Specific targets for band1 and band3 are defined above
+# The wildcard target was removed to prevent duplicate execution
 
 # Simple copy target (doesn't depend on workflow)
 copy_only:
@@ -97,7 +103,8 @@ copy_only:
 webapp:
 	@echo "🌐 Launching AstroQ webapp..."
 	@echo "📁 Using workdir as uptree path: $(WORKDIR)"
-	@conda run -n astroq astroq kpfcc webapp -up $(WORKDIR)
+	# @conda run -n astroq astroq kpfcc webapp -up $(WORKDIR)
+	@$(RUN_SCRIPT_PATH)
 
 # Clean up
 clean:

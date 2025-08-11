@@ -26,7 +26,7 @@ import astroq.splan as splan
 import astroq.webapp as app
 
 log = logging.getLogger(__name__)
-log.setLevel(logging.ERROR)
+log.setLevel(logging.INFO)  # Lower level to capture more messages
 
 def kpfcc(args):
     """
@@ -50,6 +50,11 @@ def bench(args):
     config.read(cf)
     semester_directory = config.get('global', 'workdir')
     requests_frame = pd.read_csv(os.path.join(semester_directory, "inputs/requests.csv"))
+    
+    # Ensure starname column is always interpreted as strings
+    if 'starname' in requests_frame.columns:
+        requests_frame['starname'] = requests_frame['starname'].astype(str)
+    
     original_size = len(requests_frame)
     requests_frame = requests_frame.iloc[::thin]
     new_size = len(requests_frame)

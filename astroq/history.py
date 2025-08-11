@@ -15,6 +15,17 @@ import pandas as pd
 import requests
 from astropy.time import Time, TimeDelta
 
+# Define StarHistory namedtuple at module level for proper pickling
+StarHistory = namedtuple('StarHistory', [
+    'id',
+    'date_last_observed',
+    'total_n_exposures',
+    'total_n_visits',
+    'total_n_unique_nights',
+    'total_open_shutter_time',
+    'n_obs_on_nights',
+])
+
 def pull_OB_histories(semester):
     """
     Pull the latest database OBs down to local.
@@ -172,15 +183,6 @@ def process_star_history(filename):
         except pd.errors.EmptyDataError:
             # Create empty DataFrame with expected columns
             df = pd.DataFrame(columns=['id', 'target', 'semid', 'timestamp', 'exposure_start_time', 'exposure_time', 'observer'])
-    StarHistory = namedtuple('StarHistory', [
-        'id',
-        'date_last_observed',
-        'total_n_exposures',
-        'total_n_visits',
-        'total_n_unique_nights',
-        'total_open_shutter_time',
-        'n_obs_on_nights',
-    ])
     result = {}
 
     # Group by target (star)
