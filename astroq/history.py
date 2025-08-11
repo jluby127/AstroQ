@@ -15,6 +15,11 @@ import pandas as pd
 import requests
 from astropy.time import Time, TimeDelta
 
+# Global timezone offset: hours difference between local time and UT
+# Positive values mean local time is ahead of UT (e.g., +8 for UTC+8)
+# Negative values mean local time is behind UT (e.g., -10 for UTC-10)
+TIMEZONE_OFFSET_HOURS = -10  # Adjust this value for your timezone
+
 # Define StarHistory namedtuple at module level for proper pickling
 StarHistory = namedtuple('StarHistory', [
     'id',
@@ -148,7 +153,14 @@ def process_star_history_dict(history_dict, output_csv):
             continue
         star_id = filtered_visits[0].get('id', starname)
         all_times = [Time(t) for v in filtered_visits for t in v.get('exposure_start_times', [])]
-        date_last_observed = max(all_times).isot[:10] if all_times else ''
+        # Adjust UT time to local timezone
+        ut_time = max(all_times) if all_times else None
+        if ut_time:
+            # Subtract timezone offset (negative offset means local time is behind UT)
+            local_time = ut_time - TimeDelta(abs(TIMEZONE_OFFSET_HOURS) / 24, format='jd')
+            date_last_observed = local_time.isot[:10]
+        else:
+            date_last_observed = ''
         total_n_exposures = sum(len(v.get('exposure_start_times', [])) for v in filtered_visits)
         total_n_visits = len(filtered_visits)
         unique_nights = set(Time(t).isot[:10] for v in filtered_visits for t in v.get('exposure_start_times', []))
@@ -209,7 +221,14 @@ def process_star_history(filename):
             continue
         star_id = visits[0]['id']
         all_times = [Time(t) for v in visits for t in v['exposure_start_time']]
-        date_last_observed = max(all_times).isot[:10] if all_times else ''
+        # Adjust UT time to local timezone
+        ut_time = max(all_times) if all_times else None
+        if ut_time:
+            # Subtract timezone offset (negative offset means local time is behind UT)
+            local_time = ut_time - TimeDelta(abs(TIMEZONE_OFFSET_HOURS) / 24, format='jd')
+            date_last_observed = local_time.isot[:10]
+        else:
+            date_last_observed = ''
         total_n_exposures = sum(len(v['exposure_start_time']) for v in visits)
         total_n_visits = len(visits)
         unique_nights = set(Time(t).isot[:10] for v in visits for t in v['exposure_start_time'])

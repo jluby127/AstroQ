@@ -2,20 +2,21 @@
 # Creates directory structure and copies config template with current date
 
 # Configuration variables
-DATE ?= 2025-08-16
+DATE ?= 2025-08-12
 # Changed only once per semester
 SEMESTER ?= 2025B
 START_DATE ?= 2025-08-01
 END_DATE ?= 2026-01-31
 BANDS ?= band1 band3
-# WORKDIR ?= /Users/jack/Desktop
-WORKDIR ?= /home/kpfcc/AstroQ
+WORKDIR ?= /Users/jack/Desktop
+# WORKDIR ?= /home/kpfcc/AstroQ
 RUN_SCRIPT_PATH ?= /path/to/run.sh
 
 # Derived paths
 SEMESTER_DIR = $(WORKDIR)/$(SEMESTER)
 DATE_DIR = $(SEMESTER_DIR)/$(DATE)
 HOLDERS_DIR = $(WORKDIR)/holders/$(SEMESTER)/$(DATE)
+# HOLDERS_DIR = s/sdata1701/Schedules/$(SEMESTER)/$(DATE)
 
 # Default target - run all bands through the complete workflow
 all: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/plan-night-complete)
@@ -62,11 +63,16 @@ $(DATE_DIR)/%/config.ini: create_dirs
 	@mkdir -p $(@D)
 	@cp config_template.ini $@
 	@echo "📝 Updating placeholders for band $(notdir $(@D))..."
-	@sed -i "s|CURRENT_DATE_PLACEHOLDER|$(DATE)|g" $@
-	@sed -i "s|START_DATE_PLACEHOLDER|$(START_DATE)|g" $@
-	@sed -i "s|END_DATE_PLACEHOLDER|$(END_DATE)|g" $@
-	@sed -i "s|SEMESTER_PLACEHOLDER|$(SEMESTER)|g" $@
-	@sed -i "s|WORKDIR_PLACEHOLDER|$(@D)|g" $@
+	# @sed -i "s|CURRENT_DATE_PLACEHOLDER|$(DATE)|g" $@
+	# @sed -i "s|START_DATE_PLACEHOLDER|$(START_DATE)|g" $@
+	# @sed -i "s|END_DATE_PLACEHOLDER|$(END_DATE)|g" $@
+	# @sed -i "s|SEMESTER_PLACEHOLDER|$(SEMESTER)|g" $@
+	# @sed -i "s|WORKDIR_PLACEHOLDER|$(@D)|g" $@
+	@sed -i '' "s|CURRENT_DATE_PLACEHOLDER|$(DATE)|g" $@
+	@sed -i '' "s|START_DATE_PLACEHOLDER|$(START_DATE)|g" $@
+	@sed -i '' "s|END_DATE_PLACEHOLDER|$(END_DATE)|g" $@
+	@sed -i '' "s|SEMESTER_PLACEHOLDER|$(SEMESTER)|g" $@
+	@sed -i '' "s|WORKDIR_PLACEHOLDER|$(@D)|g" $@
 	@echo "✅ Config file created and updated for band $(notdir $(@D))"
 
 # Create directory structure

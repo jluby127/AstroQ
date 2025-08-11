@@ -127,6 +127,7 @@ class Access:
         is_altaz0 &= ~fail
         # all stars must be between 18 and 85 deg
         fail = (alt0 < 18) | (alt0 > 85)
+        # fail = (alt0 < 38) | (alt0 > 85)
         is_altaz0 &= ~fail
         # computing slot midpoint for all nights in semester 2D array (slots, nights)
         slotmidpoint0 = daily_start + (np.arange(nslots) + 0.5) *  self.slot_size * u.min
@@ -194,6 +195,7 @@ class Access:
         allocated_times_frame = pd.read_csv(self.allocation_file)
         allocated_times_frame['start'] = allocated_times_frame['start'].apply(Time)
         allocated_times_frame['stop'] = allocated_times_frame['stop'].apply(Time)
+            
         allocated_times_map = []
         allocated_mask = np.zeros((nnights, nslots), dtype=bool)
         for i in range(len(allocated_times_frame)):

@@ -12,6 +12,8 @@ from configparser import ConfigParser
 import numpy as np
 import pandas as pd
 import pickle
+import astroplan as apl
+from astropy.time import Time, TimeDelta
 
 # Local imports
 import astroq.access as ac
@@ -93,6 +95,37 @@ def kpfcc_prep(args):
         print(f'Using allocation information from file: {allo_source}')
         hours_by_program = ac.format_keck_allocation_info(allo_source, savepath+allocation_file)
         awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())]
+    
+    # Check if current_day exists in allocation file, add if missing    
+    allocation_df = pd.read_csv(savepath+allocation_file)
+    current_day_str = str(config.get('global', 'current_day'))
+    
+    # Check if any row's date matches current_day
+    date_exists = False
+    for idx, row in allocation_df.iterrows():
+        row_date = str(row['start'])[:10]  # Get YYYY-MM-DD portion
+        if row_date == current_day_str:
+            date_exists = True
+            break
+    
+    if not date_exists:
+        print(f"Adding allocation row for current_day: {current_day_str}")
+        # Get 12-degree twilight times for current_day
+        observatory = config.get('global', 'observatory')
+        keck = apl.Observer.at_site(observatory)
+        day = Time(current_day_str, format='isot', scale='utc')
+        
+        evening_12 = keck.twilight_evening_nautical(day, which='next')
+        morning_12 = keck.twilight_morning_nautical(day, which='next')
+        
+        # Add new row at the bottom
+        new_row = pd.DataFrame({
+            'start': [evening_12.strftime('%Y-%m-%dT%H:%M')],
+            'stop': [morning_12.strftime('%Y-%m-%dT%H:%M')]
+        })
+        allocation_df = pd.concat([allocation_df, new_row], ignore_index=True)
+        allocation_df.to_csv(savepath+allocation_file, index=False)
+        print(f"Added allocation: {evening_12.iso} to {morning_12.iso}")
 
     # Next get the request sheet
     request_file = str(config.get('data', 'request_file'))
