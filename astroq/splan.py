@@ -20,6 +20,7 @@ from gurobipy import GRB
 import numpy as np
 import pandas as pd
 from astropy.time import Time, TimeDelta
+import astroplan as apl
 
 # Local imports
 import astroq.access as ac
@@ -42,6 +43,7 @@ class SemesterPlanner(object):
         config = ConfigParser()
         config.read(cf)
         self.run_band3 = run_band3
+        self.config = config  # Store config as instance variable
 
         
         # Extract configuration parameters from new format
@@ -78,6 +80,7 @@ class SemesterPlanner(object):
 
         if self.run_band3:
             request_file_config = str(config.get('data', 'filler_file'))
+            self.add_twilights()
         else:
             request_file_config = str(config.get('data', 'request_file'))
         if os.path.isabs(request_file_config):
@@ -715,3 +718,36 @@ class SemesterPlanner(object):
         
         with open(planner_pickle_path, 'wb') as f:
             pickle.dump(planner_copy, f)
+
+    def add_twilights(self):
+        """Add 20-minute buffer to allocation times that match 12-degree twilight."""
+        observatory = self.config.get('global', 'observatory')
+        keck = apl.Observer.at_site(observatory)
+        allocation_df = pd.read_csv(self.allocation_file)
+        
+        for idx, row in allocation_df.iterrows():
+            # Get date from start time (first 10 chars = YYYY-MM-DD)
+            date_str = str(row['start'])[:10]
+            day = Time(date_str, format='iso', scale='utc')
+            
+            # Get 12-degree twilight times
+            evening_12 = keck.twilight_evening_nautical(day, which='next')
+            morning_12 = keck.twilight_morning_nautical(day, which='next')
+            
+            # Check if start time matches evening twilight (within 10 min)
+            start_time = Time(row['start'])
+            if abs(start_time - evening_12) <= TimeDelta(10, format='jd') / 1440:  # 10 minutes
+                adjusted_start = start_time - TimeDelta(20, format='jd') / 1440
+                allocation_df.loc[idx, 'start'] = adjusted_start.strftime('%Y-%m-%dT%H:%M')
+                logs.info(f"Adjusted start time for {date_str}: subtracted 20 min")
+            
+            # Check if stop time matches morning twilight (within 10 min)
+            stop_time = Time(row['stop'])
+            if abs(stop_time - morning_12) <= TimeDelta(10, format='jd') / 1440:  # 10 minutes
+                adjusted_stop = stop_time + TimeDelta(20, format='jd') / 1440
+                allocation_df.loc[idx, 'stop'] = adjusted_stop.strftime('%Y-%m-%dT%H:%M')
+                logs.info(f"Adjusted stop time for {date_str}: added 20 min")
+        
+        # Save updated allocation file
+        allocation_df.to_csv(self.allocation_file, index=False)
+        logs.info("Allocation file updated with twilight adjustments")

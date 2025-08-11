@@ -172,7 +172,7 @@ class NightPlanner(object):
         plotting.writeStarList(solution.plotly, observation_start_time, self.current_day,observe_order_txt)
         # temporarily open the ObserveOrder file and write in the id numbers.
         obsord = pd.read_csv(observe_order_txt + f"ObserveOrder_{self.current_day}.txt")
-        obsord['id'] = obsord['Target'].apply(lambda x: selected_df[selected_df['starname'] == x]['unique_id'].iloc[0] if x in selected_df['starname'].values else x)
+        obsord['id'] = obsord['Target'].astype(str).apply(lambda x: selected_df[selected_df['starname'] == x]['unique_id'].iloc[0] if x in selected_df['starname'].values else x)
         obsord.to_csv(observe_order_txt + f"ObserveOrder_{self.current_day}.txt", index=False)
 
         # Check if the file was created before trying to read it
