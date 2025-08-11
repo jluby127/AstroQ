@@ -37,15 +37,15 @@ $(DATE_DIR)/%/plan-night-run: $(DATE_DIR)/%/plan-semester-run
 	@cd $(@D) && conda run -n astroq astroq kpfcc plan-night -cf config.ini
 	@touch $@
 
-# Run plan-semester command for band3
+# Run plan-semester command for band3 (specific target)
 $(DATE_DIR)/band3/plan-semester-run: $(DATE_DIR)/band3/prep-run
 	@echo "📅 Running plan-semester for band3 with -b3 True..."
 	@cd $(@D) && conda run -n astroq astroq kpfcc plan-semester -cf config.ini -b3 True
 	@touch $@
 
-# Run plan-semester command for all other bands
-$(DATE_DIR)/%/plan-semester-run: $(DATE_DIR)/%/prep-run
-	@echo "📅 Running plan-semester for band $(notdir $(@D)) without -b3 flag..."
+# Run plan-semester command for band1 (specific target)
+$(DATE_DIR)/band1/plan-semester-run: $(DATE_DIR)/band1/prep-run
+	@echo "📅 Running plan-semester for band1 without -b3 flag..."
 	@cd $(@D) && conda run -n astroq astroq kpfcc plan-semester -cf config.ini
 	@touch $@
 
@@ -85,31 +85,17 @@ copy_observe_orders:
 	done
 	@echo "✅ All ObserveOrder files copied to holders directories!"
 
-# Note: Specific targets for band1 and band3 are defined above
-# The wildcard target was removed to prevent duplicate execution
-
-# Simple copy target (doesn't depend on workflow)
-copy_only:
-	@echo "📋 Copying ObserveOrder files to holders directories..."
-	@for band in $(BANDS); do \
-		echo "📋 Copying ObserveOrder file for band $$band..."; \
-		mkdir -p $(HOLDERS_DIR)/$$band/outputs; \
-		cp $(DATE_DIR)/$$band/outputs/ObserveOrder_$(DATE).txt $(HOLDERS_DIR)/$$band/outputs/night_plan.csv; \
-		echo "✅ ObserveOrder file copied for band $$band"; \
-	done
-	@echo "✅ All ObserveOrder files copied to holders directories!"
-
 # Launch webapp
 webapp:
 	@echo "🌐 Launching AstroQ webapp..."
 	@echo "📁 Using workdir as uptree path: $(WORKDIR)"
-	# @conda run -n astroq astroq kpfcc webapp -up $(WORKDIR)
-	# @$(RUN_SCRIPT_PATH)
+	@echo "🚀 Running launch_webapp.sh from $(WORKDIR)..."
+	@chmod +x $(WORKDIR)/launch_webapp.sh
 	@$(WORKDIR)/launch_webapp.sh
 
 # Clean up
 clean:
-	@echo " Cleaning up..."
+	@echo "🧹 Cleaning up..."
 	@echo "⚠️  This will remove: $(DATE_DIR)"
 	@echo -n "Are you sure? (y/N): " && read -r confirm && [ "$$confirm" = "y" ] || exit 1
 	@rm -rf $(DATE_DIR)
@@ -133,4 +119,4 @@ complete: all
 	@echo "🌐 Launching webapp..."
 	@$(MAKE) webapp
 
-.PHONY: all create_dirs clean status 
+.PHONY: all create_dirs clean status copy_observe_orders copy_only webapp complete 
