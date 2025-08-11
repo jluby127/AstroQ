@@ -124,10 +124,7 @@ def pull_allocation_info(start_date, numdays, instrument, savepath):
 
 def get_request_sheet(OBs, awarded_programs, savepath):
     good_obs, bad_obs_values, bad_obs_hasFields = sort_good_bad(OBs, awarded_programs)
-    
-    # Add "HD" prefix to star names that are only numbers
-    good_obs['starname'] = good_obs['starname'].apply(lambda x: f"HD{x}" if str(x).isdigit() else x)
-    
+
     # Filter bad OBs to only those in awarded programs
     if 'metadata.semid' in bad_obs_values.columns:
         mask = bad_obs_values['metadata.semid'].isin(awarded_programs)

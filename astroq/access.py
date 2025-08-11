@@ -187,7 +187,7 @@ class Access:
         for itarget in range(ntargets):
             name = rf.iloc[itarget]['starname']
             if name in self.past_history and rf.iloc[itarget]['tau_inter'] > 1:
-                inight_start = self.all_dates_dict[self.past_history.date_last_observed] - self.today_starting_night
+                inight_start = self.all_dates_dict[self.past_history[name].date_last_observed] - self.today_starting_night
                 inight_stop = min(inight_start + rf.iloc[itarget]['tau_inter'],nnights)
                 is_inter[itarget,inight_start:inight_stop,:] = False
 
@@ -216,7 +216,7 @@ class Access:
                 covariance=0.14
             )
         else:
-            print("Pretending weather is always clear!")
+            logs.info("Pretending weather is always clear!")
 
         is_observable_now = np.logical_and.reduce([
             is_altaz,
