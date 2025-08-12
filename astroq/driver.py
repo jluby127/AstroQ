@@ -19,7 +19,6 @@ from astropy.time import Time, TimeDelta
 import astroq.access as ac
 import astroq.benchmarking as bn
 import astroq.blocks as ob
-import astroq.dynamic as dn
 import astroq.history as hs
 import astroq.io as io
 import astroq.nplan as nplan
@@ -185,21 +184,6 @@ def kpfcc_plan_semester(args):
     semester_planner.run_model()
     return
 
-def plot_pkl(args):
-    cf = args.config_file
-    print(f'plot_pkl function: config_file is {cf}')
-    config = ConfigParser()
-    config.read(cf)
-    workdir = str(config.get('global', 'workdir')) + "/outputs/"
-    semester_planner_pkl = os.path.join(workdir, 'semester_planner.pkl')
-    
-    with open(semester_planner_pkl, 'rb') as f:
-        semester_planner = pickle.load(f)
-    
-    # Create semester planner from config file
-    pl.build_semester_webapp_pkl(semester_planner)
-    return
-
 def plot_static(args):
     cf = args.path_to_semester_planner
     print(f'plot_pkl function: using semester_planner from {cf}')
@@ -209,10 +193,11 @@ def plot_static(args):
 
     semester_plot_pkl_path = os.path.join(semester_planner.output_directory, "star_objects.pkl")
     if os.path.exists(semester_plot_pkl_path):
-        data_astroq = pl.read_star_objects(semester_plot_pkl_path)
+        with open(semester_plot_pkl_path, "rb") as f:
+            data_astroq = pickle.load(f)
         # build the interactive plots
-        fig_cof = dn.get_cof(semester_planner, list(data_astroq[1].values()))
-        fig_birdseye = dn.get_birdseye(semester_planner, data_astroq[2], list(data_astroq[1].values()))
+        fig_cof = pl.get_cof(semester_planner, list(data_astroq[1].values()))
+        fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], list(data_astroq[1].values()))
         # write the static versions to the reports directory
         fig_cof.write_image(os.path.join(saveout, "all_programs_COF.png"), width=1200, height=800)
         fig_birdseye.write_image(os.path.join(saveout, "all_stars_birdseye.png"), width=1200, height=800)
@@ -220,23 +205,17 @@ def plot_static(args):
     ttp_plot_pkl_path = os.path.join(semester_planner.output_directory, "ttp_data.pkl")
     if os.path.exists(ttp_plot_pkl_path):
         # build the interactive plots
-        data_ttp = pl.read_star_objects(ttp_plot_pkl_path)
-        script_table_df = dn.get_script_plan(cf, data_ttp)
-        ladder_fig = dn.get_ladder(data_ttp)
-        slew_animation_figures = dn.get_slew_animation(data_ttp, animationStep=120)
-        slew_path_fig = dn.plot_path_2D_interactive(data_ttp)
+        with open(ttp_plot_pkl_path, "rb") as f:
+            data_ttp = pickle.load(f)[0]
+        script_table_df = pl.get_script_plan(cf, data_ttp)
+        ladder_fig = pl.get_ladder(data_ttp)
+        slew_animation_figures = pl.get_slew_animation(data_ttp, animationStep=120)
+        slew_path_fig = pl.plot_path_2D_interactive(data_ttp)
         # write the static versions to the reports directory
         script_table_df.to_csv(os.path.join(saveout, "script_table.csv"), index=False)
         ladder_fig.write_image(os.path.join(saveout, "ladder_plot.png"), width=1200, height=800)
         slew_path_fig.write_image(os.path.join(saveout, "slew_path_plot.png"), width=1200, height=800)
     
-    return
-
-def plot(args):
-    cf = args.config_file
-    print(f'plot function: config_file is {cf}')
-    pl.build_semester_webapp_pkl(cf)
-    pl.build_static_plots(cf)
     return
 
 def ttp(args):

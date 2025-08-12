@@ -5,7 +5,6 @@ from configparser import ConfigParser
 import os
 import astroq.splan as splan
 import astroq.plot as pl
-import astroq.dynamic as dn
 import astroq.nplan as nplan
 import unittest
 from pathlib import Path
@@ -58,17 +57,17 @@ class TestClass(unittest.TestCase):
 
         os.makedirs(saveout, exist_ok=True)
         # Plots from semester_planner
-        fig_cof = dn.get_cof(semester_planner, list(data_astroq[1].values()))
-        fig_birdseye = dn.get_birdseye(semester_planner, data_astroq[2], list(data_astroq[1].values()))
+        fig_cof = pl.get_cof(semester_planner, list(data_astroq[1].values()))
+        fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], list(data_astroq[1].values()))
         # write the static versions to the reports directory
         fig_cof.write_image(os.path.join(saveout, "all_programs_COF.png"), width=1200, height=800)
         fig_birdseye.write_image(os.path.join(saveout, "all_stars_birdseye.png"), width=1200, height=800)
 
         # Plots from night_planner
-        script_table_df = dn.get_script_plan(cf, data_ttp)
-        ladder_fig = dn.get_ladder(data_ttp)
-        slew_animation_figures = dn.get_slew_animation(data_ttp, animationStep=120)
-        slew_path_fig = dn.plot_path_2D_interactive(data_ttp)
+        script_table_df = pl.get_script_plan(cf, data_ttp)
+        ladder_fig = pl.get_ladder(data_ttp)
+        slew_animation_figures = pl.get_slew_animation(data_ttp, animationStep=120)
+        slew_path_fig = pl.plot_path_2D_interactive(data_ttp)
         # write the static versions to the reports directory
         script_table_df.to_csv(os.path.join(saveout, "script_table.csv"), index=False)
         ladder_fig.write_image(os.path.join(saveout, "ladder_plot.png"), width=1200, height=800)

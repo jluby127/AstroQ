@@ -18,7 +18,6 @@ from flask import Flask, render_template, request, abort
 from socket import gethostname 
 
 # Local imports
-import astroq.dynamic as dn
 import astroq.nplan as nplan
 import astroq.plot as pl
 import astroq.splan as splan
@@ -126,8 +125,8 @@ def render_admin_page():
     all_stars_from_all_programs = np.concatenate(list(data_astroq[0].values()))
     
     tables_html = []
-    fig_cof = dn.get_cof(semester_planner, list(data_astroq[1].values()))
-    fig_birdseye = dn.get_birdseye(semester_planner, data_astroq[2], list(data_astroq[1].values()))
+    fig_cof = pl.get_cof(semester_planner, list(data_astroq[1].values()))
+    fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], list(data_astroq[1].values()))
     fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
     fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
     figures_html = [fig_cof_html, fig_birdseye_html]
@@ -144,8 +143,8 @@ def render_semester_overview_page():
     
     # Create overview figures
     all_stars_list = list(data_astroq[1].values())
-    fig_cof = dn.get_cof(semester_planner, all_stars_list)
-    fig_birdseye = dn.get_birdseye(semester_planner, data_astroq[2], all_stars_list)
+    fig_cof = pl.get_cof(semester_planner, all_stars_list)
+    fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], all_stars_list)
     fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
     fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
     figures_html = [fig_cof_html, fig_birdseye_html]
@@ -168,10 +167,10 @@ def render_star_page(starname):
             object_compare_starname = true_starname.lower().replace(' ', '')
             
             if object_compare_starname == compare_starname:
-                table_reqframe_html = dn.get_requests_frame(semester_planner, filter_condition=f"starname=='{true_starname}'")
+                table_reqframe_html = pl.get_requests_frame(semester_planner, filter_condition=f"starname=='{true_starname}'")
 
-                fig_cof = dn.get_cof(semester_planner, [data_astroq[0][program][star_ind]])
-                fig_birdseye = dn.get_birdseye(semester_planner, data_astroq[2], [star_obj])
+                fig_cof = pl.get_cof(semester_planner, [data_astroq[0][program][star_ind]])
+                fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], [star_obj])
                 fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
                 fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
 
@@ -189,13 +188,13 @@ def render_nightplan_page():
     
     plots = ['script_table', 'slewgif', 'ladder', 'slewpath']
 
-    script_table_df = dn.get_script_plan(semester_planner, data_ttp)
-    ladder_fig = dn.get_ladder(data_ttp)
-    slew_animation_figures = dn.get_slew_animation(data_ttp, animationStep=120)
-    slew_path_fig = dn.plot_path_2D_interactive(data_ttp)
+    script_table_df = pl.get_script_plan(semester_planner, data_ttp)
+    ladder_fig = pl.get_ladder(data_ttp)
+    slew_animation_figures = pl.get_slew_animation(data_ttp, animationStep=120)
+    slew_path_fig = pl.plot_path_2D_interactive(data_ttp)
     
     # Convert dataframe to HTML
-    script_table_html = dn.dataframe_to_html(script_table_df, sort_column=11)
+    script_table_html = pl.dataframe_to_html(script_table_df, sort_column=11)
     # Convert figures to HTML
     ladder_html = pio.to_html(ladder_fig, full_html=True, include_plotlyjs='cdn')
     slew_path_html = pio.to_html(slew_path_fig, full_html=True, include_plotlyjs='cdn')

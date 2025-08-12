@@ -148,8 +148,6 @@ class SemesterPlanner(object):
         self.joiner['id2'] = self.joiner['id']
         self.joiner['d2'] = self.joiner['d']
         self.joiner['s2'] = self.joiner['s']
-        self.joiner['tau_intra'] *= int(60/self.slot_size) # convert hours to slots
-        self.joiner['tau_intra'] += self.joiner['t_visit'] # start the minimum intracadence time from the end of the previous exposure, not the beginning
 
         # Prepare information by construction observability_nights (Wset) and schedulable_requests
         self.observability_nights = self.joiner[self.joiner['n_intra_max'] > 1][['id', 'd']].drop_duplicates().copy()
@@ -660,7 +658,6 @@ class SemesterPlanner(object):
         else:
             logs.debug("Model Successfully Solved.")
         logs.info("Time to finish solver: {:.3f}".format(time.time()-t1))
-
 
     def run_model(self):
         self.round_info = 'Round1'
