@@ -20,8 +20,7 @@ import pandas as pd
 from astropy.time import Time, TimeDelta
 import os
 
-# Local imports
-import astroq.weather as wh
+DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')
 
 logs = logging.getLogger(__name__)
 
@@ -209,14 +208,8 @@ class Access:
         # run the weather loss simulation
         is_clear = np.ones_like(is_altaz, dtype=bool)
         if self.run_weather_loss:
-            loss_stats_this_semester = wh.get_loss_stats(self.all_dates_array)
-            is_clear = wh.simulate_weather_losses(
-                self.semester_length, 
-                self.n_nights_in_semester, 
-                self.slot_size, 
-                loss_stats_this_semester, 
-                covariance=0.14
-            )
+            get_loss_stats(self)
+            is_clear = simulate_weather_losses(self, covariance=0.14)
         else:
             logs.info("Pretending weather is always clear!")
 
@@ -287,3 +280,50 @@ class Access:
         namemap = {'starname':'id','inight':'d','islot':'s'}
         df = df.query('is_observable').rename(columns=namemap)[namemap.values()]
         return df
+
+    def get_loss_stats(self):
+        """
+        Get the loss probabilities for this semester's dates
+
+        Args:
+
+        Returns:
+            loss_stats_this_semester (array): each element is the percent of total loss for nights,
+        """
+        historical_weather_data = pd.read_csv(os.path.join(DATADIR,"maunakea_weather_loss_data.csv"))
+        loss_stats_this_semester = []
+        for i, item in enumerate(self.all_dates_array):
+            ind = historical_weather_data.index[historical_weather_data['Date'] == \
+                self.all_dates_array[i][5:]].tolist()[0]
+            loss_stats_this_semester.append(historical_weather_data['% Total Loss'][ind])
+        self.loss_stats_this_semester = loss_stats_this_semester
+
+    def simulate_weather_losses(self, covariance=0.14):#slot_size, loss_stats, covariance=0.14):
+        """
+        Simulate nights totally lost to weather using historical data
+
+        Args:
+            slot_size (int): Size of time slots in minutes
+            loss_stats (array): 1D array of semester_length where elements are the
+                                percent of the time that night is totally lost to weather
+            covariance (float): the added percent that tomorrow will be lost if today is lost
+
+        Returns:
+            is_clear (array): Trues represent clear nights, Falses represent weathered nights
+        """
+        previous_day_was_lost = False
+        is_clear = np.ones((self.semester_length, int((24*60)/ self.slot_size)),dtype=bool)
+        for i in range(len(self.loss_stats_this_semester)):
+            value_to_beat = self.loss_stats_this_semester[i]
+            if previous_day_was_lost:
+                value_to_beat += covariance
+            roll_the_dice = np.random.uniform(0.0,1.0)
+
+            if roll_the_dice < value_to_beat:
+                # the night is simulated a total loss
+                is_clear[i] = np.zeros(is_clear.shape[1])  # Set all slots to False
+                previous_day_was_lost = True
+            else:
+                previous_day_was_lost = False
+        logs.info(f"Total nights simulated as weathered out: {np.sum(~np.any(is_clear, axis=1))} of {len(is_clear)} nights remaining.")
+        return is_clear
