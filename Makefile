@@ -2,7 +2,7 @@
 # Creates directory structure and copies config template with current date
 
 # Configuration variables
-DATE ?= 2025-08-12
+DATE ?= 2025-08-16
 # Changed only once per semester
 SEMESTER ?= 2025B
 START_DATE ?= 2025-08-01
@@ -17,6 +17,9 @@ SEMESTER_DIR = $(WORKDIR)/$(SEMESTER)
 DATE_DIR = $(SEMESTER_DIR)/$(DATE)
 HOLDERS_DIR = $(WORKDIR)/holders/$(SEMESTER)/$(DATE)
 # HOLDERS_DIR = s/sdata1701/Schedules/$(SEMESTER)/$(DATE)
+
+# Mark config.ini files as precious to prevent automatic deletion
+.PRECIOUS: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/config.ini)
 
 # Default target - run all bands through the complete workflow
 all: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/plan-night-complete)

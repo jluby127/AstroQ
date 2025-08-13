@@ -184,6 +184,12 @@ def kpfcc_plan_semester(args):
     semester_planner.run_model()
     return
 
+def plot_pkl(args):
+    cf = args.config_file
+    print(f'plot_pkl function: config_file is {cf}')
+    print('This is a dummy function for now.')
+    return
+
 def plot_static(args):
     cf = args.path_to_semester_planner
     print(f'plot_pkl function: using semester_planner from {cf}')

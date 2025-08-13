@@ -33,9 +33,13 @@ from astropy.time import Time, TimeDelta
 import astroq.access as ac
 import astroq.io as io_mine
 import astroq.nplan
+DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')
 
 # Configure matplotlib for headless rendering
 matplotlib.use("Agg")
+
+# just used for color reproducibility
+np.random.seed(24)
 
 # Global variables from dynamic.py
 gray = 'rgb(210,210,210)'
@@ -191,7 +195,10 @@ def process_stars(semester_planner):
             newstar.star_color_rgb = rgb_strings[0]
         newstar.draw_lines = False
         newstar.maps_names = ['is_alloc', 'is_custom', 'is_altaz', 'is_moon', 'is_inter', 'is_future', 'is_clear', 'is_observable_now']
-        newstar.maps = [access[name] for name in newstar.maps_names] 
+        # Find the target index for this star in the access record
+        target_idx = np.where(semester_planner.requests_frame['starname'] == newstar.starname)[0][0]
+        # Extract the 2D slice for this specific target from each 3D map
+        newstar.maps = {name: access[name][target_idx] for name in newstar.maps_names}
         newstar.allow_mapview = True
 
         all_stars.append(newstar)
@@ -266,6 +273,26 @@ def get_cof(semester_planner, all_stars):
     lines = []
     cume_observe = np.zeros(len(semester_planner.all_dates_array))
     max_value = 0
+    
+    # First, compute the total COF data for all stars
+    for i in range(len(all_stars)):
+        cume_observe += all_stars[i].cume_observe
+        max_value += all_stars[i].total_observations_requested
+    
+    cume_observe_pct = (cume_observe / max_value) * 100
+    
+    # Add the Total trace first (so it appears below other traces)
+    fig.add_trace(go.Scatter(
+        x=semester_planner.all_dates_array,
+        y=cume_observe_pct,
+        mode='lines',
+        line=dict(color=all_stars[0].program_color_rgb, width=2),
+        name="Total",
+        hovertemplate= 'Date: %{x}' + '<br>% Complete: %{y}' + '<br># Obs Requested: ' + \
+            str(max_value) + '<br>'
+    ))
+    
+    # Then add individual star traces (so they appear above the Total trace)
     for i in range(len(all_stars)):
         fig.add_trace(go.Scatter(
             x=semester_planner.all_dates_array,
@@ -277,20 +304,6 @@ def get_cof(semester_planner, all_stars):
                 str(all_stars[i].total_observations_requested) + '<br>'
         ))
         lines.append(str(all_stars[i].starname) + "," + str(np.round(all_stars[i].cume_observe_pct[-1],2)))
-        # Compute the COF data for all stars in the given program and plot total
-        cume_observe += all_stars[i].cume_observe
-        max_value += all_stars[i].total_observations_requested
-
-    cume_observe_pct = (cume_observe / max_value) * 100
-    fig.add_trace(go.Scatter(
-        x=semester_planner.all_dates_array,
-        y=cume_observe_pct,
-        mode='lines',
-        line=dict(color=all_stars[0].program_color_rgb, width=2),
-        name="Total",
-        hovertemplate= 'Date: %{x}' + '<br>% Complete: %{y}' + '<br># Obs Requested: ' + \
-            str(max_value) + '<br>'
-    ))
 
     fig.add_vrect(
             x0=semester_planner.current_day,
@@ -364,8 +377,14 @@ def get_birdseye(semester_planner, availablity, all_stars):
         colors = sns.color_palette("deep", len(all_stars[0].maps_names) + 1)
         rgb_strings = [f"rgb({int(r*255)}, {int(g*255)}, {int(b*255)})" for r, g, b in colors]
         for m in range(len(all_stars[0].maps_names)):
+            # Skip the is_observable_now map
+            if all_stars[0].maps_names[m] == 'is_observable_now':
+                continue
+            map_name = all_stars[0].maps_names[m]
+            z_data = 1-all_stars[0].maps[map_name].astype(int).T  # Invert all other maps
+            
             fig.add_trace(go.Heatmap(
-                z=1-all_stars[0].maps[m][0].astype(int).T, # 1-array swaps 0 <--> 1 to invert masks
+                z=z_data,
                 colorscale=[[0, 'rgba(0,0,0,0)'], [1, gray]],
                 zmin=0, zmax=1,
                 opacity=1.0,
@@ -378,7 +397,7 @@ def get_birdseye(semester_planner, availablity, all_stars):
 
         fig.add_trace(go.Heatmap(
             z=all_stars[i].starmap,
-            colorscale=[[0, 'rgba(0,0,0,0)'], [1, all_stars[i].program_color_rgb]],
+            colorscale=[[0, 'rgba(0,0,0,0)'], [1, all_stars[i].star_color_rgb]],
             zmin=0, zmax=1,
             opacity=1.0,
             showscale=False,
@@ -399,8 +418,8 @@ def get_birdseye(semester_planner, availablity, all_stars):
                 x=x_coords,
                 y=y_coords,
                 mode='lines+markers',
-                line=dict(color=all_stars[i].program_color_rgb, width=2),
-                marker=dict(size=6, color=all_stars[i].program_color_rgb),
+                line=dict(color=all_stars[i].star_color_rgb, width=2),
+                marker=dict(size=6, color=all_stars[i].starcolor_rgb),
                 name='Connected Points'
             ))
 
@@ -413,6 +432,18 @@ def get_birdseye(semester_planner, availablity, all_stars):
             line=dict(color="lightgray", width=1),
             layer="below"
         )
+    
+    # Add vertical dashed line denoting "today"
+    fig.add_vrect(
+        x0=semester_planner.today_starting_night-1, #The minus one is just for aesthetic purposes.
+        x1=semester_planner.today_starting_night-1,
+        annotation_text="Today",
+        line_dash="dash",
+        fillcolor=None,
+        line_width=2,
+        line_color='black',
+        annotation_position="bottom left"
+    )
      # X-axis: ticks every 23 days, plus the last day
     x_tick_step = 23
     x_tickvals = list(range(0, semester_planner.semester_length, x_tick_step))
@@ -469,17 +500,15 @@ def get_birdseye(semester_planner, availablity, all_stars):
     )
     return fig
 
-def get_tau_inter_line(all_stars):
+def get_tau_inter_line(semester_planner, all_stars, use_program_colors=False):
     """
-    Create an interactive scatter plot grouped by program, using provided colors for each point.
-    Points from the same program will share a legend entry and color.
+    Create an interactive scatter plot grouped by star name, using provided colors for each point.
+    Points from the same star will share a legend entry and color.
 
     Parameters:
-        x (list or array): X coordinates
-        y (list or array): Y coordinates
-        names (list of str): Labels for each point
-        programs (list of str): Program name for each point
-        colors (list of str): Color value for each point (e.g. hex code or named color)
+        semester_planner: the semester planner object
+        all_stars (list): array of StarPlotter objects
+        use_program_colors (bool): If True, use program_color_rgb; if False, use star_color_rgb (default: False)
 
     Returns:
         plotly.graph_objects.Figure
@@ -496,7 +525,11 @@ def get_tau_inter_line(all_stars):
         request_tau_inter.extend([starobj.tau_inter] * len(onsky_diffs))
         starnames.extend([starobj.starname] * len(onsky_diffs))
         programs.extend([starobj.program] * len(onsky_diffs))
-        colors.extend([starobj.program_color_rgb] * len(onsky_diffs))
+        # Choose color based on flag
+        if use_program_colors:
+            colors.extend([starobj.program_color_rgb] * len(onsky_diffs))
+        else:
+            colors.extend([starobj.star_color_rgb] * len(onsky_diffs))
 
     all_request_tau_inters = np.array(request_tau_inter)
     all_onsky_tau_inters = np.array(onsky_tau_inter)
@@ -511,19 +544,24 @@ def get_tau_inter_line(all_stars):
     for i, prog in enumerate(all_programs):
         program_to_indices.setdefault(prog, []).append(i)
 
-    # Create one trace per program
+    #Create one trace per star (grouped by starname)
     maxyvals = []
-    for program, indices in program_to_indices.items():
+    # Build map from starname to point indices
+    starname_to_indices = {}
+    for i, starname in enumerate(all_starnames):
+        starname_to_indices.setdefault(starname, []).append(i)
+    
+    for starname, indices in starname_to_indices.items():
         x_vals = [all_request_tau_inters[i] for i in indices]
         y_vals = [all_onsky_tau_inters[i] for i in indices]
-        text_vals = [f"{all_starnames[i]} in {program}" for i in indices]
-        color_vals = all_colors[indices[0]]  # Use the first point's color for the group
+        text_vals = [f"{all_starnames[i]} in {all_programs[i]}" for i in indices]
+        color_vals = [all_colors[i] for i in indices]
         maxyvals.append(max(y_vals))
         fig.add_trace(go.Scatter(
             x=x_vals,
             y=y_vals,
             mode='markers',
-            name=program,
+            name=starname,  # Use star name for legend
             marker=dict(size=10, color=color_vals),
             text=text_vals,
             hovertemplate="%{text}<br>X: %{x}<br>Y: %{y}<extra></extra>"
@@ -542,18 +580,17 @@ def get_tau_inter_line(all_stars):
     ))
 
     fig.update_layout(
+        width=1200,
+        height=800,
         xaxis_title="Requested Minimum Inter-Night Cadence",
         yaxis_title="On Sky Inter-Night Cadence",
         template='plotly_white',
-        height=600,
-        width=800
     )
     return fig
 
-
 def compute_seasonality(semester_planner, starnames, ras, decs):
     """
-    Combine all maps for a target to produce the final map
+    Compute seasonality using Access object's produce_ultimate_map function
 
     Args:
         semester_planner (SemesterPlanner): the semester planner object containing configuration
@@ -561,84 +598,53 @@ def compute_seasonality(semester_planner, starnames, ras, decs):
         ras (array): right ascension values in degrees
         decs (array): declination values in degrees
     Returns:
-        available_indices_for_request (dictionary): keys are the starnames and values are a 1D array
-                                                  the indices where available_slots_for_request is 1.
+        available_nights_onsky (list): number of observable nights for each target
 
     """
-    # Prepatory work
-    nslots = semester_planner.n_slots_in_night
-    nnights = semester_planner.n_nights_in_semester
-    observatory = semester_planner.observatory
-    start_time = semester_planner.daily_starting_time
-    slot_size = semester_planner.slot_size
-    start_date = semester_planner.semester_start_date
-
-    date_formal = Time(start_date,format='iso',scale='utc')
-    date = str(date_formal)[:10]
+    # Create a temporary requests frame from the input parameters
+    temp_requests_frame = pd.DataFrame({
+        'starname': starnames,
+        'ra': ras,
+        'dec': decs,
+        'exptime': [300] * len(starnames),  # Default values
+        'n_exp': [1] * len(starnames),
+        'n_intra_max': [1] * len(starnames),
+        'n_intra_min': [1] * len(starnames),
+        'n_inter_max': [1] * len(starnames),
+        'tau_inter': [1] * len(starnames),
+        'tau_intra': [1] * len(starnames)
+    })
+    
+    # Build or get the twilight allocation file
+    twilight_allocation_file = ac.build_twilight_allocation_file(semester_planner)
+    
+    # Temporarily override the allocation file path in the access object
+    original_allocation_file = semester_planner.access_obj.allocation_file
+    semester_planner.access_obj.allocation_file = twilight_allocation_file
+   
+    # Create dummy allocation for if the try statement fails.
+    is_alloc = np.ones((len(starnames), semester_planner.semester_length, semester_planner.n_slots_in_night), dtype=bool)
+    try:
+        # Use Access object to produce the ultimate map with our custom requests frame
+        access_record = semester_planner.access_obj.produce_ultimate_map(temp_requests_frame, running_backup_stars=True)
+        is_alloc = access_record.is_alloc
+    finally:
+        # Restore the original allocation file path
+        semester_planner.access_obj.allocation_file = original_allocation_file
+    
+    # Extract is_altaz and is_moon arrays
+    is_altaz = access_record.is_altaz
+    is_moon = access_record.is_moon
+    
     ntargets = len(starnames)
-
-    # Determine observability
-    coords = apy.coordinates.SkyCoord(ras * u.deg, decs * u.deg, frame='icrs')
-    targets = apl.FixedTarget(name=starnames, coord=coords)
-    keck = apl.Observer.at_site(observatory)
-
-    # Set up time grid for one night, first night of the semester
-    start = date + "T" + start_time
-    daily_start = Time(start, location=keck.location)
-    daily_end = daily_start + TimeDelta(1.0, format='jd') # full day from start of first night
-    tmp_slot_size = TimeDelta(semester_planner.slot_size*u.min)
-    t = Time(np.arange(daily_start.jd, daily_end.jd, tmp_slot_size.jd), format='jd',location=keck.location)
-    t = t[np.argsort(t.sidereal_time('mean'))] # sort by lst
-
-    # Compute base alt/az pattern, shape = (ntargets, nslots)
-    coord0 = keck.altaz(t, targets, grid_times_targets=True)
-    alt0 = coord0.alt.deg
-    az0 = coord0.az.deg
-
-    # 2D mask (n targets, n slots))
-    is_altaz0 = np.ones_like(alt0, dtype=bool)
-    is_altaz0 &= ~((5.3 < az0 ) & (az0 < 146.2) & (alt0 < 33.3)) # remove nasymth deck
-    # remove min elevation for mid declination stars
-    ismiddec = ((-30 < targets.dec.deg) & (targets.dec.deg < 75))
-    fail = ismiddec[:,np.newaxis] & (alt0 < 30) # broadcast declination array
-    is_altaz0 &= ~fail
-    # all stars must be between 18 and 85 deg
-    fail = (alt0 < 18) | (alt0 > 85)
-    is_altaz0 &= ~fail
-    # computing slot midpoint for all nights in semester 2D array (slots, nights)
-    slotmidpoint0 = daily_start + (np.arange(nslots) + 0.5) *  slot_size * u.min
-    # days = np.arange(semester_planner.n_nights_in_semester) * u.day
-    days = np.arange(nnights) * u.day
-    slotmidpoint = (slotmidpoint0[np.newaxis,:] + days[:,np.newaxis])
-    # 3D mask
-    is_altaz = np.empty((ntargets, nnights, nslots),dtype=bool)
-
-    # Pre-compute the sidereal times for interpolation
-    x = t.sidereal_time('mean').value
-    x_new = slotmidpoint.sidereal_time('mean').value
-    idx = np.searchsorted(x, x_new, side='left')
-    idx = np.clip(idx, 0, len(x)-1) # Handle edge cases
-    is_altaz = is_altaz0[:,idx]
-
-    # Compute moon accessibility
-    is_moon = np.ones_like(is_altaz, dtype=bool)
-    moon = apy.coordinates.get_moon(slotmidpoint[:,0] , keck.location)
-    # Reshaping uses broadcasting to achieve a (ntarget, night) array
-    ang_dist = apy.coordinates.angular_separation(
-        targets.ra.reshape(-1,1), targets.dec.reshape(-1,1),
-        moon.ra.reshape(1,-1), moon.dec.reshape(1,-1),
-    ) # (ntargets)
-    is_moon = is_moon & (ang_dist.to(u.deg) > 30*u.deg)[:, :, np.newaxis]
-
-    # True if obseravtion occurs at night
-    # Create a simple night mask (all slots available)
-    is_night = np.ones((semester_planner.n_nights_in_semester, semester_planner.n_slots_in_night), dtype=bool)
-    is_night = np.ones_like(is_altaz, dtype=bool) & is_night
-
+    nnights = semester_planner.n_nights_in_semester
+    nslots = semester_planner.n_slots_in_night
+    
+    # Create the combined observability mask
     is_observable_now = np.logical_and.reduce([
         is_altaz,
         is_moon,
-        is_night,
+        is_alloc
     ])
 
     # specify indeces of 3D observability array
@@ -662,15 +668,15 @@ def compute_seasonality(semester_planner, starnames, ras, decs):
 
     return available_nights_onsky
 
-def get_football(semester_planner, all_stars):
+def get_football(semester_planner, all_stars, use_program_colors=False):
     """
     "Football plot"
     Interactive sky map with static heatmap background and interactive star points.
 
     Parameters:
-        RA_grid, DEC_grid, Z_grid: 2D arrays defining the heatmap in degrees.
-        request_df (pd.DataFrame): Contains 'ra', 'dec', 'starname', 'program_code'.
-        colors (dict): Optional color mapping by program_code.
+        semester_planner: the semester planner object
+        all_stars (list): array of StarPlotter objects
+        use_program_colors (bool): If True, use program_color_rgb; if False, use star_color_rgb (default: False)
 
     Returns:
         plotly.graph_objects.Figure
@@ -680,7 +686,11 @@ def get_football(semester_planner, all_stars):
     programs = [all_stars[r].program for r in range(len(all_stars))]
     ras = [all_stars[r].ra for r in range(len(all_stars))]
     decs = [all_stars[r].dec for r in range(len(all_stars))]
-    colors = [all_stars[r].program_color_rgb for r in range(len(all_stars))]
+    # Choose color based on flag
+    if use_program_colors:
+        colors = [all_stars[r].program_color_rgb for r in range(len(all_stars))]
+    else:
+        colors = [all_stars[r].star_color_rgb for r in range(len(all_stars))]
     program_frame = pd.DataFrame({"starname":starnames, "program_code":programs, "color":colors, "ra":ras, "dec":decs})
 
     n_ra = 90
@@ -719,8 +729,23 @@ def get_football(semester_planner, all_stars):
     }
     grid_frame = pd.DataFrame(grid_stars)
 
-    available_nights_onsky_requests = compute_seasonality(semester_planner, starnames, ras, decs)
-    grid_frame['nights_observable'] = compute_seasonality(semester_planner, grid_frame['starname'], grid_frame['ra'], grid_frame['dec'])
+    available_nights_onsky_requests = compute_seasonality(semester_planner, program_frame['starname'], program_frame['ra'], program_frame['dec'])
+    
+    # Check if cached sky availability data exists for the background grid. 
+    semester = semester_planner.semester_start_date[:4] + semester_planner.semester_letter
+    cache_file = f"{DATADIR}/{semester}_sky_availability.csv"
+    
+    if os.path.exists(cache_file):
+        grid_frame = pd.read_csv(cache_file)
+    else:
+        grid_frame['nights_observable'] = compute_seasonality(semester_planner, grid_frame['starname'], grid_frame['ra'], grid_frame['dec'])
+        cache_df = pd.DataFrame({
+            'starname': grid_frame['starname'],
+            'ra': grid_frame['ra'],
+            'dec': grid_frame['dec'],
+            'nights_observable': grid_frame['nights_observable']
+        })
+        cache_df.to_csv(cache_file, index=False)
 
     from scipy.interpolate import griddata
     NIGHTS_grid = griddata(
@@ -785,14 +810,14 @@ def get_football(semester_planner, all_stars):
         for program, group in grouped:
             group.reset_index(inplace=True, drop=True)
             hover = [f"{name} in {program}" for name in group['starname']]
-            color = [group['color'][0]]*len(group)
+            color = group['color'].tolist()  # Use individual star colors
 
             if len(all_stars)==1:
                 size=20
                 marker='star'
             else:
                 size=6
-                marker='circle'
+                marker='star'
             fig.add_trace(go.Scattergeo(
                 lon=group['ra'] - 180,
                 lat=group['dec'],
@@ -826,8 +851,8 @@ def get_football(semester_planner, all_stars):
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
         template='none',
-        height=600,
         width=1000,
+        height=600,
         xaxis=dict(showgrid=False, visible=True),
         yaxis=dict(showgrid=False, visible=True),
         annotations=[
@@ -853,6 +878,91 @@ def get_football(semester_planner, all_stars):
         ]
     )
     return fig
+
+def get_request_frame(semester_planner, all_stars):
+    """
+    Get a filtered request frame containing only the stars in all_stars.
+    
+    Args:
+        semester_planner: the semester planner object
+        all_stars (list): array of StarPlotter objects
+        
+    Returns:
+        pd.DataFrame: filtered request frame with only the specified stars
+    """
+    # Extract starnames from the StarPlotter objects
+    starnames = [star.starname for star in all_stars]
+    
+    # Filter the request frame to only include the specified stars
+    filtered_frame = semester_planner.requests_frame[
+        semester_planner.requests_frame['starname'].isin(starnames)
+    ].copy()
+    
+    return filtered_frame
+
+def dataframe_to_html(df, sort_column='starname', page_size=25):
+    """
+    Convert a pandas DataFrame to an interactive HTML table with filtering and sorting.
+    
+    Args:
+        df (pd.DataFrame): the dataframe to convert
+        sort_column (str): column name to sort by initially (optional)
+        page_size (int): number of rows per page
+        
+    Returns:
+        str: HTML string with interactive table
+    """
+    # Add DataTables CSS and JS for interactive features
+    html = """
+    <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.11.5/css/jquery.dataTables.css">
+    <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/buttons/2.2.2/css/buttons.dataTables.min.css">
+    <script type="text/javascript" charset="utf8" src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
+    <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/buttons/2.2.2/js/dataTables.buttons.min.js"></script>
+    <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/buttons/2.2.2/js/buttons.html5.min.js"></script>
+    <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/buttons/2.2.2/js/buttons.print.min.js"></script>
+    """
+    
+    # Convert DataFrame to HTML table with proper ID for DataTables
+    table_html = df.to_html(classes='table table-striped table-hover', index=False, escape=False, table_id='request-table')
+    
+    # Add DataTables initialization script
+    if sort_column is not None and sort_column in df.columns:
+        # Find the column index for sorting
+        col_index = df.columns.get_loc(sort_column)
+        init_script = f"""
+        <script>
+        $(document).ready(function() {{
+            $('#request-table').DataTable({{
+                pageLength: {page_size},
+                order: [[{col_index}, 'asc']],
+                dom: 'Bfrtip',
+                buttons: ['copy', 'csv', 'excel', 'print'],
+                scrollX: true,
+                responsive: true
+            }});
+        }});
+        </script>
+        """
+    else:
+        init_script = f"""
+        <script>
+        $(document).ready(function() {{
+            $('#request-table').DataTable({{
+                pageLength: {page_size},
+                dom: 'Bfrtip',
+                buttons: ['copy', 'csv', 'excel', 'print'],
+                scrollX: true,
+                responsive: true
+            }});
+        }});
+        </script>
+        """
+    
+    # Combine everything into final HTML
+    final_html = html + table_html + init_script
+    
+    return final_html
 
 def get_ladder(data):
     """Create an interactive plot which illustrates the solution.
@@ -1177,7 +1287,6 @@ def plot_path_2D_interactive(data):
         template="plotly_white"
     )
     return fig
-
 def dataframe_to_html(dataframe, sort_column=0):
     """
     Convert a pandas dataframe into and HTML string for rendering
@@ -1250,3 +1359,4 @@ def dataframe_to_html(dataframe, sort_column=0):
 """
 
     return full_html
+

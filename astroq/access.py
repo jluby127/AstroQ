@@ -187,7 +187,7 @@ class Access:
         for itarget in range(ntargets):
             name = rf.iloc[itarget]['starname']
             if name in self.past_history and rf.iloc[itarget]['tau_inter'] > 1:
-                inight_start = self.all_dates_dict[self.past_history[name].date_last_observed] - self.today_starting_night
+                inight_start = self.all_dates_dict[self.past_history[name].date_last_observed]
                 inight_stop = min(inight_start + rf.iloc[itarget]['tau_inter'],nnights)
                 is_inter[itarget,inight_start:inight_stop,:] = False
 
@@ -327,3 +327,53 @@ class Access:
                 previous_day_was_lost = False
         logs.info(f"Total nights simulated as weathered out: {np.sum(~np.any(is_clear, axis=1))} of {len(is_clear)} nights remaining.")
         return is_clear
+
+def build_twilight_allocation_file(semester_planner):
+    """
+    Build a dummy allocation file with 12-degree twilight times for each night in the semester.
+    This is used exclusively by the football plot in the webapp.
+    
+    Args:
+        semester_planner (SemesterPlanner): the semester planner object containing configuration
+        
+    Returns:
+        str: Path to the created twilight allocation file
+    """
+    
+    # Create the filename based on semester
+    semester = semester_planner.semester_start_date[:4] + semester_planner.semester_letter
+    data_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data')
+    twilight_file = os.path.join(data_dir, f"{semester}_twilights.csv")
+    
+    # Check if file already exists
+    if os.path.exists(twilight_file):
+        return twilight_file
+    
+    # Create data directory if it doesn't exist
+    os.makedirs(data_dir, exist_ok=True)
+    
+    # Get observatory location
+    keck = apl.Observer.at_site(semester_planner.observatory)
+    
+    # Create allocation data
+    allocation_data = []
+    
+    for date_str in semester_planner.all_dates_dict.keys():
+        # Parse the date
+        date = Time(date_str, format='iso', scale='utc')
+        
+        # Get 12-degree twilight times for this night
+        evening_12 = keck.twilight_evening_nautical(date, which='next')
+        morning_12 = keck.twilight_morning_nautical(date, which='next')
+        
+        # Add to allocation data
+        allocation_data.append({
+            'start': evening_12.isot,
+            'stop': morning_12.isot
+        })
+    
+    # Create DataFrame and save to CSV
+    twilight_df = pd.DataFrame(allocation_data)
+    twilight_df.to_csv(twilight_file, index=False)
+    
+    return twilight_file
