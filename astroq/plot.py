@@ -19,6 +19,7 @@ import pandas as pd
 import seaborn as sns
 import astropy as apy
 import astropy.units as u
+from astropy.coordinates import SkyCoord
 import astroplan as apl
 import imageio.v3 as iio
 import matplotlib
@@ -900,70 +901,6 @@ def get_request_frame(semester_planner, all_stars):
     
     return filtered_frame
 
-def dataframe_to_html(df, sort_column='starname', page_size=25):
-    """
-    Convert a pandas DataFrame to an interactive HTML table with filtering and sorting.
-    
-    Args:
-        df (pd.DataFrame): the dataframe to convert
-        sort_column (str): column name to sort by initially (optional)
-        page_size (int): number of rows per page
-        
-    Returns:
-        str: HTML string with interactive table
-    """
-    # Add DataTables CSS and JS for interactive features
-    html = """
-    <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.11.5/css/jquery.dataTables.css">
-    <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/buttons/2.2.2/css/buttons.dataTables.min.css">
-    <script type="text/javascript" charset="utf8" src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
-    <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/buttons/2.2.2/js/dataTables.buttons.min.js"></script>
-    <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/buttons/2.2.2/js/buttons.html5.min.js"></script>
-    <script type="text/javascript" charset="utf8" src="https://cdn.datatables.net/buttons/2.2.2/js/buttons.print.min.js"></script>
-    """
-    
-    # Convert DataFrame to HTML table with proper ID for DataTables
-    table_html = df.to_html(classes='table table-striped table-hover', index=False, escape=False, table_id='request-table')
-    
-    # Add DataTables initialization script
-    if sort_column is not None and sort_column in df.columns:
-        # Find the column index for sorting
-        col_index = df.columns.get_loc(sort_column)
-        init_script = f"""
-        <script>
-        $(document).ready(function() {{
-            $('#request-table').DataTable({{
-                pageLength: {page_size},
-                order: [[{col_index}, 'asc']],
-                dom: 'Bfrtip',
-                buttons: ['copy', 'csv', 'excel', 'print'],
-                scrollX: true,
-                responsive: true
-            }});
-        }});
-        </script>
-        """
-    else:
-        init_script = f"""
-        <script>
-        $(document).ready(function() {{
-            $('#request-table').DataTable({{
-                pageLength: {page_size},
-                dom: 'Bfrtip',
-                buttons: ['copy', 'csv', 'excel', 'print'],
-                scrollX: true,
-                responsive: true
-            }});
-        }});
-        </script>
-        """
-    
-    # Combine everything into final HTML
-    final_html = html + table_html + init_script
-    
-    return final_html
-
 def get_ladder(data):
     """Create an interactive plot which illustrates the solution.
 
@@ -1139,7 +1076,7 @@ def get_script_plan(semester_planner, data):
     
     # Define column names based on the file format
     columns = [
-        'starname', 'ra_h', 'ra_m', 'ra_s', 'dec_sign', 'dec_d', 'dec_m', 'dec_s', 
+        'starname', 'ra_h', 'ra_m', 'ra_s', 'dec_d', 'dec_m', 'dec_s', 
         'equinox', 'jmag', 'exposure_time', 'visits', 'sc', 'n_exp', 'gmag', 'teff', 
         'gaia_id', 'instrument', 'priority', 'program', 'obs_time', 'first_avail', 'last_avail'
     ]
@@ -1160,7 +1097,7 @@ def get_script_plan(semester_planner, data):
                     parts = line.split()
                     
                     # Define star name prefixes that should be combined with the next part
-                    star_prefixes = ['HD', 'HIP', 'KOI', 'Kepler', 'TOI', 'Gaia', 'Gliese', 'gl', 'gj']
+                    star_prefixes = ['HD', 'HIP', 'KOI', 'Kepler', 'TOI', 'Gaia', 'Gliese', 'gl', 'gj', 'FU']
                     
                     # Check if the first part is a star prefix (case insensitive)
                     if len(parts) >= 2:
@@ -1203,6 +1140,111 @@ def get_script_plan(semester_planner, data):
         observing_plan = pd.DataFrame(columns=columns)
     return observing_plan
 
+def get_script_plan2(semester_planner, night_planner):
+    """Generate script plan DataFrame from semester planner and night planner objects.
+    
+    This function reads the request_selected.csv file from the semester planner's output directory,
+    merges it with the night planner's solution data, and returns a properly formatted DataFrame
+    with the same column structure as the original get_script_plan function.
+    
+    Args:
+        semester_planner: SemesterPlanner object containing output_directory and other attributes
+        night_planner: NightPlanner object containing solution attribute
+        
+    Returns:
+        pd.DataFrame: Formatted observing plan DataFrame
+    """
+    
+    # Read the request_selected.csv file from the semester planner's output directory
+    request_selected_path = os.path.join(semester_planner.output_directory, 'request_selected.csv')
+    
+    if not os.path.exists(request_selected_path):
+        raise FileNotFoundError(f"request_selected.csv not found at {request_selected_path}")
+    
+    # Read the request_selected.csv file
+    request_selected_df = pd.read_csv(request_selected_path)
+    
+    # # Get the first solution from the night planner
+    # if not hasattr(night_planner, 'solution') or not night_planner.solution:
+    #     raise ValueError("Night planner has no solution attribute or solution is empty")
+    
+    solution = night_planner.solution[0]  # First index as specified
+    
+    # # Check if solution has plotly attribute (which contains the schedule)
+    # if not hasattr(solution, 'plotly') or not hasattr(solution.plotly, 'schedule'):
+    #     raise ValueError("Solution does not have expected plotly.schedule structure")
+    
+    # Extract the schedule from the solution and convert to a DataFrame
+    solution_schedule = solution.plotly
+    solution_df = pd.DataFrame(solution_schedule)
+    
+    # Merge the solution DataFrame with the request_selected dataframe
+    # Use starname as the key for merging
+    merged_df = pd.merge(request_selected_df, solution_df, 
+                         left_on='starname', right_on='Starname', 
+                         how='inner')
+                             
+    # Select and reorder only the specific columns requested
+    desired_columns = [
+        'Start Exposure', 'unique_id', 'starname', 'program_code', 'ra', 'dec', 
+        'exptime', 'n_exp', 'n_intra_max', 'tau_intra', 'weather_band', 'teff', 
+        'jmag', 'gmag', 'epoch', 'gaia_id', 'First Available', 'Last Available'
+    ]
+    
+    # Keep only the columns that exist in the merged dataframe
+    available_columns = [col for col in desired_columns if col in merged_df.columns]
+    
+    # Reorder columns to match the desired structure
+    final_df = merged_df[available_columns].copy()
+    
+    # Round numeric fields to appropriate decimal places
+    if 'ra' in final_df.columns:
+        final_df['ra'] = final_df['ra'].round(3)
+    
+    if 'dec' in final_df.columns:
+        final_df['dec'] = final_df['dec'].round(3)
+    
+    if 'jmag' in final_df.columns:
+        final_df['jmag'] = final_df['jmag'].round(1)
+    
+    if 'gmag' in final_df.columns:
+        final_df['gmag'] = final_df['gmag'].round(1)
+    
+    # Convert time fields from "minutes from start of night" to HST timestamps
+    try:
+        # Get the night start time from the night planner
+        from astroq.nplan import get_nightly_times_from_allocation
+        from astropy.time import TimeDelta
+        
+        night_start_time, _ = get_nightly_times_from_allocation(
+            night_planner.allocation_file, 
+            night_planner.current_day
+        )
+        
+        # Convert the time columns to HST timestamps
+        if 'Start Exposure' in final_df.columns:
+            final_df['Start Exposure'] = final_df['Start Exposure'].apply(
+                lambda x: str(TimeDelta(x * 60, format='sec') + night_start_time)[11:16] if pd.notna(x) else ''
+            )
+        
+        if 'First Available' in final_df.columns:
+            final_df['First Available'] = final_df['First Available'].apply(
+                lambda x: str(TimeDelta(x * 60, format='sec') + night_start_time)[11:16] if pd.notna(x) else ''
+            )
+        
+        if 'Last Available' in final_df.columns:
+            final_df['Last Available'] = final_df['Last Available'].apply(
+                lambda x: str(TimeDelta(x * 60, format='sec') + night_start_time)[11:16] if pd.notna(x) else ''
+            )
+            
+    except Exception as e:
+        print(f"Warning: Could not convert time fields to HST timestamps: {e}")
+        print("Time fields will remain as minutes from start of night")
+    
+    # Handle missing values similar to the original function
+    final_df = final_df.replace(['', 'NoGaiaName'], pd.NA)
+    
+    return final_df
 
 def plot_path_2D_interactive(data):
     """Create an interactive Plotly plot showing telescope azimuth and altitude paths with UTC times and white background."""
@@ -1287,76 +1329,314 @@ def plot_path_2D_interactive(data):
         template="plotly_white"
     )
     return fig
-def dataframe_to_html(dataframe, sort_column=0):
+
+def dataframe_to_html(dataframe, sort_column=2, page_size=10, table_id='request-table'):
     """
-    Convert a pandas dataframe into and HTML string for rendering
-    on the web app.
-
-    Arguments:
-        dataframe (Pandas dataframe): Frame to be rendered
-        sort_column (int): Index of the column by which
-            rendered frame should be sorted, in ascending
-            order. Defaults to the 0th column.
-
+    Convert a pandas dataframe into an HTML string for rendering
+    on the webapp pages.
+    
+    Args:
+        dataframe (pd.DataFrame): The dataframe to convert
+        sort_column (int): Column index to sort by (default: 2 for starname)
+        page_size (int): Default number of rows per page (default: 25)
+        table_id (str): Unique ID for the table (default: 'request-table')
+        
     Returns:
-        full_html (str): HTML string representing dataframe
+        str: HTML string with table and DataTables initialization
     """
-    from pathlib import Path
-
-    # Generate the core HTML table (just the <table>...</table>)
-    dataframe_html = dataframe.to_html(
-        index=False,
-        border=0,
-        classes='display',
-        escape=False  # Set to True if you have HTML tags in data you want escaped
+    # Convert DataFrame to HTML table with unique ID
+    table_html = dataframe.to_html(
+        classes='table table-striped table-hover', 
+        index=False, 
+        escape=False, 
+        table_id=table_id
     )
-
-    # Full HTML page with DataTables integration
-    full_html = f"""
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <title>Observing Plan</title>
-
-    <!-- DataTables CSS -->
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
-
-    <!-- jQuery and DataTables JS -->
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-
+    
+    # Custom CSS for beautiful table styling
+    custom_css = f"""
     <style>
-        body {{
-            font-family: Arial, sans-serif;
-            padding: 2em;
-        }}
-        table {{
-            width: 100%;
-        }}
+    #{table_id} {{
+        border-collapse: separate !important;
+        border-spacing: 0 !important;
+        border-radius: 8px !important;
+        overflow: hidden !important;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
+        margin: 20px 0 !important;
+    }}
+    
+    #{table_id} thead th {{
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        color: white !important;
+        font-weight: 600 !important;
+        padding: 15px 12px !important;
+        border: none !important;
+        text-align: center !important;
+        font-size: 14px !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+    }}
+    
+    /* Additional DataTables header styling to ensure purple background */
+    #{table_id} .dataTables_scrollHead thead th {{
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        color: white !important;
+        font-weight: 600 !important;
+        padding: 15px 12px !important;
+        border: none !important;
+        text-align: left !important;
+        font-size: 14px !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+    }}
+    
+    #{table_id} .dataTables_wrapper .dataTables_scrollHead thead th {{
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        color: white !important;
+        font-weight: 600 !important;
+        padding: 15px 12px !important;
+        border: none !important;
+        text-align: left !important;
+        font-size: 14px !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+    }}
+    
+    /* Target any header cells that might be created by DataTables */
+    #{table_id} th, #{table_id} .dataTables_scrollHead th {{
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        color: white !important;
+        font-weight: 600 !important;
+        padding: 15px 12px !important;
+        border: none !important;
+        text-align: left !important;
+        font-size: 14px !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+    }}
+    
+    /* More aggressive DataTables header targeting */
+    #{table_id} .dataTables_wrapper thead th {{
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        color: white !important;
+        font-weight: 600 !important;
+        padding: 15px 12px !important;
+        border: none !important;
+        text-align: left !important;
+        font-size: 14px !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+    }}
+    
+    /* Force all header cells to have purple background */
+    #{table_id} thead th, #{table_id} th, #{table_id} .dataTables_scrollHead th, #{table_id} .dataTables_wrapper th {{
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        color: white !important;
+        font-weight: 600 !important;
+        padding: 15px 12px !important;
+        border: none !important;
+        text-align: left !important;
+        font-size: 14px !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+    }}
+    
+    /* Override any DataTables default styling */
+    #{table_id} .dataTables_wrapper .dataTables_scrollHead thead th,
+    #{table_id} .dataTables_wrapper .dataTables_scrollHead thead td {{
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        color: white !important;
+        font-weight: 600 !important;
+        padding: 15px 12px !important;
+        border: none !important;
+        text-align: left !important;
+        font-size: 14px !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+    }}
+    
+    /* Nuclear option - target everything with maximum specificity */
+    #{table_id} .dataTables_wrapper .dataTables_scrollHead thead th,
+    #{table_id} .dataTables_wrapper .dataTables_scrollHead thead td,
+    #{table_id} .dataTables_wrapper thead th,
+    #{table_id} .dataTables_wrapper thead td,
+    #{table_id} thead th,
+    #{table_id} thead td {{
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        color: white !important;
+        font-weight: 600 !important;
+        padding: 15px 12px !important;
+        border: none !important;
+        text-align: left !important;
+        font-size: 14px !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+    }}
+    
+    /* Force override any inline styles that DataTables might add */
+    #{table_id} thead th[style*="background"],
+    #{table_id} .dataTables_wrapper thead th[style*="background"] {{
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        color: white !important;
+        font-weight: 600 !important;
+        padding: 15px 12px !important;
+        border: none !important;
+        text-align: left !important;
+        font-size: 14px !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.5px !important;
+    }}
+    
+    #{table_id} tbody tr {{
+        transition: all 0.2s ease !important;
+    }}
+    
+    #{table_id} tbody tr:nth-child(even) {{
+        background-color: #f8f9fa !important;
+    }}
+    
+    #{table_id} tbody tr:nth-child(odd) {{
+        background-color: white !important;
+    }}
+    
+    #{table_id} tbody tr:hover {{
+        background-color: #e3f2fd !important;
+        transform: translateY(-1px) !important;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+    }}
+    
+    #{table_id} tbody td {{
+        padding: 12px !important;
+        border: none !important;
+        border-bottom: 1px solid #e9ecef !important;
+        font-size: 14px !important;
+        color: #495057 !important;
+        text-align: center !important;
+    }}
+    
+    #{table_id} tbody tr:last-child td {{
+        border-bottom: none !important;
+    }}
+    
+    /* Column widths are now controlled by DataTables columnDefs for proper alignment */
+    
+    /* DataTables controls styling */
+    .dataTables_length select {{
+        border: 1px solid #ddd !important;
+        border-radius: 4px !important;
+        padding: 4px 8px !important;
+        background: white !important;
+    }}
+    
+    .dataTables_filter input {{
+        border: 1px solid #ddd !important;
+        border-radius: 4px !important;
+        padding: 6px 12px !important;
+        background: white !important;
+    }}
+    
+    .dt-buttons .dt-button {{
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 4px !important;
+        padding: 8px 16px !important;
+        margin: 2px !important;
+        font-size: 12px !important;
+        transition: all 0.2s ease !important;
+    }}
+    
+    .dt-buttons .dt-button:hover {{
+        background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%) !important;
+        transform: translateY(-1px) !important;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2) !important;
+    }}
+    
+    .dataTables_info {{
+        color: #6c757d !important;
+        font-size: 14px !important;
+        margin-top: 10px !important;
+    }}
+    
+    .dataTables_paginate .paginate_button {{
+        border: 1px solid #ddd !important;
+        border-radius: 4px !important;
+        padding: 6px 12px !important;
+        margin: 2px !important;
+        background: white !important;
+        color: #495057 !important;
+        transition: all 0.2s ease !important;
+    }}
+    
+    .dataTables_paginate .paginate_button:hover {{
+        background: #e9ecef !important;
+        border-color: #adb5bd !important;
+    }}
+    
+    .dataTables_paginate .paginate_button.current {{
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        color: white !important;
+        border-color: #667eea !important;
+    }}
     </style>
-</head>
-<body>
-
-<h2>Observing Plan</h2>
-
-{dataframe_html}
-
-<script>
-    $(document).ready(function () {{
-        $('table.display').DataTable({{
-            paging: true,
-            searching: true,
-            responsive: true,
-            pageLength: 100,
-            order: [[sort_column, 'asc']]
+    """
+    
+    # DataTables initialization script - destroy existing instance first
+    init_script = f"""
+    <script>
+    $(document).ready(function() {{
+        // Destroy existing DataTable if it exists
+        if ($.fn.DataTable.isDataTable('#{table_id}')) {{
+            $('#{table_id}').DataTable().destroy();
+        }}
+        
+        // Initialize new DataTable
+        var table = $('#{table_id}').DataTable({{
+            pageLength: {page_size},
+            order: [[{sort_column}, 'asc']],
+            dom: 'lBfrtip',
+            buttons: ['copy', 'csv', 'excel', 'print'],
+            scrollX: false,  // Disable horizontal scrolling to prevent header misalignment
+            responsive: false,  // Disable responsive features that can cause header issues
+            lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
+            tableLayout: 'fixed',  // Force fixed table layout for consistent column widths
+            columnDefs: [
+                {{ targets: 0, width: '60px' }},   // Start Exposure
+                {{ targets: 1, width: '260px' }},  // unique_id
+                {{ targets: 2, width: '260px' }},  // starname
+                {{ targets: 3, width: '120px' }},  // program_code
+                {{ targets: 4, width: '100px' }},  // ra
+                {{ targets: 5, width: '100px' }},  // dec
+                {{ targets: 6, width: '50px' }},   // exptime
+                {{ targets: 7, width: '50px' }},   // n_exp
+                {{ targets: 8, width: '50px' }},   // n_intra_max
+                {{ targets: 9, width: '50px' }},   // tau_intra
+                {{ targets: 10, width: '50px' }},  // weather_band
+                {{ targets: 11, width: '50px' }},  // teff
+                {{ targets: 12, width: '50px' }},  // jmag
+                {{ targets: 13, width: '50px' }},  // gmag
+                {{ targets: 14, width: '50px' }},  // epoch
+                {{ targets: 15, width: '260px' }}, // gaia_id
+                {{ targets: 16, width: '60px' }},  // First Available
+                {{ targets: 17, width: '60px' }}   // Last Available
+            ],
+            initComplete: function() {{
+                // Simple styling after DataTables is initialized
+                $('#{table_id} thead th').css({{
+                    'background': 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    'color': 'white',
+                    'font-weight': '600',
+                    'padding': '15px 12px',
+                    'border': 'none',
+                    'text-align': 'center',
+                    'font-size': '14px',
+                    'text-transform': 'uppercase',
+                    'letter-spacing': '0.5px'
+                }});
+            }}
         }});
     }});
-</script>
-
-</body>
-</html>
-"""
-
-    return full_html
+    </script>
+    """
+    
+    return custom_css + table_html + init_script
 
