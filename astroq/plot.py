@@ -171,19 +171,19 @@ def process_stars(semester_planner):
         newstar.get_map(semester_planner)
         newstar.get_stats(semester_planner.requests_frame, semester_planner.slot_size)
         if newstar.starname in list(semester_planner.past_history.keys()):
-            newstar.observations_past = semester_planner.past_history[newstar.starname].n_obs_on_nights
+            newstar.observations_past = semester_planner.past_history[newstar.starname].n_visits_on_nights
         else:
             newstar.observations_past = {}
         newstar.get_future(semester_planner.output_directory + semester_planner.future_forecast, semester_planner.all_dates_array)
 
         # Create COF arrays for each request
         combined_set = set(list(newstar.observations_past.keys()) + list(newstar.observations_future.keys()))
-        newstar.dates_observe = [newstar.n_exp*newstar.n_intra_max if date in combined_set else 0 for date in semester_planner.all_dates_array]
+        newstar.dates_observe = [newstar.observations_past[date] if date in newstar.observations_past.keys() else (newstar.n_intra_max if date in combined_set else 0) for date in semester_planner.all_dates_array]
         # don't assume that all future observations forecast for getting all desired n_intra_max
-        for b in range(len(newstar.dates_observe)):
-            if semester_planner.all_dates_array[b] in list(newstar.observations_future.keys()):
-                index = list(newstar.observations_future.keys()).index(semester_planner.all_dates_array[b])
-                newstar.dates_observe[b] *= list(newstar.observations_future.values())[index]
+        # for b in range(len(newstar.dates_observe)):
+        #     if semester_planner.all_dates_array[b] in list(newstar.observations_future.keys()):
+        #         index = list(newstar.observations_future.keys()).index(semester_planner.all_dates_array[b])
+        #         newstar.dates_observe[b] *= list(newstar.observations_future.values())[index]
         newstar.cume_observe = np.cumsum(newstar.dates_observe)
         newstar.cume_observe_pct = np.round((np.cumsum(newstar.dates_observe)/newstar.total_observations_requested)*100.,3)
 

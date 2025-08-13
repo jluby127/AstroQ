@@ -29,6 +29,7 @@ StarHistory = namedtuple('StarHistory', [
     'total_n_unique_nights',
     'total_open_shutter_time',
     'n_obs_on_nights',
+    'n_visits_on_nights',
 ])
 
 def pull_OB_histories(semester):
@@ -181,11 +182,13 @@ def process_star_history(filename):
         unique_nights = set(Time(t).isot[:10] for v in visits for t in v['exposure_start_time'])
         total_n_unique_nights = len(unique_nights)
         total_open_shutter_time = int(round(sum(sum(map(float, v['exposure_time'])) for v in visits)))
-        # Build n_obs_on_nights
+        # Build n_obs_on_nights and n_visits_on_nights
         n_obs_on_nights = {}
+        n_visits_on_nights = {}
         for v in visits:
             visit_date = v['timestamp'][:10]
             n_obs_on_nights[visit_date] = n_obs_on_nights.get(visit_date, 0) + len(v['exposure_start_time'])
+            n_visits_on_nights[visit_date] = n_visits_on_nights.get(visit_date, 0) + 1
         result[starname] = StarHistory(
             id=star_id,
             date_last_observed=date_last_observed,
@@ -194,6 +197,7 @@ def process_star_history(filename):
             total_n_unique_nights=total_n_unique_nights,
             total_open_shutter_time=total_open_shutter_time,
             n_obs_on_nights=n_obs_on_nights,
+            n_visits_on_nights=n_visits_on_nights
         )
     return result
 
