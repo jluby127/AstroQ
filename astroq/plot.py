@@ -1140,7 +1140,7 @@ def get_script_plan(semester_planner, data):
         observing_plan = pd.DataFrame(columns=columns)
     return observing_plan
 
-def get_script_plan2(semester_planner, night_planner):
+def get_script_plan2(night_planner):
     """Generate script plan DataFrame from semester planner and night planner objects.
     
     This function reads the request_selected.csv file from the semester planner's output directory,
@@ -1148,7 +1148,6 @@ def get_script_plan2(semester_planner, night_planner):
     with the same column structure as the original get_script_plan function.
     
     Args:
-        semester_planner: SemesterPlanner object containing output_directory and other attributes
         night_planner: NightPlanner object containing solution attribute
         
     Returns:
@@ -1156,7 +1155,7 @@ def get_script_plan2(semester_planner, night_planner):
     """
     
     # Read the request_selected.csv file from the semester planner's output directory
-    request_selected_path = os.path.join(semester_planner.output_directory, 'request_selected.csv')
+    request_selected_path = os.path.join(night_planner.output_directory, 'request_selected.csv')
     
     if not os.path.exists(request_selected_path):
         raise FileNotFoundError(f"request_selected.csv not found at {request_selected_path}")

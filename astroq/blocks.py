@@ -119,6 +119,7 @@ def pull_allocation_info(start_date, numdays, instrument, savepath):
         allocation_frame = pd.DataFrame(columns=['start', 'stop'])
         awarded_programs = []
         hours_by_program = {}
+    os.makedirs(os.path.dirname(savepath), exist_ok=True)
     allocation_frame.to_csv(savepath, index=False)
     return hours_by_program
 
@@ -139,6 +140,7 @@ def get_request_sheet(OBs, awarded_programs, savepath):
     if 'starname' in good_obs.columns:
         good_obs['starname'] = good_obs['starname'].astype(str)
     
+    os.makedirs(os.path.dirname(savepath), exist_ok=True)
     good_obs.to_csv(savepath, index=False)
     return good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram
 

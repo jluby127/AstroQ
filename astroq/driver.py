@@ -13,7 +13,11 @@ import numpy as np
 import pandas as pd
 import pickle
 import astroplan as apl
+import plotly.io as pio
 from astropy.time import Time, TimeDelta
+from io import BytesIO
+import imageio.v3 as iio
+import base64
 
 # Local imports
 import astroq.access as ac
@@ -50,19 +54,18 @@ def bench(args):
     config = ConfigParser()
     config.read(cf)
     semester_directory = config.get('global', 'workdir')
-    requests_frame = pd.read_csv(os.path.join(semester_directory, "inputs/requests.csv"))
-    
+    requests_frame = bn.build_toy_model_from_paper(number_slots)    
     # Ensure starname column is always interpreted as strings
     if 'starname' in requests_frame.columns:
         requests_frame['starname'] = requests_frame['starname'].astype(str)
-    
     original_size = len(requests_frame)
     requests_frame = requests_frame.iloc[::thin]
     new_size = len(requests_frame)
     print(f'Request frame thinned: {original_size} -> {new_size} rows (factor of {thin})')
-        
+    requests_frame.to_csv(os.path.join(semester_directory, "request.csv"))
+
     # Run the schedule directly from config file
-    schedule = splan.SemesterPlanner(cf)
+    schedule = splan.SemesterPlanner(cf, run_band3=False)
     schedule.run_model()
     return
 
@@ -140,9 +143,13 @@ def kpfcc_prep(args):
     '''
 
     # Now get the bright backup stars information from the designated program code
-    band3_program_code = args.band3_program_code
     filler_file = str(config.get('data', 'filler_file'))
-    good_obs_backup, bad_obs_values_backup, bad_obs_hasFields_backup, bad_obs_count_by_semid_backup, bad_field_histogram_backup = ob.get_request_sheet(OBs, [band3_program_code], savepath + filler_file)
+    try:
+        band3_program_code = args.band3_program_code
+        good_obs_backup, bad_obs_values_backup, bad_obs_hasFields_backup, bad_obs_count_by_semid_backup, bad_field_histogram_backup = ob.get_request_sheet(OBs, [band3_program_code], savepath + filler_file)
+    except:
+        print(f'No band3 program code provided, creating a blank filler.csv file.')
+        pd.DataFrame(columns=good_obs.columns).to_csv(savepath + filler_file, index=False)
 
     # Next get the past history 
     past_source = args.past_source
@@ -184,44 +191,95 @@ def kpfcc_plan_semester(args):
     semester_planner.run_model()
     return
 
-def plot_pkl(args):
+def plot(args):
     cf = args.config_file
-    print(f'plot_pkl function: config_file is {cf}')
-    print('This is a dummy function for now.')
-    return
+    print(f'plot function: using config file from {cf}')
+    config = ConfigParser()
+    config.read(cf)
+    semester_directory = config.get('global', 'workdir')
 
-def plot_static(args):
-    cf = args.path_to_semester_planner
-    print(f'plot_pkl function: using semester_planner from {cf}')
+    if os.path.exists(semester_directory + '/outputs/semester_planner.pkl'):
+        with open(semester_directory + '/outputs/semester_planner.pkl', 'rb') as f:
+            semester_planner = pickle.load(f)
+        saveout = semester_planner.output_directory + "/saved_plots/"
+        os.makedirs(saveout, exist_ok = True)
+        
+        data_astroq = pl.process_stars(semester_planner)
+        all_stars_from_all_programs = np.concatenate(list(data_astroq[0].values()))
 
-    saveout = semester_planner.output_directory + "/static_plots/"
-    os.makedirs(saveout, exist_ok = True)
-
-    semester_plot_pkl_path = os.path.join(semester_planner.output_directory, "star_objects.pkl")
-    if os.path.exists(semester_plot_pkl_path):
-        with open(semester_plot_pkl_path, "rb") as f:
-            data_astroq = pickle.load(f)
-        # build the interactive plots
+        # build the plots
+        request_df = pl.get_request_frame(semester_planner, all_stars_from_all_programs)
+        request_table_html = pl.dataframe_to_html(request_df)
+    
         fig_cof = pl.get_cof(semester_planner, list(data_astroq[1].values()))
         fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], list(data_astroq[1].values()))
-        # write the static versions to the reports directory
-        fig_cof.write_image(os.path.join(saveout, "all_programs_COF.png"), width=1200, height=800)
-        fig_birdseye.write_image(os.path.join(saveout, "all_stars_birdseye.png"), width=1200, height=800)
+        fig_football = pl.get_football(semester_planner, all_stars_from_all_programs, use_program_colors=True)
+        fig_tau_inter_line = pl.get_tau_inter_line(semester_planner, all_stars_from_all_programs, use_program_colors=True)
 
-    ttp_plot_pkl_path = os.path.join(semester_planner.output_directory, "ttp_data.pkl")
-    if os.path.exists(ttp_plot_pkl_path):
-        # build the interactive plots
-        with open(ttp_plot_pkl_path, "rb") as f:
-            data_ttp = pickle.load(f)[0]
-        script_table_df = pl.get_script_plan(cf, data_ttp)
+        # write the html versions 
+        fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
+        fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
+        fig_football_html = pio.to_html(fig_football, full_html=True, include_plotlyjs='cdn')
+        fig_tau_inter_line_html = pio.to_html(fig_tau_inter_line, full_html=True, include_plotlyjs='cdn')
+
+        # write out the html files 
+        with open(os.path.join(saveout, "request_table.html"), "w") as f:
+            f.write(request_table_html)
+        with open(os.path.join(saveout, "all_programs_COF.html"), "w") as f:
+            f.write(fig_cof_html)
+        with open(os.path.join(saveout, "all_programs_birdseye.html"), "w") as f:
+            f.write(fig_birdseye_html)
+        with open(os.path.join(saveout, "all_programs_football.html"), "w") as f:
+            f.write(fig_football_html)
+        with open(os.path.join(saveout, "all_programs_tau_inter_line.html"), "w") as f:
+            f.write(fig_tau_inter_line_html)
+    else:
+        print(f'No semester_planner.pkl found in {semester_directory}/outputs/. No plots will be generated.')
+
+    if os.path.exists(semester_directory + '/outputs/night_planner.pkl'):
+        with open(semester_directory + '/outputs/night_planner.pkl', "rb") as f:
+            night_planner = pickle.load(f)
+        data_ttp = night_planner.solution
+
+        # build the plots
+        script_table_df = pl.get_script_plan2(night_planner)
         ladder_fig = pl.get_ladder(data_ttp)
         slew_animation_figures = pl.get_slew_animation(data_ttp, animationStep=120)
         slew_path_fig = pl.plot_path_2D_interactive(data_ttp)
-        # write the static versions to the reports directory
-        script_table_df.to_csv(os.path.join(saveout, "script_table.csv"), index=False)
-        ladder_fig.write_image(os.path.join(saveout, "ladder_plot.png"), width=1200, height=800)
-        slew_path_fig.write_image(os.path.join(saveout, "slew_path_plot.png"), width=1200, height=800)
-    
+
+        # write the html versions 
+        script_table_html = pl.dataframe_to_html(script_table_df)
+        ladder_html = pio.to_html(ladder_fig, full_html=True, include_plotlyjs='cdn')
+        slew_path_html = pio.to_html(slew_path_fig, full_html=True, include_plotlyjs='cdn')
+
+        # Convert matplotlib figures to GIF and then to HTML
+        gif_frames = []
+        for fig in slew_animation_figures:
+            buf = BytesIO()
+            fig.savefig(buf, format='png', dpi=100)
+            buf.seek(0)
+            gif_frames.append(iio.imread(buf))
+            buf.close()
+        
+        gif_buf = BytesIO()
+        iio.imwrite(gif_buf, gif_frames, format='gif', loop=0, duration=0.3)
+        gif_buf.seek(0)
+        
+        gif_base64 = base64.b64encode(gif_buf.getvalue()).decode('utf-8')
+        slew_animation_html = f'<img src="data:image/gif;base64,{gif_base64}" alt="Observing Animation"/>'
+        gif_buf.close()
+
+        # write out the html files 
+        with open(os.path.join(saveout, "script_table.html"), "w") as f:
+            f.write(script_table_html)
+        with open(os.path.join(saveout, "ladder_plot.html"), "w") as f:
+            f.write(ladder_html)
+        with open(os.path.join(saveout, "slew_animation_plot.html"), "w") as f:
+            f.write(slew_animation_html)
+        with open(os.path.join(saveout, "slew_path_plot.html"), "w") as f:
+            f.write(slew_path_html)
+    else:
+        print(f'No night_planner.pkl found in {semester_directory}/outputs/. No plots will be generated.')
     return
 
 def ttp(args):
@@ -246,14 +304,13 @@ def ttp(args):
         pickle.dump(night_planner, f)
     return
 
-
 def requests_vs_schedule(args):
     cf = args.config_file
     sf = args.schedule_file
     print(f'requests_vs_schedule function: config_file is {cf}')
     print(f'requests_vs_schedule function: schedule_file is {sf}')
     # Create semester planner to get strategy data
-    semester_planner = splan.SemesterPlanner(cf)
+    semester_planner = splan.SemesterPlanner(cf, run_band3=False)
     semester_planner.run_model()
     req = semester_planner.strategy
     sch = pd.read_csv(sf)
@@ -334,8 +391,7 @@ def requests_vs_schedule(args):
     # 5) tau_intra: There must be at least tau_intra slots between successive observations of a target in a single night
         slot_duration = semester_planner.slot_size # Slot duration in minutes
         slots_per_hour = 60/slot_duration
-        tau_intra_hrs = star_request['tau_intra'].values[0] # min num of hours before another obs
-        tau_intra_slots = tau_intra_hrs * slots_per_hour
+        tau_intra_slots = star_request['tau_intra'].values[0] # recall that the tau_intra is already in units of slots
         min_slot_diffs = star_schedule.groupby('d').s.diff().min() # Group by day, then find successive differences between slot numbers in the same day. Differences are not computed between the last slot of one night and the first slot of the next night (those values are NaN). The differences must all be AT LEAST tau_intra.
         if n_intra_max <= 1: # If only 1 obs per night, no risk of spacing obs too closely
             pass
