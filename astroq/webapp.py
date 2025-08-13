@@ -267,7 +267,43 @@ def render_nightplan_page():
     
     figure_html_list = [script_table_html, ladder_html, slew_animation_html, slew_path_html]
 
-    return render_template("nightplan.html", starname=None, figure_html_list=figure_html_list)
+    return render_template("nightplan.html", starname=None, figure_html_list=figure_html_list, 
+                         semester_planner=semester_planner, night_planner=night_planner)
+
+@app.route("/<semester_code>/<date>/<band>/download_nightplan")
+def download_nightplan(semester_code, date, band):
+    """Download the Magiq formatted night plan file"""
+    global uptree_path, semester_planner, night_planner
+    
+    # Validate parameters
+    if band not in ['band1', 'band3']:
+        abort(400, description="Band must be 'band1' or 'band3'")
+    
+    # Load data for this path
+    success, message = load_data_for_path(semester_code, date, band, uptree_path)
+    if not success:
+        return f"Error: {message}", 404
+    
+    if semester_planner is None or night_planner is None:
+        return "Error: No planner data available", 404
+    
+    try:
+        # Construct the path to the script file
+        script_file_path = os.path.join(semester_planner.output_directory, 
+                                      f'script_{night_planner.current_day}_nominal.txt')
+        
+        if not os.path.exists(script_file_path):
+            return "Error: Night plan file not found", 404
+        
+        # Return the file for download
+        from flask import send_file
+        return send_file(script_file_path, 
+                        as_attachment=True,
+                        download_name=f'script_{night_planner.current_day}_nominal.txt',
+                        mimetype='text/plain')
+        
+    except Exception as e:
+        return f"Error downloading file: {str(e)}", 500
 
 def launch_app(uptree_path_param):
     """Launch the Flask app"""
