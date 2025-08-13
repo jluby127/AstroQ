@@ -16,6 +16,34 @@
             margin: 0;
             padding: 2rem;
         }
+        
+        .download-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            border: none;
+            cursor: pointer;
+            display: inline-block;
+        }
+        
+        .download-btn:hover {
+            background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+            color: white;
+            text-decoration: none;
+        }
+        
+        .download-btn:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
 
         .plot-wrapper {
             background-color: white;
@@ -40,7 +68,18 @@
 </head>
 <body>
 
-    <h1>All Plots</h1>
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+        <h1>Night Plan</h1>
+        {% if semester_planner and night_planner %}
+        <a href="{{ url_for('download_nightplan', 
+                           semester_code=request.view_args.semester_code, 
+                           date=request.view_args.date, 
+                           band=request.view_args.band) }}" 
+           class="download-btn">
+            Download Magiq Formatted Night Plan
+        </a>
+        {% endif %}
+    </div>
 
     {% if figure_html_list %}
         {% for fig_html in figure_html_list %}
