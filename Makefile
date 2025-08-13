@@ -16,7 +16,7 @@ RUN_SCRIPT_PATH ?= /path/to/run.sh
 SEMESTER_DIR = $(WORKDIR)/$(SEMESTER)
 DATE_DIR = $(SEMESTER_DIR)/$(DATE)
 HOLDERS_DIR = $(WORKDIR)/holders/$(SEMESTER)/$(DATE)
-# HOLDERS_DIR = s/sdata1701/Schedules/$(SEMESTER)/$(DATE)
+# HOLDERS_DIR = /s/sdata1701/Schedules/$(SEMESTER)/$(DATE)
 
 # Mark config.ini files as precious to prevent automatic deletion
 .PRECIOUS: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/config.ini)
