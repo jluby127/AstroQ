@@ -167,13 +167,25 @@ class NightPlanner(object):
         del solution.gurobi_model                   # remove attribute so pickle works
         self.solution = [solution]
 
-        observe_order_file = os.path.join(observers_path,'night_plan.csv')
-        observe_order_txt = os.path.join(observers_path)#, f"ObserveOrder_{self.current_day}.txt")
-        plotting.writeStarList(solution.plotly, observation_start_time, self.current_day,observe_order_txt)
-        # temporarily open the ObserveOrder file and write in the id numbers.
-        obsord = pd.read_csv(observe_order_txt + f"ObserveOrder_{self.current_day}.txt")
-        obsord['id'] = obsord['Target'].astype(str).apply(lambda x: selected_df[selected_df['starname'] == x]['unique_id'].iloc[0] if x in selected_df['starname'].values else x)
-        obsord.to_csv(observe_order_txt + f"ObserveOrder_{self.current_day}.txt", index=False)
+        observe_order_file = os.path.join(observers_path, f"ObserveOrder_{self.current_day}.txt")
+        # Convert solution.plotly to a DataFrame for easier handling
+        plotly_df = pd.DataFrame(solution.plotly)
+        use_starnames = []
+        use_star_ids = []
+        use_start_exposures = []
+        for i in range(len(plotly_df)):
+            adjusted_timestamp = TimeDelta(plotly_df['Start Exposure'].iloc[i]*60,format='sec') + observation_start_time
+            use_start_exposures.append(str(adjusted_timestamp)[11:16])
+            use_star_ids.append(plotly_df['Starname'].iloc[i])
+            use_starnames.append(plotly_df['Starname'].iloc[i])
+        # Convert solution.extras to a DataFrame for consistency
+        extras_df = pd.DataFrame(solution.extras)
+        for j in range(len(extras_df)):
+            use_start_exposures.append('56:78')
+            use_star_ids.append(solution.extras['Starname'].astype(str).apply(lambda x: selected_df[selected_df['starname'] == x]['unique_id'].iloc[0] if x in selected_df['starname'].values else x))
+            use_starnames.append(solution.extras[j]['Starname'])
+        use_frame = pd.DataFrame({'unique_id': use_star_ids, 'Target': use_starnames, 'StartExposure': use_start_exposures})
+        use_frame.to_csv(observe_order_file, index=False)
 
         # Check if the file was created before trying to read it
         if os.path.exists(observe_order_file):
