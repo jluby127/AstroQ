@@ -13,6 +13,7 @@ from io import BytesIO
 # Third-party imports
 import imageio.v3 as iio
 import numpy as np
+import pandas as pd
 import plotly.io as pio
 from flask import Flask, render_template, request, abort
 from socket import gethostname 
@@ -79,20 +80,21 @@ def index():
     - semester_code is 2025B (for example)
     - date is in format YYYY-MM-DD
     - band is either band1 or band3
-    - page is one of the following: admin, semester_id, star/{starname}, or nightplan
+    - page is one of the following: admin, star/{starname}, nightplan, or {program_code}
     
     Examples:
     - /2025B/2025-01-15/band1/admin
-    - /2025B/2025-01-15/band3/semester_id
     - /2025B/2025-01-15/band1/star/HD4614
     - /2025B/2025-01-15/band3/nightplan
+    - /2025B/2025-01-15/band1/2025B_N001 
     """
     return render_template("homepage.html", navigation_text=navigation_text)
 
 # Dynamic route for all pages
-@app.route("/<semester_code>/<date>/<band>/<page>")
 @app.route("/<semester_code>/<date>/<band>/star/<starname>")
-def dynamic_page(semester_code, date, band, page, starname=None):
+@app.route("/<semester_code>/<date>/<band>/<page>")
+@app.route("/<semester_code>/<date>/<band>/<program_code>")
+def dynamic_page(semester_code, date, band, page=None, starname=None, program_code=None):
     """Handle all dynamic routes based on URL parameters"""
     global uptree_path
     
@@ -105,15 +107,27 @@ def dynamic_page(semester_code, date, band, page, starname=None):
     if not success:
         return f"Error: {message}", 404
     
-    # Route to appropriate page based on 'page' parameter
-    if page == "admin":
-        return render_admin_page()
-    elif page == "semester_id":
-        return render_semester_overview_page()
-    elif page == "star" and starname:
+    # Route to appropriate page based on parameters
+    if starname is not None:
+        # This is a star route
         return render_star_page(starname)
+    elif page == "admin":
+        return render_admin_page()
     elif page == "nightplan":
         return render_nightplan_page()
+    elif program_code is not None:
+        # This is a program route - check if it's a valid program code
+        if program_code in data_astroq[0]:
+            return render_program_page(semester_code, date, band, program_code)
+        else:
+            # If not a program code, treat as a page
+            page = program_code
+            if page == "admin":
+                return render_admin_page()
+            elif page == "nightplan":
+                return render_nightplan_page()
+            else:
+                abort(404, description=f"Page '{page}' not found")
     else:
         abort(404, description=f"Page '{page}' not found")
 
@@ -124,32 +138,57 @@ def render_admin_page():
     
     all_stars_from_all_programs = np.concatenate(list(data_astroq[0].values()))
     
-    tables_html = []
+    # Get request frame table for all stars
+    request_df = pl.get_request_frame(semester_planner, all_stars_from_all_programs)
+    request_table_html = pl.dataframe_to_html(request_df, sort_column='starname')
+    
     fig_cof = pl.get_cof(semester_planner, list(data_astroq[1].values()))
     fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], list(data_astroq[1].values()))
+    fig_football = pl.get_football(semester_planner, all_stars_from_all_programs, use_program_colors=True)
+    fig_tau_inter_line = pl.get_tau_inter_line(semester_planner, all_stars_from_all_programs, use_program_colors=True)
+
     fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
     fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
-    figures_html = [fig_cof_html, fig_birdseye_html]
+    fig_football_html = pio.to_html(fig_football, full_html=True, include_plotlyjs='cdn')
+    fig_tau_inter_line_html = pio.to_html(fig_tau_inter_line, full_html=True, include_plotlyjs='cdn')
+    
+    figures_html = [fig_cof_html, fig_birdseye_html, fig_tau_inter_line_html, fig_football_html]
 
-    return render_template("admin.html", tables_html=tables_html, figures_html=figures_html)
+    return render_template("admin.html", tables_html=[request_table_html], figures_html=figures_html)
 
-def render_semester_overview_page():
-    """Render the semester overview page"""
+def render_program_page(semester_code, date, band, program_code):
+    """Render the program overview page for a specific program"""
     if data_astroq is None:
         return "Error: No data available", 404
     
-    # Get all programs
-    programs = list(data_astroq[0].keys())
+    # Get all stars in the specified program
+    if program_code not in data_astroq[0]:
+        return f"Error: Program {program_code} not found", 404
     
-    # Create overview figures
-    all_stars_list = list(data_astroq[1].values())
-    fig_cof = pl.get_cof(semester_planner, all_stars_list)
-    fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], all_stars_list)
+    program_stars = data_astroq[0][program_code]
+    
+    # Get request frame table for this program's stars
+    request_df = pl.get_request_frame(semester_planner, program_stars)
+    request_table_html = pl.dataframe_to_html(request_df, sort_column='starname')
+    
+    # Create overview figures for this program
+    fig_cof = pl.get_cof(semester_planner, program_stars)
+    fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], program_stars)
+    fig_tau_inter_line = pl.get_tau_inter_line(semester_planner, program_stars)
+    fig_football = pl.get_football(semester_planner, program_stars)
+
     fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
     fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
-    figures_html = [fig_cof_html, fig_birdseye_html]
+    fig_tau_inter_line_html = pio.to_html(fig_tau_inter_line, full_html=True, include_plotlyjs='cdn')
+    fig_football_html = pio.to_html(fig_football, full_html=True, include_plotlyjs='cdn')
+
+    figures_html = [fig_cof_html, fig_birdseye_html, fig_tau_inter_line_html, fig_football_html]
     
-    return render_template("semesterplan.html", programname=None, tables_html=[], figures_html=figures_html, programs=programs)
+    return render_template("semesterplan.html", 
+                         programname=program_code, 
+                         tables_html=[request_table_html], 
+                         figures_html=figures_html, 
+                         programs=[program_code])
 
 def render_star_page(starname):
     """Render a specific star page"""
@@ -167,15 +206,22 @@ def render_star_page(starname):
             object_compare_starname = true_starname.lower().replace(' ', '')
             
             if object_compare_starname == compare_starname:
-                table_reqframe_html = pl.get_requests_frame(semester_planner, filter_condition=f"starname=='{true_starname}'")
+                # Get request frame table for this specific star
+                request_df = pl.get_request_frame(semester_planner, [star_obj])
+                request_table_html = pl.dataframe_to_html(request_df, sort_column='starname')
 
                 fig_cof = pl.get_cof(semester_planner, [data_astroq[0][program][star_ind]])
                 fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], [star_obj])
+                fig_tau_inter_line = pl.get_tau_inter_line(semester_planner, [star_obj])
+                fig_football = pl.get_football(semester_planner, [star_obj])
+
                 fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
                 fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
+                fig_tau_inter_line_html = pio.to_html(fig_tau_inter_line, full_html=True, include_plotlyjs='cdn')
+                fig_football_html = pio.to_html(fig_football, full_html=True, include_plotlyjs='cdn')
 
-                tables_html = [table_reqframe_html]
-                figures_html = [fig_cof_html, fig_birdseye_html]
+                tables_html = [request_table_html]
+                figures_html = [fig_cof_html, fig_birdseye_html, fig_tau_inter_line_html, fig_football_html]
 
                 return render_template("star.html", starname=true_starname, tables_html=tables_html, figures_html=figures_html)
     
@@ -230,3 +276,5 @@ def launch_app(uptree_path_param):
     else:
         app.run(debug=True, use_reloader=True, port=50001)
 
+if __name__ == "__main__":
+    launch_app(".")
