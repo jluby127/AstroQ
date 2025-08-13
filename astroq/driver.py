@@ -95,7 +95,7 @@ def kpfcc_prep(args):
         awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())] 
     else:
         print(f'Using allocation information from file: {allo_source}')
-        hours_by_program = ac.format_keck_allocation_info(allo_source, savepath+allocation_file)
+        hours_by_program = ob.format_keck_allocation_info(allo_source, savepath+allocation_file)
         awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())]
     
     # Check if current_day exists in allocation file, add if missing    
@@ -242,7 +242,7 @@ def plot(args):
         data_ttp = night_planner.solution
 
         # build the plots
-        script_table_df = pl.get_script_plan2(night_planner)
+        script_table_df = pl.get_script_plan(night_planner)
         ladder_fig = pl.get_ladder(data_ttp)
         slew_animation_figures = pl.get_slew_animation(data_ttp, animationStep=120)
         slew_path_fig = pl.plot_path_2D_interactive(data_ttp)

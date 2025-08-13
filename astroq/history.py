@@ -125,59 +125,6 @@ def write_OB_histories_to_csv_JUMP(requests_frame, jump_file, output_file):
     out_df.to_csv(output_file, index=False)
     return out_df
 
-def process_star_history_dict(history_dict, output_csv):
-    """
-    Given a dict with a 'history' key (list of visit dicts), write a CSV with columns:
-      id, date_last_observed, total_n_exposures, total_n_visits, total_n_unique_nights, total_open_shutter_time
-    Each row is for one target (star).
-    """
-    history = history_dict['history']
-    # Group all visits by target
-    from collections import defaultdict
-    star_visits = defaultdict(list)
-    for visit in history:
-        starname = visit.get('target', 'UNKNOWN')
-        star_visits[starname].append(visit)
-
-    rows = []
-    for starname, visits in star_visits.items():
-        # Filter out visits where >= half of 'junk' is True
-        filtered_visits = []
-        for v in visits:
-            junk = v.get('junk', None)
-            if junk is not None and len(junk) > 0:
-                if sum(junk) >= len(junk) / 2:
-                    continue  # skip this visit
-            filtered_visits.append(v)
-        if not filtered_visits:
-            continue
-        star_id = filtered_visits[0].get('id', starname)
-        all_times = [Time(t) for v in filtered_visits for t in v.get('exposure_start_times', [])]
-        # Adjust UT time to local timezone
-        ut_time = max(all_times) if all_times else None
-        if ut_time:
-            # Subtract timezone offset (negative offset means local time is behind UT)
-            local_time = ut_time - TimeDelta(abs(TIMEZONE_OFFSET_HOURS) / 24, format='jd')
-            date_last_observed = local_time.isot[:10]
-        else:
-            date_last_observed = ''
-        total_n_exposures = sum(len(v.get('exposure_start_times', [])) for v in filtered_visits)
-        total_n_visits = len(filtered_visits)
-        unique_nights = set(Time(t).isot[:10] for v in filtered_visits for t in v.get('exposure_start_times', []))
-        total_n_unique_nights = len(unique_nights)
-        total_open_shutter_time = int(round(sum(sum(v.get('exposure_times', [])) for v in filtered_visits)))
-        rows.append({
-            'id': star_id,
-            'date_last_observed': date_last_observed,
-            'total_n_exposures': total_n_exposures,
-            'total_n_visits': total_n_visits,
-            'total_n_unique_nights': total_n_unique_nights,
-            'total_open_shutter_time': total_open_shutter_time
-        })
-    df = pd.DataFrame(rows)
-    df.to_csv(output_csv, index=False)
-    return df
-
 def process_star_history(filename):
     """
     Given a CSV file (output of write_OB_histories_to_csv), return a dict:

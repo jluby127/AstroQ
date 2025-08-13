@@ -64,28 +64,6 @@ def pull_OBs(semester):
     except:
         print("ERROR")
         return
-
-def pull_OB_histories(semester):
-    """
-    Pull the latest database OBs down to local.
-
-    Args:
-        semester (str) - the semester from which to query OBs, format YYYYL
-        histories (bool) - if True, pull the history of OBs for the semester, if False, pull the latest OBs for the semester
-
-    Returns:
-        data (json) - the OB information in json format
-    """
-    url = "https://www3.keck.hawaii.edu/api/kpfcc/getObservingBlockHistory"
-    params = {}
-    params["semester"] = semester
-    try:
-        data = requests.get(url, params=params, auth=(os.environ['KECK_OB_DATABASE_API_USERNAME'], os.environ['KECK_OB_DATABASE_API_PASSWORD']))
-        data = data.json()
-        return data
-    except:
-        print("ERROR")
-        return
         
 def pull_allocation_info(start_date, numdays, instrument, savepath):
     params = {}
@@ -121,6 +99,48 @@ def pull_allocation_info(start_date, numdays, instrument, savepath):
         hours_by_program = {}
     os.makedirs(os.path.dirname(savepath), exist_ok=True)
     allocation_frame.to_csv(savepath, index=False)
+    return hours_by_program
+
+def format_keck_allocation_info(allocation_file, savepath):
+    """
+    Read in allocation file and parse start/stop times to calculate hours by program.
+    
+    Args:
+        allocation_file (str): the path and filename to the downloaded csv
+        savepath (str): the path and filename where to save the processed allocation data
+        
+    Returns:
+        hours_by_program (dict): dictionary mapping ProjCode to total hours
+    """
+    allocation = pd.read_csv(allocation_file)
+    
+    # Parse the Time column to extract start and stop times
+    # Pattern: "10:28 - 15:07 ( 50%)"
+    pattern = r'(\d{2}:\d{2}) - (\d{2}:\d{2}) \(\s*(\d{2,3})%\)'
+    allocation[['Start', 'Stop', 'Percentage']] = allocation['Time'].str.extract(pattern)
+    
+    # Convert start and stop times to datetime for hour calculation
+    allocation['start'] = pd.to_datetime(allocation['Date'] + ' ' + allocation['Start']).dt.strftime('%Y-%m-%dT%H:%M')
+    allocation['stop'] = pd.to_datetime(allocation['Date'] + ' ' + allocation['Stop']).dt.strftime('%Y-%m-%dT%H:%M')
+    
+    # Calculate hours for each row
+    start_times = pd.to_datetime(allocation['start'])
+    stop_times = pd.to_datetime(allocation['stop'])
+    hours_per_row = (stop_times - start_times).dt.total_seconds() / 3600
+    
+    # Add hours to the dataframe
+    allocation['hours'] = hours_per_row
+    
+    # Create allocation frame with start/stop times for saving
+    allocation_frame = allocation[['start', 'stop']].copy()
+    
+    # Ensure the directory exists before saving
+    os.makedirs(os.path.dirname(savepath), exist_ok=True)
+    allocation_frame.to_csv(savepath, index=False)
+    
+    # Calculate total hours per ProjCode
+    hours_by_program = allocation.groupby('ProjCode')['hours'].sum().round(3).to_dict()
+    
     return hours_by_program
 
 def get_request_sheet(OBs, awarded_programs, savepath):

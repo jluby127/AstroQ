@@ -62,6 +62,7 @@ class SemesterPlanner(object):
         self.gurobi_output = config.getboolean('semester', 'show_gurobi_output')
         self.solve_max_gap = config.getfloat('semester', 'max_solve_gap')
         self.max_bonus = config.getfloat('semester', 'maximum_bonus_size')
+        self.run_bonus_round = config.getboolean('semester', 'run_bonus_round')
         
         # Output directory
         self.output_directory = workdir + "outputs/"
@@ -675,6 +676,13 @@ class SemesterPlanner(object):
         self.build_model_round1()
         self.optimize_model()
         self.serialize_results_csv()
+        logs.info("Round 1 complete.")
+        if self.run_bonus_round:
+            self.round_info = 'Round2'
+            self.build_model_round2()
+            self.optimize_model()
+            self.serialize_results_csv()
+            logs.info("Round 2 complete.")
         logs.info("Scheduling complete, clear skies!")
 
     def build_model_round1(self):

@@ -234,7 +234,7 @@ def render_nightplan_page():
     
     plots = ['script_table', 'slewgif', 'ladder', 'slewpath']
 
-    script_table_df = pl.get_script_plan2(night_planner)
+    script_table_df = pl.get_script_plan(night_planner)
     ladder_fig = pl.get_ladder(data_ttp)
     slew_animation_figures = pl.get_slew_animation(data_ttp, animationStep=120)
     slew_path_fig = pl.plot_path_2D_interactive(data_ttp)
