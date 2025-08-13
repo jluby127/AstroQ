@@ -140,7 +140,7 @@ def render_admin_page():
     
     # Get request frame table for all stars
     request_df = pl.get_request_frame(semester_planner, all_stars_from_all_programs)
-    request_table_html = pl.dataframe_to_html(request_df, sort_column='starname')
+    request_table_html = pl.dataframe_to_html(request_df)
     
     fig_cof = pl.get_cof(semester_planner, list(data_astroq[1].values()))
     fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], list(data_astroq[1].values()))
@@ -169,7 +169,7 @@ def render_program_page(semester_code, date, band, program_code):
     
     # Get request frame table for this program's stars
     request_df = pl.get_request_frame(semester_planner, program_stars)
-    request_table_html = pl.dataframe_to_html(request_df, sort_column='starname')
+    request_table_html = pl.dataframe_to_html(request_df)
     
     # Create overview figures for this program
     fig_cof = pl.get_cof(semester_planner, program_stars)
@@ -208,7 +208,7 @@ def render_star_page(starname):
             if object_compare_starname == compare_starname:
                 # Get request frame table for this specific star
                 request_df = pl.get_request_frame(semester_planner, [star_obj])
-                request_table_html = pl.dataframe_to_html(request_df, sort_column='starname')
+                request_table_html = pl.dataframe_to_html(request_df)
 
                 fig_cof = pl.get_cof(semester_planner, [data_astroq[0][program][star_ind]])
                 fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], [star_obj])
@@ -234,13 +234,16 @@ def render_nightplan_page():
     
     plots = ['script_table', 'slewgif', 'ladder', 'slewpath']
 
-    script_table_df = pl.get_script_plan(semester_planner, data_ttp)
+    # script_table_df = pl.get_script_plan(semester_planner, data_ttp)
+    script_table_df = pl.get_script_plan2(semester_planner, night_planner)
+
     ladder_fig = pl.get_ladder(data_ttp)
     slew_animation_figures = pl.get_slew_animation(data_ttp, animationStep=120)
     slew_path_fig = pl.plot_path_2D_interactive(data_ttp)
     
-    # Convert dataframe to HTML
-    script_table_html = pl.dataframe_to_html(script_table_df, sort_column=11)
+    # Convert dataframe to HTML with unique table ID
+    # Sort by starname (index 2) for better readability
+    script_table_html = pl.dataframe_to_html(script_table_df, sort_column=0, page_size=100, table_id='script-table')
     # Convert figures to HTML
     ladder_html = pio.to_html(ladder_fig, full_html=True, include_plotlyjs='cdn')
     slew_path_html = pio.to_html(slew_path_fig, full_html=True, include_plotlyjs='cdn')
