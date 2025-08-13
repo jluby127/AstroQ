@@ -99,12 +99,23 @@ class SemesterPlanner(object):
             self.custom_file = custom_file_config
         else:
             self.custom_file = os.path.join(self.semester_directory, custom_file_config)
+
+        # # Set up file paths from data section
+        # self.allocation_file = os.path.join(self.semester_directory, str(config.get('data', 'allocation_file')))
+
+        # if self.run_band3:
+        #     self.request_file = str(config.get('data', 'filler_file'))
+        #     self.add_twilights()
+        # else:
+        #     self.request_file = str(config.get('data', 'request_file'))
+        # self.past_file = str(config.get('data', 'past_file'))
+        # self.custom_file = str(config.get('data', 'custom_file'))
         
         # Load data files
-        requests_file_path = os.path.join(self.semester_directory, self.request_file)
-        if not os.path.exists(requests_file_path):
-            raise FileNotFoundError(f"Requests file not found: {requests_file_path}")
-        self.requests_frame = pd.read_csv(requests_file_path)
+        # requests_file_path = os.path.join(self.semester_directory, self.request_file)
+        if not os.path.exists(self.request_file):
+            raise FileNotFoundError(f"Requests file not found: {self.request_file}")
+        self.requests_frame = pd.read_csv(self.request_file)
 
         # Fill NaN values with defaults --- for now in early 2025B since we had issues with the webform.c
         # Replace "None" strings with NaN first, then fill with defaults

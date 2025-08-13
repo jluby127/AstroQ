@@ -68,7 +68,7 @@ def main():
                               required=True,
                               help="Relative path of config file."
                               )
-    psr_plot.set_defaults(func=astroq.driver.plot_pkl)
+    psr_plot.set_defaults(func=astroq.driver.plot)
 
 
     ## subcommand of astroq: kpfcc -- Do KPFCC stuff

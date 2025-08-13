@@ -208,8 +208,9 @@ class Access:
         # run the weather loss simulation
         is_clear = np.ones_like(is_altaz, dtype=bool)
         if self.run_weather_loss:
-            get_loss_stats(self)
-            is_clear = simulate_weather_losses(self, covariance=0.14)
+            self.get_loss_stats()
+            is_clear = self.simulate_weather_losses(covariance=0.14)
+            is_clear = np.tile(is_clear[np.newaxis, :, :], (ntargets, 1, 1))
         else:
             logs.info("Pretending weather is always clear!")
 
