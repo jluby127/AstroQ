@@ -1126,16 +1126,20 @@ def get_script_plan(night_planner):
     
     # Round numeric fields to appropriate decimal places
     if 'ra' in final_df.columns:
-        final_df['ra'] = final_df['ra'].round(3)
+        # Ensure ra is numeric before rounding
+        final_df['ra'] = pd.to_numeric(final_df['ra'], errors='coerce').round(3)
     
     if 'dec' in final_df.columns:
-        final_df['dec'] = final_df['dec'].round(3)
+        # Ensure dec is numeric before rounding
+        final_df['dec'] = pd.to_numeric(final_df['dec'], errors='coerce').round(3)
     
     if 'jmag' in final_df.columns:
-        final_df['jmag'] = final_df['jmag'].round(1)
+        # Ensure jmag is numeric before rounding
+        final_df['jmag'] = pd.to_numeric(final_df['jmag'], errors='coerce').round(1)
     
     if 'gmag' in final_df.columns:
-        final_df['gmag'] = final_df['gmag'].round(1)
+        # Ensure gmag is numeric before rounding
+        final_df['gmag'] = pd.to_numeric(final_df['gmag'], errors='coerce').round(1)
     
     # Convert time fields from "minutes from start of night" to HST timestamps
     try:
