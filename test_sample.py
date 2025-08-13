@@ -39,6 +39,7 @@ class TestClass(unittest.TestCase):
 
     def test_prep(self):
         dr.kpfcc_prep(argparse.Namespace(config_file='examples/hello_world/config_hello_world_prep.ini', allo_source='db', past_source='db', band3_program_code='2025B_E473'))
+        dr.kpfcc_prep(argparse.Namespace(config_file='examples/hello_world/config_hello_world_prep.ini', allo_source='examples/hello_world/prepped/observatory_schedule.csv', past_source='examples/hello_world/prepped/jump_past_history.csv', band3_program_code='2025B_E473'))
 
     def test_plot(self):
         dr.plot(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
@@ -47,11 +48,11 @@ class TestClass(unittest.TestCase):
         sch = 'examples/hello_world/outputs/semester_plan.csv'
         dr.requests_vs_schedule(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini', schedule_file=sch))
 
-    # this is not working right now.
+    # # this is not working right now.
     # def test_simulate_history(self):
     #     dr.make_simulated_history(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
 
-    # we don't care about OIA yet
+    # # we don't care about OIA yet
     # def test_oia(self):
     #     dr.kpfcc_prep(argparse.Namespace(config_file='examples/recreate_paper/oia1/config_oia1.ini'))
     #     dr.kpfcc_build(argparse.Namespace(config_file='examples/recreate_paper/oia1/config_oia1.ini'))
