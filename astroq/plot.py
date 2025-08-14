@@ -1126,19 +1126,23 @@ def get_script_plan(night_planner):
     
     # Round numeric fields to appropriate decimal places
     if 'ra' in final_df.columns:
-        # Ensure ra is numeric before rounding
+        # Ensure ra is numeric before rounding, handle 'None' strings
+        final_df['ra'] = final_df['ra'].replace('None', pd.NA)
         final_df['ra'] = pd.to_numeric(final_df['ra'], errors='coerce').round(3)
     
     if 'dec' in final_df.columns:
-        # Ensure dec is numeric before rounding
+        # Ensure dec is numeric before rounding, handle 'None' strings
+        final_df['dec'] = final_df['dec'].replace('None', pd.NA)
         final_df['dec'] = pd.to_numeric(final_df['dec'], errors='coerce').round(3)
     
     if 'jmag' in final_df.columns:
-        # Ensure jmag is numeric before rounding
+        # Ensure jmag is numeric before rounding, handle 'None' strings
+        final_df['jmag'] = final_df['jmag'].replace('None', pd.NA)
         final_df['jmag'] = pd.to_numeric(final_df['jmag'], errors='coerce').round(1)
     
     if 'gmag' in final_df.columns:
-        # Ensure gmag is numeric before rounding
+        # Ensure gmag is numeric before rounding, handle 'None' strings
+        final_df['gmag'] = final_df['gmag'].replace('None', pd.NA)
         final_df['gmag'] = pd.to_numeric(final_df['gmag'], errors='coerce').round(1)
     
     # Convert time fields from "minutes from start of night" to HST timestamps
@@ -1172,8 +1176,8 @@ def get_script_plan(night_planner):
         print(f"Warning: Could not convert time fields to HST timestamps: {e}")
         print("Time fields will remain as minutes from start of night")
     
-    # Handle missing values similar to the original function
-    final_df = final_df.replace(['', 'NoGaiaName'], pd.NA)
+    # Handle missing values and 'None' strings
+    final_df = final_df.replace(['', 'NoGaiaName', 'None'], pd.NA)
     
     return final_df
 
