@@ -89,8 +89,8 @@ copy_observe_orders:
 	@echo "📋 Copying ObserveOrder files to holders directories..."
 	@for band in $(BANDS); do \
 		echo "📋 Copying ObserveOrder file for band $$band..."; \
-		mkdir -p $(HOLDERS_DIR)/$$band/outputs; \
-		cp $(DATE_DIR)/$$band/outputs/ObserveOrder_$(DATE).txt $(HOLDERS_DIR)/$$band/outputs/night_plan.csv; \
+		mkdir -p $(HOLDERS_DIR)/$$band/output; \
+		cp $(DATE_DIR)/$$band/outputs/ObserveOrder_$(DATE).txt $(HOLDERS_DIR)/$$band/output/night_plan.csv; \
 		echo "✅ ObserveOrder file copied for band $$band"; \
 	done
 	@echo "✅ All ObserveOrder files copied to holders directories!"
