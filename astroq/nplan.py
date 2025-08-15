@@ -177,12 +177,12 @@ class NightPlanner(object):
             adjusted_timestamp = TimeDelta(plotly_df['Start Exposure'].iloc[i]*60,format='sec') + observation_start_time
             use_start_exposures.append(str(adjusted_timestamp)[11:16])
             use_star_ids.append(selected_df[selected_df['starname'] == plotly_df['Starname'].iloc[i]]['unique_id'].iloc[0])
-            use_starnames.append(plotly_df['Starname'].iloc[i])
+            use_starnames.append(str(plotly_df['Starname'].iloc[i]))
         # Convert solution.extras to a DataFrame for consistency
         extras_df = pd.DataFrame(solution.extras)
         for j in range(len(extras_df)):
-            use_start_exposures.append('56:78')
-            starname = extras_df['Starname'].iloc[j]
+            use_start_exposures.append('24:00')
+            starname = str(extras_df['Starname'].iloc[j])
             unique_id = selected_df[selected_df['starname'] == starname]['unique_id'].iloc[0]
             use_star_ids.append(unique_id)
             use_starnames.append(starname)
