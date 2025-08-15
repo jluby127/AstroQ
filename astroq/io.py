@@ -210,7 +210,7 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
             filler_flag = False
         row = frame.loc[frame['starname'] == extras['Starname'][j]]
         row.reset_index(inplace=True)
-        lines.append(format_kpf_row(row, '56:78', extras['First Available'][j],
+        lines.append(format_kpf_row(row, '24:00', extras['First Available'][j],
                     extras['Last Available'][j], current_day, filler_flag, True))
 
     # add buffer lines to end of file
@@ -306,7 +306,7 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
         timestring2 = str(obs_time)
     else:
         # designate a nonsense time
-        timestring2 = "56:78"
+        timestring2 = "24:00"
 
     line = (namestring + ' ' + updated_ra + ' ' + updated_dec + ' ' + str(equinox) + ' '
                 + jmagstring + ' ' + exposurestring + ' ' + ofstring + ' ' + scstring +  ' '
