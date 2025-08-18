@@ -320,8 +320,8 @@ def requests_vs_schedule(args):
                              "At least one pair of rows corresponds to "
                              "the same day and slot.")
     assert sch.groupby(['d','s']).size().max()<=1, no_duplicate_slot_err
-    for star in req.id:
-        star_request = req.query(f"id=='{star}'")
+    for star in req.unique_id:
+        star_request = req.query(f"unique_id=='{star}'")
         star_schedule = sch.query(f"r=='{star}'") # Only the slots with the star listed
 
         # A star might not be scheduled at all. This does not violate constraints, but should be noted.
@@ -357,7 +357,7 @@ def requests_vs_schedule(args):
 
     # 3) n_intra_min, n_intra_max: N obs per day is between n_intra_min and n_intra_max
         # t_visit, the number of slots required to complete a single observation (aka visit)
-        t_visit = req[req.id==star].t_visit.values
+        t_visit = req[req.unique_id==star].t_visit.values
         # Upper/lower limits on N obs per day
         n_intra_min, n_intra_max = star_request[['n_intra_min', 'n_intra_max']].values[0]
         # Scheduled min/max number of obs per day
