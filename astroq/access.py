@@ -104,7 +104,7 @@ class Access:
 
         # Determine observability
         coords = apy.coordinates.SkyCoord(rf.ra * u.deg, rf.dec * u.deg, frame='icrs')
-        targets = apl.FixedTarget(name=rf.starname, coord=coords)
+        targets = apl.FixedTarget(name=rf.unique_id, coord=coords)
         keck = apl.Observer.at_site(self.observatory)
 
         # Set up time grid for one night, first night of the semester
@@ -161,17 +161,17 @@ class Access:
             custom_times_frame = pd.read_csv(self.custom_file)
             # Check if the file has any data rows (not just header)
             if len(custom_times_frame) > 0:
-                starname_to_index = {name: idx for idx, name in enumerate(rf['starname'])}
+                starid_to_index = {name: idx for idx, name in enumerate(rf['unique_id'])}
                 custom_times_frame['start'] = custom_times_frame['start'].apply(Time)
                 custom_times_frame['stop'] = custom_times_frame['stop'].apply(Time)
                 for _, row in custom_times_frame.iterrows():
-                    starname = row['starname']
+                    starid = row['unique_id']
                     # Skip if the star is not in the current requests frame
-                    if starname not in starname_to_index:
-                        print(f"Warning: Star '{starname}' in custom times file not found in requests frame, skipping")
+                    if starid not in starid_to_index:
+                        print(f"Warning: Star {row['starname']} with unique_id '{starid}' in custom times file not found in requests frame, skipping")
                         continue
                     mask = (slotmidpoint >= row['start']) & (slotmidpoint <= row['stop'])
-                    star_ind = starname_to_index[starname]
+                    star_ind = starid_to_index[starid]
                     current_map = is_custom[star_ind]
                     if np.all(current_map):  # If all ones, first interval: restrict with AND
                         is_custom[star_ind] = mask
@@ -185,7 +185,7 @@ class Access:
         # Set to False if internight cadence is violated
         is_inter = np.ones((ntargets, nnights, nslots),dtype=bool)
         for itarget in range(ntargets):
-            name = rf.iloc[itarget]['starname']
+            name = rf.iloc[itarget]['unique_id']
             if name in self.past_history and rf.iloc[itarget]['tau_inter'] > 1:
                 inight_start = self.all_dates_dict[self.past_history[name].date_last_observed]
                 inight_stop = min(inight_start + rf.iloc[itarget]['tau_inter'],nnights)
@@ -230,7 +230,7 @@ class Access:
         is_observable = is_observable_now.copy()
         if running_backup_stars == False:
             for itarget in range(ntargets):
-                e_val = self.slots_needed_for_exposure_dict[rf.iloc[itarget]['starname']]
+                e_val = self.slots_needed_for_exposure_dict[rf.iloc[itarget]['unique_id']]
                 if e_val == 1:
                     continue
                 for shift in range(1, e_val):
@@ -277,8 +277,8 @@ class Access:
              'islot':islot.flatten()}
         )
         df['is_observable'] = access.is_observable.flatten()
-        df = pd.merge(requests_frame[['starname']].reset_index(drop=True),df,left_index=True,right_on='itarget')
-        namemap = {'starname':'id','inight':'d','islot':'s'}
+        df = pd.merge(requests_frame[['unique_id']].reset_index(drop=True),df,left_index=True,right_on='itarget')
+        namemap = {'starid':'unique_id','inight':'d','islot':'s'}
         df = df.query('is_observable').rename(columns=namemap)[namemap.values()]
         return df
 

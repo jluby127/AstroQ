@@ -53,15 +53,15 @@ class StarPlotter(object):
         from which we can easily produce plots dynamically.
     """
 
-    def __init__(self, name):
-        self.starname = name
+    def __init__(self, unique_id):
+        self.unique_id = unique_id
 
     def get_stats(self, requests_frame, slot_size):
         """
         Grab the observational stategy information for a given star
 
         Args:
-            starname (str): the name of the star in question
+
 
         Returns:
             expected_nobs_per_night (int): how many exposures we expect to take
@@ -70,7 +70,8 @@ class StarPlotter(object):
             slots_per_night (int): number of slots required to complete all exposures in a night
             program (str): the program code
         """
-        index = requests_frame.loc[requests_frame['starname'] == self.starname].index
+        index = requests_frame.loc[requests_frame['unique_id'] == self.unique_id].index
+        self.starname = requests_frame['starname'][index].values[0]
         self.ra = float(requests_frame['ra'][index].values[0])
         self.dec = float(requests_frame['dec'][index].values[0])
         self.program = str(requests_frame['program_code'][index].values[0])
@@ -93,7 +94,7 @@ class StarPlotter(object):
             None. Sets self.observations_past as a dict: {date: n_obs}
         """
         # Filter to this star
-        star_obs_past = past[past['target'] == str(self.starname)]
+        star_obs_past = past[past['target'] == str(self.unique_id)]
         # Parse date from timestamp and group by date
         star_obs_past = star_obs_past.copy()
         star_obs_past['date'] = star_obs_past['timestamp'].str[:10]
@@ -112,7 +113,7 @@ class StarPlotter(object):
         forecast_df['r'] = forecast_df['r'].astype(str)
 
         # Only keep rows for this star
-        star_rows = forecast_df[forecast_df['r'] == str(self.starname)]
+        star_rows = forecast_df[forecast_df['r'] == str(self.unique_id)]
         # Count number of slots scheduled per night (d)
         observations_future = {}
         for d, group in star_rows.groupby('d'):
@@ -127,18 +128,18 @@ class StarPlotter(object):
     def get_map(self, semester_planner):
         """
         Build the starmap for this star using the new schedule format (future_forecast DataFrame with columns r, d, s).
-        Only set starmap[d, s] = 1 if sched['r'] == self.starname.
+        Only set starmap[d, s] = 1 if sched['r'] == self.unique_id.
         """
         forecast_df = pd.read_csv(semester_planner.output_directory + semester_planner.future_forecast)
         n_nights = semester_planner.semester_length
         n_slots = int((24 * 60) / semester_planner.slot_size)
         starmap = np.zeros((n_nights, n_slots), dtype=int)
         for _, sched in forecast_df.iterrows():
-            if str(sched['r']) == str(self.starname):
+            if str(sched['r']) == str(self.unique_id):
                 d = int(sched['d'])
                 s = int(sched['s'])
                 starmap[d, s] = 1
-                reserve_slots = semester_planner.slots_needed_for_exposure_dict[str(self.starname)]
+                reserve_slots = semester_planner.slots_needed_for_exposure_dict[str(self.unique_id)]
                 for r in range(1, reserve_slots):
                     starmap[d, s+r] = 1
         self.starmap = starmap.T
@@ -167,11 +168,11 @@ def process_stars(semester_planner):
     i = 0 
     for i, row in semester_planner.requests_frame.iterrows():
         # Create a StarPlotter object for each request, fill and compute relavant information
-        newstar = StarPlotter(row['starname'])
+        newstar = StarPlotter(row['unique_id'])
         newstar.get_map(semester_planner)
         newstar.get_stats(semester_planner.requests_frame, semester_planner.slot_size)
-        if newstar.starname in list(semester_planner.past_history.keys()):
-            newstar.observations_past = semester_planner.past_history[newstar.starname].n_visits_on_nights
+        if newstar.unique_id in list(semester_planner.past_history.keys()):
+            newstar.observations_past = semester_planner.past_history[newstar.unique_id].n_visits_on_nights
         else:
             newstar.observations_past = {}
         newstar.get_future(semester_planner.output_directory + semester_planner.future_forecast, semester_planner.all_dates_array)
@@ -197,7 +198,7 @@ def process_stars(semester_planner):
         newstar.draw_lines = False
         newstar.maps_names = ['is_alloc', 'is_custom', 'is_altaz', 'is_moon', 'is_inter', 'is_future', 'is_clear', 'is_observable_now']
         # Find the target index for this star in the access record
-        target_idx = np.where(semester_planner.requests_frame['starname'] == newstar.starname)[0][0]
+        target_idx = np.where(semester_planner.requests_frame['unique_id'] == newstar.unique_id)[0][0]
         # Extract the 2D slice for this specific target from each 3D map
         newstar.maps = {name: access[name][target_idx] for name in newstar.maps_names}
         newstar.allow_mapview = True
@@ -217,6 +218,7 @@ def process_stars(semester_planner):
 
         # This is the quasi-StarPlotter object definition
         programmatic_star = StarPlotter(all_stars[prog_indices[0]].program)
+        programmatic_star.starname = all_stars[prog_indices[0]].program
         programmatic_star.program = all_stars[prog_indices[0]].program
 
         # Compute the COF data for all stars in the given program
@@ -605,6 +607,7 @@ def compute_seasonality(semester_planner, starnames, ras, decs):
     # Create a temporary requests frame from the input parameters
     temp_requests_frame = pd.DataFrame({
         'starname': starnames,
+        'unique_id': starnames,
         'ra': ras,
         'dec': decs,
         'exptime': [300] * len(starnames),  # Default values
@@ -892,11 +895,11 @@ def get_request_frame(semester_planner, all_stars):
         pd.DataFrame: filtered request frame with only the specified stars
     """
     # Extract starnames from the StarPlotter objects
-    starnames = [star.starname for star in all_stars]
+    starids = [star.unique_id for star in all_stars]
     
     # Filter the request frame to only include the specified stars
     filtered_frame = semester_planner.requests_frame[
-        semester_planner.requests_frame['starname'].isin(starnames)
+        semester_planner.requests_frame['unique_id'].isin(starids)
     ].copy()
     
     return filtered_frame
@@ -929,7 +932,7 @@ def get_ladder(data):
                 '1':'blue'}
 
     # build the outline of the plot, add dummy points that are not displyed within the x/y limits so as to fill in the legend
-    fig = px.scatter(orderData, x='Minutes the from Start of the Night', y="Starname", hover_data=['First Available', 'Last Available', 'Exposure Time (min)', "N_shots", "Total Exp Time (min)"] ,title='Night Plan', width=800, height=1000) #color='Program'
+    fig = px.scatter(orderData, x='Minutes the from Start of the Night', y="human_starname", hover_data=['First Available', 'Last Available', 'Exposure Time (min)', "N_shots", "Total Exp Time (min)"] ,title='Night Plan', width=800, height=1000) #color='Program'
     fig.add_shape(type="rect", x0=-100, x1=-80, y0=-0.5, y1=0.5, fillcolor='red', showlegend=True, name='Expose P1')
     fig.add_shape(type="rect", x0=-100, x1=-80, y0=-0.5, y1=0.5, fillcolor='blue', showlegend=True, name='Expose P3')
     fig.add_shape(type="rect", x0=-100, x1=-80, y0=-0.5, y1=0.5, fillcolor='lime', opacity=0.3, showlegend=True, name='Accessible')
@@ -938,7 +941,6 @@ def get_ladder(data):
     ifixer = 0 # for multi-visit targets, it throws off the one row per target plotting...this fixes it
     for i in range(len(orderData['Starname'])):
         if orderData['Starname'][i] not in new_already_processed:
-            counter1 = list(orderData['Starname']).count(orderData['Starname'][i])
             # find all the times in the night when the star is being visited
             indices = [k for k in range(len(orderData['Starname'])) if orderData['Starname'][k] == orderData['Starname'][i]]
             for j in range(len(indices)):
@@ -1090,16 +1092,7 @@ def get_script_plan(night_planner):
     
     # Read the request_selected.csv file
     request_selected_df = pd.read_csv(request_selected_path)
-    
-    # # Get the first solution from the night planner
-    # if not hasattr(night_planner, 'solution') or not night_planner.solution:
-    #     raise ValueError("Night planner has no solution attribute or solution is empty")
-    
     solution = night_planner.solution[0]  # First index as specified
-    
-    # # Check if solution has plotly attribute (which contains the schedule)
-    # if not hasattr(solution, 'plotly') or not hasattr(solution.plotly, 'schedule'):
-    #     raise ValueError("Solution does not have expected plotly.schedule structure")
     
     # Extract the schedule from the solution and convert to a DataFrame
     solution_schedule = solution.plotly
@@ -1108,7 +1101,7 @@ def get_script_plan(night_planner):
     # Merge the solution DataFrame with the request_selected dataframe
     # Use starname as the key for merging
     merged_df = pd.merge(request_selected_df, solution_df, 
-                         left_on='starname', right_on='Starname', 
+                         left_on='unique_id', right_on='Starname', 
                          how='inner')
                              
     # Select and reorder only the specific columns requested
@@ -1186,15 +1179,21 @@ def plot_path_2D_interactive(data):
 
     model = data[0]
 
-    names = list(model.schedule['Starname'])
+    names = list(model.plotly['human_starname'])
     times = model.times
     az_path = model.az_path
     alt_path = model.alt_path
     wrap = model.observatory.wrapLimitAngle
 
-    # Convert times to UTC string labels (HH:MM)
+    # Use times as floats (e.g., minutes from start of night or JD)
+    # If times are astropy Time objects, convert to minutes from start of night
+    # Here, we'll use JD as the linear x-axis, but you can adjust to minutes if you have a reference
     obs_time = np.array([t.jd for t in times])
+    # For tick labels and hover, format as HH:MM
     time_labels = [Time(t, format='jd').isot[11:16] for t in obs_time]
+
+    # Prepare custom hover text with HH:MM time
+    hover_texts = [f"Time: {label}<br>Target: {name}" for label, name in zip(time_labels, names)]
 
     fig = make_subplots(
         rows=2, cols=1,
@@ -1205,60 +1204,68 @@ def plot_path_2D_interactive(data):
 
     # Azimuth plot
     fig.add_trace(go.Scatter(
-        x=time_labels, y=az_path,
+        x=obs_time, y=az_path,
         mode='lines+markers',
         marker=dict(color='indigo'),
         name='Azimuth',
-        text=names,
-        hovertemplate='Time: %{x}<br>Az: %{y}<br>Target: %{text}'
+        text=hover_texts,
+        hovertemplate='%{text}<br>Az: %{y}'
     ), row=1, col=1)
 
     # Elevation plot
     fig.add_trace(go.Scatter(
-        x=time_labels, y=alt_path,
+        x=obs_time, y=alt_path,
         mode='lines+markers',
         marker=dict(color='seagreen'),
         name='Elevation',
-        text=names,
-        hovertemplate='Time: %{x}<br>Alt: %{y}<br>Target: %{text}'
+        text=hover_texts,
+        hovertemplate='%{text}<br>Alt: %{y}'
     ), row=2, col=1)
 
     # Optional: wrap line on azimuth
     if wrap is not None:
         fig.add_shape(
             type="line",
-            x0=time_labels[0], x1=time_labels[-1],
+            x0=obs_time[0], x1=obs_time[-1],
             y0=wrap, y1=wrap,
             line=dict(color="red", dash="dash"),
             row=1, col=1
         )
         fig.add_annotation(
-            x=time_labels[-1], y=wrap,
+            x=obs_time[-1], y=wrap,
             text=f"Wrap = {wrap}",
             showarrow=False,
             font=dict(color="red"),
             row=1, col=1
         )
 
-    # Highlight observed intervals
+    # Highlight observed intervals (use obs_time for x0/x1)
     for i in range(0, len(obs_time)-1, 2):
         fig.add_vrect(
-            x0=time_labels[i], x1=time_labels[i+1],
+            x0=obs_time[i], x1=obs_time[i+1],
             fillcolor="orange", opacity=0.2,
             layer="below", line_width=0,
             row=1, col=1
         )
         fig.add_vrect(
-            x0=time_labels[i], x1=time_labels[i+1],
+            x0=obs_time[i], x1=obs_time[i+1],
             fillcolor="orange", opacity=0.2,
             layer="below", line_width=0,
             row=2, col=1
         )
 
+    # Set x-axis tick labels as HH:MM but keep axis linear in time
+    fig.update_xaxes(
+        tickmode='array',
+        tickvals=obs_time,
+        ticktext=time_labels,
+        title_text='Time (UTC)',
+        row=2, col=1
+    )
+
     fig.update_layout(
         height=600,
         width=1000,
-        xaxis2_title="Time (UTC)",
         yaxis_title="Azimuth (deg)",
         yaxis2_title="Altitude (deg)",
         template="plotly_white"

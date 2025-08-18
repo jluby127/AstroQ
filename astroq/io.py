@@ -29,7 +29,7 @@ def serialize_schedule(Yrds, semester_planner):
     solution by filling in the slots where a star's exposre is started.
 
     Args:
-        Yrds (array): the Gurobi solution with keys of (starname, day, slot) and values 1 or 0.
+        Yrds (array): the Gurobi solution with keys of (unique_id, day, slot) and values 1 or 0.
         planner (obj): a SemesterPlanner object
 
     Returns:
@@ -39,6 +39,9 @@ def serialize_schedule(Yrds, semester_planner):
     df['value'] = [Yrds[k].x for k in Yrds.keys()]
     sparse = df.query('value>0').copy()
     sparse.drop(columns=['value'], inplace=True)
+    sparse['name'] = sparse['r'].map(
+        dict(zip(semester_planner.requests_frame['unique_id'], semester_planner.requests_frame['starname']))
+    ).fillna("NO MATCHING NAME")
     sparse.to_csv(semester_planner.output_directory + "semester_plan.csv", index=False, na_rep="")
     semester_planner.future_forecast = "semester_plan.csv"
 
@@ -59,11 +62,11 @@ def serialize_schedule(Yrds, semester_planner):
         name_string = ""
         if isAlloc[slot] == 0:
             name_string += "X"
-        if isClear[slot] == 1:
+        if isClear[slot] == 0:
             name_string += "W"
         dense2.loc[slot, 'r'] = name_string + str(dense2.loc[slot, 'r'])
 
-        if dense2.loc[slot, 'r'] in list(semester_planner.requests_frame['starname']):
+        if dense2.loc[slot, 'r'] in list(semester_planner.requests_frame['unique_id']):
             slots_needed = semester_planner.slots_needed_for_exposure_dict[dense2.loc[slot, 'r']]
             if slots_needed > 1:
                 for t in range(1, slots_needed):
@@ -124,9 +127,9 @@ def build_fullness_report(semester_planner, round_info):
     # Calculate total slots requested using slots_needed_for_exposure_dict and n_intra_max
     total_slots_requested = 0
     for i in range(len(semester_planner.requests_frame)):
-        star_name = semester_planner.requests_frame['starname'][i]
-        if star_name in semester_planner.slots_needed_for_exposure_dict:
-            slots_needed = semester_planner.slots_needed_for_exposure_dict[star_name]
+        star_id = semester_planner.requests_frame['unique_id'][i]
+        if star_id in semester_planner.slots_needed_for_exposure_dict:
+            slots_needed = semester_planner.slots_needed_for_exposure_dict[star_id]
             total_slots_requested += slots_needed * semester_planner.requests_frame['n_intra_max'][i] * semester_planner.requests_frame['n_inter_max'][i]
     
     # Calculate percentages
@@ -185,7 +188,7 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
     lines = []
     for i, item in enumerate(solution_frame['Starname']):
         filler_flag = solution_frame['Starname'][i] in filler_stars
-        row = frame.loc[frame['starname'] == solution_frame['Starname'][i]]
+        row = frame.loc[frame['unique_id'] == solution_frame['Starname'][i]]
         row.reset_index(inplace=True)
         total_exptime += float(row['exptime'].iloc[0])
 
@@ -208,7 +211,7 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
             filler_flag = True
         else:
             filler_flag = False
-        row = frame.loc[frame['starname'] == extras['Starname'][j]]
+        row = frame.loc[frame['unique_id'] == extras['Starname'][j]]
         row.reset_index(inplace=True)
         lines.append(format_kpf_row(row, '24:00', extras['First Available'][j],
                     extras['Last Available'][j], current_day, filler_flag, True))

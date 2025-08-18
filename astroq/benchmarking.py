@@ -175,7 +175,7 @@ def build_toy_model_from_paper(ns, hours_per_program = 80, plot = False):
     }
     requests_data = pd.DataFrame(requests_data)
     requests_data['weather_band'] = [0]*len(requests_data)
-    requests_data['unique_id'] = [np.random.randint(1, 1000000) for _ in range(len(requests_data))]
+    requests_data['unique_id'] = requests_data['starname'] #[np.random.randint(1, 1000000) for _ in range(len(requests_data))]
     requests_data['jmag'] = [10.0]*len(requests_data)
     requests_data['gmag'] = [10.0]*len(requests_data)
     requests_data['teff'] = [5800]*len(requests_data)

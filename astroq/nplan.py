@@ -146,7 +146,7 @@ class NightPlanner(object):
 
         # Prepare the TTP input DataFrame (matching the old prepare_for_ttp output)
         to_ttp = pd.DataFrame({
-            "Starname": selected_df["starname"].astype(str),
+            "Starname": selected_df["unique_id"],
             "RA": selected_df["ra"],
             "Dec": selected_df["dec"],
             "Exposure Time": selected_df["exptime"],
@@ -165,6 +165,12 @@ class NightPlanner(object):
 
         gurobi_model_backup = solution.gurobi_model  # backup the attribute, probably don't need this
         del solution.gurobi_model                   # remove attribute so pickle works
+    
+        # add human readable starname to the solution so that it can be used in the plotting functions
+        id_to_name = dict(zip(selected_df['unique_id'], selected_df['starname']))
+        solution.plotly['human_starname'] = [
+            id_to_name.get(uid, "NO MATCHING NAME") for uid in solution.plotly['Starname']
+        ]
         self.solution = [solution]
 
         observe_order_file = os.path.join(observers_path, f"ObserveOrder_{self.current_day}.txt")
@@ -175,17 +181,15 @@ class NightPlanner(object):
         use_start_exposures = []
         for i in range(len(plotly_df)):
             adjusted_timestamp = TimeDelta(plotly_df['Start Exposure'].iloc[i]*60,format='sec') + observation_start_time
-            use_start_exposures.append(str(adjusted_timestamp)[11:16])
-            use_star_ids.append(selected_df[selected_df['starname'] == plotly_df['Starname'].iloc[i]]['unique_id'].iloc[0])
-            use_starnames.append(str(plotly_df['Starname'].iloc[i]))
+            use_start_exposures.append(str(adjusted_timestamp)[11:16])            
+            use_starnames.append(selected_df[selected_df['unique_id'] == plotly_df['Starname'].iloc[i]]['starname'].iloc[0])
+            use_star_ids.append(str(plotly_df['Starname'].iloc[i]))
         # Convert solution.extras to a DataFrame for consistency
         extras_df = pd.DataFrame(solution.extras)
         for j in range(len(extras_df)):
             use_start_exposures.append('24:00')
-            starname = str(extras_df['Starname'].iloc[j])
-            unique_id = selected_df[selected_df['starname'] == starname]['unique_id'].iloc[0]
-            use_star_ids.append(unique_id)
-            use_starnames.append(starname)
+            use_star_ids.append(str(extras_df['Starname'].iloc[j]))
+            use_starnames.append(selected_df[selected_df['unique_id'] == unique_id]['starname'].iloc[0])
         use_frame = pd.DataFrame({'unique_id': use_star_ids, 'Target': use_starnames, 'StartExposure': use_start_exposures})
         use_frame.to_csv(observe_order_file, index=False)
 

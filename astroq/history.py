@@ -22,7 +22,7 @@ TIMEZONE_OFFSET_HOURS = -10  # Adjust this value for your timezone
 
 # Define StarHistory namedtuple at module level for proper pickling
 StarHistory = namedtuple('StarHistory', [
-    'id',
+    'name',
     'date_last_observed',
     'total_n_exposures',
     'total_n_visits',
@@ -104,11 +104,12 @@ def write_OB_histories_to_csv_JUMP(requests_frame, jump_file, output_file):
     req_lookup = {}
     for _, row in req.iterrows():
         starname = row['starname']
-        if starname not in req_lookup:
-            req_lookup[starname] = {'unique_id': row['unique_id'], 'program_code': row['program_code']}
+        unique_id = row['unique_id']
+        if unique_id not in req_lookup:
+            req_lookup[unique_id] = {'starname': row['starname'], 'program_code': row['program_code']}
 
     # Map id and semid using the crossmatched target
-    df['id'] = df['target'].map(lambda name: req_lookup.get(name, {}).get('unique_id', ''))
+    df['unique_id'] = df['target'].map(lambda name: req_lookup.get(name, {}).get('unique_id', ''))
     df['semid'] = df['target'].map(lambda name: req_lookup.get(name, {}).get('program_code', ''))
     
     # Filter out rows where starname doesn't have a corresponding entry in lookup table
@@ -146,7 +147,8 @@ def process_star_history(filename):
     result = {}
 
     # Group by target (star)
-    for starname, star_df in df.groupby('target'):
+    for unique_id, star_df in df.groupby('id'):
+        starname = df[df['id'] == unique_id]['target'].values[0]
         # Group by visit (timestamp)
         visits = []
         for ts, visit_df in star_df.groupby('timestamp'):
@@ -189,8 +191,8 @@ def process_star_history(filename):
             visit_date = v['timestamp'][:10]
             n_obs_on_nights[visit_date] = n_obs_on_nights.get(visit_date, 0) + len(v['exposure_start_time'])
             n_visits_on_nights[visit_date] = n_visits_on_nights.get(visit_date, 0) + 1
-        result[starname] = StarHistory(
-            id=star_id,
+        result[unique_id] = StarHistory(
+            name=starname,
             date_last_observed=date_last_observed,
             total_n_exposures=total_n_exposures,
             total_n_visits=total_n_visits,
