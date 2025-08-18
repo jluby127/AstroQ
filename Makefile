@@ -30,6 +30,7 @@ all: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/plan-night-complete)
 	done
 	@echo "📋 Creating holders directories and copying ObserveOrder files..."
 	@$(MAKE) copy_observe_orders
+	@$(MAKE) copy_custom_csv
 
 # Final target for each band - depends on plan-night completion
 $(DATE_DIR)/%/plan-night-complete: $(DATE_DIR)/%/plan-night-run
@@ -95,6 +96,15 @@ copy_observe_orders:
 	done
 	@echo "✅ All ObserveOrder files copied to holders directories!"
 
+# Copy WORKDIR/custom.csv to {semester}/{date}/{band}/custom.csv for all bands except band3
+copy_custom_csv:
+	@for band in $(BANDS); do \
+		if [ "$$band" != "band3" ]; then \
+			echo "Copying custom.csv to $(DATE_DIR)/$$band/"; \
+			cp $(SEMESTER_DIR)/custom.csv $(DATE_DIR)/$$band/custom.csv; \
+		fi \
+	done
+
 # Launch webapp
 webapp:
 	@echo "🌐 Launching AstroQ webapp..."
@@ -129,4 +139,4 @@ complete: all
 	@echo "🌐 Launching webapp..."
 	@$(MAKE) webapp
 
-.PHONY: all create_dirs clean status copy_observe_orders copy_only webapp complete 
+.PHONY: all create_dirs clean status copy_observe_orders copy_only webapp complete copy_custom_csv 
