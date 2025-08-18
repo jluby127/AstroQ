@@ -129,8 +129,7 @@ class SemesterPlanner(object):
 
 
         # Build strategy dataframe. Note exptime is in minutes and tau_intra is in hours they are both converted to slots here
-        strategy = self.requests_frame[['starname','n_intra_min','n_intra_max','n_inter_max','tau_inter']]
-        strategy = strategy.rename(columns={'starname':'id'})
+        strategy = self.requests_frame[['starname', 'unique_id', 'n_intra_min','n_intra_max','n_inter_max','tau_inter']]
         strategy['t_visit'] = (self.requests_frame['exptime'] / 60 / self.slot_size).clip(lower=1).round().astype(int) 
         strategy['tau_intra'] = (self.requests_frame['tau_intra'] * 60 / self.slot_size).round().astype(int) 
         self.strategy = strategy
@@ -155,33 +154,34 @@ class SemesterPlanner(object):
 
         self.observability_tuples = list(self.observability.itertuples(index=False, name=None))
 
-        self.joiner = pd.merge(self.strategy, self.observability, on=['id'])
+        self.joiner = pd.merge(self.strategy, self.observability, on=['unique_id'])
         # add dummy columns for easier joins
-        self.joiner['id2'] = self.joiner['id']
+        self.joiner['unique_id2'] = self.joiner['unique_id']
         self.joiner['d2'] = self.joiner['d']
         self.joiner['s2'] = self.joiner['s']
 
         # Prepare information by construction observability_nights (Wset) and schedulable_requests
-        self.observability_nights = self.joiner[self.joiner['n_intra_max'] > 1][['id', 'd']].drop_duplicates().copy()
-        self.multi_visit_requests = list(self.observability_nights['id'].unique())
+        self.observability_nights = self.joiner[self.joiner['n_intra_max'] > 1][['unique_id', 'd']].drop_duplicates().copy()
+        self.multi_visit_requests = list(self.observability_nights['unique_id'].unique())
 
-        self.all_requests = list(self.requests_frame['starname'])
-        self.schedulable_requests =  list(self.joiner['id'].unique())
+        self.all_requests = list(self.requests_frame['unique_id'])
+        self.schedulable_requests =  list(self.joiner['unique_id'].unique())
         self.single_visit_requests = [item for item in self.schedulable_requests if item not in self.multi_visit_requests]
-        for name in list(self.requests_frame['starname']):
-            if name not in self.schedulable_requests:
-                logs.warning("Target " + name + " has no valid day/slot pairs and therefore is effectively removed from the model.")
+        for starid in list(self.requests_frame['unique_id']):
+            if starid not in self.schedulable_requests:
+                starname = self.requests_frame[self.requests_frame['unique_id']==starid]['starname'].values[0]
+                logs.warning("Target " + starname + " with unique id " + starid +  " has no valid day/slot pairs and therefore is effectively removed from the model.")
 
         # Construct a few useful joins
         # Get each request's full list of valid d/s pairs
-        self.all_valid_ds_for_request = self.joiner.groupby(['id'])[['d', 's']].agg(list)
+        self.all_valid_ds_for_request = self.joiner.groupby(['unique_id'])[['d', 's']].agg(list)
         # Get all requests which are valid in slot (d, s)
         requests_valid_for_ds = pd.merge(
             self.joiner.drop_duplicates(['d', 's']),
-            self.joiner[['id', 'd', 's']],
+            self.joiner[['unique_id', 'd', 's']],
             suffixes=['', '3'],
             on=['d', 's'])
-        self.requests_valid_for_ds = requests_valid_for_ds.groupby(['d','s'])[['id3']].agg(list)
+        self.requests_valid_for_ds = requests_valid_for_ds.groupby(['d','s'])[['unique_id3']].agg(list)
 
         # Get all valid d/s pairs
         self.valid_ds_pairs = self.joiner.copy()
@@ -191,13 +191,13 @@ class SemesterPlanner(object):
         self.multi_slot_frame = self.joiner[self.multislot_mask]
         # Get all valid slots s for request r on day d
         valid_s_for_rd = pd.merge(
-            self.joiner.drop_duplicates(['id','d',]),
-            self.joiner[['id','d','s']],
-            suffixes=['','3'],on=['id']
+            self.joiner.drop_duplicates(['unique_id','d',]),
+            self.joiner[['unique_id','d','s']],
+            suffixes=['','3'],on=['unique_id']
         ).query('d == d3')
-        self.slots_on_day_for_r = valid_s_for_rd.groupby(['id','d'])[['s3']].agg(list)
+        self.slots_on_day_for_r = valid_s_for_rd.groupby(['unique_id','d'])[['s3']].agg(list)
         # Get all request id's that are valid on a given day
-        self.unique_request_on_day_pairs = self.joiner.copy().drop_duplicates(['id','d'])
+        self.unique_request_on_day_pairs = self.joiner.copy().drop_duplicates(['unique_id','d'])
 
         self.model = gp.Model('Semester_Scheduler')
         # Yrs is technically a 1D matrix indexed by tuples.
@@ -221,7 +221,7 @@ class SemesterPlanner(object):
         absolute_max_obs_allowed_dict = {}
         past_nights_observed_dict = {}
         for name in self.all_requests:
-            idx = self.requests_frame.index[self.requests_frame['starname']==name][0]
+            idx = self.requests_frame.index[self.requests_frame['unique_id']==name][0]
             if name in list(self.past_history.keys()):
                 past_nights_observed = self.past_history[name].total_n_unique_nights
             else:
@@ -313,7 +313,7 @@ class SemesterPlanner(object):
         """Build dictionary mapping star names to required slots."""
         slots_needed_for_exposure_dict = {}
         for n, row in self.requests_frame.iterrows():
-            name = row['starname']
+            starid = row['unique_id']
             exposure_time = float(row['exptime'])
             overhead = 45*float(row['n_exp'] - 1) #+ 180*float(row['n_intra_max'])
             
@@ -324,7 +324,7 @@ class SemesterPlanner(object):
             if slots_needed < 1:
                 slots_needed = 1
             
-            slots_needed_for_exposure_dict[name] = slots_needed
+            slots_needed_for_exposure_dict[starid] = slots_needed
         
         return slots_needed_for_exposure_dict
 
@@ -354,30 +354,6 @@ class SemesterPlanner(object):
         )
         # Store the full access record array for later use
         self.access_record = self.access_obj.produce_ultimate_map(self.requests_frame)
-        
-        # # Debug trace: examine access arrays for specific stars
-        # print("=== ACCESS RECORD DEBUG ===")
-        # print(f"Access record shape: {self.access_record.shape}")
-        # print(f"Access record dtype: {self.access_record.dtype}")
-        # print(f"Access record field names: {self.access_record.dtype.names}")
-        
-        # # Look for specific stars in the requests frame
-        # target_stars = ['HIP24069', 'HIP10540', 'HIP4691']  # Add the stars you want to examine
-        # for star in target_stars:
-        #     if star in self.requests_frame['starname'].values:
-        #         star_idx = self.requests_frame[self.requests_frame['starname'] == star].index[0]
-        #         print(f"\n--- {star} (index {star_idx}) ---")
-        #         print(f"  is_altaz: {self.access_record['is_altaz'][star_idx].sum()} slots available")
-        #         print(f"  is_future: {self.access_record['is_future'][star_idx].sum()} slots in future")
-        #         print(f"  is_moon: {self.access_record['is_moon'][star_idx].sum()} slots moon-ok")
-        #         print(f"  is_custom: {self.access_record['is_custom'][star_idx].sum()} slots custom-ok")
-        #         print(f"  is_inter: {self.access_record['is_inter'][star_idx].sum()} slots inter-ok")
-        #         print(f"  is_alloc: {self.access_record['is_alloc'][star_idx].sum()} slots allocated")
-        #         print(f"  is_clear: {self.access_record['is_clear'][star_idx].sum()} slots clear")
-        #         print(f"  is_observable: {self.access_record['is_observable'][star_idx].sum()} slots observable")
-        #     else:
-        #         print(f"\n--- {star} not found in requests frame ---")
-        
         observability = self.access_obj.observability(self.requests_frame, access=self.access_record)
 
         return observability
@@ -413,11 +389,11 @@ class SemesterPlanner(object):
         """
         logs.info("Constraint 2: Reserve slots for for multi-slot exposures.")
         max_t_visit = self.strategy.t_visit.max() # longest exposure time
-        R_ds = self.observability.groupby(['d','s'])['id'].apply(set).to_dict()
+        R_ds = self.observability.groupby(['d','s'])['unique_id'].apply(set).to_dict()
         R_geq_t_visit = {} # dictionary of requests where t_visit is greater than or equal to t_visit
         strategy = self.strategy
         for t_visit in range(1,max_t_visit+1):
-            R_geq_t_visit[t_visit] = set(strategy[strategy.t_visit >= t_visit]['id'])
+            R_geq_t_visit[t_visit] = set(strategy[strategy.t_visit >= t_visit]['unique_id'])
 
         for d,s in self.observability.drop_duplicates(['d','s'])[['d','s']].itertuples(index=False, name=None):
             rhs = []
@@ -449,11 +425,11 @@ class SemesterPlanner(object):
         joiner_for_intercadence['tau_inter'] = pd.to_numeric(joiner_for_intercadence['tau_inter'], errors='coerce')
         
         intercadence = pd.merge(
-            joiner_for_intercadence.drop_duplicates(['id','d',]),
-            joiner_for_intercadence[['id','d','s']],
-            suffixes=['','3'],on=['id']
+            joiner_for_intercadence.drop_duplicates(['unique_id','d',]),
+            joiner_for_intercadence[['unique_id','d','s']],
+            suffixes=['','3'],on=['unique_id']
         ).query('d + 0 < d3 < d + tau_inter')
-        self.intercadence_tracker = intercadence.groupby(['id','d'])[['d3','s3']].agg(list)
+        self.intercadence_tracker = intercadence.groupby(['unique_id','d'])[['d3','s3']].agg(list)
         # When inter-night cadence is 1, there will be no keys to constrain so skip
         # While the if/else statement would catch these, by shrinking the list here we do fewer
         # total steps in the loop.
@@ -461,17 +437,16 @@ class SemesterPlanner(object):
         # We don't want duplicate slots on day d because we only need this constraint once per day
         # With duplicates, the same constraint would be applied to (r, d, s) and (r, d, s+1) which
         # is superfluous since we are summing over tonight's slots
-        intercadence_valid_tuples = intercadence_valid_tuples.drop_duplicates(subset=['id', 'd'])
+        intercadence_valid_tuples = intercadence_valid_tuples.drop_duplicates(subset=['unique_id', 'd'])
         for i, row in intercadence_valid_tuples.iterrows():
-            constrained_slots_tonight = np.array(self.slots_on_day_for_r.loc[(row.id2, row.d2)][0])
+            constrained_slots_tonight = np.array(self.slots_on_day_for_r.loc[(row.unique_id2, row.d2)][0])
             # Get all slots for pair (r, d) where valid
-            # print(row.id, row.d)
-            if (row.id, row.d) in self.intercadence_tracker.index:
-                slots_to_constrain_future = self.intercadence_tracker.loc[(row.id2, row.d2)]
+            if (row.unique_id, row.d) in self.intercadence_tracker.index:
+                slots_to_constrain_future = self.intercadence_tracker.loc[(row.unique_id2, row.d2)]
                 ds_pairs = zip(list(np.array(slots_to_constrain_future.d3).flatten()), list(np.array(slots_to_constrain_future.s3).flatten()))
-                self.model.addConstr((gp.quicksum(self.Yrds[row.id,row.d,s2] for s2 in constrained_slots_tonight)/row.n_intra_max \
-                     <= (1 - (gp.quicksum(self.Yrds[row.id,d3,s3] for d3, s3 in ds_pairs)))), \
-                    'enforce_internight_cadence_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
+                self.model.addConstr((gp.quicksum(self.Yrds[row.unique_id,row.d,s2] for s2 in constrained_slots_tonight)/row.n_intra_max \
+                     <= (1 - (gp.quicksum(self.Yrds[row.unique_id,d3,s3] for d3, s3 in ds_pairs)))), \
+                    'enforce_internight_cadence_' + row.unique_id + "_" + str(row.d) + "d_" + str(row.s) + "s")
             # else:
             #     # For request r, there are no (d,s) pairs that are within "inter cadence" days of the
             #     # given day d, therefore nothing to constrain. If I can find a way to filter out these
@@ -492,7 +467,7 @@ class SemesterPlanner(object):
         optimal solution found in Round 1.
         """
         logs.info("Constraint: Fixing the previous solution's objective value.")
-        self.model.addConstr(gp.quicksum(self.theta[name] for name in self.requests_frame['starname']) <= \
+        self.model.addConstr(gp.quicksum(self.theta[name] for name in self.requests_frame['unique_id']) <= \
                     self.model.objval + epsilon)
 
     def set_objective_maximize_slots_used(self):
@@ -530,15 +505,15 @@ class SemesterPlanner(object):
         observations of that target.
         """
         logs.info("Constraint 0: Build theta variable")
-        for name in self.schedulable_requests:
-            idx = self.requests_frame.index[self.requests_frame['starname']==name][0]
-            self.model.addConstr(self.theta[name] >= 0, 'greater_than_zero_shortfall_' + str(name))
+        for starid in self.schedulable_requests:
+            idx = self.requests_frame.index[self.requests_frame['unique_id']==starid][0]
+            self.model.addConstr(self.theta[starid] >= 0, 'greater_than_zero_shortfall_' + str(starid))
             # Get all (d,s) pairs for which this request is valid.
-            all_d = list(set(list(self.all_valid_ds_for_request.loc[name].d)))
-            available = list(zip(list(self.all_valid_ds_for_request.loc[name].d), list(self.all_valid_ds_for_request.loc[name].s)))
-            self.model.addConstr(self.theta[name] >= ((self.requests_frame['n_inter_max'][idx] - \
-                    self.past_nights_observed_dict[name]) - (gp.quicksum(self.Yrds[name, d, s] for d, s in available))/self.requests_frame['n_intra_max'][idx]), \
-                    'greater_than_nobs_shortfall_' + str(name))
+            all_d = list(set(list(self.all_valid_ds_for_request.loc[starid].d)))
+            available = list(zip(list(self.all_valid_ds_for_request.loc[starid].d), list(self.all_valid_ds_for_request.loc[starid].s)))
+            self.model.addConstr(self.theta[starid] >= ((self.requests_frame['n_inter_max'][idx] - \
+                    self.past_nights_observed_dict[starid]) - (gp.quicksum(self.Yrds[starid, d, s] for d, s in available))/self.requests_frame['n_intra_max'][idx]), \
+                    'greater_than_nobs_shortfall_' + str(starid))
 
     def constraint_set_max_desired_unique_nights_Wrd(self):
         """
@@ -608,18 +583,18 @@ class SemesterPlanner(object):
         # # When intra-night cadence is 0, there will be no keys to constrain so skip
         intracadence_valid_tuples = self.joiner.copy()[self.joiner['n_intra_max'] > 1]
         intracadence_frame = pd.merge(
-            intracadence_valid_tuples.drop_duplicates(['id','d','s']),
-            intracadence_valid_tuples[['id','d','s']],
-            suffixes=['','3'],on=['id', 'd']
+            intracadence_valid_tuples.drop_duplicates(['unique_id','d','s']),
+            intracadence_valid_tuples[['unique_id','d','s']],
+            suffixes=['','3'],on=['unique_id', 'd']
             ).query('s + 0 < s3 < s + tau_intra')
-        intracadence_frame = intracadence_frame.groupby(['id','d','s'])[['s3']].agg(list)
+        intracadence_frame = intracadence_frame.groupby(['unique_id','d','s'])[['s3']].agg(list)
         for i, row in intracadence_valid_tuples.iterrows():
-            if (row.id, row.d, row.s) in intracadence_frame.index:
+            if (row.unique_id, row.d, row.s) in intracadence_frame.index:
                 # Get all slots tonight which are too soon after given slot for another visit
-                slots_to_constrain_tonight_intra = list(intracadence_frame.loc[(row.id, row.d, row.s)][0])
-                self.model.addConstr((self.Yrds[row.id,row.d,row.s] <= (self.Wrd[row.id, row.d] - (gp.quicksum(self.Yrds[row.id,row.d,s3] \
+                slots_to_constrain_tonight_intra = list(intracadence_frame.loc[(row.unique_id, row.d, row.s)][0])
+                self.model.addConstr((self.Yrds[row.unique_id,row.d,row.s] <= (self.Wrd[row.unique_id, row.d] - (gp.quicksum(self.Yrds[row.unique_id,row.d,s3] \
                     for s3 in slots_to_constrain_tonight_intra)))), \
-                    'enforce_intranight_cadence_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
+                    'enforce_intranight_cadence_' + row.unique_id + "_" + str(row.d) + "d_" + str(row.s) + "s")
 
     def constraint_set_min_max_visits_per_night(self):
         """
@@ -630,19 +605,19 @@ class SemesterPlanner(object):
         values supplied by the PI.
         """
         logs.info("Constraint 7: Allow minimum and maximum visits.")
-        intracadence_frame_on_day = self.joiner.copy().drop_duplicates(subset=['id', 'd'])
-        grouped_s = self.joiner.copy().groupby(['id', 'd'])['s'].unique().reset_index()
-        grouped_s.set_index(['id', 'd'], inplace=True)
+        intracadence_frame_on_day = self.joiner.copy().drop_duplicates(subset=['unique_id', 'd'])
+        grouped_s = self.joiner.copy().groupby(['unique_id', 'd'])['s'].unique().reset_index()
+        grouped_s.set_index(['unique_id', 'd'], inplace=True)
         for i, row in intracadence_frame_on_day.iterrows():
-            all_valid_slots_tonight = list(grouped_s.loc[(row.id, row.d)]['s'])
-            if row.id in self.multi_visit_requests:
-                self.model.addConstr((((gp.quicksum(self.Yrds[row.id, row.d,s3] for s3 in all_valid_slots_tonight)))) <= \
-                    row.n_intra_max*self.Wrd[row.id, row.d], 'enforce_max_visits1_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
-                self.model.addConstr((((gp.quicksum(self.Yrds[row.id,row.d,s3] for s3 in all_valid_slots_tonight)))) >= \
-                    row.n_intra_min*self.Wrd[row.id, row.d], 'enforce_min_visits_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
+            all_valid_slots_tonight = list(grouped_s.loc[(row.unique_id, row.d)]['s'])
+            if row.unique_id in self.multi_visit_requests:
+                self.model.addConstr((((gp.quicksum(self.Yrds[row.unique_id, row.d,s3] for s3 in all_valid_slots_tonight)))) <= \
+                    row.n_intra_max*self.Wrd[row.unique_id, row.d], 'enforce_max_visits1_' + row.unique_id + "_" + str(row.d) + "d_" + str(row.s) + "s")
+                self.model.addConstr((((gp.quicksum(self.Yrds[row.unique_id,row.d,s3] for s3 in all_valid_slots_tonight)))) >= \
+                    row.n_intra_min*self.Wrd[row.unique_id, row.d], 'enforce_min_visits_' + row.unique_id + "_" + str(row.d) + "d_" + str(row.s) + "s")
             else:
-                self.model.addConstr((((gp.quicksum(self.Yrds[row.id,row.d,s3] for s3 in all_valid_slots_tonight)))) <= \
-                    row.n_intra_max, 'enforce_min_visits_' + row.id + "_" + str(row.d) + "d_" + str(row.s) + "s")
+                self.model.addConstr((((gp.quicksum(self.Yrds[row.unique_id,row.d,s3] for s3 in all_valid_slots_tonight)))) <= \
+                    row.n_intra_max, 'enforce_min_visits_' + row.unique_id + "_" + str(row.d) + "d_" + str(row.s) + "s")
 
     def optimize_model(self):
         logs.debug("Begin model solve.")
@@ -717,7 +692,7 @@ class SemesterPlanner(object):
         today_idx = self.all_dates_dict[self.current_day]
         selected = [k[0] for k, v in self.Yrds.items() if v.x > 0 and k[1] == today_idx]
         selected = list(set(selected))
-        selected_df = self.requests_frame[self.requests_frame['starname'].isin(selected)].copy()
+        selected_df = self.requests_frame[self.requests_frame['unique_id'].isin(selected)].copy()
         # Save to CSV with new name
         selected_df.to_csv(os.path.join(self.output_directory, 'request_selected.csv'), index=False)
 
