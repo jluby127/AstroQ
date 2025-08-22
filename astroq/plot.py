@@ -318,22 +318,35 @@ def get_cof(semester_planner, all_stars):
             line_color='black',
             annotation_position="bottom left"
         )
+    
+    # Calculate legend height based on number of traces
+    num_traces = len(all_stars) + 2  # +2 for "Even Burn Rate" and "Total"
+    legend_height = min(300, max(150, num_traces * 25))  # Between 150-300px, 25px per trace
+    
     fig.update_layout(
-        width=1200,
-        height=800,
+        width=1400,
+        height=1000,
         xaxis_title="Calendar Date",
         yaxis_title="Request % Complete",
         showlegend=True,
         legend=dict(
             orientation="h",
             x=0.5,
-            y=-0.5,
-            xanchor='center',
-            yanchor='top',
+            y=-0.15,  # Position below plot
+            xanchor="center",
+            yanchor="top",
             bgcolor='rgba(255,255,255,0.7)',
             bordercolor='black',
             borderwidth=1,
-            font=dict(size=labelsize-18)
+            font=dict(size=labelsize-18),
+            # Standardize legend size
+            itemsizing='constant',  # All legend items same size
+            itemwidth=30,  # Fixed width for legend items
+            # Make legend more compact
+            groupclick="toggleitem",  # Click group to toggle all items
+            # Standardize legend dimensions
+            tracegroupgap=5,  # Gap between trace groups
+            traceorder="normal"  # Keep order as traces were added
         ),
         xaxis=dict(
             title_font=dict(size=labelsize),
@@ -347,7 +360,7 @@ def get_cof(semester_planner, all_stars):
             showgrid=False,
             zeroline=False
         ),
-        margin=dict(b=300)  # Add bottom margin for legend
+        margin=dict(b=200, t=50)  # Bottom margin for legend below, minimal top margin
     )
     return fig
 
@@ -465,9 +478,13 @@ def get_birdseye(semester_planner, availablity, all_stars):
         minutes = total_minutes % 60
         y_ticktext.append(f"{hours:02.0f}:{minutes:02.0f}")
 
+    # Calculate legend height based on number of traces
+    num_traces = len(all_stars) + (1 if len(all_stars) > 1 or all_stars[0].allow_mapview == False else len([m for m in all_stars[0].maps_names if m != 'is_observable_now']))
+    legend_height = min(300, max(150, num_traces * 25))  # Between 150-300px, 25px per trace
+    
     fig.update_layout(
-        width=1200,
-        height=800,
+        width=1400,
+        height=1000,
         yaxis_title="Slot in Night",
         xaxis_title="Night in Semester",
         xaxis=dict(
@@ -491,15 +508,23 @@ def get_birdseye(semester_planner, availablity, all_stars):
         legend=dict(
             orientation="h",
             x=0.5,
-            y=-0.35,
-            xanchor='center',
-            yanchor='top',
-            font=dict(size=labelsize-10),
+            y=-0.15,  # Position below plot
+            xanchor="center",
+            yanchor="top",
+            font=dict(size=labelsize-18),
             bgcolor='rgba(255,255,255,0.7)',
             bordercolor='black',
-            borderwidth=1
+            borderwidth=1,
+            # Standardize legend size
+            itemsizing='constant',  # All legend items same size
+            itemwidth=30,  # Fixed width for legend items
+            # Make legend more compact
+            groupclick="toggleitem",  # Click group to toggle all items
+            # Standardize legend dimensions
+            tracegroupgap=5,  # Gap between trace groups
+            traceorder="normal"  # Keep order as traces were added
         ),
-        margin=dict(b=250)  # Add bottom margin for legend
+        margin=dict(b=200, t=50)  # Bottom margin for legend below, minimal top margin
     )
     return fig
 

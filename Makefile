@@ -2,7 +2,7 @@
 # Creates directory structure and copies config template with current date
 
 # Configuration variables
-DATE ?= 2025-08-19
+DATE ?= 2025-08-22
 # Changed only once per semester
 SEMESTER ?= 2025B
 START_DATE ?= 2025-08-01
