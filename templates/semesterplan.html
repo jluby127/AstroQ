@@ -31,20 +31,7 @@
             border-radius: 8px;
         }
 
-        /* Fixed aspect ratio for plots */
-        .plot-wrapper {
-            position: relative;
-            width: 100%;
-            padding-top: 50%; /* 2:1 width:height ratio */
-            margin-bottom: 2rem;
-        }
 
-        .plot-wrapper > div {
-            position: absolute !important;
-            top: 0; left: 0;
-            width: 100% !important;
-            height: 100% !important;
-        }
 
         .table-container {
             background-color: white;
@@ -87,13 +74,11 @@
     </script>
 
     {% if figures_html %}
-        <div class="plot-container">
-            {% for fig in figures_html %}
-                <div class="plot-wrapper">
-                    {{ fig | safe }}
-                </div>
-            {% endfor %}
-        </div>
+        {% for fig in figures_html %}
+            <div class="plot-container">
+                {{ fig | safe }}
+            </div>
+        {% endfor %}
     {% endif %}
 
 
