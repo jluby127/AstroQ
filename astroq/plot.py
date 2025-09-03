@@ -613,6 +613,30 @@ def get_tau_inter_line(semester_planner, all_stars, use_program_colors=False):
         xaxis_title="Requested Minimum Inter-Night Cadence",
         yaxis_title="On Sky Inter-Night Cadence",
         template='plotly_white',
+        xaxis=dict(
+            type="log",
+            title_font=dict(size=labelsize),
+            tickfont=dict(size=labelsize-4),
+            showgrid=True,
+            gridcolor='lightgray',
+            gridwidth=0.5,
+            tickmode='array',
+            tickvals=[1, 10, 100],
+            ticktext=['1', '10', '100'],
+            range=[np.log10(0.5), np.log10(180)]  # Set range from 0.5 to 180 in log scale
+        ),
+        yaxis=dict(
+            type="log",
+            title_font=dict(size=labelsize),
+            tickfont=dict(size=labelsize-4),
+            showgrid=True,
+            gridcolor='lightgray',
+            gridwidth=0.5,
+            tickmode='array',
+            tickvals=[1, 10, 100],
+            ticktext=['1', '10', '100'],
+            range=[np.log10(0.5), np.log10(180)]  # Set range from 0.5 to 180 in log scale
+        )
     )
     return fig
 
