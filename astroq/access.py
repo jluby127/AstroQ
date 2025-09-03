@@ -12,6 +12,8 @@ This module combines functionality for:
 import logging
 
 # Third-party imports
+from astropy.utils.iers import conf
+conf.auto_max_age = None
 import astropy as apy
 import astropy.units as u
 import astroplan as apl
