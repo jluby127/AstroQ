@@ -40,7 +40,8 @@ exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', '
                     'calibration.wide_flat_pos', 'observation.block_sky', 'observation.nod_e', 'observation.nod_n',
                     'schedule.isNew', 'observation.isNew', 'schedule.comment', 'target.d_ra', 'target.d_dec', 'target.undefined',
                     'target.ra_deg', 'target.dec_deg', 'observation.undefined', 'schedule.num_visits_per_night', 'schedule.undefined',
-                    'schedule.desired_num_visits_per_night', 'schedule.minimum_num_visits_per_night', 'history'# NOTE: this line will be removed 
+                    'schedule.desired_num_visits_per_night', 'schedule.minimum_num_visits_per_night', 'history', # NOTE: this line will be removed 
+                    'schedule.custom_time_constraints', 'schedule.weather_band_1', 'schedule.weather_band_2', 'schedule.weather_band_3'# NOTE: this line will be removed 
 ]
 
 def pull_OBs(semester):
@@ -64,6 +65,52 @@ def pull_OBs(semester):
     except:
         print("ERROR")
         return
+
+def format_custom_csv(OBs, savefile):
+    """
+    Format the custom csv file for the OBs.
+    """
+    rows = []
+    for ob in OBs['observing_blocks']:
+        try:
+            ctc = ob['schedule']['custom_time_constraints']
+            unique_id = ob['_id']
+            starname = ob['target']['target_name']
+
+            # Handle ctc as a list with multiple constraints
+            if isinstance(ctc, list) and len(ctc) > 0:
+                # Process each constraint in the list
+                for i, constraint in enumerate(ctc):
+                    if isinstance(constraint, dict):
+                        start = constraint.get('start_datetime', '')
+                        stop = constraint.get('end_datetime', '')
+                        
+                        # Only add rows that have the required data
+                        if start and stop:
+                            rows.append({
+                                'unique_id': unique_id,
+                                'starname': starname,
+                                'start': start,
+                                'stop': stop
+                            })
+            elif isinstance(ctc, dict):
+                # If it's already a dict, use it directly
+                start = ctc.get('start_datetime', '')
+                stop = ctc.get('end_datetime', '')
+                
+                if start and stop:
+                    rows.append({
+                        'unique_id': unique_id,
+                        'starname': starname,
+                        'start': start,
+                        'stop': stop
+                    })
+        except Exception as e:
+            pass
+
+    # Create DataFrame and save to CSV
+    df = pd.DataFrame(rows)
+    df.to_csv('custom_constraints.csv', index=False)
         
 def pull_allocation_info(start_date, numdays, instrument, savepath):
     params = {}
