@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>KPF Control Center</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 2rem;
+            background-color: #f9f9f9;
+        }
+        .plot-container {
+            margin-top: 2rem;
+            background-color: white;
+            padding: 1rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border-radius: 8px;
+        }
+        select {
+            font-size: 1rem;
+            padding: 0.4rem;
+        }
+    </style>
+</head>
+<body>
+    <h1>KPF Control Center</h1>
+
+    <form method="POST">
+        <label for="page">Choose a page:</label>
+        <select name="page" id="page" onchange="this.form.submit()">
+            {% for page in pages %}
+                <option value="{{ page }}" {% if page == selected_page %}selected{% endif %}>{{ page }}</option>
+            {% endfor %}
+        </select>
+    </form>
+
+    {% if selected_page == 'Overview' %}
+        {% for fig_html in figures_html %}
+            <div class="plot-container">
+                {{ fig_html | safe }}
+            </div>
+        {% endfor %}
+    {% elif selected_page == 'Single Star' %}
+        <div class="plot-container">
+            <p>Single Star page content goes here.</p>
+        </div>
+    {% endif %}
+</body>
+</html>
