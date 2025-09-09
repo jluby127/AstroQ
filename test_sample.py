@@ -1,83 +1,62 @@
-import kpfcc.driver as dr
-import kpfcc.request as rq
-import kpfcc.benchmarking as bn
+import astroq.driver as dr
+import astroq.benchmarking as bn
 import argparse
 from configparser import ConfigParser
 import os
-import kpfcc.management as mn
-import kpfcc.scheduler as sch
+import astroq.splan as splan
+import astroq.plot as pl
+import astroq.nplan as nplan
+import unittest
+from pathlib import Path
+from io import BytesIO
+import imageio.v3 as iio
 
-class TestClass:
+import multiprocessing
+import time
+import requests
+import os
+from astroq.webapp import launch_app, app
+import threading
+
+class TestClass(unittest.TestCase):
+
+    def test_cli(self):
+        dr.kpfcc(argparse.Namespace(kpfcc_subcommand=None))
+
+    def test_helloworld(self):
+        dr.kpfcc_plan_semester(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini', run_band3=False))
 
     def test_round2_weather(self):
-        dr.kpfcc_prep(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
-        dr.kpfcc_build(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
-        dr.schedule(argparse.Namespace(request_file="examples/hello_world/outputs/2024-08-01/request_set.json", config_file='examples/hello_world/config_hello_world.ini'))
+        dr.kpfcc_plan_semester(argparse.Namespace(config_file='examples/hello_world/config_hello_world_bonus_weather.ini', run_band3=False))
+
+    def test_ttp(self):
+        dr.ttp(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
 
     def test_bench(self):
-        # override the tests of "do these files exist" and just run it all
-        # but run a shortened version, so it doesn't take long, see shortcut=5
+        dr.bench(argparse.Namespace(config_file='examples/bench/config_benchmark.ini', number_slots=12, thin=10))
+        dr.ttp(argparse.Namespace(config_file='examples/bench/config_benchmark.ini'))
+        dr.plot(argparse.Namespace(config_file='examples/bench/config_benchmark.ini'))
 
-
-        print("Running benchmark test.")
-    
-        nR = 5
-        nS = 5
-        cf = 'examples/bench/config_benchmark.ini'
-    
-        # Initialize manager and compute request set on the fly
-        # This is a hacky workaround. run_admin needs this file to exist. This can
-        # lead to race conditions if benchmarking is run in parallel.
-        config = ConfigParser()
-        config.read(cf)
-        upstream_path = eval(config.get('required', 'folder'), {"os": os})
-        semester_directory = upstream_path
-        requests_frame = bn.build_toy_model_from_paper(hours_per_program = 100)
-        if nR is not None:
-            requests_frame = requests_frame.iloc[:nR][::10] # short benchmark
-        requests_frame.to_csv(os.path.join(semester_directory, "inputs/Requests.csv"))
-        manager = mn.data_admin(cf)
-        manager.run_admin()
-        
-        # Build observability maps and request set
-        print("Building valid indices.")
-        strategy, observable = rq.define_indices_for_requests(manager)
-        meta = rq.build_meta(cf)
-        request_set = rq.RequestSet(meta, strategy, observable)
-        current_day = str(config.get('required', 'current_day'))
-
-        # Run the schedule
-        schedule = sch.Scheduler(request_set, cf)
-        schedule.run_model()
-
-    """
     def test_prep(self):
-        # test the creation of all upstream files, including the allocation map
-        dr.kpfcc_prep(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
-    """
-
+        dr.kpfcc_prep(argparse.Namespace(config_file='examples/hello_world/config_hello_world_prep.ini', allo_source='db', past_source='db', band3_program_code='2025B_E473'))
+        dr.kpfcc_prep(argparse.Namespace(config_file='examples/hello_world/config_hello_world_prep.ini', allo_source='examples/hello_world/prepped/observatory_schedule.csv', past_source='examples/hello_world/prepped/jump_past_history.csv', band3_program_code='2025B_E473'))
 
     def test_plot(self):
         dr.plot(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
 
-    # need environment variable to run
-    """
-    def test_ob_database_pull(self):
-        dr.kpfcc_data(argparse.Namespace(pull_file='examples/pull_file.json', database_file='examples/recreate_paper/'))
-    """
+    def test_requests_vs_schedule(self):
+        sch = 'examples/hello_world/outputs/semester_plan.csv'
+        dr.requests_vs_schedule(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini', schedule_file=sch))
 
+    # # this is not working right now.
+    # def test_simulate_history(self):
+    #     dr.make_simulated_history(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
 
-    # following five tests has not been tested
-    """
-    def test_ttp(self):
-        dr.ttp(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
-    def test_history(self):
-        dr.get_history(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
+    # # we don't care about OIA yet
+    # def test_oia(self):
+    #     dr.kpfcc_prep(argparse.Namespace(config_file='examples/recreate_paper/oia1/config_oia1.ini'))
+    #     dr.kpfcc_build(argparse.Namespace(config_file='examples/recreate_paper/oia1/config_oia1.ini'))
+    #     dr.schedule(argparse.Namespace(request_file="examples/recreate_paper/oia1/outputs/2024-08-02/request_set.json", config_file='examples/recreate_paper/oia1/config_oia1.ini'))
 
-    def test_backups(self):
-        dr.backups(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
-    def test_oia(self):
-        dr.kpfcc_prep(argparse.Namespace(config_file='examples/recreate_paper/oia1/config_oia1.ini'))
-        dr.kpfcc_build(argparse.Namespace(config_file='examples/recreate_paper/oia1/config_oia1.ini'))
-        dr.schedule(argparse.Namespace(request_file="examples/recreate_paper/oia1/outputs/2024-08-01/request_set.json", config_file='examples/recreate_paper/oia1/config_oia1.ini'))
-    """
+if __name__=="__main__":
+    unittest.main()

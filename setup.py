@@ -8,11 +8,11 @@ def get_property(prop, project):
     return result.group(1)
 
 setup(
-    name="kpfcc",
-    version=get_property('__version__', 'kpfcc'),
+    name="astroq",
+    version=get_property('__version__', 'astroq'),
     packages=find_packages(),
     install_requires=[],
-    description="The Keck Planet Finder Community Cadence (KPFCC) auto-scheduler software.",
+    description="The AstroQ auto-scheduler software.",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     author="Jack Lubin",
@@ -24,7 +24,7 @@ setup(
         "Operating System :: OS Independent",
     ],
     entry_points = {
-        "console_scripts": ['astroq=kpfcc.cli:main']
+        "console_scripts": ['astroq=astroq.cli:main']
     },
     # python_requires="==3.9",
 )
