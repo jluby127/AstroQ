@@ -2,7 +2,7 @@
 # Creates directory structure and copies config template with current date
 
 # Configuration variables
-DATE ?= 2025-08-28
+DATE ?= 2025-08-30
 # Changed only once per semester
 SEMESTER ?= 2025B
 START_DATE ?= 2025-08-01
@@ -31,6 +31,8 @@ all: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/plan-night-complete)
 	@echo "📋 Creating holders directories and copying ObserveOrder files..."
 	@$(MAKE) copy_observe_orders
 	@$(MAKE) copy_custom_csv
+	@echo "📝 Combining all band logs..."
+	@$(MAKE) combine_logs
 
 # Final target for each band - depends on plan-night completion
 $(DATE_DIR)/%/plan-night-complete: $(DATE_DIR)/%/plan-night-run
@@ -40,25 +42,25 @@ $(DATE_DIR)/%/plan-night-complete: $(DATE_DIR)/%/plan-night-run
 # Run plan-night command
 $(DATE_DIR)/%/plan-night-run: $(DATE_DIR)/%/plan-semester-run
 	@echo "🌙 Running plan-night for band $(notdir $(@D))..."
-	@cd $(@D) && conda run -n astroq astroq kpfcc plan-night -cf config.ini
+	@cd $(@D) && conda run -n astroq astroq kpfcc plan-night -cf config.ini 2>&1 | tee -a astroq.log
 	@touch $@
 
 # Run plan-semester command for band3 (specific target)
 $(DATE_DIR)/band3/plan-semester-run: $(DATE_DIR)/band3/prep-run
 	@echo "📅 Running plan-semester for band3 with -b3 True..."
-	@cd $(@D) && conda run -n astroq astroq kpfcc plan-semester -cf config.ini -b3 True
+	@cd $(@D) && conda run -n astroq astroq kpfcc plan-semester -cf config.ini -b3 True 2>&1 | tee -a astroq.log
 	@touch $@
 
 # Run plan-semester command for band1 (specific target)
 $(DATE_DIR)/band1/plan-semester-run: $(DATE_DIR)/band1/prep-run
 	@echo "📅 Running plan-semester for band1 without -b3 flag..."
-	@cd $(@D) && conda run -n astroq astroq kpfcc plan-semester -cf config.ini
+	@cd $(@D) && conda run -n astroq astroq kpfcc plan-semester -cf config.ini 2>&1 | tee -a astroq.log
 	@touch $@
 
 # Run prep command
 $(DATE_DIR)/%/prep-run: $(DATE_DIR)/%/config.ini
 	@echo "🔧 Running prep for band $(notdir $(@D))..."
-	@cd $(@D) && conda run -n astroq astroq kpfcc prep -cf config.ini
+	@cd $(@D) && conda run -n astroq astroq kpfcc prep -cf config.ini 2>&1 | tee -a astroq.log
 	@touch $@
 
 # Create config file for a specific band
@@ -105,6 +107,31 @@ copy_custom_csv:
 		fi \
 	done
 
+# Combine all band logs into a single file
+combine_logs:
+	@echo "📝 Combining logs from all bands..."
+	@echo "# Combined AstroQ Logs for $(DATE)" > $(DATE_DIR)/all_band_logs.log
+	@echo "# Generated on: $$(date)" >> $(DATE_DIR)/all_band_logs.log
+	@echo "# Bands: $(BANDS)" >> $(DATE_DIR)/all_band_logs.log
+	@echo "" >> $(DATE_DIR)/all_band_logs.log
+	@for band in $(BANDS); do \
+		if [ -f "$(DATE_DIR)/$$band/astroq.log" ]; then \
+			echo "## Band: $$band" >> $(DATE_DIR)/all_band_logs.log; \
+			echo "## Log file: $(DATE_DIR)/$$band/astroq.log" >> $(DATE_DIR)/all_band_logs.log; \
+			echo "## Timestamp: $$(date)" >> $(DATE_DIR)/all_band_logs.log; \
+			echo "" >> $(DATE_DIR)/all_band_logs.log; \
+			cat $(DATE_DIR)/$$band/astroq.log >> $(DATE_DIR)/all_band_logs.log; \
+			echo "" >> $(DATE_DIR)/all_band_logs.log; \
+			echo "## End of $$band log" >> $(DATE_DIR)/all_band_logs.log; \
+			echo "" >> $(DATE_DIR)/all_band_logs.log; \
+			echo "----------------------------------------" >> $(DATE_DIR)/all_band_logs.log; \
+			echo "" >> $(DATE_DIR)/all_band_logs.log; \
+		else \
+			echo "⚠️  Warning: No log file found for band $$band at $(DATE_DIR)/$$band/astroq.log"; \
+		fi \
+	done
+	@echo "✅ Combined log file created: $(DATE_DIR)/all_band_logs.log"
+
 # Launch webapp
 webapp:
 	@echo "🌐 Launching AstroQ webapp..."
@@ -139,4 +166,4 @@ complete: all
 	@echo "🌐 Launching webapp..."
 	@$(MAKE) webapp
 
-.PHONY: all create_dirs clean status copy_observe_orders copy_only webapp complete copy_custom_csv 
+.PHONY: all create_dirs clean status copy_observe_orders copy_only webapp complete copy_custom_csv combine_logs 

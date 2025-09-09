@@ -134,6 +134,9 @@ def kpfcc_prep(args):
     OBs = ob.pull_OBs(semester)
     good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram = ob.get_request_sheet(OBs, awarded_programs, savepath + request_file)
     
+    custom_file = str(config.get('data', 'custom_file'))
+    ob.format_custom_csv(OBs, savepath + custom_file)
+    
     send_emails_with = []
     for i in range(len(bad_obs_values)):
         if bad_obs_values['metadata.semid'][i] in awarded_programs:
@@ -161,9 +164,6 @@ def kpfcc_prep(args):
     else:
         print(f'Using past history information from file: {past_source}')
         obhist = hs.write_OB_histories_to_csv_JUMP(good_obs, past_source, savepath + past_file)
-
-    # This is where the custom times info pull will go
-    custom_file = str(config.get('data', 'custom_file'))
 
     return
 

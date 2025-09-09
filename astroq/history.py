@@ -73,6 +73,7 @@ def write_OB_histories_to_csv(histories, savepath):
                 # "junk": entry.get("junk", ""),
             })
     df = pd.DataFrame(rows)
+    df.sort_values(by='timestamp', inplace=True)
     df.to_csv(savepath, index=False)
 
 def write_OB_histories_to_csv_JUMP(requests_frame, jump_file, output_file):
