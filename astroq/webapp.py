@@ -1,76 +1,200 @@
+"""
+Web application module for AstroQ.
+"""
+
+# Standard library imports
+import base64
 import os
-from flask import Flask, render_template, request
-import numpy as np
-import plotly.io as pio
-import astroq.plot as pl
-import astroq.management as mn
-import astroq.dynamic as dn
+import pickle
 import threading
+from configparser import ConfigParser
+from io import BytesIO
+        
+# Third-party imports
+import imageio.v3 as iio
+import numpy as np
+import pandas as pd
+import plotly.io as pio
+from flask import Flask, render_template, request, abort
+from socket import gethostname 
+
+# Local imports
+import astroq.nplan as nplan
+import astroq.plot as pl
+import astroq.splan as splan
+
+running_on_keck_machines = False
 
 app = Flask(__name__, template_folder="../templates")
 
-# Shared homepage view
-@app.route("/", methods=["GET", "POST"])
+# Global variables to store loaded data
+data_astroq = None
+data_ttp = None
+semester_planner = None
+night_planner = None
+uptree_path = None
+
+def load_data_for_path(semester_code, date, band, uptree_path):
+    """Load data for a specific semester_code/date/band combination"""
+    global data_astroq, data_ttp, semester_planner, night_planner
+    
+    # Construct the workdir path based on URL parameters
+    workdir = f"{uptree_path}/{semester_code}/{date}/{band}/outputs/"
+    
+    # Check if the directory exists
+    if not os.path.exists(workdir):
+        return False, f"Directory not found: {workdir}"
+    
+    semester_planner_pkl = os.path.join(workdir, 'semester_planner.pkl')
+    night_planner_pkl = os.path.join(workdir, 'night_planner.pkl')
+    
+    # Load semester planner
+    try:
+        with open(semester_planner_pkl, 'rb') as f:
+            semester_planner = pickle.load(f)
+        data_astroq = pl.process_stars(semester_planner)
+    except Exception as e:
+        semester_planner = None
+        data_astroq = None
+        return False, f"Error loading semester planner: {str(e)}"
+    
+    # Load night planner (optional)
+    try:
+        with open(night_planner_pkl, 'rb') as f:
+            night_planner = pickle.load(f)
+            data_ttp = night_planner.solution
+    except:
+        night_planner = None
+        data_ttp = None
+    
+    return True, "Data loaded successfully"
+
+# New homepage with navigation instructions
+@app.route("/", methods=["GET"])
 def index():
-    pages = ["Overview", "Single Star"]
-    selected_page = request.form.get("page", pages[0])  # Default to "Overview"
+    navigation_text = """
+    To navigate, append to the URL in the following way: 
+    url/{semester_code}/{date}/{band}/{page} 
+    
+    where:
+    - semester_code is 2025B (for example)
+    - date is in format YYYY-MM-DD
+    - band is either band1 or band3
+    - page is one of the following: admin, star/{starname}, nightplan, or {program_code}
+    
+    Examples:
+    - /2025B/2025-01-15/band1/admin
+    - /2025B/2025-01-15/band1/star/HD4614
+    - /2025B/2025-01-15/band3/nightplan
+    - /2025B/2025-01-15/band1/2025B_N001 
+    """
+    return render_template("homepage.html", navigation_text=navigation_text)
 
-    figures_html = []
+# Dynamic route for all pages
+@app.route("/<semester_code>/<date>/<band>/star/<starname>")
+@app.route("/<semester_code>/<date>/<band>/<page>")
+@app.route("/<semester_code>/<date>/<band>/<program_code>")
+def dynamic_page(semester_code, date, band, page=None, starname=None, program_code=None):
+    """Handle all dynamic routes based on URL parameters"""
+    global uptree_path
+    
+    # Validate parameters
+    if band not in ['band1', 'band3']:
+        abort(400, description="Band must be 'band1' or 'band3'")
+    
+    # Load data for this path
+    success, message = load_data_for_path(semester_code, date, band, uptree_path)
+    if not success:
+        return f"Error: {message}", 404
+    
+    # Route to appropriate page based on parameters
+    if starname is not None:
+        # This is a star route
+        return render_star_page(starname)
+    elif page == "admin":
+        return render_admin_page()
+    elif page == "nightplan":
+        return render_nightplan_page()
+    elif program_code is not None:
+        # This is a program route - check if it's a valid program code
+        if program_code in data_astroq[0]:
+            return render_program_page(semester_code, date, band, program_code)
+        else:
+            # If not a program code, treat as a page
+            page = program_code
+            if page == "admin":
+                return render_admin_page()
+            elif page == "nightplan":
+                return render_nightplan_page()
+            else:
+                abort(404, description=f"Page '{page}' not found")
+    else:
+        abort(404, description=f"Page '{page}' not found")
 
-    if selected_page == "Overview":
-        labels = ["All Programs COF", "Bird's Eye"]
-        for label in labels:
-            fig_html = dn.get_cof(manager, all_stars_list) if label == "All Programs COF" else dn.get_birdseye(manager, data_astroq[2], all_stars_list)
-            figures_html.append(fig_html)
-
-    return render_template("index.html", figures_html=figures_html, pages=pages, selected_page=selected_page)
-
-# Admin page route
-@app.route("/admin")
-def admin():
+def render_admin_page():
+    """Render the admin page"""
+    if data_astroq is None:
+        return "Error: No data available", 404
+    
     all_stars_from_all_programs = np.concatenate(list(data_astroq[0].values()))
     
-    table_reqframe_html = dn.get_requests_frame(manager, filter_condition=None)
-    tables_html = [table_reqframe_html]
-    fig_cof_html = dn.get_cof(manager, list(data_astroq[1].values()))
-    fig_birdseye_html = dn.get_birdseye(manager, data_astroq[2], list(data_astroq[1].values()))
-    figures_html = [fig_cof_html, fig_birdseye_html]
+    # Get request frame table for all stars
+    request_df = pl.get_request_frame(semester_planner, all_stars_from_all_programs)
+    request_table_html = pl.dataframe_to_html(request_df)
+    
+    fig_cof = pl.get_cof(semester_planner, list(data_astroq[1].values()))
+    fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], list(data_astroq[1].values()))
+    fig_football = pl.get_football(semester_planner, all_stars_from_all_programs, use_program_colors=True)
+    fig_tau_inter_line = pl.get_tau_inter_line(semester_planner, all_stars_from_all_programs, use_program_colors=True)
 
-    return render_template("admin.html", tables_html=tables_html, figures_html=figures_html)
+    fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
+    fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
+    fig_football_html = pio.to_html(fig_football, full_html=True, include_plotlyjs='cdn')
+    fig_tau_inter_line_html = pio.to_html(fig_tau_inter_line, full_html=True, include_plotlyjs='cdn')
+    
+    figures_html = [fig_cof_html, fig_birdseye_html, fig_tau_inter_line_html, fig_football_html]
 
+    return render_template("admin.html", tables_html=[request_table_html], figures_html=figures_html)
 
-# /semesterplan landing page
-@app.route("/semesterplan")
-def semesterplan_home():
-    return render_template("semesterplan.html", starname=None, figure_html=None)
+def render_program_page(semester_code, date, band, program_code):
+    """Render the program overview page for a specific program"""
+    if data_astroq is None:
+        return "Error: No data available", 404
+    
+    # Get all stars in the specified program
+    if program_code not in data_astroq[0]:
+        return f"Error: Program {program_code} not found", 404
+    
+    program_stars = data_astroq[0][program_code]
+    
+    # Get request frame table for this program's stars
+    request_df = pl.get_request_frame(semester_planner, program_stars)
+    request_table_html = pl.dataframe_to_html(request_df)
+    
+    # Create overview figures for this program
+    fig_cof = pl.get_cof(semester_planner, program_stars)
+    fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], program_stars)
+    fig_tau_inter_line = pl.get_tau_inter_line(semester_planner, program_stars)
+    fig_football = pl.get_football(semester_planner, program_stars)
 
-# Page route for the semesterplan of a specific program
-@app.route("/semesterplan/<programname>")
-def single_program(programname):
+    fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
+    fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
+    fig_tau_inter_line_html = pio.to_html(fig_tau_inter_line, full_html=True, include_plotlyjs='cdn')
+    fig_football_html = pio.to_html(fig_football, full_html=True, include_plotlyjs='cdn')
 
-    if programname not in data_astroq[1]:
-        return f"Error: program '{programname}' not found."
+    figures_html = [fig_cof_html, fig_birdseye_html, fig_tau_inter_line_html, fig_football_html]
+    
+    return render_template("semesterplan.html", 
+                         programname=program_code, 
+                         tables_html=[request_table_html], 
+                         figures_html=figures_html, 
+                         programs=[program_code])
 
-    star_obj_list = list(data_astroq[0][programname])
-
-    table_reqframe_html = dn.get_requests_frame(manager, filter_condition=f"program_code=='{programname}'")
-    tables_html = [table_reqframe_html]
-
-    fig_cof_html = dn.get_cof(manager, star_obj_list)
-    fig_birdseye_html = dn.get_birdseye(manager, data_astroq[2], star_obj_list)
-    figures_html = [fig_cof_html, fig_birdseye_html]
-
-    return render_template("semesterplan.html", programname=programname, tables_html=tables_html, figures_html=figures_html)
-
-# /star landing page
-@app.route("/star")
-def star_home():
-    return render_template("star.html", starname=None, figure_html=None)
-
-# Star detail page route
-@app.route("/star/<starname>")
-def single_star(starname):
-
+def render_star_page(starname):
+    """Render a specific star page"""
+    if data_astroq is None:
+        return "Error: No data available", 404
+    
     compare_starname = starname.lower().replace(' ', '') # Lower case and remove all spaces
     program_names = data_astroq[0].keys()
 
@@ -82,75 +206,112 @@ def single_star(starname):
             object_compare_starname = true_starname.lower().replace(' ', '')
             
             if object_compare_starname == compare_starname:
-                table_reqframe_html = dn.get_requests_frame(manager, filter_condition=f"starname=='{true_starname}'")
+                # Get request frame table for this specific star
+                request_df = pl.get_request_frame(semester_planner, [star_obj])
+                request_table_html = pl.dataframe_to_html(request_df)
 
-                fig_cof_html = dn.get_cof(manager, [data_astroq[0][program][star_ind]])
-                fig_birdseye_html = dn.get_birdseye(manager, data_astroq[2], [star_obj])
+                fig_cof = pl.get_cof(semester_planner, [data_astroq[0][program][star_ind]])
+                fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], [star_obj])
+                fig_tau_inter_line = pl.get_tau_inter_line(semester_planner, [star_obj])
+                fig_football = pl.get_football(semester_planner, [star_obj])
 
-                tables_html = [table_reqframe_html]
-                figures_html = [fig_cof_html, fig_birdseye_html]
+                fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
+                fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
+                fig_tau_inter_line_html = pio.to_html(fig_tau_inter_line, full_html=True, include_plotlyjs='cdn')
+                fig_football_html = pio.to_html(fig_football, full_html=True, include_plotlyjs='cdn')
+
+                tables_html = [request_table_html]
+                figures_html = [fig_cof_html, fig_birdseye_html, fig_tau_inter_line_html, fig_football_html]
 
                 return render_template("star.html", starname=true_starname, tables_html=tables_html, figures_html=figures_html)
+    
     return f"Error, star {starname} not found in programs {list(program_names)}"
 
-
-# Page route for single night plan
-@app.route("/nightplan")
-def nightplan():
+def render_nightplan_page():
+    """Render the night plan page"""
+    if data_ttp is None:
+        return "Error: No night planner data available", 404
+    
     plots = ['script_table', 'slewgif', 'ladder', 'slewpath']
 
-    if data_ttp is not None:
-        script_table_html = dn.get_script_plan(manager, data_ttp)
-        ladder_html = dn.get_ladder(manager, data_ttp)
-        slew_animation_html = dn.get_slew_animation(manager, data_ttp, animationStep=120)
-        slew_path_html = dn.plot_path_2D_interactive(manager, data_ttp)
-        figure_html_list = [script_table_html, ladder_html, slew_animation_html, slew_path_html]
+    script_table_df = pl.get_script_plan(night_planner)
+    ladder_fig = pl.get_ladder(data_ttp)
+    slew_animation_figures = pl.get_slew_animation(data_ttp, animationStep=120)
+    slew_path_fig = pl.plot_path_2D_interactive(data_ttp)
+    
+    # Convert dataframe to HTML with unique table ID
+    # Sort by starname (index 2) for better readability
+    script_table_html = pl.dataframe_to_html(script_table_df, sort_column=0, page_size=100, table_id='script-table')
+    # Convert figures to HTML
+    ladder_html = pio.to_html(ladder_fig, full_html=True, include_plotlyjs='cdn')
+    slew_path_html = pio.to_html(slew_path_fig, full_html=True, include_plotlyjs='cdn')
+    
+    # Convert matplotlib figures to GIF and then to HTML
+    gif_frames = []
+    for fig in slew_animation_figures:
+        buf = BytesIO()
+        fig.savefig(buf, format='png', dpi=100)
+        buf.seek(0)
+        gif_frames.append(iio.imread(buf))
+        buf.close()
+    
+    gif_buf = BytesIO()
+    iio.imwrite(gif_buf, gif_frames, format='gif', loop=0, duration=0.3)
+    gif_buf.seek(0)
+    
+    gif_base64 = base64.b64encode(gif_buf.getvalue()).decode('utf-8')
+    slew_animation_html = f'<img src="data:image/gif;base64,{gif_base64}" alt="Observing Animation"/>'
+    gif_buf.close()
+    
+    figure_html_list = [script_table_html, ladder_html, slew_animation_html, slew_path_html]
 
+    return render_template("nightplan.html", starname=None, figure_html_list=figure_html_list, 
+                         semester_planner=semester_planner, night_planner=night_planner)
+
+@app.route("/<semester_code>/<date>/<band>/download_nightplan")
+def download_nightplan(semester_code, date, band):
+    """Download the Magiq formatted night plan file"""
+    global uptree_path, semester_planner, night_planner
+    
+    # Validate parameters
+    if band not in ['band1', 'band3']:
+        abort(400, description="Band must be 'band1' or 'band3'")
+    
+    # Load data for this path
+    success, message = load_data_for_path(semester_code, date, band, uptree_path)
+    if not success:
+        return f"Error: {message}", 404
+    
+    if semester_planner is None or night_planner is None:
+        return "Error: No planner data available", 404
+    
+    try:
+        # Construct the path to the script file
+        script_file_path = os.path.join(semester_planner.output_directory, 
+                                      f'script_{night_planner.current_day}_nominal.txt')
+        
+        if not os.path.exists(script_file_path):
+            return "Error: Night plan file not found", 404
+        
+        # Return the file for download
+        from flask import send_file
+        return send_file(script_file_path, 
+                        as_attachment=True,
+                        download_name=f'script_{night_planner.current_day}_nominal.txt',
+                        mimetype='text/plain')
+        
+    except Exception as e:
+        return f"Error downloading file: {str(e)}", 500
+
+def launch_app(uptree_path_param):
+    """Launch the Flask app"""
+    global uptree_path
+    uptree_path = uptree_path_param
+    
+    if running_on_keck_machines:
+        app.run(host=gethostname(), debug=False, use_reloader=False, port=50001)
     else:
-        figure_html_list = []
-    return render_template("nightplan.html", starname=None, figure_html_list=figure_html_list)
+        app.run(debug=True, use_reloader=True, port=50001)
 
-def run_server():
-    app.run(debug=False, use_reloader=False)
-
-def run_server_coverage():
-    # Run the Flask server in a background thread
-    server_thread = threading.Thread(target=lambda: app.run(debug=False, use_reloader=False), daemon=True)
-    server_thread.start()
-    admin()
-    single_program('U001')
-    single_star('191939')
-    nightplan()
-
-def launch_app(config_file, flag=False):
-    global data_astroq, data_ttp, manager, all_stars_list
-
-    manager = mn.data_admin(config_file)
-    manager.run_admin()
-
-    data_astroq = pl.read_star_objects(manager.reports_directory + "admin/" + manager.current_day + "/star_objects.pkl")
-    all_stars_list = [star_obj for star_obj_list in data_astroq[0].values() for star_obj in star_obj_list]
-
-    ttp_path = os.path.join(manager.reports_directory, "observer/", manager.current_day, "/ttp_data.pkl")
-    if os.path.exists(ttp_path):
-        data_ttp = pl.read_star_objects(ttp_path)
-    else:
-        data_ttp = None
-    if flag:
-        run_server_coverage()
-    else:
-        run_server()
-
-@app.route('/shutdown')
-def shutdown():
-    func = request.environ.get('werkzeug.server.shutdown')
-    if func:
-        func()
-    return 'Shutting down...'
-
-if __name__=="__main__":
-
-    cf =  'examples/hello_world/config_hello_world.ini'
-    launch_app(cf)
-    admin()
-
+if __name__ == "__main__":
+    launch_app(".")

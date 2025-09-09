@@ -5,35 +5,32 @@ Module for night-level observation planning and optimization.
 Uses the Target & Time Planner (TTP) to optimize nightly observation sequences.
 
 Main Functions:
-- run_ttp(manager): Optimize nightly observation sequences
-- produce_bright_backups(manager): Create backup target lists for poor weather
+- run_ttp(config_file): Optimize nightly observation sequences
+- produce_bright_backups(config_file): Create backup target lists for poor weather
 - prepare_for_ttp(...): Prepare data for the TTP system
 
 See https://github.com/lukehandley/ttp/tree/main for more info about the TTP
 """
-import sys
+
+# Standard library imports
 import os
 import pickle
+from configparser import ConfigParser
 
+# Third-party imports
 import numpy as np
 import pandas as pd
-from astropy.time import Time
-from astropy.time import TimeDelta
-import gurobipy as gp
-from gurobipy import GRB
+from astropy.time import Time, TimeDelta
+        
+# Local imports
+import astroq.access as ac
+import astroq.io as io
 
-sys.path.append('/Users/jack/Documents/github/ttp/')
+# TTP imports (assuming TTP is installed separately)
 import ttp.formatting as formatting
 import ttp.telescope as telescope
 import ttp.plotting as plotting
 import ttp.model as model
-
-import astroq.weather as wt
-import astroq.io as io
-import astroq.access as ac
-
-named_colors = ['blue', 'red', 'green', 'gold', 'maroon', 'gray', 'orange', 'magenta', 'purple']
-
 
 class NightPlanner(object):
     """
@@ -41,47 +38,115 @@ class NightPlanner(object):
     
     Uses the Target & Time Planner (TTP) to create optimal observation schedules
     and backup target lists for poor weather conditions.
+    
+    Reads configuration directly from config file and uses SemesterPlanner
+    for semester calculations and data management.
     """
     
-    def __init__(self, manager):
+    def __init__(self, config_file):
         """
-        Initialize the Night Planner with a data manager.
+        Initialize the Night Planner with a config file.
         
         Args:
-            manager: Data manager object containing configuration and data
+            config_file: Path to configuration file
         """
-        self.manager = manager
+        
+        # Parse config file directly for paths (following SemesterPlanner pattern)
+        from configparser import ConfigParser
+        config = ConfigParser()
+        config.read(config_file)
+        
+        # Get workdir from global section
+        workdir = str(config.get('global', 'workdir'))
+        self.upstream_path = workdir
+        self.semester_directory = self.upstream_path
+        self.current_day = str(config.get('global', 'current_day'))
+        self.output_directory = self.upstream_path + "outputs/"
+        self.reports_directory = self.upstream_path + "outputs/"
+
+        # Get night plan specific parameters
+        self.max_solve_gap = config.getfloat('night', 'max_solve_gap')
+        self.max_solve_time = config.getint('night', 'max_solve_time')
+        self.show_gurobi_output = config.getboolean('night', 'show_gurobi_output')
+        
+        # Set up allocation file path from data section
+        allocation_file_config = str(config.get('data', 'allocation_file'))
+        if os.path.isabs(allocation_file_config):
+            self.allocation_file = allocation_file_config
+        else:
+            self.allocation_file = os.path.join(self.semester_directory, allocation_file_config)
+            
+        # Set up backup file path
+        # DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')
+        # self.backup_file = os.path.join(DATADIR, "bright_backups_frame.csv")
+        filler_file_config = str(config.get('data', 'filler_file'))
+        if os.path.isabs(filler_file_config):
+            self.filler_file = filler_file_config
+        else:
+            self.filler_file = os.path.join(self.semester_directory, filler_file_config)
+
+        
+        # Set up custom file path from data section
+        custom_file_config = str(config.get('data', 'custom_file'))
+        if os.path.isabs(custom_file_config):
+            self.custom_file = custom_file_config
+        else:
+            self.custom_file = os.path.join(self.semester_directory, custom_file_config)
+        
+        # Load SemesterPlanner from pickle file instead of creating new one
+        config = ConfigParser()
+        config.read(config_file)
+        workdir = str(config.get('global', 'workdir')) + "/outputs/"
+        semester_planner_pkl = os.path.join(workdir, 'semester_planner.pkl')
+        
+        with open(semester_planner_pkl, 'rb') as f:
+            self.semester_planner = pickle.load(f)
+        
+        # Pull properties from SemesterPlanner for consistency
+        self.semester_start_date = self.semester_planner.semester_start_date
+        self.semester_length = self.semester_planner.semester_length
+        self.all_dates_dict = self.semester_planner.all_dates_dict
+        self.all_dates_array = self.semester_planner.all_dates_array
+        self.today_starting_night = self.semester_planner.today_starting_night
+        self.past_history = self.semester_planner.past_history
+        self.slots_needed_for_exposure_dict = self.semester_planner.slots_needed_for_exposure_dict
+        self.run_weather_loss = self.semester_planner.run_weather_loss
         
     def run_ttp(self):
         """
         Produce the TTP solution given the results of the autoscheduler.
         Optimizes the nightly observation sequence for scheduled targets.
         """
-        observers_path = self.manager.semester_directory + 'reports/observer/' + str(self.manager.current_day) + '/'
+        observers_path = self.semester_directory + 'outputs/'
         check1 = os.path.isdir(observers_path)
         if not check1:
             os.makedirs(observers_path)
 
         observatory = telescope.Keck1()
-        nightly_start_stop_times = pd.read_csv(self.manager.nightly_start_stop_times_file)
-
-        idx = nightly_start_stop_times[nightly_start_stop_times['Date'] == str(self.manager.current_day)].index[0]
-        night_start_time = nightly_start_stop_times['Start'][idx]
-        night_stop_time = nightly_start_stop_times['Stop'][idx]
-        observation_start_time = Time(str(self.manager.current_day) + "T" + str(night_start_time), format='isot')
-        observation_stop_time = Time(str(self.manager.current_day) + "T" + str(night_stop_time), format='isot')
+        # Get start/stop times from allocation file
+        observation_start_time, observation_stop_time = get_nightly_times_from_allocation(self.allocation_file, self.current_day)
         total_time = np.round((observation_stop_time.jd-observation_start_time.jd)*24,3)
         print("Time in Night for Observations: " + str(total_time) + " hours.")
 
         # Use only request_selected.csv as the source of scheduled targets
-        selected_path = os.path.join(self.manager.output_directory, 'request_selected.csv')
+        selected_path = os.path.join(self.output_directory, 'request_selected.csv')
         if not os.path.exists(selected_path):
             raise FileNotFoundError(f"{selected_path} not found. Please run the scheduler first.")
         selected_df = pd.read_csv(selected_path)
+        # Fill NaN values with defaults --- for now in early 2025B since we had issues with the webform.c
+        # Replace "None" strings with NaN first, then fill with defaults
+        selected_df['n_intra_max'] = selected_df['n_intra_max'].replace('None', np.nan).fillna(1)
+        selected_df['n_intra_min'] = selected_df['n_intra_min'].replace('None', np.nan).fillna(1)
+        selected_df['tau_intra'] = selected_df['tau_intra'].replace('None', np.nan).fillna(0.0)
+        selected_df['jmag'] = selected_df['jmag'].replace('None', np.nan).fillna(0.0)
+        selected_df['gmag'] = selected_df['gmag'].replace('None', np.nan).fillna(0.0)
+        selected_df['pmra'] = selected_df['pmra'].replace('None', np.nan).fillna(0.0)
+        selected_df['pmdec'] = selected_df['pmdec'].replace('None', np.nan).fillna(0.0)
+        selected_df['epoch'] = selected_df['epoch'].replace('None', np.nan).fillna(0.0)
 
         # Prepare the TTP input DataFrame (matching the old prepare_for_ttp output)
         to_ttp = pd.DataFrame({
-            "Starname": selected_df["starname"],
+            "Starname": selected_df["unique_id"],
             "RA": selected_df["ra"],
             "Dec": selected_df["dec"],
             "Exposure Time": selected_df["exptime"],
@@ -91,159 +156,88 @@ class NightPlanner(object):
             "Priority": 10  # Default priority, or you can add logic if needed
         })
 
-        filename = os.path.join(self.manager.output_directory, 'request_selected.txt')
+        filename = os.path.join(self.output_directory, 'request_selected.txt')
         to_ttp.to_csv(filename, index=False)
         target_list = formatting.theTTP(filename)
 
         solution = model.TTPModel(observation_start_time, observation_stop_time, target_list,
-                                    observatory, observers_path, runtime=10, optgap=0.01, useHighEl=False)
+                                    observatory, observers_path, runtime=self.max_solve_time, optgap=self.max_solve_gap, useHighEl=False)
 
         gurobi_model_backup = solution.gurobi_model  # backup the attribute, probably don't need this
         del solution.gurobi_model                   # remove attribute so pickle works
-        save_data = [solution]
-        with open(self.manager.reports_directory + '/observer/' + self.manager.current_day + '/ttp_data.pkl', 'wb') as f:
-            pickle.dump(save_data, f)
+    
+        # add human readable starname to the solution so that it can be used in the plotting functions
+        id_to_name = dict(zip(selected_df['unique_id'], selected_df['starname']))
+        solution.plotly['human_starname'] = [
+            id_to_name.get(uid, "NO MATCHING NAME") for uid in solution.plotly['Starname']
+        ]
+        self.solution = [solution]
 
-        plotting.writeStarList(solution.plotly, observation_start_time, self.manager.current_day,
-                            outputdir=observers_path)
-        plotting.plot_path_2D(solution,outputdir=observers_path)
-        plotting.nightPlan(solution.plotly, self.manager.current_day, outputdir=observers_path)
-        obs_and_times = pd.read_csv(observers_path + 'ObserveOrder_' + str(self.manager.current_day) + ".txt")
+        observe_order_file = os.path.join(observers_path, f"ObserveOrder_{self.current_day}.txt")
+        # Convert solution.plotly to a DataFrame for easier handling
+        plotly_df = pd.DataFrame(solution.plotly)
+        use_starnames = []
+        use_star_ids = []
+        use_start_exposures = []
+        for i in range(len(plotly_df)):
+            adjusted_timestamp = TimeDelta(plotly_df['Start Exposure'].iloc[i]*60,format='sec') + observation_start_time
+            use_start_exposures.append(str(adjusted_timestamp)[11:16])            
+            use_starnames.append(selected_df[selected_df['unique_id'] == plotly_df['Starname'].iloc[i]]['starname'].iloc[0])
+            use_star_ids.append(str(plotly_df['Starname'].iloc[i]))
+        # Convert solution.extras to a DataFrame for consistency
+        extras_df = pd.DataFrame(solution.extras)
+
+        for j in range(len(extras_df)):
+            use_start_exposures.append('24:00')
+            use_star_ids.append(str(extras_df['Starname'].iloc[j]))
+            use_starnames.append(selected_df[selected_df['unique_id'] == extras_df['Starname'].iloc[j]]['starname'].iloc[0])
+        use_frame = pd.DataFrame({'unique_id': use_star_ids, 'Target': use_starnames, 'StartExposure': use_start_exposures})
+        use_frame.to_csv(observe_order_file, index=False)
+
+        # Check if the file was created before trying to read it
+        if os.path.exists(observe_order_file):
+            obs_and_times = pd.read_csv(observe_order_file)
+        else:
+            print(f"Warning: {observe_order_file} was not created by writeStarList")
+            obs_and_times = pd.DataFrame()  # Create empty DataFrame as fallback
         io.write_starlist(selected_df, solution.plotly, observation_start_time, solution.extras,
-                            [], str(self.manager.current_day), observers_path)
+                            [], str(self.current_day), observers_path)
         print("The optimal path through the sky for the selected stars is found. Clear skies!")
 
-    def produce_bright_backups(self, nstars_max=100):
-        """
-        Produce backup target lists for poor weather conditions.
+        return #save_data
+
+def get_nightly_times_from_allocation(allocation_file, current_day):
+    """
+    Extract start and stop times for a specific date from allocation.csv.
+    
+    Args:
+        allocation_file (str): path to the allocation file
+        current_day (str): the date to look for in YYYY-MM-DD format
         
-        Args:
-            nstars_max (int): Maximum number of backup stars to include
-        """
-        backups_path = self.manager.reports_directory + '/observer/' + self.manager.current_day + "/backups/"
-        check = os.path.isdir(backups_path)
-        if not check:
-            os.makedirs(backups_path)
-
-        nightly_start_stop_times = pd.read_csv(self.manager.nightly_start_stop_times_file)
-        # Determine time bounds of the night
-        day_in_semester = self.manager.all_dates_dict[self.manager.current_day]
-        idx = nightly_start_stop_times[nightly_start_stop_times['Date'] == str(self.manager.current_day)].index[0]
-        night_start_time = nightly_start_stop_times['Start'][idx]
-        observation_start_time = Time(str(self.manager.current_day) + "T" + str(night_start_time),
-            format='isot')
-        night_stop_time = nightly_start_stop_times['Stop'][idx]
-        observation_stop_time = Time(str(self.manager.current_day) + "T" + str(night_stop_time),
-            format='isot')
-        diff_minutes = int(abs((observation_stop_time - observation_start_time).to('min').value))
-        print("Minutes on sky: ", diff_minutes)
-
-        backup_starlist = pd.read_csv(self.manager.backup_file)
-        self.manager.requests_frame = backup_starlist
-        available_indices = ac.produce_ultimate_map(self.manager, self.manager.requests_frame, running_backup_stars=True)
-        slots_available_tonight_for_star = {k: len(v[0]) for k, v in available_indices.items()}
-        stars_with_sufficient_availability_tonight = [k for k, v in slots_available_tonight_for_star.items() if v > int(0.25*int(diff_minutes/5))]
-
-        self.manager.requests_frame = backup_starlist
-        isTonight = backup_starlist['starname'].isin(stars_with_sufficient_availability_tonight)
-        hasDR3name = backup_starlist['gaia_id'].str.startswith('Gaia DR2')
-        pool_tonight = self.manager.requests_frame[isTonight&hasDR3name]
-        pool_tonight = pool_tonight.sample(frac=1).reset_index(drop=True)
-        pool_tonight = pool_tonight[:nstars_max]
-
-        ready_for_ttp = self.prepare_for_ttp(pool_tonight, list(pool_tonight['starname']), [])
-        ready_for_ttp.to_csv(backups_path + "selected_stars.csv", index=False)
-        target_list = formatting.theTTP(backups_path + "selected_stars.csv")
-
-        observatory = telescope.Keck1()
-        solution_b = model.TTPModel(observation_start_time, observation_stop_time,
-                                    target_list, observatory, backups_path,
-                                    runtime=10, optgap=0.05)
-
-        plotting.writeStarList(solution_b.plotly, observation_start_time, self.manager.current_day,
-                                    outputdir = backups_path)
-        plotting.plot_path_2D(solution_b, outputdir = backups_path)
-        plotting.nightPlan(solution_b.plotly, self.manager.current_day, outputdir = backups_path)
-        obs_and_times_b = pd.read_csv(backups_path + 'ObserveOrder_' + self.manager.current_day + ".txt")
-        io.write_starlist(pool_tonight, solution_b.plotly, observation_start_time,
-                            solution_b.extras, [], self.manager.current_day, backups_path, "backups")
-        print("Bright backups script created.")
-
-    def prepare_for_ttp(self, request_frame, night_plan, round_two_targets):
-        """
-        Prepare tonight's scheduled stars for their run through the TTP.
-
-        Args:
-            request_frame (dataframe): the pandas dataframe of PI requests
-            night_plan (array): the n'th row of combined_semester_schedule array
-            round_two_targets (array): a 1D list of the stars that were added in the bonus round
-
-        Returns:
-            to_ttp (dataframe): the data on the stars to be observed tonight, formatted for TTP
-        """
-        ignore = ['*', 'W', '', '*X', 'X']
-        selected_stars = []
-        for i, item in enumerate(night_plan):
-            if night_plan[i] not in ignore and night_plan[i][:4] != "RM___":
-                selected_stars.append(night_plan[i])
-                ignore.append(night_plan[i])
-
-        starnames = []
-        ras = []
-        decs = []
-        exposure_times = []
-        exposures_per_visit = []
-        visits_in_night = []
-        cadences = []
-        priorities = []
-        for j, item in enumerate(selected_stars):
-            idx = request_frame.index[request_frame['starname']==str(selected_stars[j])][0]
-            starnames.append(str(request_frame['starname'][idx]))
-            ras.append(request_frame['ra'][idx])
-            decs.append(request_frame['dec'][idx])
-            exposure_times.append(int(request_frame['exptime'][idx]))
-            exposures_per_visit.append(int(request_frame['n_exp'][idx]))
-            visits_in_night.append(int(request_frame['n_intra_max'][idx]))
-            cadences.append(int(request_frame['tau_intra'][idx]))
-            # higher numbers are higher priorities, filler targets get low priority
-            if str(selected_stars[j]) in round_two_targets:
-                prior = 1
-            else:
-                prior = 10
-            priorities.append(prior)
-        to_ttp = pd.DataFrame({"Starname":starnames,"RA":ras,"Dec":decs,
-                              "Exposure Time":exposure_times,
-                              "Exposures Per Visit":exposures_per_visit,
-                              "Visits In Night":visits_in_night, "Intra_Night_Cadence":cadences,
-                              "Priority":priorities})
-        return to_ttp
-
-
-# Legacy function wrappers for backwards compatibility
-def run_ttp(manager):
+    Returns:
+        tuple: (start_time, stop_time) as Time objects
     """
-    Legacy wrapper function for backwards compatibility.
-    Use NightPlanner class for new code.
-    """
-    planner = NightPlanner(manager)
-    planner.run_ttp()
-
-
-def produce_bright_backups(manager, nstars_max=100):
-    """
-    Legacy wrapper function for backwards compatibility.
-    Use NightPlanner class for new code.
-    """
-    planner = NightPlanner(manager)
-    planner.produce_bright_backups(nstars_max)
-
-
-def prepare_for_ttp(request_frame, night_plan, round_two_targets):
-    """
-    Legacy wrapper function for backwards compatibility.
-    Use NightPlanner class for new code.
-    """
-    # This function is stateless, so we can just call it directly
-    # Create a temporary planner instance
-    temp_planner = NightPlanner(None)
-    return temp_planner.prepare_for_ttp(request_frame, night_plan, round_two_targets)
+    allocated_times_frame = pd.read_csv(allocation_file)
+    allocated_times_frame['start'] = allocated_times_frame['start'].apply(Time)
+    allocated_times_frame['stop'] = allocated_times_frame['stop'].apply(Time)
+    
+    # Filter for the current day
+    current_day_str = str(current_day)
+    day_allocations = []
+    for _, row in allocated_times_frame.iterrows():
+        start_datetime = str(row['start'])[:10]  # Extract date part (YYYY-MM-DD)
+        if start_datetime == current_day_str:
+            day_allocations.append(row)
+    
+    if not day_allocations:
+        raise ValueError(f"No allocation found for date {current_day_str}")
+    
+    # For multiple allocations on the same day, use the earliest start and latest stop
+    start_times = [row['start'] for row in day_allocations]
+    stop_times = [row['stop'] for row in day_allocations]
+    
+    earliest_start = min(start_times)
+    latest_stop = max(stop_times)
+    
+    return earliest_start, latest_stop
+        
