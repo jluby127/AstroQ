@@ -31,6 +31,8 @@
             border-radius: 8px;
         }
 
+
+
         .table-container {
             margin-top: 2rem;
             background-color: white;
@@ -70,11 +72,11 @@
     </script>
 
     {% if figures_html %}
-        <div class="plot-container">
-            {% for fig in figures_html %}
+        {% for fig in figures_html %}
+            <div class="plot-container">
                 {{ fig | safe }}
-            {% endfor %}
-        </div>
+            </div>
+        {% endfor %}
     {% endif %}
 
 

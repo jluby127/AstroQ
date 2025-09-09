@@ -1,20 +1,11 @@
 """
 Module for preparing the benchmark tests
-
 """
-import json
-import os
-import sys
-import numpy as np
-import matplotlib.pyplot as pt
-import pandas as pd
-import math
-import random
-from configparser import ConfigParser
-from argparse import Namespace
 
-import astroq.request as rq
-import astroq.driver as dr
+# Third-party imports
+import matplotlib.pyplot as pt
+import numpy as np
+import pandas as pd
 
 # In the paper, we used random seed = 24.
 np.random.seed(24)
@@ -180,9 +171,18 @@ def build_toy_model_from_paper(ns, hours_per_program = 80, plot = False):
         'n_intra_min': visits_per_night_min,
         'n_inter_max': unique_nights,
         'tau_inter': internight_cadences,
-        'tau_intra': intranight_cadences
+        'tau_intra': intranight_cadences,
     }
     requests_data = pd.DataFrame(requests_data)
+    requests_data['weather_band'] = [0]*len(requests_data)
+    requests_data['unique_id'] = requests_data['starname'] #[np.random.randint(1, 1000000) for _ in range(len(requests_data))]
+    requests_data['jmag'] = [10.0]*len(requests_data)
+    requests_data['gmag'] = [10.0]*len(requests_data)
+    requests_data['teff'] = [5800]*len(requests_data)
+    requests_data['pmra'] = [0.00]*len(requests_data)
+    requests_data['pmdec'] = [0.00]*len(requests_data)
+    requests_data['epoch'] = [2000.0]*len(requests_data)
+    requests_data['gaia_id'] = [np.random.randint(1, 1000000) for _ in range(len(requests_data))]
 
     if plot:
         for i in range(len(all_programs), 0, -1):

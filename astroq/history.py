@@ -5,18 +5,32 @@ Designed to be only run as a function call from the generateScript.py script.
 Example usage:
     import processing_functions as pf
 """
-import os
-import numpy as np
-import pandas as pd
-import json
-import requests
 
-from astropy.coordinates import Angle, SkyCoord
-import astropy.units as u
-from astropy.time import Time
-from astropy.time import TimeDelta
-from collections import defaultdict
+# Standard library imports
+import os
 from collections import namedtuple
+
+# Third-party imports
+import pandas as pd
+import requests
+from astropy.time import Time, TimeDelta
+
+# Global timezone offset: hours difference between local time and UT
+# Positive values mean local time is ahead of UT (e.g., +8 for UTC+8)
+# Negative values mean local time is behind UT (e.g., -10 for UTC-10)
+TIMEZONE_OFFSET_HOURS = -10  # Adjust this value for your timezone
+
+# Define StarHistory namedtuple at module level for proper pickling
+StarHistory = namedtuple('StarHistory', [
+    'name',
+    'date_last_observed',
+    'total_n_exposures',
+    'total_n_visits',
+    'total_n_unique_nights',
+    'total_open_shutter_time',
+    'n_obs_on_nights',
+    'n_visits_on_nights',
+])
 
 def pull_OB_histories(semester):
     """
@@ -59,14 +73,28 @@ def write_OB_histories_to_csv(histories, savepath):
                 # "junk": entry.get("junk", ""),
             })
     df = pd.DataFrame(rows)
+    df.sort_values(by='timestamp', inplace=True)
     df.to_csv(savepath, index=False)
 
 def write_OB_histories_to_csv_JUMP(requests_frame, jump_file, output_file):
     """
     Convert a JUMP-style CSV to the OB histories format and write to CSV.
     """
-    # Load the jump file
-    df = pd.read_csv(jump_file)
+    # Check if file is empty or doesn't exist
+    if not os.path.exists(jump_file) or os.path.getsize(jump_file) == 0:
+        # Create empty DataFrame with expected columns
+        empty_df = pd.DataFrame(columns=['id', 'target', 'semid', 'timestamp', 'exposure_start_time', 'exposure_time', 'observer'])
+        empty_df.to_csv(output_file, index=False)
+        return empty_df
+    
+    try:
+        # Load the jump file
+        df = pd.read_csv(jump_file)
+    except pd.errors.EmptyDataError:
+        # Create empty DataFrame with expected columns
+        empty_df = pd.DataFrame(columns=['id', 'target', 'semid', 'timestamp', 'exposure_start_time', 'exposure_time', 'observer'])
+        empty_df.to_csv(output_file, index=False)
+        return empty_df
     
     # Crossmatch star names
     df['target'] = df['star_id'].apply(crossmatch_star_name)
@@ -77,11 +105,12 @@ def write_OB_histories_to_csv_JUMP(requests_frame, jump_file, output_file):
     req_lookup = {}
     for _, row in req.iterrows():
         starname = row['starname']
-        if starname not in req_lookup:
-            req_lookup[starname] = {'unique_id': row['unique_id'], 'program_code': row['program_code']}
+        unique_id = row['unique_id']
+        if unique_id not in req_lookup:
+            req_lookup[unique_id] = {'starname': row['starname'], 'program_code': row['program_code']}
 
     # Map id and semid using the crossmatched target
-    df['id'] = df['target'].map(lambda name: req_lookup.get(name, {}).get('unique_id', ''))
+    df['unique_id'] = df['target'].map(lambda name: req_lookup.get(name, {}).get('unique_id', ''))
     df['semid'] = df['target'].map(lambda name: req_lookup.get(name, {}).get('program_code', ''))
     
     # Filter out rows where starname doesn't have a corresponding entry in lookup table
@@ -106,20 +135,21 @@ def process_star_history(filename):
       date_last_observed, total_n_exposures, total_n_visits, total_n_unique_nights, total_open_shutter_time
     Each key is for one target (star).
     """
-    df = pd.read_csv(filename)
-    StarHistory = namedtuple('StarHistory', [
-        'id',
-        'date_last_observed',
-        'total_n_exposures',
-        'total_n_visits',
-        'total_n_unique_nights',
-        'total_open_shutter_time',
-        'n_obs_on_nights',
-    ])
+    # Check if file is empty or doesn't exist
+    if not os.path.exists(filename) or os.path.getsize(filename) == 0:
+        # Create empty DataFrame with expected columns
+        df = pd.DataFrame(columns=['id', 'target', 'semid', 'timestamp', 'exposure_start_time', 'exposure_time', 'observer'])
+    else:
+        try:
+            df = pd.read_csv(filename)
+        except pd.errors.EmptyDataError:
+            # Create empty DataFrame with expected columns
+            df = pd.DataFrame(columns=['id', 'target', 'semid', 'timestamp', 'exposure_start_time', 'exposure_time', 'observer'])
     result = {}
 
     # Group by target (star)
-    for starname, star_df in df.groupby('target'):
+    for unique_id, star_df in df.groupby('id'):
+        starname = df[df['id'] == unique_id]['target'].values[0]
         # Group by visit (timestamp)
         visits = []
         for ts, visit_df in star_df.groupby('timestamp'):
@@ -142,25 +172,35 @@ def process_star_history(filename):
             continue
         star_id = visits[0]['id']
         all_times = [Time(t) for v in visits for t in v['exposure_start_time']]
-        date_last_observed = max(all_times).isot[:10] if all_times else ''
+        # Adjust UT time to local timezone
+        ut_time = max(all_times) if all_times else None
+        if ut_time:
+            # Subtract timezone offset (negative offset means local time is behind UT)
+            local_time = ut_time - TimeDelta(abs(TIMEZONE_OFFSET_HOURS) / 24, format='jd')
+            date_last_observed = local_time.isot[:10]
+        else:
+            date_last_observed = ''
         total_n_exposures = sum(len(v['exposure_start_time']) for v in visits)
         total_n_visits = len(visits)
         unique_nights = set(Time(t).isot[:10] for v in visits for t in v['exposure_start_time'])
         total_n_unique_nights = len(unique_nights)
         total_open_shutter_time = int(round(sum(sum(map(float, v['exposure_time'])) for v in visits)))
-        # Build n_obs_on_nights
+        # Build n_obs_on_nights and n_visits_on_nights
         n_obs_on_nights = {}
+        n_visits_on_nights = {}
         for v in visits:
             visit_date = v['timestamp'][:10]
             n_obs_on_nights[visit_date] = n_obs_on_nights.get(visit_date, 0) + len(v['exposure_start_time'])
-        result[starname] = StarHistory(
-            id=star_id,
+            n_visits_on_nights[visit_date] = n_visits_on_nights.get(visit_date, 0) + 1
+        result[unique_id] = StarHistory(
+            name=starname,
             date_last_observed=date_last_observed,
             total_n_exposures=total_n_exposures,
             total_n_visits=total_n_visits,
             total_n_unique_nights=total_n_unique_nights,
             total_open_shutter_time=total_open_shutter_time,
             n_obs_on_nights=n_obs_on_nights,
+            n_visits_on_nights=n_visits_on_nights
         )
     return result
 
@@ -170,34 +210,6 @@ def crossmatch_star_name(name):
     If given a CPS name, returns the canonical name.
     If given a canonical name, returns the CPS name.
     """
-    # HD <-> CPS
-    if name.isdigit():
-        return 'HD ' + name
-    if name.startswith('HD'):
-        return name.replace(" ", "")[2:]
-    # KIC <-> CPS
-    if name.startswith('KIC') and name[3:].isdigit():
-        if " " in name:
-            return name.replace(" ", "")
-        else:
-            return 'KIC ' + name[3:]
-    # TYC <-> CPS
-    if name.startswith('TYC'):
-        if " " in name:
-            return name.replace(" ", "-")
-        else:
-            return name.replace("-", " ")
-    # TOI <-> CPS
-    if name.startswith('T00') and name[3:].isdigit() and len(name[3:]) == 3:
-        return 'TOI-' + name[3:]
-    if name.startswith('T0') and name[2:].isdigit() and len(name[2:]) == 4:
-        return 'TOI-' + name[2:]
-    if name.startswith('TOI-'):
-        if len(name) == 7:
-            return 'T00' + name[4:]
-        elif len(name) == 8:
-            return 'T0' + name[4:]
-    # Kepler <-> CPS
     if name.startswith('KEPLER'):
         return name.replace("KEPLER", "Kepler")
     if name.startswith('Kepler'):

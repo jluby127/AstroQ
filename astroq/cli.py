@@ -1,16 +1,19 @@
 """
 Command Line Interface
 """
+
+# Standard library imports
 import argparse
-import astroq
-import sys
 import os
-import json
-import pandas as pd
-import numpy as np
-import math
+import sys
 from configparser import ConfigParser
-from argparse import Namespace
+
+# Third-party imports
+import numpy as np
+import pandas as pd
+
+# Local imports
+import astroq
 
 # Create the parser at module level
 parser = argparse.ArgumentParser(
@@ -56,33 +59,17 @@ def main():
     psr_bench.set_defaults(func=astroq.driver.bench)
 
     ## subcommand of astroq: plot -- run the plotting suite
-    # psr_plot = subpsr.add_parser('plot', parents=[psr_parent],
-    #                               description='Run the plotting suite',
-    #                               prefix_chars='-'
-    #                               )
-    # psr_plot.add_argument('-cf', '--config_file',
-    #                           type=str,
-    #                           required=True,
-    #                           help="Relative path of config file."
-    #                           )
-    # psr_plot.set_defaults(func=astroq.driver.plot)
-
-    ## subcommand of astroq: schedule -- Schedule observation requests
-    psr_schedule = subpsr.add_parser('schedule', parents=[psr_parent],
-                                      description="Schedule observation requests",
-                                      prefix_chars="-"
-                                     )
-    psr_schedule.add_argument('-rf', '--request_file',
-                              type=str,
-                              required=True,
-                              help="Relative path of request file."
-                              )
-    psr_schedule.add_argument('-cf', '--config_file',
+    psr_plot = subpsr.add_parser('plot', parents=[psr_parent],
+                                  description='Run the plotting suite',
+                                  prefix_chars='-'
+                                  )
+    psr_plot.add_argument('-cf', '--config_file',
                               type=str,
                               required=True,
                               help="Relative path of config file."
                               )
-    psr_schedule.set_defaults(func=astroq.driver.schedule)
+    psr_plot.set_defaults(func=astroq.driver.plot)
+
 
     ## subcommand of astroq: kpfcc -- Do KPFCC stuff
     psr_kpfcc = subpsr.add_parser('kpfcc', parents=[psr_parent],
@@ -91,18 +78,6 @@ def main():
                                   )
     kpfcc_subpsr = psr_kpfcc.add_subparsers(title='kpfcc subcommands', dest='kpfcc_subcommand')
     psr_kpfcc.set_defaults(func=astroq.driver.kpfcc)
-
-    ## subcommand of kpfcc: build -- Build observation requests
-    psr_kpfcc_build = kpfcc_subpsr.add_parser('build', #parents=[psr_parent],
-                                               description="Build observation requests",
-                                               prefix_chars="-"
-                                               )
-    psr_kpfcc_build.add_argument('-cf', '--config_file',
-                              type=str,
-                              required=True,
-                              help="Relative path of config file."
-                                )
-    psr_kpfcc_build.set_defaults(func=astroq.driver.kpfcc_build)
 
     ## subcommand of kpfcc: prepare -- Prep for a new semester
     psr_kpfcc_prep = kpfcc_subpsr.add_parser('prep', #parents=[psr_parent],
@@ -116,42 +91,31 @@ def main():
                                 )
     psr_kpfcc_prep.add_argument('-as', '--allo_source',
                             type=str,
-                            required=True,
+                            default="db",
                             help="Absolute path of observatory-provided allocation file. Use 'db' to pull from the database."
                               )
     psr_kpfcc_prep.add_argument('-ps', '--past_source',
                             type=str,
-                            required=True,
+                            default="db",
                             help="Absolute path of a past history file. Use 'db' to pull from the database."
                               )
+    psr_kpfcc_prep.add_argument('-b3', '--band3_program_code',
+                          type=str,
+                          default="2025B_E473",
+                          help="The program code for the band 3 program."
+                            )
     psr_kpfcc_prep.set_defaults(func=astroq.driver.kpfcc_prep)
 
-    ## subcommand of kpfcc: data -- pull latest OB database
-    psr_kpfcc_data = kpfcc_subpsr.add_parser('data', #parents=[psr_parent],
-                                               description="Pull the OB database from Keck",
-                                               prefix_chars="-"
-                                               )
-    psr_kpfcc_data.add_argument('-pf', '--pull_file',
-                              type=str,
-                              required=True,
-                              help="Path to the file that determines how to pull from the database."
-                                )
-    psr_kpfcc_data.add_argument('-df', '--database_file',
-                              type=str,
-                              required=True,
-                              help="Path to save the good OBs request sheet."
-                                )
-    psr_kpfcc_data.set_defaults(func=astroq.driver.kpfcc_data)
-
+ 
     ## subcommand of kpfcc: webapp -- launch web app to view interactive plots
     psr_kpfcc_webapp = kpfcc_subpsr.add_parser('webapp', #parents=[psr_parent],
                                                description="Launch web app to view interactive plots",
                                                prefix_chars="-"
                                                )
-    psr_kpfcc_webapp.add_argument('-cf', '--config_file',
+    psr_kpfcc_webapp.add_argument('-up', '--uptree_path',
                               type=str,
                               required=True,
-                              help="Path to config file."
+                              help="Path to the uptree directory (e.g., /Users/jack/Desktop)."
                                 )
     psr_kpfcc_webapp.set_defaults(func=astroq.driver.kpfcc_webapp)
 
@@ -164,6 +128,12 @@ def main():
                                          type=str,
                                          required=True,
                                          help="Relative path of config file."
+                                         )
+    psr_kpfcc_plan_semester.add_argument('-b3', '--run_band3',
+                                         type=bool,
+                                         required=False,
+                                         default=False,
+                                         help="Turn on to run filler.csv as if it were request.csv"
                                          )
     psr_kpfcc_plan_semester.set_defaults(func=astroq.driver.kpfcc_plan_semester)
 
@@ -180,14 +150,14 @@ def main():
     psr_kpfcc_plan_night.set_defaults(func=astroq.driver.ttp)
 
     ## subcommand of astroq: compare -- compare request set and schedule file
-    psr_compare = subpsr.add_parser('comp', parents=[psr_parent],
+    psr_compare = subpsr.add_parser('compare', parents=[psr_parent],
                                     description='Compare request set and schedule for consistency',
                                     prefix_chars='-'
                                     )
-    psr_compare.add_argument('-rf', '--request_file',
+    psr_compare.add_argument('-cf', '--config_file',
                               type=str,
                               required=True,
-                              help="Relative path of request set file."
+                              help="Relative path of config file."
                               )
     psr_compare.add_argument('-sf', '--schedule_file',
                               type=str,
