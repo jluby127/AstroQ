@@ -449,14 +449,10 @@ class SemesterPlanner(object):
             if (row.unique_id, row.d) in self.intercadence_tracker.index:
                 slots_to_constrain_future = self.intercadence_tracker.loc[(row.unique_id2, row.d2)]
                 ds_pairs = zip(list(np.array(slots_to_constrain_future.d3).flatten()), list(np.array(slots_to_constrain_future.s3).flatten()))
-                self.model.addConstr((gp.quicksum(self.Yrds[row.unique_id,row.d,s2] for s2 in constrained_slots_tonight)/row.n_intra_max \
-                     <= (1 - (gp.quicksum(self.Yrds[row.unique_id,d3,s3] for d3, s3 in ds_pairs)))), \
-                    'enforce_internight_cadence_' + row.unique_id + "_" + str(row.d) + "d_" + str(row.s) + "s")
-            # else:
-            #     # For request r, there are no (d,s) pairs that are within "inter cadence" days of the
-            #     # given day d, therefore nothing to constrain. If I can find a way to filter out these
-            #     # rows as a "mask_inter_2", then the if/else won't be needed
-            #     continue
+
+                lhs = gp.quicksum(self.Yrds[row.unique_id,row.d,s2] for s2 in constrained_slots_tonight)/row.n_intra_max 
+                rhs = 1 - (gp.quicksum(self.Yrds[row.unique_id,d3,s3] for d3, s3 in ds_pairs))
+                self.model.addConstr(lhs <= rhs, 'enforce_internight_cadence_' + row.unique_id + "_" + str(row.d) + "d_" + str(row.s) + "s")
 
     def constraint_fix_previous_objective(self, epsilon=0.03):
         """
@@ -472,8 +468,9 @@ class SemesterPlanner(object):
         optimal solution found in Round 1.
         """
         logs.info("Constraint: Fixing the previous solution's objective value.")
-        self.model.addConstr(gp.quicksum(self.theta[name] for name in self.requests_frame['unique_id']) <= \
-                    self.model.objval + epsilon)
+        lhs = gp.quicksum(self.theta[name] for name in self.requests_frame['unique_id'])
+        rhs = self.model.objval + epsilon
+        self.model.addConstr(lhs <= rhs, 'fix_previous_objective')
 
     def set_objective_maximize_slots_used(self):
         """
@@ -512,13 +509,16 @@ class SemesterPlanner(object):
         logs.info("Constraint 0: Build theta variable")
         for starid in self.schedulable_requests:
             idx = self.requests_frame.index[self.requests_frame['unique_id']==starid][0]
-            self.model.addConstr(self.theta[starid] >= 0, 'greater_than_zero_shortfall_' + str(starid))
+            lhs1 = self.theta[starid]
+            rhs1 = 0
+            self.model.addConstr(lhs1 >= rhs1, 'greater_than_zero_shortfall_' + str(starid))
+            
             # Get all (d,s) pairs for which this request is valid.
             all_d = list(set(list(self.all_valid_ds_for_request.loc[starid].d)))
             available = list(zip(list(self.all_valid_ds_for_request.loc[starid].d), list(self.all_valid_ds_for_request.loc[starid].s)))
-            self.model.addConstr(self.theta[starid] >= ((self.requests_frame['n_inter_max'][idx] - \
-                    self.past_nights_observed_dict[starid]) - (gp.quicksum(self.Yrds[starid, d, s] for d, s in available))/self.requests_frame['n_intra_max'][idx]), \
-                    'greater_than_nobs_shortfall_' + str(starid))
+            lhs2 = self.theta[starid]
+            rhs2 = self.requests_frame['n_inter_max'][idx] - self.past_nights_observed_dict[starid] - (gp.quicksum(self.Yrds[starid, d, s] for d, s in available))/self.requests_frame['n_intra_max'][idx]
+            self.model.addConstr(lhs2 >= rhs2, 'greater_than_nobs_shortfall_' + str(starid))
 
     def constraint_set_max_desired_unique_nights_Wrd(self):
         """
@@ -534,14 +534,15 @@ class SemesterPlanner(object):
         logs.info("Constraining desired maximum observations.")
         for name in self.multi_visit_requests:
             all_d = list(set(list(self.all_valid_ds_for_request.loc[name].d)))
-            self.model.addConstr(gp.quicksum(self.Wrd[name, d] for d in all_d) <=
-                        self.desired_max_obs_allowed_dict[name],
-                        'max_desired_unique_nights_for_request_' + str(name))
+            lhs1 = gp.quicksum(self.Wrd[name, d] for d in all_d)
+            rhs1 = self.desired_max_obs_allowed_dict[name]
+            self.model.addConstr(lhs1 <= rhs1, 'max_desired_unique_nights_for_request_' + str(name))
+        
         for name in self.single_visit_requests:
             available = list(zip(list(self.all_valid_ds_for_request.loc[name].d), list(self.all_valid_ds_for_request.loc[name].s)))
-            self.model.addConstr(gp.quicksum(self.Yrds[name, d, s] for d, s in available) <=
-                        self.desired_max_obs_allowed_dict[name],
-                        'max_desired_unique_nights_for_request_' + str(name))
+            lhs2 = gp.quicksum(self.Yrds[name, d, s] for d, s in available)
+            rhs2 = self.desired_max_obs_allowed_dict[name]
+            self.model.addConstr(lhs2 <= rhs2, 'max_desired_unique_nights_for_request_' + str(name))
 
     def remove_constraint_set_max_desired_unique_nights_Wrd(self):
         """
@@ -569,9 +570,9 @@ class SemesterPlanner(object):
         logs.info("Constraining absolute maximum observations.")
         for name in self.multi_visit_requests:
             all_d = list(set(list(self.all_valid_ds_for_request.loc[name].d)))
-            self.model.addConstr(gp.quicksum(self.Wrd[name, d] for d in all_d) <=
-                    self.absolute_max_obs_allowed_dict[name],
-                    'max_absolute_unique_nights_for_request_' + str(name))
+            lhs = gp.quicksum(self.Wrd[name, d] for d in all_d)
+            rhs = self.absolute_max_obs_allowed_dict[name]
+            self.model.addConstr(lhs <= rhs, 'max_absolute_unique_nights_for_request_' + str(name))
 
     def constraint_build_enforce_intranight_cadence(self):
         """
@@ -597,9 +598,9 @@ class SemesterPlanner(object):
             if (row.unique_id, row.d, row.s) in intracadence_frame.index:
                 # Get all slots tonight which are too soon after given slot for another visit
                 slots_to_constrain_tonight_intra = list(intracadence_frame.loc[(row.unique_id, row.d, row.s)][0])
-                self.model.addConstr((self.Yrds[row.unique_id,row.d,row.s] <= (self.Wrd[row.unique_id, row.d] - (gp.quicksum(self.Yrds[row.unique_id,row.d,s3] \
-                    for s3 in slots_to_constrain_tonight_intra)))), \
-                    'enforce_intranight_cadence_' + row.unique_id + "_" + str(row.d) + "d_" + str(row.s) + "s")
+                lhs = self.Yrds[row.unique_id,row.d,row.s]
+                rhs = self.Wrd[row.unique_id, row.d] - (gp.quicksum(self.Yrds[row.unique_id,row.d,s3] for s3 in slots_to_constrain_tonight_intra))
+                self.model.addConstr(lhs <= rhs, 'enforce_intranight_cadence_' + row.unique_id + "_" + str(row.d) + "d_" + str(row.s) + "s")
 
     def constraint_set_min_max_visits_per_night(self):
         """
@@ -616,13 +617,17 @@ class SemesterPlanner(object):
         for i, row in intracadence_frame_on_day.iterrows():
             all_valid_slots_tonight = list(grouped_s.loc[(row.unique_id, row.d)]['s'])
             if row.unique_id in self.multi_visit_requests:
-                self.model.addConstr((((gp.quicksum(self.Yrds[row.unique_id, row.d,s3] for s3 in all_valid_slots_tonight)))) <= \
-                    row.n_intra_max*self.Wrd[row.unique_id, row.d], 'enforce_max_visits1_' + row.unique_id + "_" + str(row.d) + "d_" + str(row.s) + "s")
-                self.model.addConstr((((gp.quicksum(self.Yrds[row.unique_id,row.d,s3] for s3 in all_valid_slots_tonight)))) >= \
-                    row.n_intra_min*self.Wrd[row.unique_id, row.d], 'enforce_min_visits_' + row.unique_id + "_" + str(row.d) + "d_" + str(row.s) + "s")
+                lhs1 = gp.quicksum(self.Yrds[row.unique_id, row.d,s3] for s3 in all_valid_slots_tonight)
+                rhs1 = row.n_intra_max*self.Wrd[row.unique_id, row.d]
+                self.model.addConstr(lhs1 <= rhs1, 'enforce_max_visits1_' + row.unique_id + "_" + str(row.d) + "d_" + str(row.s) + "s")
+                
+                lhs2 = gp.quicksum(self.Yrds[row.unique_id,row.d,s3] for s3 in all_valid_slots_tonight)
+                rhs2 = row.n_intra_min*self.Wrd[row.unique_id, row.d]
+                self.model.addConstr(lhs2 >= rhs2, 'enforce_min_visits_' + row.unique_id + "_" + str(row.d) + "d_" + str(row.s) + "s")
             else:
-                self.model.addConstr((((gp.quicksum(self.Yrds[row.unique_id,row.d,s3] for s3 in all_valid_slots_tonight)))) <= \
-                    row.n_intra_max, 'enforce_min_visits_' + row.unique_id + "_" + str(row.d) + "d_" + str(row.s) + "s")
+                lhs3 = gp.quicksum(self.Yrds[row.unique_id,row.d,s3] for s3 in all_valid_slots_tonight)
+                rhs3 = row.n_intra_max
+                self.model.addConstr(lhs3 <= rhs3, 'enforce_min_visits_' + row.unique_id + "_" + str(row.d) + "d_" + str(row.s) + "s")
 
     def optimize_model(self):
         logs.debug("Begin model solve.")
