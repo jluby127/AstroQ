@@ -98,6 +98,12 @@ def kpfcc_prep(args):
         hours_by_program = ob.format_keck_allocation_info(allo_source, savepath+allocation_file)
         awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())]
     
+    # Add filler programs if specified
+    fillers = args.filler_programs
+    if fillers is not None:
+        print(f'Adding filler program to awarded_programs: {fillers}')
+        awarded_programs.append(fillers)
+    
     # Check if current_day exists in allocation file, add if missing    
     allocation_df = pd.read_csv(savepath+allocation_file)
     current_day_str = str(config.get('global', 'current_day'))
@@ -145,13 +151,13 @@ def kpfcc_prep(args):
     this is where code to automatically send emails will go. Not implemented yet.
     '''
 
-    # Now get the bright backup stars information from the designated program code
+    # Now get the bright backup stars information from the filler program
     filler_file = str(config.get('data', 'filler_file'))
-    try:
-        band3_program_code = args.band3_program_code
-        good_obs_backup, bad_obs_values_backup, bad_obs_hasFields_backup, bad_obs_count_by_semid_backup, bad_field_histogram_backup = ob.get_request_sheet(OBs, [band3_program_code], savepath + filler_file)
-    except:
-        print(f'No band3 program code provided, creating a blank filler.csv file.')
+    if fillers is not None:
+        print(f'Generating filler.csv from program: {fillers}')
+        good_obs_backup, bad_obs_values_backup, bad_obs_hasFields_backup, bad_obs_count_by_semid_backup, bad_field_histogram_backup = ob.get_request_sheet(OBs, [fillers], savepath + filler_file)
+    else:
+        print(f'No fillers specified, creating blank filler.csv file.')
         pd.DataFrame(columns=good_obs.columns).to_csv(savepath + filler_file, index=False)
 
     # Next get the past history 
@@ -164,6 +170,25 @@ def kpfcc_prep(args):
     else:
         print(f'Using past history information from file: {past_source}')
         obhist = hs.write_OB_histories_to_csv_JUMP(good_obs, past_source, savepath + past_file)
+
+    # Filter request.csv by weather band if specified
+    weather_band = args.weather_band
+    if weather_band is not None:
+        print(f'Filtering request.csv for weather_band_{weather_band} = True')
+        request_df = pd.read_csv(savepath + request_file)
+        
+        # Check if the weather_band column exists
+        weather_band_col = f'weather_band_{weather_band}'
+        if weather_band_col in request_df.columns:
+            # Filter rows where the weather band column is True
+            filtered_df = request_df[request_df[weather_band_col] == True]
+            print(f'Filtered request.csv: {len(request_df)} -> {len(filtered_df)} rows')
+            
+            # Save the filtered request file
+            filtered_df.to_csv(savepath + request_file, index=False)
+            print(f'Updated request.csv with weather_band_{weather_band} filtering')
+        else:
+            print(f'Warning: Column {weather_band_col} not found in request.csv. No filtering applied.')
 
     return
 
