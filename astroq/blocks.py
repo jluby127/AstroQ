@@ -16,6 +16,8 @@ import requests
 from astropy.coordinates import SkyCoord
 from astropy.time import Time
 import astropy.units as u
+import astroplan as apl
+
 
 exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', 'metadata.history',
                     'metadata.instruments', 'metadata.is_approved', 'metadata.last_modification',
@@ -40,8 +42,9 @@ exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', '
                     'calibration.wide_flat_pos', 'observation.block_sky', 'observation.nod_e', 'observation.nod_n',
                     'schedule.isNew', 'observation.isNew', 'schedule.comment', 'target.d_ra', 'target.d_dec', 'target.undefined',
                     'target.ra_deg', 'target.dec_deg', 'observation.undefined', 'schedule.num_visits_per_night', 'schedule.undefined',
+                    'schedule.custom_time_constraints', #make this an exception field because it is handled elsewhere to make the custom.csv file
                     'schedule.desired_num_visits_per_night', 'schedule.minimum_num_visits_per_night', 'history', # NOTE: this line will be removed 
-                    'schedule.custom_time_constraints', 'schedule.weather_band_1', 'schedule.weather_band_2', 'schedule.weather_band_3'# NOTE: this line will be removed 
+                    # 'schedule.weather_band_1', 'schedule.weather_band_2', 'schedule.weather_band_3'# NOTE: this line will be removed 
 ]
 
 def pull_OBs(semester):
@@ -109,8 +112,13 @@ def format_custom_csv(OBs, savefile):
             pass
 
     # Create DataFrame and save to CSV
-    df = pd.DataFrame(rows)
-    df.to_csv('custom_constraints.csv', index=False)
+    if len(rows) > 0:
+        df = pd.DataFrame(rows)
+    else:
+        # Create empty DataFrame with proper column headers
+        df = pd.DataFrame(columns=['unique_id', 'starname', 'start', 'stop'])
+    
+    df.to_csv(savefile, index=False)
         
 def pull_allocation_info(start_date, numdays, instrument, savepath):
     params = {}
@@ -353,6 +361,8 @@ def cast_columns(df):
 
 def sort_good_bad(OBs, awarded_programs):
 
+    print(OBs['observing_blocks'][0]['schedule'])
+
     OB_values, OB_hasFields, pass_OBs_mask = create_checks_dataframes(OBs, exception_fields)
 
     bad_OBs_values = OB_values[~pass_OBs_mask]
@@ -386,7 +396,9 @@ def sort_good_bad(OBs, awarded_programs):
         'schedule.desired_num_visits_per_night',
         'schedule.minimum_num_visits_per_night',
         'schedule.num_intranight_cadence',
-        'schedule.weather_band',
+        'schedule.weather_band_1',
+        'schedule.weather_band_2',
+        'schedule.weather_band_3',
         'target.gaia_id',
         'target.t_eff',
         'target.j_mag',
@@ -409,7 +421,9 @@ def sort_good_bad(OBs, awarded_programs):
         'schedule.desired_num_visits_per_night':'n_intra_max',
         'schedule.minimum_num_visits_per_night':'n_intra_min',
         'schedule.num_intranight_cadence':'tau_intra',
-        'schedule.weather_band':'weather_band',
+        'schedule.weather_band_1':'weather_band_1',
+        'schedule.weather_band_2':'weather_band_2',
+        'schedule.weather_band_3':'weather_band_3',
         'target.gaia_id':'gaia_id',
         'target.t_eff':'teff',
         'target.j_mag':'jmag',
@@ -625,3 +639,77 @@ Jack
 #         badparams=reasons
 #     )
 #     return email_address, email_body
+
+def filter_request_csv(request_file_path, weather_band_num):
+    """
+    Filter request.csv file to only keep rows where weather_band_X = True
+    
+    Args:
+        request_file_path (str): Path to the request.csv file
+        weather_band_num (int): Weather band number to filter by
+        
+    Returns:
+        bool: True if filtering was successful, False otherwise
+    """
+    request_df = pd.read_csv(request_file_path)
+    weather_band_col = f'weather_band_{weather_band_num}'
+    
+    if weather_band_col in request_df.columns:
+        filtered_df = request_df[request_df[weather_band_col] == True]
+        print(f'Filtered request.csv: {len(request_df)} -> {len(filtered_df)} rows')
+        filtered_df.to_csv(request_file_path, index=False)
+        print(f'Updated request.csv with weather_band_{weather_band_num} filtering')
+        return True
+    else:
+        print(f'Warning: Column {weather_band_col} not found in request.csv. No filtering applied.')
+        return False
+
+def update_allocation_file(allocation_file_path, current_date):
+    """
+    Update allocation.csv file with today's 12-degree twilight times
+    
+    Args:
+        allocation_file_path (str): Path to the allocation.csv file
+        current_date (str): Current date in YYYY-MM-DD format
+        
+    Returns:
+        bool: True if update was successful, False otherwise
+    """
+    allocation_df = pd.read_csv(allocation_file_path)
+    date_exists = False
+    date_idx = -1
+    
+    # Check if current date exists in allocation file
+    for idx, row in allocation_df.iterrows():
+        row_date = str(row['start'])[:10]  # Get YYYY-MM-DD portion
+        if row_date == current_date:
+            date_exists = True
+            date_idx = idx
+            break
+    
+    # Get 12-degree twilight times for current date
+    observatory = 'Keck Observatory'
+    keck = apl.Observer.at_site(observatory)
+    day = Time(current_date, format='isot', scale='utc')
+    
+    evening_12 = keck.twilight_evening_nautical(day, which='next')
+    morning_12 = keck.twilight_morning_nautical(day, which='next')
+    
+    if not date_exists:
+        print(f'Adding allocation row for current_day: {current_date}')
+        # Add new row at the bottom
+        new_row = pd.DataFrame({
+            'start': [evening_12.strftime('%Y-%m-%dT%H:%M')],
+            'stop': [morning_12.strftime('%Y-%m-%dT%H:%M')]
+        })
+        allocation_df = pd.concat([allocation_df, new_row], ignore_index=True)
+        print(f'Added allocation: {evening_12.iso} to {morning_12.iso}')
+    else:
+        print(f'Updating existing allocation row for current_day: {current_date}')
+        # Update existing row
+        allocation_df.loc[date_idx, 'start'] = evening_12.strftime('%Y-%m-%dT%H:%M')
+        allocation_df.loc[date_idx, 'stop'] = morning_12.strftime('%Y-%m-%dT%H:%M')
+        print(f'Updated allocation: {evening_12.iso} to {morning_12.iso}')
+    
+    allocation_df.to_csv(allocation_file_path, index=False)
+    return True
