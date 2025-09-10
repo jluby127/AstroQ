@@ -99,10 +99,17 @@ def main():
                             default="db",
                             help="Absolute path of a past history file. Use 'db' to pull from the database."
                               )
-    psr_kpfcc_prep.add_argument('-b3', '--band3_program_code',
+    psr_kpfcc_prep.add_argument('-band', '--weather_band',
+                          type=int,
+                          required=False,
+                          default=None,
+                          help="Weather band number (1, 2, 3, etc.) for filtering request.csv after prep."
+                            )
+    psr_kpfcc_prep.add_argument('-fillers', '--filler_programs',
                           type=str,
-                          default="2025B_E473",
-                          help="The program code for the band 3 program."
+                          required=False,
+                          default=None,
+                          help="The semester ID for the filler program. Ex. 2025B_E473."
                             )
     psr_kpfcc_prep.set_defaults(func=astroq.driver.kpfcc_prep)
 
