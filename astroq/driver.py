@@ -103,38 +103,8 @@ def kpfcc_prep(args):
     if fillers is not None:
         print(f'Adding filler program to awarded_programs: {fillers}')
         awarded_programs.append(fillers)
+    print(awarded_programs)
     
-    # Check if current_day exists in allocation file, add if missing    
-    allocation_df = pd.read_csv(savepath+allocation_file)
-    current_day_str = str(config.get('global', 'current_day'))
-    
-    # Check if any row's date matches current_day
-    date_exists = False
-    for idx, row in allocation_df.iterrows():
-        row_date = str(row['start'])[:10]  # Get YYYY-MM-DD portion
-        if row_date == current_day_str:
-            date_exists = True
-            break
-    
-    if not date_exists:
-        print(f"Adding allocation row for current_day: {current_day_str}")
-        # Get 12-degree twilight times for current_day
-        observatory = config.get('global', 'observatory')
-        keck = apl.Observer.at_site(observatory)
-        day = Time(current_day_str, format='isot', scale='utc')
-        
-        evening_12 = keck.twilight_evening_nautical(day, which='next')
-        morning_12 = keck.twilight_morning_nautical(day, which='next')
-        
-        # Add new row at the bottom
-        new_row = pd.DataFrame({
-            'start': [evening_12.strftime('%Y-%m-%dT%H:%M')],
-            'stop': [morning_12.strftime('%Y-%m-%dT%H:%M')]
-        })
-        allocation_df = pd.concat([allocation_df, new_row], ignore_index=True)
-        allocation_df.to_csv(savepath+allocation_file, index=False)
-        print(f"Added allocation: {evening_12.iso} to {morning_12.iso}")
-
     # Next get the request sheet
     request_file = str(config.get('data', 'request_file'))
     OBs = ob.pull_OBs(semester)
@@ -171,25 +141,54 @@ def kpfcc_prep(args):
         print(f'Using past history information from file: {past_source}')
         obhist = hs.write_OB_histories_to_csv_JUMP(good_obs, past_source, savepath + past_file)
 
-    # Filter request.csv by weather band if specified
-    weather_band = args.weather_band
-    if weather_band is not None:
-        print(f'Filtering request.csv for weather_band_{weather_band} = True')
-        request_df = pd.read_csv(savepath + request_file)
-        
-        # Check if the weather_band column exists
-        weather_band_col = f'weather_band_{weather_band}'
-        if weather_band_col in request_df.columns:
-            # Filter rows where the weather band column is True
-            filtered_df = request_df[request_df[weather_band_col] == True]
-            print(f'Filtered request.csv: {len(request_df)} -> {len(filtered_df)} rows')
-            
-            # Save the filtered request file
-            filtered_df.to_csv(savepath + request_file, index=False)
-            print(f'Updated request.csv with weather_band_{weather_band} filtering')
-        else:
-            print(f'Warning: Column {weather_band_col} not found in request.csv. No filtering applied.')
+    return
 
+def kpfcc_process_band(args):
+    """
+    Process band-specific filtering and allocation updates.
+    
+    Args:
+        args.band_number (int): Band number for filtering request.csv
+        args.is_full_band (bool): Whether to update allocation.csv
+        args.config_file (str): Path to config file
+    """
+    cf = args.config_file
+    band_number = args.band_number
+    is_full_band = args.is_full_band
+    
+    print(f'kpfcc_process_band: band_number={band_number}, is_full_band={is_full_band}')
+    
+    # Read config to get file paths
+    config = ConfigParser()
+    config.read(cf)
+    
+    # Get workdir from global section
+    workdir = str(config.get('global', 'workdir'))
+    semester = str(config.get('global', 'semester'))
+    current_date = str(config.get('global', 'current_day'))
+    
+    # Construct file paths
+    request_file = os.path.join(workdir, 'request.csv')
+    allocation_file = os.path.join(workdir, 'allocation.csv')  # allocation.csv is in the same directory as request.csv
+    
+    # Filter request.csv by weather band
+    print(f'📊 Filtering request.csv for weather_band_{band_number}...')
+    success = ob.filter_request_csv(request_file, band_number)
+    if not success:
+        print(f'❌ Failed to filter request.csv for band {band_number}')
+        return
+    
+    # Update allocation.csv if this is a full-band
+    if is_full_band:
+        print(f'📅 Updating allocation file for today\'s date...')
+        success = ob.update_allocation_file(allocation_file, current_date)
+        if not success:
+            print(f'❌ Failed to update allocation file')
+            return
+        print(f'✅ Full-band processing complete for band {band_number}')
+    else:
+        print(f'✅ Regular band processing complete for band {band_number}')
+    
     return
 
 def kpfcc_webapp(args):

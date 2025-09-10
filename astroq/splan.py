@@ -123,7 +123,12 @@ class SemesterPlanner(object):
         self.requests_frame['n_intra_max'] = self.requests_frame['n_intra_max'].replace('None', np.nan).fillna(1)
         self.requests_frame['n_intra_min'] = self.requests_frame['n_intra_min'].replace('None', np.nan).fillna(1)
         self.requests_frame['tau_intra'] = self.requests_frame['tau_intra'].replace('None', np.nan).fillna(0)
-        self.requests_frame['weather_band'] = self.requests_frame['weather_band'].replace('None', np.nan).fillna(0)
+        # Handle weather band columns - process each band column individually
+        for band_num in [1, 2, 3]:
+            weather_band_col = f'weather_band_{band_num}'
+            if weather_band_col in self.requests_frame.columns:
+                self.requests_frame[weather_band_col] = self.requests_frame[weather_band_col].replace('None', np.nan).fillna(False)
+        
         self.requests_frame['unique_id'] = self.requests_frame['unique_id'].astype(str)
         self.requests_frame['starname'] = self.requests_frame['starname'].astype(str)
 

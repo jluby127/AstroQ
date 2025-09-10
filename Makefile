@@ -7,7 +7,8 @@ DATE ?= $(shell date +%Y-%m-%d)
 SEMESTER ?= 2025B
 START_DATE ?= 2025-08-01
 END_DATE ?= 2026-01-31
-BANDS ?= band1 band2 band3
+# BANDS ?= band1 band2 band3 full-band1 full-band2 full-band3
+BANDS ?= band3 full-band3
 FILLER_PROGRAM ?= 2025B_E473
 WORKDIR ?= /Users/jack/Desktop
 # WORKDIR ?= /home/kpfcc/AstroQ
@@ -51,11 +52,18 @@ $(DATE_DIR)/%/plan-semester-run: $(DATE_DIR)/%/prep-run
 	@cd $(@D) && conda run -n astroq astroq kpfcc plan-semester -cf config.ini 2>&1 | tee -a astroq.log
 	@touch $@
 
-# Run prep command with weather band filtering
+# Unified prep command for all bands
 $(DATE_DIR)/%/prep-run: $(DATE_DIR)/%/config.ini
 	@echo "🔧 Running prep for band $(notdir $(@D))..."
-	@BAND_NUM=$$(echo $(notdir $(@D)) | sed 's/band//'); \
-	cd $(@D) && conda run -n astroq astroq kpfcc prep -cf config.ini -band $$BAND_NUM -fillers $(FILLER_PROGRAM) 2>&1 | tee -a astroq.log
+	@BAND_NUM=$$(echo $(notdir $(@D)) | sed 's/band//' | sed 's/full-//'); \
+	IS_FULL_BAND=$$(echo $(notdir $(@D)) | grep -q '^full-' && echo "true" || echo "false"); \
+	cd $(@D) && conda run -n astroq astroq kpfcc prep -cf config.ini -fillers $(FILLER_PROGRAM) 2>&1 | tee -a astroq.log && \
+	echo "📊 Processing band $$BAND_NUM..." && \
+	cd $(@D) && conda run -n astroq astroq kpfcc process-band -cf config.ini -band $$BAND_NUM && \
+	if [ "$$IS_FULL_BAND" = "true" ]; then \
+		echo "📅 Processing full-band $$BAND_NUM..." && \
+		cd $(@D) && conda run -n astroq astroq kpfcc process-band -cf config.ini -band $$BAND_NUM -full; \
+	fi
 	@touch $@
 
 # Create config file for a specific band

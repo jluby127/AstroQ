@@ -1156,7 +1156,7 @@ def get_script_plan(night_planner):
     # Select and reorder only the specific columns requested
     desired_columns = [
         'Start Exposure', 'unique_id', 'starname', 'program_code', 'ra', 'dec', 
-        'exptime', 'n_exp', 'n_intra_max', 'tau_intra', 'weather_band', 'teff', 
+        'exptime', 'n_exp', 'n_intra_max', 'tau_intra', 'weather_band_1', 'weather_band_2', 'weather_band_3', 'teff', 
         'jmag', 'gmag', 'epoch', 'gaia_id', 'First Available', 'Last Available'
     ]
     
@@ -1601,14 +1601,16 @@ def dataframe_to_html(dataframe, sort_column=2, page_size=10, table_id='request-
                 {{ targets: 7, width: '50px' }},   // n_exp
                 {{ targets: 8, width: '50px' }},   // n_intra_max
                 {{ targets: 9, width: '50px' }},   // tau_intra
-                {{ targets: 10, width: '50px' }},  // weather_band
-                {{ targets: 11, width: '50px' }},  // teff
-                {{ targets: 12, width: '50px' }},  // jmag
-                {{ targets: 13, width: '50px' }},  // gmag
-                {{ targets: 14, width: '50px' }},  // epoch
-                {{ targets: 15, width: '260px' }}, // gaia_id
-                {{ targets: 16, width: '60px' }},  // First Available
-                {{ targets: 17, width: '60px' }}   // Last Available
+                {{ targets: 10, width: '50px' }},  // weather_band_1
+                {{ targets: 11, width: '50px' }},  // weather_band_2
+                {{ targets: 12, width: '50px' }},  // weather_band_3
+                {{ targets: 13, width: '50px' }},  // teff
+                {{ targets: 14, width: '50px' }},  // jmag
+                {{ targets: 15, width: '50px' }},  // gmag
+                {{ targets: 16, width: '50px' }},  // epoch
+                {{ targets: 17, width: '260px' }}, // gaia_id
+                {{ targets: 18, width: '60px' }},  // First Available
+                {{ targets: 19, width: '60px' }}   // Last Available
             ],
             initComplete: function() {{
                 // Simple styling after DataTables is initialized
