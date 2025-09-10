@@ -108,7 +108,7 @@ def main():
     psr_kpfcc_prep.add_argument('-fillers', '--filler_programs',
                           type=str,
                           required=False,
-                          default=None,
+                          default="2025B_E473",
                           help="The semester ID for the filler program. Ex. 2025B_E473."
                             )
     psr_kpfcc_prep.set_defaults(func=astroq.driver.kpfcc_prep)
