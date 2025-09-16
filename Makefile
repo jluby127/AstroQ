@@ -57,12 +57,12 @@ $(DATE_DIR)/%/prep-run: $(DATE_DIR)/%/config.ini
 	@echo "🔧 Running prep for band $(notdir $(@D))..."
 	@BAND_NUM=$$(echo $(notdir $(@D)) | sed 's/band//' | sed 's/full-//'); \
 	IS_FULL_BAND=$$(echo $(notdir $(@D)) | grep -q '^full-' && echo "true" || echo "false"); \
-	cd $(@D) && conda run -n astroq astroq kpfcc prep -cf config.ini -fillers $(FILLER_PROGRAM) 2>&1 | tee -a astroq.log && \
-	echo "📊 Processing band $$BAND_NUM..." && \
-	cd $(@D) && conda run -n astroq astroq kpfcc process-band -cf config.ini -band $$BAND_NUM && \
 	if [ "$$IS_FULL_BAND" = "true" ]; then \
-		echo "📅 Processing full-band $$BAND_NUM..." && \
-		cd $(@D) && conda run -n astroq astroq kpfcc process-band -cf config.ini -band $$BAND_NUM -full; \
+		echo "📅 Running prep for full-band $$BAND_NUM..." && \
+		cd $(@D) && conda run -n astroq astroq kpfcc prep -cf config.ini -fillers $(FILLER_PROGRAM) -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
+	else \
+		echo "📊 Running prep for band $$BAND_NUM..." && \
+		cd $(@D) && conda run -n astroq astroq kpfcc prep -cf config.ini -fillers $(FILLER_PROGRAM) -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
 	fi
 	@touch $@
 

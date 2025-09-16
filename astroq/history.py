@@ -54,7 +54,7 @@ def pull_OB_histories(semester):
         print("ERROR")
         return
 
-def write_OB_histories_to_csv(histories, savepath):
+def write_OB_histories_to_csv(histories):
     """
     Write the OB histories to a CSV file.
     """
@@ -74,9 +74,9 @@ def write_OB_histories_to_csv(histories, savepath):
             })
     df = pd.DataFrame(rows)
     df.sort_values(by='timestamp', inplace=True)
-    df.to_csv(savepath, index=False)
+    return df
 
-def write_OB_histories_to_csv_JUMP(requests_frame, jump_file, output_file):
+def write_OB_histories_to_csv_JUMP(requests_frame, jump_file):
     """
     Convert a JUMP-style CSV to the OB histories format and write to CSV.
     """
@@ -123,9 +123,6 @@ def write_OB_histories_to_csv_JUMP(requests_frame, jump_file, output_file):
     
     # Keep only the required columns
     out_df = df[['id', 'target', 'semid', 'timestamp', 'exposure_start_time', 'exposure_time', 'observer']]
-    
-    # Write to the manager's past_file location
-    out_df.to_csv(output_file, index=False)
     return out_df
 
 def process_star_history(filename):

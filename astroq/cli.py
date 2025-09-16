@@ -99,18 +99,21 @@ def main():
                             default="db",
                             help="Absolute path of a past history file. Use 'db' to pull from the database."
                               )
-    psr_kpfcc_prep.add_argument('-band', '--weather_band',
-                          type=int,
-                          required=False,
-                          default=None,
-                          help="Weather band number (1, 2, 3, etc.) for filtering request.csv after prep."
-                            )
     psr_kpfcc_prep.add_argument('-fillers', '--filler_programs',
                           type=str,
                           required=False,
                           default="2025B_E473",
                           help="The semester ID for the filler program. Ex. 2025B_E473."
                             )
+    psr_kpfcc_prep.add_argument('-band', '--band_number',
+                          type=int,
+                          required=True,
+                          help="Band number (1, 2, 3, etc.) for filtering request.csv."
+                          )
+    psr_kpfcc_prep.add_argument('-full', '--is_full_band',
+                          action='store_true',
+                          help="Whether this is a full-band that should update allocation.csv."
+                          )
     psr_kpfcc_prep.set_defaults(func=astroq.driver.kpfcc_prep)
 
  
@@ -155,27 +158,6 @@ def main():
                                       help="Relative path of config file."
                                       )
     psr_kpfcc_plan_night.set_defaults(func=astroq.driver.ttp)
-
-    ## subcommand of kpfcc: process-band -- process band-specific filtering and allocation updates
-    psr_kpfcc_process_band = kpfcc_subpsr.add_parser('process-band', #parents=[psr_parent],
-                                                     description="Process band-specific filtering and allocation updates",
-                                                     prefix_chars="-"
-                                                     )
-    psr_kpfcc_process_band.add_argument('-cf', '--config_file',
-                                       type=str,
-                                       required=True,
-                                       help="Relative path of config file."
-                                       )
-    psr_kpfcc_process_band.add_argument('-band', '--band_number',
-                                      type=int,
-                                      required=True,
-                                      help="Band number (1, 2, 3, etc.) for filtering request.csv."
-                                      )
-    psr_kpfcc_process_band.add_argument('-full', '--is_full_band',
-                                      action='store_true',
-                                      help="Whether this is a full-band that should update allocation.csv."
-                                      )
-    psr_kpfcc_process_band.set_defaults(func=astroq.driver.kpfcc_process_band)
 
     ## subcommand of astroq: compare -- compare request set and schedule file
     psr_compare = subpsr.add_parser('compare', parents=[psr_parent],

@@ -74,6 +74,8 @@ def kpfcc_prep(args):
     print(f'kpfcc_prep function: config_file is {cf}')
     config = ConfigParser()
     config.read(cf)
+    band_number = args.band_number
+    is_full_band = args.is_full_band
 
     # Get workdir from global section
     workdir = str(config.get('global', 'workdir'))
@@ -82,37 +84,93 @@ def kpfcc_prep(args):
     semester = str(config.get('global', 'semester'))
     start_date = str(config.get('global', 'semester_start_day'))
     end_date = str(config.get('global', 'semester_end_day'))
+    current_date = str(config.get('global', 'current_day'))
     start = datetime.strptime(start_date, "%Y-%m-%d")
     end = datetime.strptime(end_date, "%Y-%m-%d")
     n_days = (end - start).days
 
-    # First capture the allocation info
+
+    # CAPTURE ALLOCATION INFORMATION AND PROCESS
+    # --------------------------------------------
+    # --------------------------------------------
     allo_source = args.allo_source
     allocation_file = str(config.get('data', 'allocation_file'))
+    # pull the allocation 
     if allo_source == 'db':
         print(f'Pulling allocation information from database')
-        hours_by_program = ob.pull_allocation_info(start_date, n_days, 'KPF-CC', savepath+allocation_file)
+        allocation_frame, hours_by_program = ob.pull_allocation_info(start_date, n_days, 'KPF-CC')
         awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())] 
     else:
         print(f'Using allocation information from file: {allo_source}')
-        hours_by_program = ob.format_keck_allocation_info(allo_source, savepath+allocation_file)
+        allocation_frame, hours_by_program = ob.format_keck_allocation_info(allo_source)
         awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())]
-    
+    allocation_frame['comment'] = [''] * len(allocation_frame)
+    # Update allocation times for tonight if this is a full-band
+    if is_full_band:
+        print("Updating allocation.csv for full-band")
+        allocation_frame = ob.update_allocation_file(allocation_frame, current_date)
+    allocation_frame.sort_values(by='start', inplace=True)
+    allocation_frame.to_csv(savepath+allocation_file, index=False)
+
+
+    # CAPTURE REQUEST INFORMATION AND PROCESS
+    # --------------------------------------------
+    # --------------------------------------------
     # Add filler programs if specified
     fillers = args.filler_programs
     if fillers is not None:
         print(f'Adding filler program to awarded_programs: {fillers}')
         awarded_programs.append(fillers)
-    print(awarded_programs)
-    
-    # Next get the request sheet
+    # Pull the request sheet
     request_file = str(config.get('data', 'request_file'))
     OBs = ob.pull_OBs(semester)
     good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram = ob.get_request_sheet(OBs, awarded_programs, savepath + request_file)
+    # Filter the request sheet by weather band
+    filtered_good_obs = ob.filter_request_csv(good_obs, band_number)
+    filtered_good_obs.to_csv(savepath + request_file, index=False)
     
+
+    # CAPTURE CUSTOM INFORMATION AND PROCESS
+    # --------------------------------------------
+    # --------------------------------------------
     custom_file = str(config.get('data', 'custom_file'))
-    ob.format_custom_csv(OBs, savepath + custom_file)
-    
+    custom_frame = ob.format_custom_csv(OBs)
+    custom_frame.to_csv(savepath + custom_file, index=False)
+
+
+    # CAPTURE FILLER REQUEST INFORMATION AND PROCESS
+    # --------------------------------------------
+    # --------------------------------------------
+    # Now get the bright backup stars information from the filler program
+    filler_file = str(config.get('data', 'filler_file'))
+    if fillers is not None:
+        print(f'Generating filler.csv from program: {fillers}')
+        good_obs_backup, bad_obs_values_backup, bad_obs_hasFields_backup, bad_obs_count_by_semid_backup, bad_field_histogram_backup = ob.get_request_sheet(OBs, [fillers], savepath + filler_file)
+    else:
+        print(f'No fillers specified, creating blank filler.csv file.')
+        good_obs_backup = pd.DataFrame(columns=good_obs.columns)
+    filtered_good_obs_backup = ob.filter_request_csv(good_obs_backup, band_number)
+    filtered_good_obs_backup.to_csv(savepath + filler_file, index=False)
+
+
+    # CAPTURE PAST HISTORY INFORMATION AND PROCESS
+    # --------------------------------------------
+    # --------------------------------------------
+    past_source = args.past_source
+    past_file = str(config.get('data', 'past_file'))
+    if past_source == 'db':
+        print(f'Pulling past history information from database')
+        raw_history = hs.pull_OB_histories(semester)
+        obhist = hs.write_OB_histories_to_csv(raw_history)
+    else:
+        print(f'Using past history information from file: {past_source}')
+        obhist = hs.write_OB_histories_to_csv_JUMP(good_obs, past_source)
+    obhist.to_csv(savepath + past_file, index=False)
+
+
+    # CAPTURE EMAIL INFORMATION AND PROCESS
+    # --------------------------------------------
+    # --------------------------------------------
     send_emails_with = []
     for i in range(len(bad_obs_values)):
         if bad_obs_values['metadata.semid'][i] in awarded_programs:
@@ -121,74 +179,6 @@ def kpfcc_prep(args):
     this is where code to automatically send emails will go. Not implemented yet.
     '''
 
-    # Now get the bright backup stars information from the filler program
-    filler_file = str(config.get('data', 'filler_file'))
-    if fillers is not None:
-        print(f'Generating filler.csv from program: {fillers}')
-        good_obs_backup, bad_obs_values_backup, bad_obs_hasFields_backup, bad_obs_count_by_semid_backup, bad_field_histogram_backup = ob.get_request_sheet(OBs, [fillers], savepath + filler_file)
-    else:
-        print(f'No fillers specified, creating blank filler.csv file.')
-        pd.DataFrame(columns=good_obs.columns).to_csv(savepath + filler_file, index=False)
-
-    # Next get the past history 
-    past_source = args.past_source
-    past_file = str(config.get('data', 'past_file'))
-    if past_source == 'db':
-        print(f'Pulling past history information from database')
-        raw_history = hs.pull_OB_histories(semester)
-        obhist = hs.write_OB_histories_to_csv(raw_history, savepath + past_file)
-    else:
-        print(f'Using past history information from file: {past_source}')
-        obhist = hs.write_OB_histories_to_csv_JUMP(good_obs, past_source, savepath + past_file)
-
-    return
-
-def kpfcc_process_band(args):
-    """
-    Process band-specific filtering and allocation updates.
-    
-    Args:
-        args.band_number (int): Band number for filtering request.csv
-        args.is_full_band (bool): Whether to update allocation.csv
-        args.config_file (str): Path to config file
-    """
-    cf = args.config_file
-    band_number = args.band_number
-    is_full_band = args.is_full_band
-    
-    print(f'kpfcc_process_band: band_number={band_number}, is_full_band={is_full_band}')
-    
-    # Read config to get file paths
-    config = ConfigParser()
-    config.read(cf)
-    
-    # Get workdir from global section
-    workdir = str(config.get('global', 'workdir'))
-    semester = str(config.get('global', 'semester'))
-    current_date = str(config.get('global', 'current_day'))
-    
-    # Construct file paths
-    request_file = os.path.join(workdir, 'request.csv')
-    allocation_file = os.path.join(workdir, 'allocation.csv')  # allocation.csv is in the same directory as request.csv
-    
-    # Filter request.csv by weather band
-    print(f'📊 Filtering request.csv for weather_band_{band_number}...')
-    success = ob.filter_request_csv(request_file, band_number)
-    if not success:
-        print(f'❌ Failed to filter request.csv for band {band_number}')
-        return
-    
-    # Update allocation.csv if this is a full-band
-    if is_full_band:
-        print(f'📅 Updating allocation file for today\'s date...')
-        success = ob.update_allocation_file(allocation_file, current_date)
-        if not success:
-            print(f'❌ Failed to update allocation file')
-            return
-        print(f'✅ Full-band processing complete for band {band_number}')
-    else:
-        print(f'✅ Regular band processing complete for band {band_number}')
-    
     return
 
 def kpfcc_webapp(args):
@@ -313,17 +303,9 @@ def ttp(args):
     # Use the new NightPlanner class for object-oriented night planning
     night_planner = nplan.NightPlanner(cf)
     night_planner.run_ttp()
+   
     # --- Save night_planner to pickle file ---
     planner_pickle_path = os.path.join(night_planner.output_directory, 'night_planner.pkl')
-    
-    # # Create a copy of self without unpicklable objects
-    # planner_copy = type(self).__new__(type(self))
-    # for attr_name, attr_value in self.__dict__.items():
-    #     # Skip Gurobi model and variables which can't be pickled
-    #     if attr_name in ['model', 'Yrds', 'Wrd', 'theta']:
-    #         continue
-    #     setattr(planner_copy, attr_name, attr_value)
-    
     with open(planner_pickle_path, 'wb') as f:
         pickle.dump(night_planner, f)
     return

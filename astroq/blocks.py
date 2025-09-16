@@ -69,7 +69,7 @@ def pull_OBs(semester):
         print("ERROR")
         return
 
-def format_custom_csv(OBs, savefile):
+def format_custom_csv(OBs):
     """
     Format the custom csv file for the OBs.
     """
@@ -118,9 +118,9 @@ def format_custom_csv(OBs, savefile):
         # Create empty DataFrame with proper column headers
         df = pd.DataFrame(columns=['unique_id', 'starname', 'start', 'stop'])
     
-    df.to_csv(savefile, index=False)
+    return df 
         
-def pull_allocation_info(start_date, numdays, instrument, savepath):
+def pull_allocation_info(start_date, numdays, instrument):
     params = {}
     params['cmd'] = "getSchedule"
     params["date"] = start_date
@@ -152,11 +152,9 @@ def pull_allocation_info(start_date, numdays, instrument, savepath):
         allocation_frame = pd.DataFrame(columns=['start', 'stop'])
         awarded_programs = []
         hours_by_program = {}
-    os.makedirs(os.path.dirname(savepath), exist_ok=True)
-    allocation_frame.to_csv(savepath, index=False)
-    return hours_by_program
+    return allocation_frame, hours_by_program
 
-def format_keck_allocation_info(allocation_file, savepath):
+def format_keck_allocation_info(allocation_file):
     """
     Read in allocation file and parse start/stop times to calculate hours by program.
     
@@ -191,12 +189,11 @@ def format_keck_allocation_info(allocation_file, savepath):
     
     # Ensure the directory exists before saving
     os.makedirs(os.path.dirname(savepath), exist_ok=True)
-    allocation_frame.to_csv(savepath, index=False)
     
     # Calculate total hours per ProjCode
     hours_by_program = allocation.groupby('ProjCode')['hours'].sum().round(3).to_dict()
     
-    return hours_by_program
+    return allocation_frame, hours_by_program
 
 def get_request_sheet(OBs, awarded_programs, savepath):
     good_obs, bad_obs_values, bad_obs_hasFields = sort_good_bad(OBs, awarded_programs)
@@ -216,7 +213,6 @@ def get_request_sheet(OBs, awarded_programs, savepath):
         good_obs['starname'] = good_obs['starname'].astype(str)
     
     os.makedirs(os.path.dirname(savepath), exist_ok=True)
-    good_obs.to_csv(savepath, index=False)
     return good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram
 
 def flatten(d, parent_key='', sep='.'):
@@ -360,8 +356,6 @@ def cast_columns(df):
     return df
 
 def sort_good_bad(OBs, awarded_programs):
-
-    print(OBs['observing_blocks'][0]['schedule'])
 
     OB_values, OB_hasFields, pass_OBs_mask = create_checks_dataframes(OBs, exception_fields)
 
@@ -640,7 +634,7 @@ Jack
 #     )
 #     return email_address, email_body
 
-def filter_request_csv(request_file_path, weather_band_num):
+def filter_request_csv(request_df, weather_band_num):
     """
     Filter request.csv file to only keep rows where weather_band_X = True
     
@@ -651,20 +645,15 @@ def filter_request_csv(request_file_path, weather_band_num):
     Returns:
         bool: True if filtering was successful, False otherwise
     """
-    request_df = pd.read_csv(request_file_path)
     weather_band_col = f'weather_band_{weather_band_num}'
     
     if weather_band_col in request_df.columns:
         filtered_df = request_df[request_df[weather_band_col] == True]
-        print(f'Filtered request.csv: {len(request_df)} -> {len(filtered_df)} rows')
-        filtered_df.to_csv(request_file_path, index=False)
-        print(f'Updated request.csv with weather_band_{weather_band_num} filtering')
-        return True
     else:
         print(f'Warning: Column {weather_band_col} not found in request.csv. No filtering applied.')
-        return False
-
-def update_allocation_file(allocation_file_path, current_date):
+    return filtered_df
+    
+def update_allocation_file(allocation_df, current_date):
     """
     Update allocation.csv file with today's 12-degree twilight times
     
@@ -675,7 +664,6 @@ def update_allocation_file(allocation_file_path, current_date):
     Returns:
         bool: True if update was successful, False otherwise
     """
-    allocation_df = pd.read_csv(allocation_file_path)
     date_exists = False
     date_idx = -1
     
@@ -703,13 +691,14 @@ def update_allocation_file(allocation_file_path, current_date):
             'stop': [morning_12.strftime('%Y-%m-%dT%H:%M')]
         })
         allocation_df = pd.concat([allocation_df, new_row], ignore_index=True)
+        allocation_df.loc[len(allocation_df)-1, 'comment'] = 'added as part of full-band processing'
         print(f'Added allocation: {evening_12.iso} to {morning_12.iso}')
     else:
         print(f'Updating existing allocation row for current_day: {current_date}')
         # Update existing row
         allocation_df.loc[date_idx, 'start'] = evening_12.strftime('%Y-%m-%dT%H:%M')
         allocation_df.loc[date_idx, 'stop'] = morning_12.strftime('%Y-%m-%dT%H:%M')
+        allocation_df.loc[date_idx, 'comment'] = 'added as part of full-band processing'
         print(f'Updated allocation: {evening_12.iso} to {morning_12.iso}')
     
-    allocation_df.to_csv(allocation_file_path, index=False)
-    return True
+    return allocation_df
