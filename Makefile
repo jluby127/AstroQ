@@ -7,12 +7,17 @@ DATE ?= $(shell date +%Y-%m-%d)
 SEMESTER ?= 2025B
 START_DATE ?= 2025-08-01
 END_DATE ?= 2026-01-31
-BANDS ?= band1 band2 band3 full-band1 full-band2 full-band3
-# BANDS ?= band3 full-band3
+# BANDS ?= band1 band2 band3 full-band1 full-band2 full-band3
+BANDS ?= band3 full-band3
 FILLER_PROGRAM ?= 2025B_E473
 WORKDIR ?= /Users/jack/Desktop
 # WORKDIR ?= /home/kpfcc/AstroQ
 RUN_SCRIPT_PATH ?= /path/to/run.sh
+
+# Date validation and override
+ifdef date
+	DATE := $(date)
+endif
 
 # Derived paths
 SEMESTER_DIR = $(WORKDIR)/$(SEMESTER)
@@ -84,8 +89,27 @@ $(DATE_DIR)/%/config.ini: create_dirs
 	@sed -i '' "s|WORKDIR_PLACEHOLDER|$(@D)|g" $@
 	@echo "✅ Config file created and updated for band $(notdir $(@D))"
 
+# Validate date format
+validate_date:
+ifdef date
+	@echo "🔍 Validating custom date: $(date)"
+	@if ! echo "$(date)" | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}$$' > /dev/null; then \
+		echo "❌ Error: Invalid date format: $(date)"; \
+		echo "   Please use YYYY-MM-DD format (e.g., 2025-09-16)"; \
+		exit 1; \
+	fi
+	@if ! python3 -c "from datetime import datetime; datetime.strptime('$(date)', '%Y-%m-%d')" > /dev/null 2>&1; then \
+		echo "❌ Error: Invalid date: $(date)"; \
+		echo "   Please provide a valid date in YYYY-MM-DD format"; \
+		exit 1; \
+	fi
+	@echo "✅ Date validation passed: $(date)"
+else
+	@echo "📅 Using current date: $(DATE)"
+endif
+
 # Create directory structure
-create_dirs:
+create_dirs: validate_date
 	@echo "📁 Creating directory structure..."
 	@mkdir -p $(DATE_DIR)
 	@echo "✅ Directories created"
@@ -146,7 +170,11 @@ clean:
 status:
 	@echo "📊 Status:"
 	@echo "  Semester: $(SEMESTER)"
-	@echo "  Date: $(DATE)"
+	@if [ -n "$(date)" ]; then \
+		echo "  Date: $(DATE) (custom)"; \
+	else \
+		echo "  Date: $(DATE) (current)"; \
+	fi
 	@echo "  Start Date: $(START_DATE)"
 	@echo "  End Date: $(END_DATE)"
 	@echo "  Bands: $(BANDS)"
