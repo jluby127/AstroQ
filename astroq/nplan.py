@@ -85,7 +85,6 @@ class NightPlanner(object):
         else:
             self.filler_file = os.path.join(self.semester_directory, filler_file_config)
 
-        
         # Set up custom file path from data section
         custom_file_config = str(config.get('data', 'custom_file'))
         if os.path.isabs(custom_file_config):
@@ -124,15 +123,23 @@ class NightPlanner(object):
 
         observatory = telescope.Keck1()
         # Get start/stop times from allocation file
-        observation_start_time, observation_stop_time = get_nightly_times_from_allocation(self.allocation_file, self.current_day)
-        total_time = np.round((observation_stop_time.jd-observation_start_time.jd)*24,3)
-        print("Time in Night for Observations: " + str(total_time) + " hours.")
+        try:
+            observation_start_time, observation_stop_time = get_nightly_times_from_allocation(self.allocation_file, self.current_day)
+            total_time = np.round((observation_stop_time.jd-observation_start_time.jd)*24,3)
+            print("Time in Night for Observations: " + str(total_time) + " hours.")
+        except ValueError as e:
+            print(f"No allocation times found for date {self.current_day}. Not running TTP. No night_planner.pkl file will be created.")
+            return
 
         # Use only request_selected.csv as the source of scheduled targets
         selected_path = os.path.join(self.output_directory, 'request_selected.csv')
         if not os.path.exists(selected_path):
             raise FileNotFoundError(f"{selected_path} not found. Please run the scheduler first.")
         selected_df = pd.read_csv(selected_path)
+        if len(selected_df) == 0:
+            print(f"No targets found in {selected_path}. Not running TTP. No night_planner.pkl file will be created.")
+            return
+
         # Fill NaN values with defaults --- for now in early 2025B since we had issues with the webform.c
         # Replace "None" strings with NaN first, then fill with defaults
         selected_df['n_intra_max'] = selected_df['n_intra_max'].replace('None', np.nan).fillna(1)
