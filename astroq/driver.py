@@ -118,9 +118,10 @@ def kpfcc_prep(args):
     # --------------------------------------------
     # Add filler programs if specified
     fillers = args.filler_programs
-    if fillers is not None:
-        print(f'Adding filler program to awarded_programs: {fillers}')
-        awarded_programs.append(fillers)
+    # temporarily comment out this block for 2025B.
+    # if fillers is not None:
+    #     print(f'Adding filler program to awarded_programs: {fillers}')
+    #     awarded_programs.append(fillers)
     # Pull the request sheet
     request_file = str(config.get('data', 'request_file'))
     OBs = ob.pull_OBs(semester)
@@ -151,6 +152,10 @@ def kpfcc_prep(args):
         good_obs_backup = pd.DataFrame(columns=good_obs.columns)
     filtered_good_obs_backup = ob.filter_request_csv(good_obs_backup, band_number)
     filtered_good_obs_backup.to_csv(savepath + filler_file, index=False)
+
+    if band_number == 3:
+        print(f'Temporarily swapping the request.csv with filler.csv, just for band 3 and just for 2025B.')
+        filtered_good_obs_backup.to_csv(savepath + request_file, index=False)
 
 
     # CAPTURE PAST HISTORY INFORMATION AND PROCESS
