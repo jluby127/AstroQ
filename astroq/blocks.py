@@ -44,7 +44,7 @@ exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', '
                     'target.ra_deg', 'target.dec_deg', 'observation.undefined', 'schedule.num_visits_per_night', 'schedule.undefined',
                     'schedule.custom_time_constraints', #make this an exception field because it is handled elsewhere to make the custom.csv file
                     'schedule.desired_num_visits_per_night', 'schedule.minimum_num_visits_per_night', 'history', # NOTE: this line will be removed 
-                    # 'schedule.weather_band_1', 'schedule.weather_band_2', 'schedule.weather_band_3'# NOTE: this line will be removed 
+                    'schedule.weather_band_1', 'schedule.weather_band_2', 'schedule.weather_band_3'# NOTE: this line will be removed 
 ]
 
 def pull_OBs(semester):
@@ -390,9 +390,9 @@ def sort_good_bad(OBs, awarded_programs):
         'schedule.desired_num_visits_per_night',
         'schedule.minimum_num_visits_per_night',
         'schedule.num_intranight_cadence',
-        'schedule.weather_band_1',
-        'schedule.weather_band_2',
-        'schedule.weather_band_3',
+        # 'schedule.weather_band_1',
+        # 'schedule.weather_band_2',
+        # 'schedule.weather_band_3',
         'target.gaia_id',
         'target.t_eff',
         'target.j_mag',
@@ -415,9 +415,9 @@ def sort_good_bad(OBs, awarded_programs):
         'schedule.desired_num_visits_per_night':'n_intra_max',
         'schedule.minimum_num_visits_per_night':'n_intra_min',
         'schedule.num_intranight_cadence':'tau_intra',
-        'schedule.weather_band_1':'weather_band_1',
-        'schedule.weather_band_2':'weather_band_2',
-        'schedule.weather_band_3':'weather_band_3',
+        # 'schedule.weather_band_1':'weather_band_1',
+        # 'schedule.weather_band_2':'weather_band_2',
+        # 'schedule.weather_band_3':'weather_band_3',
         'target.gaia_id':'gaia_id',
         'target.t_eff':'teff',
         'target.j_mag':'jmag',
@@ -471,6 +471,11 @@ def sort_good_bad(OBs, awarded_programs):
     coords = SkyCoord(ra=ra_list, dec=dec_list, unit=(u.hourangle, u.deg))
     trimmed_good['ra'] = coords.ra.deg
     trimmed_good['dec'] = coords.dec.deg
+
+    #temporariliy add these columns, just for 2025B. Will be removed later.
+    trimmed_good['weather_band_1'] = [True] * len(trimmed_good)
+    trimmed_good['weather_band_2'] = [True] * len(trimmed_good)
+    trimmed_good['weather_band_3'] = [True] * len(trimmed_good)
 
     return trimmed_good, bad_OBs_values, bad_OBs_hasFields
 
