@@ -18,18 +18,18 @@ from astropy.time import Time
 import astropy.units as u
 import astroplan as apl
 
+from kpf_etc.etc import kpf_etc_snr
 
 exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', 'metadata.history',
                     'metadata.instruments', 'metadata.is_approved', 'metadata.last_modification',
                     'metadata.ob_feasible', 'metadata.observer_name', 'metadata.state', 'metadata.status',
                     'metadata.submitted', 'metadata.submitter', 'metadata.tags', 'observation.auto_exp_meter',
                     'observation.auto_nd_filters', 'observation.cal_n_d_1', 'observation.cal_n_d_2',
-                    'observation.exp_meter_exp_time', 'observation.exp_meter_mode',
-                    'observation.exp_meter_threshold', 'observation.guide_here',
+                    'observation.exp_meter_exp_time', 'observation.exp_meter_mode', 'observation.guide_here',
                     'observation.object', 'observation.take_simulcal', 'observation.exp_meter_bin',
                     'observation.trigger_ca_h_k', 'observation.trigger_green', 'observation.trigger_red',
                     'schedule.accessibility_map', 'schedule.days_observable', 'schedule.fast_read_mode_requested',
-                    'schedule.minimum_elevation', 'schedule.minimum_moon_separation', 'schedule.num_visits_per_night',
+                    'schedule.num_visits_per_night',
                     'schedule.rise_semester_day', 'schedule.scheduling_mode', 'schedule.sets_semester_day',
                     'schedule.total_observations_requested', 'schedule.total_time_for_target',
                     'schedule.total_time_for_target_hours', 'target.isNew', 'target.parallax', 'target.equinox', 'target.systemic_velocity',
@@ -45,7 +45,37 @@ exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', '
                     'schedule.custom_time_constraints', #make this an exception field because it is handled elsewhere to make the custom.csv file
                     'schedule.desired_num_visits_per_night', 'schedule.minimum_num_visits_per_night', 'history', # NOTE: this line will be removed 
                     'schedule.weather_band_1', 'schedule.weather_band_2', 'schedule.weather_band_3'# NOTE: this line will be removed 
+                    # 'observation.exp_meter_threshold', 'schedule.minimum_elevation', 'schedule.minimum_moon_separation', # for now. 
 ]
+
+# Column definitions: mapping from original names to new names and data types
+column_definitions = {
+    '_id': {'new_name': 'unique_id', 'type': 'string'},
+    'metadata.semid': {'new_name': 'program_code', 'type': 'string'},
+    'target.target_name': {'new_name': 'starname', 'type': 'string'},
+    'target.ra': {'new_name': 'ra', 'type': 'string'},
+    'target.dec': {'new_name': 'dec', 'type': 'string'},
+    'observation.exposure_time': {'new_name': 'exptime', 'type': 'Int64'},
+    'observation.num_exposures': {'new_name': 'n_exp', 'type': 'Int64'},
+    'schedule.num_nights_per_semester': {'new_name': 'n_inter_max', 'type': 'Int64'},
+    'schedule.num_internight_cadence': {'new_name': 'tau_inter', 'type': 'Int64'},
+    'schedule.desired_num_visits_per_night': {'new_name': 'n_intra_max', 'type': 'Int64'},
+    'schedule.minimum_num_visits_per_night': {'new_name': 'n_intra_min', 'type': 'Int64'},
+    'schedule.num_intranight_cadence': {'new_name': 'tau_intra', 'type': 'Float64'},
+    'schedule.minimum_elevation': {'new_name': 'minimum_elevation', 'type': 'Float64'},
+    'schedule.minimum_moon_separation': {'new_name': 'minimum_moon_separation', 'type': 'Float64'},
+    'schedule.weather_band_1': {'new_name': 'weather_band_1', 'type': 'boolean'},
+    'schedule.weather_band_2': {'new_name': 'weather_band_2', 'type': 'boolean'},
+    'schedule.weather_band_3': {'new_name': 'weather_band_3', 'type': 'boolean'},
+    'target.gaia_id': {'new_name': 'gaia_id', 'type': 'string'},
+    'target.t_eff': {'new_name': 'teff', 'type': 'Float64'},
+    'target.j_mag': {'new_name': 'jmag', 'type': 'Float64'},
+    'target.g_mag': {'new_name': 'gmag', 'type': 'Float64'},
+    'target.pm_ra': {'new_name': 'pmra', 'type': 'Float64'},
+    'target.pm_dec': {'new_name': 'pmdec', 'type': 'Float64'},
+    'target.epoch': {'new_name': 'epoch', 'type': 'Float64'},
+    'observation.exp_meter_threshold': {'new_name': 'exp_meter_threshold', 'type': 'Float64'},
+}
 
 def pull_OBs(semester):
     """
@@ -265,54 +295,68 @@ def create_checks_dataframes(OBs, exception_fields):
 
     run_safety_valves = True
     if run_safety_valves:
-        # Safety valve for missing required fields
-        if 'schedule.num_intranight_cadence' in value_df.columns:
-            value_df['schedule.num_intranight_cadence'] = value_df['schedule.num_intranight_cadence'].fillna(0)
-            presence_df['schedule.num_intranight_cadence'] = presence_df['schedule.num_intranight_cadence'] | value_df['schedule.num_intranight_cadence'].notna()
-        else:
-            value_df['schedule.num_intranight_cadence'] = 0
-            presence_df['schedule.num_intranight_cadence'] = True
+        # Define default values for safety valves
+        safety_valve_defaults = {
+            'schedule.num_intranight_cadence': 0,
+            'schedule.desired_num_visits_per_night': 1,
+            'schedule.minimum_num_visits_per_night': 0,  # Will be overridden by special logic below
+            'target.gaia_id': 'NoGaiaName',
+            'observation.exp_meter_threshold': -1.0,
+            'schedule.minimum_elevation': 33,
+            'schedule.minimum_moon_separation': 33,
+            'schedule.weather_band_1': True,
+            'schedule.weather_band_2': True,
+            'schedule.weather_band_3': False
+        }
+        
+        # Apply safety valves using a loop
+        for col_name, default_value in safety_valve_defaults.items():
+            if col_name not in value_df.columns:
+                # Column doesn't exist, create it with default value
+                value_df[col_name] = default_value
+                presence_df[col_name] = True
+            else:
+                # Column exists, fill NaN values with default
+                value_df[col_name] = value_df[col_name].fillna(default_value)
+                # Also handle empty strings for string columns
+                if isinstance(default_value, str):
+                    value_df[col_name] = value_df[col_name].replace('', default_value)
+                presence_df[col_name] = presence_df[col_name] | value_df[col_name].notna()
+                
+        # Special case for fixing default ExpMeterThreshold
+        # Using default of 1.6, this is in MegaPhotons/A which gives SNR ~150
+        if 'observation.exp_meter_threshold' in value_df.columns:
+            value_df['observation.exp_meter_threshold'] = 1.6
 
-        if 'schedule.desired_num_visits_per_night' not in value_df.columns:
-            value_df['schedule.desired_num_visits_per_night'] = 1
-            presence_df['schedule.desired_num_visits_per_night'] = True
-        else:
-            value_df['schedule.desired_num_visits_per_night'] = 1
-            presence_df['schedule.desired_num_visits_per_night'] = True
-
-        if 'schedule.minimum_num_visits_per_night' in value_df.columns:
-            if 'schedule.desired_num_visits_per_night' in value_df.columns:
+        # Special case for weather bands based on metadata.semid
+        if 'metadata.semid' in value_df.columns:
+            # Check for 2025B_E473 semid and set opposite weather band values
+            mask_2025B_E473 = value_df['metadata.semid'] == '2025B_E473'
+            if mask_2025B_E473.any():
+                # Set weather bands to opposite values for 2025B_E473
+                if 'schedule.weather_band_1' in value_df.columns:
+                    value_df.loc[mask_2025B_E473, 'schedule.weather_band_1'] = False
+                if 'schedule.weather_band_2' in value_df.columns:
+                    value_df.loc[mask_2025B_E473, 'schedule.weather_band_2'] = False
+                if 'schedule.weather_band_3' in value_df.columns:
+                    value_df.loc[mask_2025B_E473, 'schedule.weather_band_3'] = True
+        
+        # Special case: minimum_num_visits_per_night should use desired_num_visits_per_night if available
+        if 'schedule.desired_num_visits_per_night' in value_df.columns:
+            if 'schedule.minimum_num_visits_per_night' in value_df.columns:
+                # Fill NaN values in minimum with corresponding desired values
                 value_df['schedule.minimum_num_visits_per_night'] = value_df['schedule.minimum_num_visits_per_night'].fillna(value_df['schedule.desired_num_visits_per_night'])
-                presence_df['schedule.minimum_num_visits_per_night'] = presence_df['schedule.minimum_num_visits_per_night'] | value_df['schedule.minimum_num_visits_per_night'].notna()
             else:
-                value_df['schedule.minimum_num_visits_per_night'] = value_df['schedule.minimum_num_visits_per_night'].fillna(0)
-                presence_df['schedule.minimum_num_visits_per_night'] = presence_df['schedule.minimum_num_visits_per_night'] | value_df['schedule.minimum_num_visits_per_night'].notna()
-        else:
-            if 'schedule.desired_num_visits_per_night' in value_df.columns:
+                # Use desired values as minimum
                 value_df['schedule.minimum_num_visits_per_night'] = value_df['schedule.desired_num_visits_per_night']
-                presence_df['schedule.minimum_num_visits_per_night'] = value_df['schedule.minimum_num_visits_per_night'].notna()
-            else:
-                value_df['schedule.minimum_num_visits_per_night'] = 0
-                presence_df['schedule.minimum_num_visits_per_night'] = True
-
-        # New safety valve: if schedule.num_nights_per_semester == 1, set schedule.num_internight_cadence to 0
+            presence_df['schedule.minimum_num_visits_per_night'] = presence_df['schedule.minimum_num_visits_per_night'] | value_df['schedule.minimum_num_visits_per_night'].notna()
+        
+        # Special case: if schedule.num_nights_per_semester == 1, set schedule.num_internight_cadence to 0
         if 'schedule.num_nights_per_semester' in value_df.columns and 'schedule.num_internight_cadence' in value_df.columns:
             mask = value_df['schedule.num_nights_per_semester'] == 1
             value_df.loc[mask, 'schedule.num_internight_cadence'] = 0
             presence_df.loc[mask, 'schedule.num_internight_cadence'] = True
 
-        # Safety valve: if target.teff is missing, assign 0
-        if 'target.teff' not in value_df.columns:
-            value_df['target.t_eff'] = 0
-            presence_df['target.t_eff'] = True
-
-        # Safety valve: if target.gaia_id is missing or empty, assign 'NoGaiaName'
-        if 'target.gaia_id' not in value_df.columns:
-            value_df['target.gaia_id'] = 'NoGaiaName'
-            presence_df['target.gaia_id'] = True
-        else:
-            value_df['target.gaia_id'] = value_df['target.gaia_id'].fillna('NoGaiaName').replace('', 'NoGaiaName')
-            presence_df['target.gaia_id'] = presence_df['target.gaia_id'] | value_df['target.gaia_id'].notna()
 
     # Create masks considering the exception fields
     def row_is_good(row):
@@ -336,23 +380,22 @@ def create_checks_dataframes(OBs, exception_fields):
     return value_df, presence_df, all_true_mask
 
 def cast_columns(df):
-
-    type_dict = {'observation.exposure_time':'Int64',
-                'observation.num_exposures':'Int64',
-                'schedule.num_internight_cadence':'Int64',
-                'schedule.num_intranight_cadence':'Float64',
-                'schedule.num_nights_per_semester':'Int64',
-                'schedule.minimum_num_visits_per_night':'Int64',
-                'schedule.desired_num_visits_per_night':'Int64',
-                }
-
+    """
+    Cast columns to their appropriate data types based on the column_definitions dictionary.
+    """
     df = df.copy()
-    for col, dtype in type_dict.items():
+    for col, col_info in column_definitions.items():
         if col in df.columns:
+            dtype = col_info['type']
             if dtype in ['Int64', 'Float64']:
                 df[col] = pd.to_numeric(df[col], errors='coerce').astype(dtype)
+            elif dtype == 'string':
+                df[col] = df[col].astype('string')
+            elif dtype == 'boolean':
+                # Convert to boolean, handling various representations
+                df[col] = df[col].astype('boolean')
             else:
-                raise ValueError(f"Unsupported dtype: {dtype}. Only 'Int64' and 'Float64' are allowed.")
+                raise ValueError(f"Unsupported dtype: {dtype}. Only 'Int64', 'Float64', 'string', and 'boolean' are allowed.")
     return df
 
 def sort_good_bad(OBs, awarded_programs):
@@ -377,57 +420,10 @@ def sort_good_bad(OBs, awarded_programs):
     good_OBs_awarded.reset_index(inplace=True, drop='True')
     
 
-    columns_to_keep = [
-        '_id',
-        'metadata.semid',
-        'target.target_name',
-        'target.ra',
-        'target.dec',
-        'observation.exposure_time',
-        'observation.num_exposures',
-        'schedule.num_nights_per_semester',
-        'schedule.num_internight_cadence',
-        'schedule.desired_num_visits_per_night',
-        'schedule.minimum_num_visits_per_night',
-        'schedule.num_intranight_cadence',
-        # 'schedule.weather_band_1',
-        # 'schedule.weather_band_2',
-        # 'schedule.weather_band_3',
-        'target.gaia_id',
-        'target.t_eff',
-        'target.j_mag',
-        'target.g_mag',
-        'target.pm_ra',
-        'target.pm_dec',
-        'target.epoch',
-    ]
-
-    new_column_names = {
-        '_id':'unique_id',
-        'metadata.semid':'program_code',
-        'target.target_name':'starname',
-        'target.ra':'ra',
-        'target.dec':'dec',
-        'observation.exposure_time':'exptime',
-        'observation.num_exposures':'n_exp',
-        'schedule.num_nights_per_semester':'n_inter_max',
-        'schedule.num_internight_cadence':'tau_inter',
-        'schedule.desired_num_visits_per_night':'n_intra_max',
-        'schedule.minimum_num_visits_per_night':'n_intra_min',
-        'schedule.num_intranight_cadence':'tau_intra',
-        # 'schedule.weather_band_1':'weather_band_1',
-        # 'schedule.weather_band_2':'weather_band_2',
-        # 'schedule.weather_band_3':'weather_band_3',
-        'target.gaia_id':'gaia_id',
-        'target.t_eff':'teff',
-        'target.j_mag':'jmag',
-        'target.g_mag':'gmag',
-        'target.pm_ra':'pmra',
-        'target.pm_dec':'pmdec',
-        'target.epoch':'epoch',
-    }
-
-    trimmed_good = good_OBs_awarded[columns_to_keep].rename(columns=new_column_names)
+    # Create column mapping from column_definitions
+    new_column_names = {col: col_info['new_name'] for col, col_info in column_definitions.items()}
+    
+    trimmed_good = good_OBs_awarded[list(column_definitions.keys())].rename(columns=new_column_names)
     trimmed_good.columns.values[9] = 'n_intra_max'
 
     ra_list = trimmed_good['ra'].astype(str).tolist()
@@ -472,12 +468,30 @@ def sort_good_bad(OBs, awarded_programs):
     trimmed_good['ra'] = coords.ra.deg
     trimmed_good['dec'] = coords.dec.deg
 
-    #temporariliy add these columns, just for 2025B. Will be removed later.
-    trimmed_good['weather_band_1'] = [True] * len(trimmed_good)
-    trimmed_good['weather_band_2'] = [True] * len(trimmed_good)
-    trimmed_good['weather_band_3'] = [True] * len(trimmed_good)
-
     return trimmed_good, bad_OBs_values, bad_OBs_hasFields
+
+def recompute_exposure_times(request_frame, slowdown_factor):
+    """
+    Recompute the exposure times for the request frame based on the band number slowdown factor.
+    """
+    new_exptimes = []
+    for i in range(len(request_frame)):
+        SNR = 120*(request_frame['exp_meter_threshold'][i]**0.5)
+        try:
+            new_exptime = kpf_etc_snr(request_frame['teff'][i], request_frame['gmag'][i], SNR, 604)
+            if np.isnan(new_exptime):
+                new_exptime = request_frame['exptime'][i]*slowdown_factor
+        except Exception as e:
+            print(f"Error on star {request_frame['starname'][i]} in row {i}: {e}")
+            new_exptime = 3600.0
+        print(request_frame['starname'][i])
+        print(f"New exptime: {new_exptime}")
+        print(f"Request exptime: {request_frame['exptime'][i]}")
+        final_time = min([new_exptime*slowdown_factor, request_frame['exptime'][i]])
+        print(f"Final time: {final_time}")
+        print("--------------------------------")
+        new_exptimes.append(final_time)
+    return new_exptimes
 
 def analyze_bad_obs(trimmed_good, bad_OBs_values, bad_OBs_hasFields, awarded_programs,exception_fields=exception_fields):
     """
