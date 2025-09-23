@@ -140,6 +140,12 @@ class NightPlanner(object):
             print(f"No targets found in {selected_path}. Not running TTP. No night_planner.pkl file will be created.")
             return
 
+        # Add the first and last available columns to the selected_df for use by the TTP
+        first_available, last_available = self.get_first_last_indices(selected_df)
+        selected_df['first_available'] = first_available
+        selected_df['last_available'] = last_available
+        
+
         # Fill NaN values with defaults --- for now in early 2025B since we had issues with the webform.c
         # Replace "None" strings with NaN first, then fill with defaults
         selected_df['n_intra_max'] = selected_df['n_intra_max'].replace('None', np.nan).fillna(1)
@@ -160,7 +166,9 @@ class NightPlanner(object):
             "Exposures Per Visit": selected_df["n_exp"],
             "Visits In Night": selected_df["n_intra_max"],
             "Intra_Night_Cadence": selected_df["tau_intra"],
-            "Priority": 10  # Default priority, or you can add logic if needed
+            "Priority": 10,  # Default priority, or you can add logic if needed
+            "First Available": selected_df["first_available"],
+            "Last Available": selected_df["last_available"],
         })
 
         filename = os.path.join(self.output_directory, 'request_selected.txt')
@@ -213,6 +221,73 @@ class NightPlanner(object):
 
         return #save_data
 
+    def get_first_last_indices(self, selected_df):
+        """
+        Get the first and last available time slots for each target in selected_df.
+        
+        Args:
+            selected_df (pd.DataFrame): DataFrame containing selected targets with unique_id column
+            
+        Returns:
+            tuple: (first_available_list, last_available_list) - Lists of time strings in HH:MM format
+        """
+        # Get tonight's index from the all_dates_dict
+        tonight_index = self.all_dates_dict[self.current_day]
+        
+        # Get the access record from semester planner
+        access_record = self.semester_planner.access_record
+        
+        # Create mapping from unique_id to target index in the access record
+        # The access record was created from the original requests_frame, so we need to map
+        # selected_df targets back to their indices in the original requests_frame
+        target_to_index = {}
+        for idx, row in self.semester_planner.requests_frame.iterrows():
+            target_to_index[row['unique_id']] = idx
+        
+        # Initialize the new columns
+        first_available = []
+        last_available = []
+        
+        # For each target in selected_df, find first and last available slots tonight
+        for _, row in selected_df.iterrows():
+            target_id = row['unique_id']
+            
+            # Get the target's index in the access record
+            if target_id in target_to_index:
+                target_idx = target_to_index[target_id]
+                
+                # Get tonight's observability array for this target (shape: nslots)
+                tonight_observable = access_record.is_observable[target_idx, tonight_index, :]
+                
+                # Find first and last True indices
+                true_indices = np.where(tonight_observable)[0]
+                
+                if len(true_indices) > 0:
+                    first_slot = true_indices[0]
+                    last_slot = true_indices[-1]
+                    
+                    # Convert slot indices to time strings (assuming slot_size is in minutes)
+                    first_time_minutes = first_slot * self.semester_planner.slot_size
+                    last_time_minutes = last_slot * self.semester_planner.slot_size
+                    
+                    first_hour = first_time_minutes // 60
+                    first_minute = first_time_minutes % 60
+                    last_hour = last_time_minutes // 60
+                    last_minute = last_time_minutes % 60
+                    
+                    first_available.append(f"{first_hour:02d}:{first_minute:02d}")
+                    last_available.append(f"{last_hour:02d}:{last_minute:02d}")
+                else:
+                    # No available slots tonight
+                    first_available.append("N/A")
+                    last_available.append("N/A")
+            else:
+                # Target not found in original requests_frame
+                first_available.append("N/A")
+                last_available.append("N/A")
+        
+        return first_available, last_available
+
 def get_nightly_times_from_allocation(allocation_file, current_day):
     """
     Extract start and stop times for a specific date from allocation.csv.
@@ -247,4 +322,5 @@ def get_nightly_times_from_allocation(allocation_file, current_day):
     latest_stop = max(stop_times)
     
     return earliest_start, latest_stop
+
         
