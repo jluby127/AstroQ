@@ -119,18 +119,26 @@ def kpfcc_prep(args):
     # Add filler programs if specified
     fillers = args.filler_programs
     # temporarily comment out this block for 2025B.
-    # if fillers is not None:
-    #     print(f'Adding filler program to awarded_programs: {fillers}')
-    #     awarded_programs.append(fillers)
+    if fillers is not None:
+        print(f'Adding filler program to awarded_programs: {fillers}')
+        awarded_programs.append(fillers)
     # Pull the request sheet
     request_file = str(config.get('data', 'request_file'))
     OBs = ob.pull_OBs(semester)
     good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram = ob.get_request_sheet(OBs, awarded_programs, savepath + request_file)
     # Filter the request sheet by weather band
     filtered_good_obs = ob.filter_request_csv(good_obs, band_number)
+    # If no exposure meter threshold set, then OB can only be part of band 1
+    if band_number != 1:
+        filtered_good_obs = filtered_good_obs[filtered_good_obs['exp_meter_threshold'] != -1.0]
+    filtered_good_obs.reset_index(drop=True, inplace=True)
+    # Compute nominal exposure times and increase exposure times for different bands
+    slowdown_factors = {1: 1.0, 2: 2.0, 3: 4.0}
+    slow = slowdown_factors[band_number]
+    new_exptimes = ob.recompute_exposure_times(filtered_good_obs, slow)
+    filtered_good_obs['exptime'] = new_exptimes
     filtered_good_obs.to_csv(savepath + request_file, index=False)
     
-
     # CAPTURE CUSTOM INFORMATION AND PROCESS
     # --------------------------------------------
     # --------------------------------------------
@@ -153,9 +161,9 @@ def kpfcc_prep(args):
     filtered_good_obs_backup = ob.filter_request_csv(good_obs_backup, band_number)
     filtered_good_obs_backup.to_csv(savepath + filler_file, index=False)
 
-    if band_number == 3:
-        print(f'Temporarily swapping the request.csv with filler.csv, just for band 3 and just for 2025B.')
-        filtered_good_obs_backup.to_csv(savepath + request_file, index=False)
+    # if band_number == 3:
+    #     print(f'Temporarily swapping the request.csv with filler.csv, just for band 3 and just for 2025B.')
+    #     filtered_good_obs_backup.to_csv(savepath + request_file, index=False)
 
 
     # CAPTURE PAST HISTORY INFORMATION AND PROCESS
