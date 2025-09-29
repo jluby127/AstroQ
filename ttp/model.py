@@ -111,18 +111,34 @@ class TTPModel(object):
                 else:
                     good = np.where(self.observatory.is_up(alt,az) == 1)[0]
                 # once the "good" array is set, it determines the first and last available exposure starts of the night
-                if len(good > 0):
-                    te.append(max(np.round(((t[good[0]]+TimeDelta(s.expwithreadout*60,format='sec'))-t[0]).jd*24*60,1),s.expwithreadout))
-                    if t[good[-1]].jd < self.nightends.jd:
-                        tl.append(np.round((t[good[-1]]-t[0]).jd*24*60,1))
-                    elif t[good[-1]].jd >= self.nightends.jd:
-                        tl.append(np.round((self.nightends-t[0]).jd*24*60,1))
+                
+                
+                #****************************************
+                #****************************************
+                #****************************************
+                #****************************************
+                #****************************************
+                # if first available column in dataframe, then set te and tl accordingly
+                if s.te is not None and s.tl is not None:
+                    # Get the date from nightstarts and combine with time strings
+                    date_str = self.nightstarts.strftime('%Y-%m-%d')
+                    te_time = Time(f"{date_str}T{s.te}")
+                    tl_time = Time(f"{date_str}T{s.tl}")
+                    
+                    # Convert to fractional days from night start
+                    te.append((te_time.jd - self.nightstarts.jd)*24*60)
+                    tl.append((tl_time.jd - self.nightstarts.jd)*24*60)
                 else:
-                    print('Target {} does not meet observability requirements'.format(s.name))
-                    te.append(0)
-                    tl.append(0)
-            s.te = te[-1]
-            s.tl = tl[-1]
+                    if len(good > 0):
+                        te.append(max(np.round(((t[good[0]]+TimeDelta(s.expwithreadout*60,format='sec'))-t[0]).jd*24*60,1),s.expwithreadout))
+                        if t[good[-1]].jd < self.nightends.jd:
+                            tl.append(np.round((t[good[-1]]-t[0]).jd*24*60,1))
+                        elif t[good[-1]].jd >= self.nightends.jd:
+                            tl.append(np.round((self.nightends-t[0]).jd*24*60,1))
+                    else:
+                        print('Target {} does not meet observability requirements'.format(s.name))
+                        te.append(0)
+                        tl.append(0)
 
         self.te = np.array(te)
         self.tl = np.array(tl)
@@ -369,8 +385,13 @@ class TTPModel(object):
             else:
                 s = self.stars[self.node_to_star[i]].name
                 extras.append(s)
-                first_available_minutes_from_start = self.stars[self.node_to_star[i]].te
-                last_available_minutes_from_start = self.stars[self.node_to_star[i]].tl
+                # Get the date from nightstarts and combine with time strings
+                date_str = self.nightstarts.strftime('%Y-%m-%d')
+                te_time = Time(f"{date_str}T{self.stars[self.node_to_star[i]].te}")
+                tl_time = Time(f"{date_str}T{self.stars[self.node_to_star[i]].tl}")
+                
+                first_available_minutes_from_start = te_time.jd - self.nightstarts.jd
+                last_available_minutes_from_start = tl_time.jd - self.nightstarts.jd
                 t1 = Time(self.nightstarts.jd + first_available_minutes_from_start/(24*60),format='jd') - TimeDelta(60*self.stars[self.node_to_star[i]].expwithreadout,format='sec')
                 t2 = Time(self.nightstarts.jd + last_available_minutes_from_start/(24*60),format='jd')
                 extra_rises.append(str(t1.isot)[11:16])

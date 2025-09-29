@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-import ttp.star as star
+import ttp.star #for testing, use just star
 
 def theTTP(filename):
     """Read in a .csv file of targets and convert them to star objects
@@ -15,10 +15,14 @@ def theTTP(filename):
 
     targets = pd.read_csv(filename)
 
-    if list(targets.columns) != ['Starname', 'RA', 'Dec', 'Exposure Time', 'Exposures Per Visit', 'Visits In Night', 'Intra_Night_Cadence', 'Priority']:
+    required_columns = ['Starname', 'RA', 'Dec', 'Exposure Time', 'Exposures Per Visit', 'Visits In Night', 'Intra_Night_Cadence', 'Priority']
+    optional_columns = ['First Available', 'Last Available']
+    
+    # Check if the first 8 columns match the required columns
+    if list(targets.columns)[:8] != required_columns:
         print(list(targets.columns))
         print("Error: column names not correct.")
-        print("Column names must be this format and this order: ['Starname', 'RA', 'Dec', 'Exposure Time', 'Exposures Per Visit', 'Visits In Night', 'Intra_Night_Cadence', 'Priority'].")
+        print("Column names must be this format and this order: ['Starname', 'RA', 'Dec', 'Exposure Time', 'Exposures Per Visit', 'Visits In Night', 'Intra_Night_Cadence', 'Priority'] or can include ['First Available', 'Last Available'] at the end.")
         return
     else:
         print("Building Star objects:")

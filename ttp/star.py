@@ -66,8 +66,12 @@ class star(object):
         print(str(self.index) + ". " + str(self.name))
 
         # 4 additional attributes will be set after the model is solved
-        self.te = None
-        self.tl = None
+        if 'First Available' in row.index and 'Last Available' in row.index:
+            self.te = str(row['First Available'])
+            self.tl = str(row['Last Available'])
+        else:
+            self.te = None
+            self.tl = None
         self.tend = []
         self.orderInNight = []
 
