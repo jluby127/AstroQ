@@ -67,6 +67,9 @@ class star(object):
 
         # 4 additional attributes will be set after the model is solved
         if 'First Available' in row.index and 'Last Available' in row.index:
+            # Note to users! Make sure your First and Last Available times are in format HH:MM. 
+            # Note that this essentially overrides the telescope pointing limits
+            # so only use if you are sure your first and last available times are valid for your telescope 
             self.te = str(row['First Available'])
             self.tl = str(row['Last Available'])
         else:

@@ -98,27 +98,8 @@ class TTPModel(object):
                 prios.append(int(s.priority))
                 tau_exp.append(s.expwithreadout)
                 tau_sep.append(s.intra_night_cadence * 60) # Hours -> minutes
-                AZ = self.observatory.observer.altaz(t, s.target)
-                alt=AZ.alt.deg
-                az=AZ.az.deg
-
-                if self.useHighElevation:
-                    elevationChecker = np.where(self.observatory.is_up_highElevation(alt,az) == 1)[0]
-                    if len(elevationChecker > (60/slotTimeResolution)): # if target is above disired lowest elevation for at least 1 hour
-                        good = elevationChecker
-                    else: # if target is not above desired lower limit for at least an hour, then lower elevations are acceptable
-                        good = np.where(self.observatory.is_up(alt,az) == 1)[0]
-                else:
-                    good = np.where(self.observatory.is_up(alt,az) == 1)[0]
-                # once the "good" array is set, it determines the first and last available exposure starts of the night
                 
-                
-                #****************************************
-                #****************************************
-                #****************************************
-                #****************************************
-                #****************************************
-                # if first available column in dataframe, then set te and tl accordingly
+                # if first and last available columns were submitted by userin dataframe, then set te and tl accordingly. Note: overrides telescope pointing limits.
                 if s.te is not None and s.tl is not None:
                     # Get the date from nightstarts and combine with time strings
                     date_str = self.nightstarts.strftime('%Y-%m-%d')
@@ -129,6 +110,18 @@ class TTPModel(object):
                     te.append((te_time.jd - self.nightstarts.jd)*24*60)
                     tl.append((tl_time.jd - self.nightstarts.jd)*24*60)
                 else:
+                    # determines the first and last available exposure starts of the night according to telescope pointing limits
+                    AZ = self.observatory.observer.altaz(t, s.target)
+                    alt=AZ.alt.deg
+                    az=AZ.az.deg
+                    if self.useHighElevation:
+                        elevationChecker = np.where(self.observatory.is_up_highElevation(alt,az) == 1)[0]
+                        if len(elevationChecker > (60/slotTimeResolution)): # if target is above disired lowest elevation for at least 1 hour
+                            good = elevationChecker
+                        else: # if target is not above desired lower limit for at least an hour, then lower elevations are acceptable
+                            good = np.where(self.observatory.is_up(alt,az) == 1)[0]
+                    else:
+                        good = np.where(self.observatory.is_up(alt,az) == 1)[0]
                     if len(good > 0):
                         te.append(max(np.round(((t[good[0]]+TimeDelta(s.expwithreadout*60,format='sec'))-t[0]).jd*24*60,1),s.expwithreadout))
                         if t[good[-1]].jd < self.nightends.jd:
