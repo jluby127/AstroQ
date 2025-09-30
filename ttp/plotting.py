@@ -89,7 +89,8 @@ def nightPlan(orderData, current_day, outputdir='plots'):
             # if we already did this star, it is a multi-visit star and we need to adjust the row counter for plotting purposes
             ifixer -= 1
 
-    fig.update_layout(xaxis_range=[0,orderData['Start Exposure'][0] + orderData["Total Exp Time (min)"][0]])
+    # 600 minutes is a full night 
+    fig.update_layout(xaxis_range=[0,600])
 
     if outputdir != '':
         # Save as both a .html intereactive plot and a low-res png plot

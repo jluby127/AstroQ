@@ -24,16 +24,15 @@ class TTPModel(object):
         outputdir (str): the path to save the outputs of the model
 
     """
-    def __init__(self,start,stop,stars,observatory,outputdir,runtime=300,optgap=0.01,useHighEl=True):
+    def __init__(self,stars,outputdir,runtime=300,optgap=0.01):
 
-        self.observatory = observatory
         self.stars = stars
-        self.nightstarts = start
-        self.nightends = stop
+        self.observatory = stars[0].observatory
+        self.nightstarts = stars[0].nightstarts
+        self.nightends = stars[0].nightends
         self.outputdir = outputdir
         self.runtime = runtime
         self.optgap = optgap
-        self.useHighElevation = useHighEl
         self.create_nodes()
         self.compute_tau_slew()
         self.solve()
@@ -98,41 +97,9 @@ class TTPModel(object):
                 prios.append(int(s.priority))
                 tau_exp.append(s.expwithreadout)
                 tau_sep.append(s.intra_night_cadence * 60) # Hours -> minutes
+                te.append((s.te - self.nightstarts.jd)*60*24) # Days -> minutes
+                tl.append((s.tl - self.nightstarts.jd)*60*24) # Days -> minutes
                 
-                # if first and last available columns were submitted by userin dataframe, then set te and tl accordingly. Note: overrides telescope pointing limits.
-                if s.te is not None and s.tl is not None:
-                    # Get the date from nightstarts and combine with time strings
-                    date_str = self.nightstarts.strftime('%Y-%m-%d')
-                    te_time = Time(f"{date_str}T{s.te}")
-                    tl_time = Time(f"{date_str}T{s.tl}")
-                    
-                    # Convert to fractional days from night start
-                    te.append((te_time.jd - self.nightstarts.jd)*24*60)
-                    tl.append((tl_time.jd - self.nightstarts.jd)*24*60)
-                else:
-                    # determines the first and last available exposure starts of the night according to telescope pointing limits
-                    AZ = self.observatory.observer.altaz(t, s.target)
-                    alt=AZ.alt.deg
-                    az=AZ.az.deg
-                    if self.useHighElevation:
-                        elevationChecker = np.where(self.observatory.is_up_highElevation(alt,az) == 1)[0]
-                        if len(elevationChecker > (60/slotTimeResolution)): # if target is above disired lowest elevation for at least 1 hour
-                            good = elevationChecker
-                        else: # if target is not above desired lower limit for at least an hour, then lower elevations are acceptable
-                            good = np.where(self.observatory.is_up(alt,az) == 1)[0]
-                    else:
-                        good = np.where(self.observatory.is_up(alt,az) == 1)[0]
-                    if len(good > 0):
-                        te.append(max(np.round(((t[good[0]]+TimeDelta(s.expwithreadout*60,format='sec'))-t[0]).jd*24*60,1),s.expwithreadout))
-                        if t[good[-1]].jd < self.nightends.jd:
-                            tl.append(np.round((t[good[-1]]-t[0]).jd*24*60,1))
-                        elif t[good[-1]].jd >= self.nightends.jd:
-                            tl.append(np.round((self.nightends-t[0]).jd*24*60,1))
-                    else:
-                        print('Target {} does not meet observability requirements'.format(s.name))
-                        te.append(0)
-                        tl.append(0)
-
         self.te = np.array(te)
         self.tl = np.array(tl)
         self.prios = np.array(prios)
@@ -281,6 +248,8 @@ class TTPModel(object):
                         for i in range(N)),'t_min')
         t_max = Mod.addConstrs((tijm[i,j,m] <= w[m+1]*Xijm[i,j,m] for j in range(N) for m in range(M)
                         for i in range(N)),'t_max')
+        for i in range(len(te)):
+            print(te[i], tl[i])
         rise_constr = Mod.addConstrs((ti[i] >= te[i]*Yi[i] for i in range(N)),'rise_constr')
         set_constr = Mod.addConstrs((ti[i] <= tl[i]*Yi[i] for i in range(N)),'set_constr')
 
@@ -380,12 +349,12 @@ class TTPModel(object):
                 extras.append(s)
                 # Get the date from nightstarts and combine with time strings
                 date_str = self.nightstarts.strftime('%Y-%m-%d')
-                te_time = Time(f"{date_str}T{self.stars[self.node_to_star[i]].te}")
-                tl_time = Time(f"{date_str}T{self.stars[self.node_to_star[i]].tl}")
+                te_time = self.stars[self.node_to_star[i]].te
+                tl_time = self.stars[self.node_to_star[i]].tl
                 
-                first_available_minutes_from_start = te_time.jd - self.nightstarts.jd
-                last_available_minutes_from_start = tl_time.jd - self.nightstarts.jd
-                t1 = Time(self.nightstarts.jd + first_available_minutes_from_start/(24*60),format='jd') - TimeDelta(60*self.stars[self.node_to_star[i]].expwithreadout,format='sec')
+                first_available_minutes_from_start = te_time - self.nightstarts.jd
+                last_available_minutes_from_start = tl_time - self.nightstarts.jd
+                t1 = Time(self.nightstarts.jd + first_available_minutes_from_start/(24*60),format='jd')# - TimeDelta(60*self.stars[self.node_to_star[i]].expwithreadout,format='sec')
                 t2 = Time(self.nightstarts.jd + last_available_minutes_from_start/(24*60),format='jd')
                 extra_rises.append(str(t1.isot)[11:16])
                 extra_sets.append(str(t2.isot)[11:16])
@@ -475,7 +444,7 @@ class TTPModel(object):
 
             # Observation start + end times, as both time objects and as
             # minute markers from the start of the night
-            t1 = Time(self.nightstarts.jd + pair[1]/(24*60),format='jd') - TimeDelta(60*s.expwithreadout,format='sec')
+            t1 = Time(self.nightstarts.jd + pair[1]/(24*60),format='jd')# - TimeDelta(60*s.expwithreadout,format='sec')
             t2 = Time(self.nightstarts.jd + pair[1]/(24*60),format='jd')
             t_starts.append(pair[1] - s.expwithreadout)
             t_ends.append(pair[1])
@@ -496,7 +465,7 @@ class TTPModel(object):
         t_ends = np.array(t_ends)
         exptimes = np.array(exptimes)
         n_shots = np.array(n_shots)
-        rise_times = (self.te - self.tau_exp)[ordered_target_nodes]
+        rise_times = self.te[ordered_target_nodes]
         set_times = self.tl[ordered_target_nodes]
 
 

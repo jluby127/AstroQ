@@ -1,8 +1,8 @@
 import numpy as np
 import pandas as pd
-import ttp.star #for testing, use just star
+import star #ttp.star #for testing, use just star
 
-def theTTP(filename):
+def theTTP(filename, observatory, nightstarts, nightends):
     """Read in a .csv file of targets and convert them to star objects
 
     Args:
@@ -12,9 +12,7 @@ def theTTP(filename):
         all_star_objects (list): List of star objects, one for each row
             in the .csv file
     """
-
     targets = pd.read_csv(filename)
-
     required_columns = ['Starname', 'RA', 'Dec', 'Exposure Time', 'Exposures Per Visit', 'Visits In Night', 'Intra_Night_Cadence', 'Priority']
     optional_columns = ['First Available', 'Last Available']
     
@@ -28,8 +26,7 @@ def theTTP(filename):
         print("Building Star objects:")
         all_star_objects = []
         for t, row in targets.iterrows():
-            starobj = star.star(row, t)
-            # starobj.printStar()
+            starobj = star.star(row, t, observatory, nightstarts, nightends)
             all_star_objects.append(starobj)
         return all_star_objects
 
