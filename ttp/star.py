@@ -73,13 +73,16 @@ class star(object):
         print(str(self.index) + ". " + str(self.name))
 
         # 4 additional attributes will be set after the model is solved
-        if 'First Available' in row.index and 'Last Available' in row.index:
+        try:# 'First Available' in row.index and 'Last Available' in row.index:
             # Note to users! Make sure your First and Last Available times are in format "YYYY-MM-DD HH:MM". 
             # Note that this essentially overrides the telescope pointing limits
             # so only use if you are sure your first and last available times are valid for your telescope 
             self.te = Time(row['First Available']).jd
             self.tl = Time(row['Last Available']).jd
-        else:
+        except:
+            # will enter this except block if the user does not provide First and Last Available times OR if the times are not formatted corredtly.
+            # Note that AstroQ will automatically always have the correct columns, but if the conversion from slot to time fails for any reason, 
+            # the value will be "N/A", therefore should enter this except block.
             slotTimeResolution = 1 # time in minutes
             t = np.arange(self.nightstarts.jd,self.nightends.jd,TimeDelta(slotTimeResolution*60,format='sec').jd)
             t = Time(t,format='jd')
