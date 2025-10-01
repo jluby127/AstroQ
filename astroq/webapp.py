@@ -146,13 +146,15 @@ def render_admin_page():
     fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], list(data_astroq[1].values()))
     fig_football = pl.get_football(semester_planner, all_stars_from_all_programs, use_program_colors=True)
     fig_tau_inter_line = pl.get_tau_inter_line(semester_planner, all_stars_from_all_programs, use_program_colors=True)
+    fig_timepie = pl.get_timepie(semester_planner, all_stars_from_all_programs, use_program_colors=True)
 
     fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
     fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
     fig_football_html = pio.to_html(fig_football, full_html=True, include_plotlyjs='cdn')
     fig_tau_inter_line_html = pio.to_html(fig_tau_inter_line, full_html=True, include_plotlyjs='cdn')
-    
-    figures_html = [fig_cof_html, fig_birdseye_html, fig_tau_inter_line_html, fig_football_html]
+    fig_timepie_html = pio.to_html(fig_timepie, full_html=True, include_plotlyjs='cdn')
+
+    figures_html = [fig_timepie_html, fig_cof_html, fig_birdseye_html, fig_tau_inter_line_html, fig_football_html]
 
     return render_template("admin.html", tables_html=[request_table_html], figures_html=figures_html)
 
@@ -176,13 +178,15 @@ def render_program_page(semester_code, date, band, program_code):
     fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], program_stars)
     fig_tau_inter_line = pl.get_tau_inter_line(semester_planner, program_stars)
     fig_football = pl.get_football(semester_planner, program_stars)
+    fig_timepie = pl.get_timepie(semester_planner, program_stars, use_program_colors=True)
 
     fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
     fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
     fig_tau_inter_line_html = pio.to_html(fig_tau_inter_line, full_html=True, include_plotlyjs='cdn')
     fig_football_html = pio.to_html(fig_football, full_html=True, include_plotlyjs='cdn')
+    fig_timepie_html = pio.to_html(fig_timepie, full_html=True, include_plotlyjs='cdn')
 
-    figures_html = [fig_cof_html, fig_birdseye_html, fig_tau_inter_line_html, fig_football_html]
+    figures_html = [fig_timepie_html, fig_cof_html, fig_birdseye_html, fig_tau_inter_line_html, fig_football_html]
     
     return render_template("semesterplan.html", 
                          programname=program_code, 

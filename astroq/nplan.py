@@ -27,6 +27,12 @@ import astroq.access as ac
 import astroq.io as io
 
 # TTP imports (assuming TTP is installed separately)
+# import sys 
+# sys.path.append('/Users/jack/Documents/github/ttp/ttp/')
+# import formatting as formatting
+# import telescope as telescope
+# import plotting as plotting
+# import model as model
 import ttp.formatting as formatting
 import ttp.telescope as telescope
 import ttp.plotting as plotting
@@ -275,8 +281,8 @@ class NightPlanner(object):
                     last_hour = last_time_minutes // 60
                     last_minute = last_time_minutes % 60
                     
-                    first_available.append(f"{first_hour:02d}:{first_minute:02d}")
-                    last_available.append(f"{last_hour:02d}:{last_minute:02d}")
+                    first_available.append(f"{self.current_day} {first_hour:02d}:{first_minute:02d}")
+                    last_available.append(f"{self.current_day} {last_hour:02d}:{last_minute:02d}")
                 else:
                     # No available slots tonight
                     first_available.append("N/A")

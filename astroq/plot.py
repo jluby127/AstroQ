@@ -46,6 +46,9 @@ np.random.seed(24)
 gray = 'rgb(210,210,210)'
 clear = 'rgba(255,255,255,1)'
 labelsize = 38
+slew_overhead = 180.
+readout_overhead = 45.
+hours_per_night = 12.
 
 class StarPlotter(object):
     """
@@ -84,6 +87,9 @@ class StarPlotter(object):
         self.tau_inter = int(requests_frame['tau_inter'][index])
         self.expected_nobs_per_night = self.n_exp * self.n_intra_max
         self.total_observations_requested = self.expected_nobs_per_night * self.n_inter_max
+        self.total_requested_seconds = self.n_exp*self.n_intra_max*self.n_inter_max*self.exptime + readout_overhead*(self.n_exp-1) + slew_overhead*self.n_intra_max*self.n_inter_max
+        self.total_requested_hours = self.total_requested_seconds / 3600
+        self.total_requested_nights = self.total_requested_hours / hours_per_night   
 
     def get_past(self, past):
         """
@@ -118,11 +124,10 @@ class StarPlotter(object):
         observations_future = {}
         for d, group in star_rows.groupby('d'):
             # d may be int or str; ensure it's int for indexing
-            d_idx = int(d)
-            date = all_dates_array[d_idx]
+            date = all_dates_array[int(d)]
             n_slots = len(group)
             # Optionally, normalize by slots_per_visit or n_intra_max as before
-            observations_future[date] = n_slots
+            observations_future[date] = n_slots*self.n_exp
         self.observations_future = observations_future
 
     def get_map(self, semester_planner):
@@ -179,7 +184,7 @@ def process_stars(semester_planner):
 
         # Create COF arrays for each request
         combined_set = set(list(newstar.observations_past.keys()) + list(newstar.observations_future.keys()))
-        newstar.dates_observe = [newstar.observations_past[date] if date in newstar.observations_past.keys() else (newstar.n_intra_max if date in combined_set else 0) for date in semester_planner.all_dates_array]
+        newstar.dates_observe = [newstar.observations_past[date] if date in newstar.observations_past.keys() else (newstar.n_intra_max*newstar.n_exp if date in combined_set else 0) for date in semester_planner.all_dates_array]
         # don't assume that all future observations forecast for getting all desired n_intra_max
         # for b in range(len(newstar.dates_observe)):
         #     if semester_planner.all_dates_array[b] in list(newstar.observations_future.keys()):
@@ -640,6 +645,87 @@ def get_tau_inter_line(semester_planner, all_stars, use_program_colors=False):
     )
     return fig
 
+def get_timepie(semester_planner, all_stars, use_program_colors=False):
+    """
+    Create an pie chart of the time used vs forecasted vs available
+
+    Parameters:
+        semester_planner: the semester planner object
+        all_stars (list): array of StarPlotter objects
+        use_program_colors (bool): If True, use program_color_rgb; if False, use star_color_rgb (default: False)
+
+    Returns:
+        plotly.graph_objects.Figure
+    """
+    programmatics = pd.read_csv(semester_planner.semester_directory + 'programmatics.csv')
+
+    # Accumulate total times across all stars
+    total_past = 0
+    total_future = 0
+    total_incomplete = 0
+    total_requested_hours = 0
+    
+    programs_used = []
+    for starobj in all_stars:
+        total_past += sum(starobj.observations_past.values()) * starobj.exptime + len(starobj.observations_past.keys()) * slew_overhead
+        total_future += sum(starobj.observations_future.values()) * starobj.exptime + len(starobj.observations_future.keys()) * slew_overhead
+        total_requested_hours += starobj.total_requested_hours
+        programs_used.append(starobj.program)
+    
+    # Convert to hours for better readability
+    total_past_hours = total_past / 3600
+    total_future_hours = total_future / 3600
+    total_incomplete_hours = total_requested_hours - total_past_hours - total_future_hours
+
+    if len(programs_used) > 1:
+        total_allocated_hours = programmatics[programmatics['program'].isin(programs_used)]['hours'].sum()
+        total_allocated_nights = programmatics[programmatics['program'].isin(programs_used)]['nights'].sum()
+    else:
+        total_allocated_hours = programmatics[programmatics['program'] == programs_used[0]]['hours'].sum()
+        total_allocated_nights = programmatics[programmatics['program'] == programs_used[0]]['nights'].sum()
+
+    # Create pie chart data
+    labels = ['Completed', 'Scheduled', 'Incomplete', "Unused"]
+    values = [total_past_hours, total_future_hours, total_incomplete_hours, total_allocated_hours-total_requested_hours]
+    colors = ['#2E86AB', '#A23B72', '#F18F01', '#000000']  # Blue, Purple, Orange, Black
+    
+    # Create the pie chart
+    fig = go.Figure(data=[go.Pie(
+        labels=labels,
+        values=values,
+        marker=dict(colors=colors),
+        textinfo='label+percent+value',
+        texttemplate='%{label}<br>%{value:.1f} hrs<br>(%{percent})',
+        hovertemplate='<b>%{label}</b><br>%{value:.2f} hours<br>%{percent}<extra></extra>'
+    )])
+    
+    # Adjust margin if there's a warning to display
+    top_margin = 150 if total_requested_hours > total_allocated_hours else 100
+    
+    fig.update_layout(
+        title_text=f'<b>Total Requested:</b> {total_requested_hours:.1f} hours ≈ {total_requested_hours/hours_per_night:.1f} nights<br><b>Total Allocated:</b> {total_allocated_hours:.1f} hours = {total_allocated_nights:.1f} nights',
+        template='plotly_white',
+        showlegend=False,
+        height=600,
+        width=700,
+        margin=dict(t=top_margin, b=50, l=50, r=50)
+    )
+    
+    # Add warning annotation if requested time exceeds allocated time
+    if total_requested_hours > total_allocated_hours:
+        fig.add_annotation(
+            text='<b>You have requested more time than you are allocated.</b>',
+            xref='paper', yref='paper',
+            x=0.5, y=1.05,
+            showarrow=False,
+            font=dict(size=18, color='red'),
+            xanchor='center',
+            yanchor='middle'
+        )
+    
+    return fig
+
+
 def compute_seasonality(semester_planner, starnames, ras, decs):
     """
     Compute seasonality using Access object's produce_ultimate_map function
@@ -665,7 +751,9 @@ def compute_seasonality(semester_planner, starnames, ras, decs):
         'n_intra_min': [1] * len(starnames),
         'n_inter_max': [1] * len(starnames),
         'tau_inter': [1] * len(starnames),
-        'tau_intra': [1] * len(starnames)
+        'tau_intra': [1] * len(starnames),
+        'minimum_elevation': [30.] * len(starnames),
+        'minimum_moon_separation': [30.] * len(starnames)
     })
     
     # Build or get the twilight allocation file
@@ -931,6 +1019,7 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
         ]
     )
     return fig
+
 
 def get_request_frame(semester_planner, all_stars):
     """
@@ -1303,11 +1392,33 @@ def plot_path_2D_interactive(data):
             row=2, col=1
         )
 
-    # Set x-axis tick labels as HH:MM but keep axis linear in time
+    # Set x-axis tick labels as HH:MM with evenly spaced grid
+    # Create evenly spaced time ticks (e.g., every hour or every 30 minutes)
+    time_span = obs_time[-1] - obs_time[0]
+    # Determine appropriate interval based on time span
+    if time_span < 0.1:  # Less than ~2.4 hours
+        interval_hours = 0.5  # 30 minutes
+    elif time_span < 0.3:  # Less than ~7 hours  
+        interval_hours = 1.0  # 1 hour
+    else:
+        interval_hours = 2.0  # 2 hours
+    
+    # Convert interval to JD units (1 hour = 1/24 JD)
+    interval_jd = interval_hours / 24
+    
+    # Create evenly spaced tick positions
+    start_time = obs_time[0]
+    end_time = obs_time[-1]
+    num_ticks = int((end_time - start_time) / interval_jd) + 2
+    tick_positions = np.linspace(start_time, end_time, num_ticks)
+    
+    # Convert tick positions to time labels
+    tick_labels = [Time(t, format='jd').isot[11:16] for t in tick_positions]
+    
     fig.update_xaxes(
         tickmode='array',
-        tickvals=obs_time,
-        ticktext=time_labels,
+        tickvals=tick_positions,
+        ticktext=tick_labels,
         title_text='Time (UTC)',
         row=2, col=1
     )

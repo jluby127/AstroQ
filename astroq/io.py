@@ -77,6 +77,7 @@ def serialize_schedule(Yrds, semester_planner):
     
     # Generate the fullness report
     build_fullness_report(semester_planner, "Round1")
+    return sparse
 
 def build_fullness_report(semester_planner, round_info):
     """
