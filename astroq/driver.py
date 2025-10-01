@@ -98,11 +98,11 @@ def kpfcc_prep(args):
     # pull the allocation 
     if allo_source == 'db':
         print(f'Pulling allocation information from database')
-        allocation_frame, hours_by_program = ob.pull_allocation_info(start_date, n_days, 'KPF-CC')
+        allocation_frame, hours_by_program, nights_by_program = ob.pull_allocation_info(start_date, n_days, 'KPF-CC')
         awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())] 
     else:
         print(f'Using allocation information from file: {allo_source}')
-        allocation_frame, hours_by_program = ob.format_keck_allocation_info(allo_source)
+        allocation_frame, hours_by_program, nights_by_program = ob.format_keck_allocation_info(allo_source)
         awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())]
     allocation_frame['comment'] = [''] * len(allocation_frame)
     # Update allocation times for tonight if this is a full-band
@@ -111,7 +111,9 @@ def kpfcc_prep(args):
         allocation_frame = ob.update_allocation_file(allocation_frame, current_date)
     allocation_frame.sort_values(by='start', inplace=True)
     allocation_frame.to_csv(savepath+allocation_file, index=False)
-
+    # Output the nights by program
+    programmatics = pd.DataFrame({'program': awarded_programs, 'hours': list(hours_by_program.values()), 'nights': list(nights_by_program.values())})
+    programmatics.to_csv(savepath + 'programmatics.csv', index=False)
 
     # CAPTURE REQUEST INFORMATION AND PROCESS
     # --------------------------------------------

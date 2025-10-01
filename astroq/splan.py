@@ -696,7 +696,8 @@ class SemesterPlanner(object):
     def serialize_results_csv(self):
         logs.debug("Building human readable schedule.")
         
-        io.serialize_schedule(self.Yrds, self)
+        serialized_schedule = io.serialize_schedule(self.Yrds, self)
+        self.serialized_schedule = serialized_schedule
 
         # --- New: Output selected requests for current day ---
         today_idx = self.all_dates_dict[self.current_day]

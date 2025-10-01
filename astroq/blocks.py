@@ -18,8 +18,6 @@ from astropy.time import Time
 import astropy.units as u
 import astroplan as apl
 
-from kpf_etc.etc import kpf_etc_snr
-
 exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', 'metadata.history',
                     'metadata.instruments', 'metadata.is_approved', 'metadata.last_modification',
                     'metadata.ob_feasible', 'metadata.observer_name', 'metadata.state', 'metadata.status',
@@ -164,6 +162,7 @@ def pull_allocation_info(start_date, numdays, instrument):
         awarded_programs = df['ProjCode'].unique()
         df['start'] = pd.to_datetime(df['Date'] + ' ' + df['StartTime']).dt.strftime('%Y-%m-%dT%H:%M')
         df['stop']  = pd.to_datetime(df['Date'] + ' ' + df['EndTime']).dt.strftime('%Y-%m-%dT%H:%M')
+
         allocation_frame = df[['start', 'stop']].copy() # TODO: add observer and comment
         
         # Calculate hours for each row
@@ -176,13 +175,14 @@ def pull_allocation_info(start_date, numdays, instrument):
         
         # Calculate total hours per ProjCode
         hours_by_program = df.groupby('ProjCode')['hours'].sum().round(3).to_dict()
-        
+        nights_by_program = df.groupby('ProjCode')['FractionOfNight'].sum().round(3).to_dict()
     except:
         print("ERROR: allocation information not found. Double check date and instrument. Saving an empty file.")
         allocation_frame = pd.DataFrame(columns=['start', 'stop'])
         awarded_programs = []
         hours_by_program = {}
-    return allocation_frame, hours_by_program
+        nights_by_program = {}
+    return allocation_frame, hours_by_program, nights_by_program
 
 def format_keck_allocation_info(allocation_file):
     """
@@ -205,7 +205,7 @@ def format_keck_allocation_info(allocation_file):
     # Convert start and stop times to datetime for hour calculation
     allocation['start'] = pd.to_datetime(allocation['Date'] + ' ' + allocation['Start']).dt.strftime('%Y-%m-%dT%H:%M')
     allocation['stop'] = pd.to_datetime(allocation['Date'] + ' ' + allocation['Stop']).dt.strftime('%Y-%m-%dT%H:%M')
-    
+
     # Calculate hours for each row
     start_times = pd.to_datetime(allocation['start'])
     stop_times = pd.to_datetime(allocation['stop'])
@@ -222,8 +222,9 @@ def format_keck_allocation_info(allocation_file):
     
     # Calculate total hours per ProjCode
     hours_by_program = allocation.groupby('ProjCode')['hours'].sum().round(3).to_dict()
-    
-    return allocation_frame, hours_by_program
+    nights_by_program = df.groupby('ProjCode')['FractionOfNight'].sum().round(3).to_dict()
+
+    return allocation_frame, hours_by_program, nights_by_program
 
 def get_request_sheet(OBs, awarded_programs, savepath):
     good_obs, bad_obs_values, bad_obs_hasFields = sort_good_bad(OBs, awarded_programs)
@@ -306,7 +307,8 @@ def create_checks_dataframes(OBs, exception_fields):
             'schedule.minimum_moon_separation': 33,
             'schedule.weather_band_1': True,
             'schedule.weather_band_2': True,
-            'schedule.weather_band_3': False
+            'schedule.weather_band_3': False,
+            'target.t_eff': -1000.0,
         }
         
         # Apply safety valves using a loop
@@ -476,20 +478,12 @@ def recompute_exposure_times(request_frame, slowdown_factor):
     """
     new_exptimes = []
     for i in range(len(request_frame)):
-        SNR = 120*(request_frame['exp_meter_threshold'][i]**0.5)
-        try:
-            new_exptime = kpf_etc_snr(request_frame['teff'][i], request_frame['gmag'][i], SNR, 604)
-            if np.isnan(new_exptime):
-                new_exptime = request_frame['exptime'][i]*slowdown_factor
-        except Exception as e:
-            print(f"Error on star {request_frame['starname'][i]} in row {i}: {e}")
-            new_exptime = 3600.0
-        print(request_frame['starname'][i])
-        print(f"New exptime: {new_exptime}")
-        print(f"Request exptime: {request_frame['exptime'][i]}")
-        final_time = min([new_exptime*slowdown_factor, request_frame['exptime'][i]])
-        print(f"Final time: {final_time}")
-        print("--------------------------------")
+        # Using Teff = 5800 and V=10, the KPF ETC predicts time to achieve  SNR=120 @ 604 nm is 307 seconds. We use this as scaling time.
+        # At SNR=120, the corresponding ExpMeterThreshold is 1.0 MegaPhotons/A. 
+        # See this website for more details: https://www2.keck.hawaii.edu/inst/kpf/expmetertermination/
+        t0 = 307.0 
+        nominal_exptime = t0*request_frame['exp_meter_threshold'][i]
+        final_time = min([nominal_exptime*slowdown_factor, request_frame['exptime'][i]])
         new_exptimes.append(final_time)
     return new_exptimes
 
