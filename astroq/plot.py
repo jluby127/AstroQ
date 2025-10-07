@@ -59,12 +59,13 @@ class StarPlotter(object):
     def __init__(self, unique_id):
         self.unique_id = unique_id
 
-    def get_stats(self, requests_frame, slot_size):
+    def get_stats(self, row, slot_size):
         """
         Grab the observational stategy information for a given star
 
         Args:
-
+            row (pd.Series): A row from the requests DataFrame containing star info
+            slot_size: The slot size in minutes
 
         Returns:
             expected_nobs_per_night (int): how many exposures we expect to take
@@ -73,18 +74,18 @@ class StarPlotter(object):
             slots_per_night (int): number of slots required to complete all exposures in a night
             program (str): the program code
         """
-        index = requests_frame.loc[requests_frame['unique_id'] == self.unique_id].index
-        self.starname = requests_frame['starname'][index].values[0]
-        self.ra = float(requests_frame['ra'][index].values[0])
-        self.dec = float(requests_frame['dec'][index].values[0])
-        self.program = str(requests_frame['program_code'][index].values[0])
-        self.exptime = int(requests_frame['exptime'][index].values[0])
-        self.n_exp = int(requests_frame['n_exp'][index])
-        self.n_intra_max = int(requests_frame['n_intra_max'][index])
-        self.n_intra_min = int(requests_frame['n_intra_min'][index])
-        self.tau_intra = int(requests_frame['tau_intra'][index])
-        self.n_inter_max = int(requests_frame['n_inter_max'][index])
-        self.tau_inter = int(requests_frame['tau_inter'][index])
+        # Access row data directly instead of filtering the entire DataFrame (PERFORMANCE OPTIMIZATION)
+        self.starname = row['starname']
+        self.ra = float(row['ra'])
+        self.dec = float(row['dec'])
+        self.program = str(row['program_code'])
+        self.exptime = int(row['exptime'])
+        self.n_exp = int(row['n_exp'])
+        self.n_intra_max = int(row['n_intra_max'])
+        self.n_intra_min = int(row['n_intra_min'])
+        self.tau_intra = int(row['tau_intra'])
+        self.n_inter_max = int(row['n_inter_max'])
+        self.tau_inter = int(row['tau_inter'])
         self.expected_nobs_per_night = self.n_exp * self.n_intra_max
         self.total_observations_requested = self.expected_nobs_per_night * self.n_inter_max
         self.total_requested_seconds = self.n_exp*self.n_intra_max*self.n_inter_max*self.exptime + readout_overhead*(self.n_exp-1) + slew_overhead*self.n_intra_max*self.n_inter_max
@@ -107,17 +108,14 @@ class StarPlotter(object):
         observations_past = star_obs_past.groupby('date').size().to_dict()
         self.observations_past = observations_past
 
-    def get_future(self, forecast_file, all_dates_array):
+    def get_future(self, forecast_df, all_dates_array):
         """
         Process a DataFrame with columns ['r', 'd', 's'] to gather the future schedule for this star.
 
         Args:
-            forecast_df (pd.DataFrame): DataFrame with columns ['r', 'd', 's']
+            forecast_df (pd.DataFrame): Pre-loaded forecast DataFrame with columns ['r', 'd', 's']
             all_dates_array (list): List of all dates in the semester, indexed by 'd'
         """
-        forecast_df = pd.read_csv(forecast_file)
-        forecast_df['r'] = forecast_df['r'].astype(str)
-
         # Only keep rows for this star
         star_rows = forecast_df[forecast_df['r'] == str(self.unique_id)]
         # Count number of slots scheduled per night (d)
@@ -130,23 +128,35 @@ class StarPlotter(object):
             observations_future[date] = n_slots*self.n_exp
         self.observations_future = observations_future
 
-    def get_map(self, semester_planner):
+    def get_map(self, semester_planner, forecast_df):
         """
         Build the starmap for this star using the new schedule format (future_forecast DataFrame with columns r, d, s).
         Only set starmap[d, s] = 1 if sched['r'] == self.unique_id.
+        
+        Args:
+            semester_planner: The semester planner object
+            forecast_df (pd.DataFrame): Pre-loaded forecast DataFrame with columns ['r', 'd', 's']
         """
-        forecast_df = pd.read_csv(semester_planner.output_directory + semester_planner.future_forecast)
         n_nights = semester_planner.semester_length
         n_slots = int((24 * 60) / semester_planner.slot_size)
         starmap = np.zeros((n_nights, n_slots), dtype=int)
-        for _, sched in forecast_df.iterrows():
-            if str(sched['r']) == str(self.unique_id):
-                d = int(sched['d'])
-                s = int(sched['s'])
-                starmap[d, s] = 1
-                reserve_slots = semester_planner.slots_needed_for_exposure_dict[str(self.unique_id)]
-                for r in range(1, reserve_slots):
-                    starmap[d, s+r] = 1
+        
+        # Filter to only this star's rows
+        star_forecast = forecast_df[forecast_df['r'] == str(self.unique_id)]
+        
+        if len(star_forecast) > 0:
+            # Vectorized approach: extract d,s values as numpy arrays and set all at once (PERFORMANCE OPTIMIZATION)
+            d_values = star_forecast['d'].values.astype(int)
+            s_values = star_forecast['s'].values.astype(int)
+            
+            # Set the primary slots
+            starmap[d_values, s_values] = 1
+            
+            # Set the reserve slots
+            reserve_slots = semester_planner.slots_needed_for_exposure_dict[str(self.unique_id)]
+            for r in range(1, reserve_slots):
+                starmap[d_values, s_values + r] = 1
+        
         self.starmap = starmap.T
 
 def process_stars(semester_planner):
@@ -159,6 +169,10 @@ def process_stars(semester_planner):
     nulltime = access['is_alloc'][0]
     nulltime = 1 - nulltime
     nulltime = np.array(nulltime).T
+
+    # Read forecast CSV once instead of once per star (PERFORMANCE OPTIMIZATION)
+    forecast_df = pd.read_csv(semester_planner.output_directory + semester_planner.future_forecast)
+    forecast_df['r'] = forecast_df['r'].astype(str)  # Convert to string once
 
     # Previously, there was a unique call to star names, every row of the request frame will be unique already when we switch to "id"
     starnames = semester_planner.requests_frame['starname'].unique()
@@ -174,13 +188,13 @@ def process_stars(semester_planner):
     for i, row in semester_planner.requests_frame.iterrows():
         # Create a StarPlotter object for each request, fill and compute relavant information
         newstar = StarPlotter(row['unique_id'])
-        newstar.get_map(semester_planner)
-        newstar.get_stats(semester_planner.requests_frame, semester_planner.slot_size)
+        newstar.get_map(semester_planner, forecast_df)
+        newstar.get_stats(row, semester_planner.slot_size)
         if newstar.unique_id in list(semester_planner.past_history.keys()):
             newstar.observations_past = semester_planner.past_history[newstar.unique_id].n_visits_on_nights
         else:
             newstar.observations_past = {}
-        newstar.get_future(semester_planner.output_directory + semester_planner.future_forecast, semester_planner.all_dates_array)
+        newstar.get_future(forecast_df, semester_planner.all_dates_array)
 
         # Create COF arrays for each request
         combined_set = set(list(newstar.observations_past.keys()) + list(newstar.observations_future.keys()))
