@@ -26,16 +26,6 @@ DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')
 
 logs = logging.getLogger(__name__)
 
-# Define list of observatories which are currently supported.
-# To add an obseratory/telescope, add the Astroplan resolvable name to the list in generate_night_plan
-# Then add the same name to the appropriate element of the locations dictionary.
-# If necessary, add a location to the locations dictionary, if so, add the location to each of the
-# pre_sunrise and post_sunrise dictionaries. Ensure times are 14 hours apart, at least one hour
-# before the earliest sunset and one hour after the latest sunrise of the year.
-locations = {"Keck Observatory":"Hawaii", "Kitt Peak National Observatory":"Arizona"}
-pre_sunset = {'Hawaii':'03:30', 'Arizona':'05:00'}
-post_sunrise = {'Hawaii':'17:30', 'Arizona':'14:00'}
-
 class Access:
     """
     Access class that provides accessibility computation functionality.

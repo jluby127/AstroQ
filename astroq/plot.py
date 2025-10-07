@@ -703,7 +703,7 @@ def get_timepie(semester_planner, all_stars, use_program_colors=False):
     top_margin = 150 if total_requested_hours > total_allocated_hours else 100
     
     fig.update_layout(
-        title_text=f'<b>Total Requested:</b> {total_requested_hours:.1f} hours ≈ {total_requested_hours/hours_per_night:.1f} nights<br><b>Total Allocated:</b> {total_allocated_hours:.1f} hours = {total_allocated_nights:.1f} nights',
+        title_text=f'<b>Total Requested:</b> {total_requested_hours:.1f} hours ≈ {total_requested_hours/hours_per_night:.1f} nights<br><b>Total Allocated:</b> {total_allocated_hours:.1f} hours = {total_allocated_nights:.1f} nights ----> w/ losses = {total_allocated_nights*0.75:.1f} nights',
         template='plotly_white',
         showlegend=False,
         height=600,
@@ -712,7 +712,7 @@ def get_timepie(semester_planner, all_stars, use_program_colors=False):
     )
     
     # Add warning annotation if requested time exceeds allocated time
-    if total_requested_hours > total_allocated_hours:
+    if total_requested_hours > total_allocated_hours*1.1:
         fig.add_annotation(
             text='<b>You have requested more time than you are allocated.</b>',
             xref='paper', yref='paper',

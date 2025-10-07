@@ -12,6 +12,7 @@ import warnings
 from configparser import ConfigParser
 from datetime import datetime, timedelta
 import pickle
+import json
 
 
 # Third-party imports
@@ -697,6 +698,7 @@ class SemesterPlanner(object):
         logs.debug("Building human readable schedule.")
         
         serialized_schedule = io.serialize_schedule(self.Yrds, self)
+        # Add representation of the Yrds solution to the object 
         self.serialized_schedule = serialized_schedule
 
         # --- New: Output selected requests for current day ---
@@ -707,19 +709,187 @@ class SemesterPlanner(object):
         # Save to CSV with new name
         selected_df.to_csv(os.path.join(self.output_directory, 'request_selected.csv'), index=False)
 
+        self.to_json()
+
         # --- Save semester_planner to pickle file ---
         planner_pickle_path = os.path.join(self.output_directory, 'semester_planner.pkl')
         
         # Create a copy of self without unpicklable objects
+        # Skip Gurobi model and variables which can't be pickled
+        rm_unserializable = ['model', 'Yrds', 'Wrd', 'theta']
         planner_copy = type(self).__new__(type(self))
         for attr_name, attr_value in self.__dict__.items():
-            # Skip Gurobi model and variables which can't be pickled
-            if attr_name in ['model', 'Yrds', 'Wrd', 'theta']:
+            if attr_name in rm_unserializable:
                 continue
             setattr(planner_copy, attr_name, attr_value)
         
         with open(planner_pickle_path, 'wb') as f:
             pickle.dump(planner_copy, f)
+
+    def to_json(self, json_path=None):
+        """
+        Save the SemesterPlanner object to a JSON file.
+        
+        Args:
+            json_path (str, optional): Path to save the JSON file. 
+                                     If None, saves to output_directory/semester_planner.json
+        """
+        if json_path is None:
+            json_path = os.path.join(self.output_directory, 'semester_planner.json')
+        
+        # Create a copy of self without unserializable objects
+        include_data = ['access_record', 'all_dates_array', 'current_day', 'n_hours_in_night', 'n_nights_in_semester', 
+                        'n_slots_in_night', 'n_slots_in_semester', 'output_directory', 'past_history', 'requests_frame'
+                        'semester_length', 'semester_start_date', 'serialized_schedule', 'slot_size', 
+                        'today_starting_night', 'today_starting_slot']
+        
+        data = {}
+        for attr_name, attr_value in self.__dict__.items():
+            if attr_name not in include_data:
+                continue
+                
+            # Handle different data types
+            if isinstance(attr_value, (str, int, float, bool, list, dict, type(None))):
+                data[attr_name] = attr_value
+            elif isinstance(attr_value, np.ndarray):
+                data[attr_name] = {
+                    'type': 'numpy_array',
+                    'data': attr_value.tolist(),
+                    'dtype': str(attr_value.dtype),
+                    'shape': attr_value.shape
+                }
+            elif isinstance(attr_value, pd.DataFrame):
+                data[attr_name] = {
+                    'type': 'pandas_dataframe',
+                    'data': attr_value.to_dict('records'),
+                    'index': attr_value.index.tolist(),
+                    'columns': attr_value.columns.tolist(),
+                    'dtypes': {col: str(dtype) for col, dtype in attr_value.dtypes.items()}
+                }
+            elif isinstance(attr_value, pd.Series):
+                data[attr_name] = {
+                    'type': 'pandas_series',
+                    'data': attr_value.to_dict(),
+                    'index': attr_value.index.tolist(),
+                    'dtype': str(attr_value.dtype)
+                }
+            elif isinstance(attr_value, Time):
+                data[attr_name] = {
+                    'type': 'astropy_time',
+                    'data': attr_value.iso,
+                    'format': attr_value.format,
+                    'scale': attr_value.scale
+                }
+            elif isinstance(attr_value, TimeDelta):
+                data[attr_name] = {
+                    'type': 'astropy_timedelta',
+                    'data': attr_value.jd,
+                    'format': attr_value.format
+                }
+            elif isinstance(attr_value, ConfigParser):
+                data[attr_name] = {
+                    'type': 'configparser',
+                    'data': {section: dict(attr_value[section]) for section in attr_value.sections()}
+                }
+            elif hasattr(attr_value, '__dict__'):
+                # For custom objects, try to serialize their attributes
+                try:
+                    nested_data = {}
+                    for nested_attr, nested_value in attr_value.__dict__.items():
+                        if isinstance(nested_value, (str, int, float, bool, list, dict, type(None))):
+                            nested_data[nested_attr] = nested_value
+                        elif isinstance(nested_value, np.ndarray):
+                            nested_data[nested_attr] = {
+                                'type': 'numpy_array',
+                                'data': nested_value.tolist(),
+                                'dtype': str(nested_value.dtype),
+                                'shape': nested_value.shape
+                            }
+                        # Add more type handling as needed
+                    data[attr_name] = {
+                        'type': 'custom_object',
+                        'class_name': attr_value.__class__.__name__,
+                        'data': nested_data
+                    }
+                except:
+                    # If we can't serialize it, skip it
+                    continue
+            else:
+                # Skip unknown types
+                continue
+        
+        with open(json_path, 'w') as f:
+            json.dump(data, f, indent=2, default=str)
+        
+        logs.info(f"SemesterPlanner saved to JSON: {json_path}")
+
+    @classmethod
+    def from_json(cls, json_path, cf=None):
+        """
+        Load a SemesterPlanner object from a JSON file.
+        
+        Args:
+            json_path (str): Path to the JSON file
+            cf (str, optional): Path to config file if needed for reconstruction
+            
+        Returns:
+            SemesterPlanner: Reconstructed SemesterPlanner object
+        """
+        with open(json_path, 'r') as f:
+            data = json.load(f)
+        
+        # Create a new instance
+        if cf is not None:
+            instance = cls(cf, run_band3=data.get('run_band3', False))
+        else:
+            # Create minimal instance without config
+            instance = cls.__new__(cls)
+            instance.config = None
+            instance.run_band3 = data.get('run_band3', False)
+        
+        # Restore attributes
+        for attr_name, attr_value in data.items():
+            if isinstance(attr_value, dict) and 'type' in attr_value:
+                # Handle special types
+                if attr_value['type'] == 'numpy_array':
+                    restored_value = np.array(attr_value['data'], dtype=attr_value['dtype'])
+                    restored_value = restored_value.reshape(attr_value['shape'])
+                    setattr(instance, attr_name, restored_value)
+                elif attr_value['type'] == 'pandas_dataframe':
+                    df = pd.DataFrame(attr_value['data'])
+                    df.index = attr_value['index']
+                    df.columns = attr_value['columns']
+                    # Restore dtypes
+                    for col, dtype_str in attr_value['dtypes'].items():
+                        if col in df.columns:
+                            df[col] = df[col].astype(dtype_str)
+                    setattr(instance, attr_name, df)
+                elif attr_value['type'] == 'pandas_series':
+                    series = pd.Series(attr_value['data'])
+                    series.index = attr_value['index']
+                    series = series.astype(attr_value['dtype'])
+                    setattr(instance, attr_name, series)
+                elif attr_value['type'] == 'astropy_time':
+                    setattr(instance, attr_name, Time(attr_value['data'], format=attr_value['format'], scale=attr_value['scale']))
+                elif attr_value['type'] == 'astropy_timedelta':
+                    setattr(instance, attr_name, TimeDelta(attr_value['data'], format=attr_value['format']))
+                elif attr_value['type'] == 'configparser':
+                    config = ConfigParser()
+                    for section, section_data in attr_value['data'].items():
+                        config.add_section(section)
+                        for key, value in section_data.items():
+                            config.set(section, key, value)
+                    setattr(instance, attr_name, config)
+                elif attr_value['type'] == 'custom_object':
+                    # For custom objects, we'll store the data but can't fully reconstruct
+                    # This would need custom handling for each object type
+                    setattr(instance, attr_name, attr_value['data'])
+            else:
+                # Handle basic types
+                setattr(instance, attr_name, attr_value)
+        
+        logs.info(f"SemesterPlanner loaded from JSON: {json_path}")
+        return instance
 
     def add_twilights(self):
         """Add 20-minute buffer to allocation times that match 12-degree twilight."""
