@@ -36,10 +36,11 @@ uptree_path = None
 
 def load_data_for_path(semester_code, date, band, uptree_path):
     """Load data for a specific semester_code/date/band combination"""
-    global data_astroq, data_ttp, semester_planner, night_planner
+    global data_astroq, data_ttp, semester_planner, night_planner, request_frame
     
     # Construct the workdir path based on URL parameters
     workdir = f"{uptree_path}/{semester_code}/{date}/{band}/outputs/"
+    request_frame = os.path.join(workdir, 'request_selected.csv')
     
     # Check if the directory exists
     if not os.path.exists(workdir):
@@ -240,7 +241,7 @@ def render_nightplan_page():
 
     script_table_df = pl.get_script_plan(night_planner)
     ladder_fig = pl.get_ladder(data_ttp)
-    slew_animation_figures = pl.get_slew_animation(data_ttp, animationStep=120)
+    slew_animation_fig = pl.get_slew_animation_plotly(data_ttp, request_frame, animationStep=120)
     slew_path_fig = pl.plot_path_2D_interactive(data_ttp)
     
     # Convert dataframe to HTML with unique table ID
@@ -248,24 +249,8 @@ def render_nightplan_page():
     script_table_html = pl.dataframe_to_html(script_table_df, sort_column=0, page_size=100, table_id='script-table')
     # Convert figures to HTML
     ladder_html = pio.to_html(ladder_fig, full_html=True, include_plotlyjs='cdn')
+    slew_animation_html = pio.to_html(slew_animation_fig, full_html=True, include_plotlyjs='cdn')
     slew_path_html = pio.to_html(slew_path_fig, full_html=True, include_plotlyjs='cdn')
-    
-    # Convert matplotlib figures to GIF and then to HTML
-    gif_frames = []
-    for fig in slew_animation_figures:
-        buf = BytesIO()
-        fig.savefig(buf, format='png', dpi=100)
-        buf.seek(0)
-        gif_frames.append(iio.imread(buf))
-        buf.close()
-    
-    gif_buf = BytesIO()
-    iio.imwrite(gif_buf, gif_frames, format='gif', loop=0, duration=0.3)
-    gif_buf.seek(0)
-    
-    gif_base64 = base64.b64encode(gif_buf.getvalue()).decode('utf-8')
-    slew_animation_html = f'<img src="data:image/gif;base64,{gif_base64}" alt="Observing Animation"/>'
-    gif_buf.close()
     
     figure_html_list = [script_table_html, ladder_html, slew_animation_html, slew_path_html]
 
