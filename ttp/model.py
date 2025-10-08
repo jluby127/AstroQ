@@ -248,8 +248,6 @@ class TTPModel(object):
                         for i in range(N)),'t_min')
         t_max = Mod.addConstrs((tijm[i,j,m] <= w[m+1]*Xijm[i,j,m] for j in range(N) for m in range(M)
                         for i in range(N)),'t_max')
-        for i in range(len(te)):
-            print(te[i], tl[i])
         rise_constr = Mod.addConstrs((ti[i] >= te[i]*Yi[i] for i in range(N)),'rise_constr')
         set_constr = Mod.addConstrs((ti[i] <= tl[i]*Yi[i] for i in range(N)),'set_constr')
 
