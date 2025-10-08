@@ -886,8 +886,6 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
         'tau_intra': np.full(n_points, 1)
     }
     grid_frame = pd.DataFrame(grid_stars)
-
-    # available_nights_onsky_requests = compute_seasonality(semester_planner, program_frame['starname'], program_frame['ra'], program_frame['dec'])
     
     # Check if cached grid data AND background image exist
     semester = semester_planner.semester_start_date[:4] + semester_planner.semester_letter
@@ -1184,13 +1182,10 @@ def get_slew_animation(data, animationStep=120):
     t = np.arange(model.nightstarts.jd, model.nightends.jd, TimeDelta(animationStep, format='sec').jd)
     t = Time(t, format='jd')
 
-    # Get list of astropy target objects in scheduled order
-    names = [s for s in model.schedule['Starname']]
-    list_targets = []
-    for n in range(len(model.schedule['Starname'])):
-        for s in model.stars:
-            if s.name == model.schedule['Starname'][n]:
-                list_targets.append(s.target)
+    # Get list of astropy target objects in scheduled order (OPTIMIZED - use dict lookup)
+    star_dict = {s.name: s.target for s in model.stars}  # O(m) - build once
+    names = list(model.schedule['Starname'])  # Convert to list if needed
+    list_targets = [star_dict[name] for name in names]  # O(n) - fast lookup
 
     # Compute alt/az of each target at each time
     AZ = model.observatory.observer.altaz(t, list_targets, grid_times_targets=True)
@@ -1209,6 +1204,11 @@ def get_slew_animation(data, animationStep=120):
     theta = np.arange(model.observatory.deckAzLim1 / 180, model.observatory.deckAzLim2 / 180, 1. / 180) * np.pi
     allaround = np.arange(0., 360 / 180, 1. / 180) * np.pi
 
+    # Pre-compute arrays outside loop (OPTIMIZATION #4)
+    schedule_times = np.array(model.schedule['Time'])
+    schedule_names = np.array(model.schedule['Starname'])
+    names_array = np.array(names)
+
     # Create list of matplotlib figures
     figures = []
     for i in range(len(t)):
@@ -1223,14 +1223,16 @@ def get_slew_animation(data, animationStep=120):
         ax.set_theta_zero_location('N')
         ax.set_facecolor('black')
 
-        # Determine which stars have been observed by this time
-        wasObserved = np.array(model.schedule['Time']) <= float(t[i].jd)
-        observed_list = np.array(model.schedule['Starname'])[wasObserved]
+        # Determine which stars have been observed by this time (OPTIMIZED - use pre-computed arrays)
+        wasObserved = schedule_times <= float(t[i].jd)
+        observed_list = schedule_names[wasObserved]
 
-        # Plot stars
-        for j in range(len(model.schedule['Starname'])):
-            color = 'orange' if names[j] in observed_list else 'white'
-            ax.scatter(alt[i][j], az[i][j], color=color, marker='*')
+        # Plot stars (OPTIMIZED - vectorized plotting)
+        alt_i = np.array(alt[i])
+        az_i = np.array(az[i])
+        is_observed = np.isin(names_array, observed_list)
+        colors = np.where(is_observed, 'orange', 'white')
+        ax.scatter(alt_i, az_i, c=colors, marker='*', s=50)
 
         # Draw telescope path
         ax.plot(tel_az[:i], tel_zen[:i], color='orange')
@@ -1238,6 +1240,273 @@ def get_slew_animation(data, animationStep=120):
         figures.append(fig)
 
     return figures
+
+def get_slew_animation_plotly(data, request_selected_path, animationStep=120):
+    """Create a Plotly animated polar plot showing telescope slew path during observations.
+
+    Args:
+        data: TTP data containing the schedule information
+        request_selected_path: Path to request_selected.csv file
+        animationStep (int): the time, in seconds, between animation frames. Default to 120s.
+        
+    Returns:
+        plotly.graph_objects.Figure: Interactive animated figure with play/pause controls
+    """
+
+    model = data[0]
+
+    # Read the request_selected.csv file
+    request_selected_df = pd.read_csv(request_selected_path)
+
+    # Set up animation times
+    t = np.arange(model.nightstarts.jd, model.nightends.jd, TimeDelta(animationStep, format='sec').jd)
+    t = Time(t, format='jd')
+
+    # Get list of astropy target objects in scheduled order (OPTIMIZED - use dict lookup)
+    star_dict = {s.name: s.target for s in model.stars}
+    names = list(model.schedule['Starname'])
+    list_targets = [star_dict[name] for name in names]
+
+    # Compute alt/az of each target at each time
+    AZ = model.observatory.observer.altaz(t, list_targets, grid_times_targets=True)
+    alt = np.round(AZ.az.rad, 2)
+    az = 90 - np.round(AZ.alt.deg, 2)
+
+    # Telescope slew path
+    stamps = [0] * len(t)
+    slewPath = createTelSlewPath(stamps, model.schedule['Time'], list_targets)
+    AZ1 = model.observatory.observer.altaz(t, slewPath, grid_times_targets=False)
+    tel_az = np.round(AZ1.az.rad, 2)
+    tel_zen = 90 - np.round(AZ1.alt.deg, 2)
+
+    # Pre-compute arrays
+    schedule_times = np.array(model.schedule['Time'])
+    schedule_names = np.array(model.schedule['Starname'])
+    names_array = np.array(names)
+    
+    # Cross-match unique_id (names_array) with starname from request_selected_df
+    # Create a dictionary for fast lookup
+    unique_id_to_starname = dict(zip(request_selected_df['unique_id'].astype(str), 
+                                      request_selected_df['starname']))
+    # Map each unique_id in names_array to its human-readable starname
+    human_starname_array = np.array([unique_id_to_starname.get(str(uid), str(uid)) 
+                                      for uid in names_array])
+
+    # Create telescope limit zones (red areas) - matching matplotlib version exactly
+    # In polar plot: r represents zenith distance (90 - altitude), where 0 is zenith and 90 is horizon
+    plotlowlim = 90  # Plotting limit to match matplotlib version
+    
+    # Deck limit zone (specific azimuth range)
+    theta_deck = np.linspace(model.observatory.deckAzLim1, model.observatory.deckAzLim2, 100)
+    r_deck_lower = np.full(100, 90 - model.observatory.deckAltLim)
+    r_deck_upper = np.full(100, plotlowlim - model.observatory.vigLim)
+    
+    # Vignetting limit (all around)
+    theta_all = np.linspace(0, 360, 100)
+    r_vig_lower = np.full(100, 90 - model.observatory.vigLim)
+    r_vig_upper = np.full(100, plotlowlim)
+    
+    # Zenith limit (all around, near center)
+    r_zen_lower = np.full(100, 90 - model.observatory.zenLim)
+    r_zen_upper = np.full(100, 0)
+
+    # Create frames for animation
+    frames = []
+    for i in range(len(t)):
+        # Determine which stars have been observed
+        wasObserved = schedule_times <= float(t[i].jd)
+        observed_list = schedule_names[wasObserved]
+        is_observed = np.isin(names_array, observed_list)
+        
+        # Create frame data
+        frame_data = [
+            # Telescope limit zones (red areas) - using fill='toself' with closed paths
+            # Deck limit
+            go.Scatterpolar(
+                r=np.concatenate([r_deck_lower, r_deck_upper[::-1], [r_deck_lower[0]]]),
+                theta=np.concatenate([theta_deck, theta_deck[::-1], [theta_deck[0]]]),
+                fill='toself',
+                fillcolor='rgba(255, 0, 0, 0.7)',
+                line=dict(color='rgba(255, 0, 0, 0)'),
+                showlegend=(i==0),
+                name='Deck Limit',
+                hoverinfo='skip'
+            ),
+            # Vignetting limit
+            go.Scatterpolar(
+                r=np.concatenate([r_vig_lower, r_vig_upper[::-1], [r_vig_lower[0]]]),
+                theta=np.concatenate([theta_all, theta_all[::-1], [theta_all[0]]]),
+                fill='toself',
+                fillcolor='rgba(255, 0, 0, 0.7)',
+                line=dict(color='rgba(255, 0, 0, 0)'),
+                showlegend=(i==0),
+                name='Vignetting Limit',
+                hoverinfo='skip'
+            ),
+            # Zenith limit
+            go.Scatterpolar(
+                r=np.concatenate([r_zen_lower, r_zen_upper[::-1], [r_zen_lower[0]]]),
+                theta=np.concatenate([theta_all, theta_all[::-1], [theta_all[0]]]),
+                fill='toself',
+                fillcolor='rgba(255, 0, 0, 0.7)',
+                line=dict(color='rgba(255, 0, 0, 0)'),
+                showlegend=(i==0),
+                name='Zenith Limit',
+                hoverinfo='skip'
+            ),
+            # Stars - observed
+            go.Scatterpolar(
+                r=az[:, i][is_observed],
+                theta=np.degrees(alt[:, i][is_observed]),
+                mode='markers',
+                marker=dict(size=10, color='orange', symbol='star'),
+                name='Observed',
+                showlegend=(i==0),
+                text=human_starname_array[is_observed],
+                hovertemplate='<b>%{text}</b><br>Az: %{theta:.1f}°<br>ZD: %{r:.1f}°<extra></extra>'
+            ),
+            # Stars - not observed
+            go.Scatterpolar(
+                r=az[:, i][~is_observed],
+                theta=np.degrees(alt[:, i][~is_observed]),
+                mode='markers',
+                marker=dict(size=10, color='white', symbol='star'),
+                name='Scheduled',
+                showlegend=(i==0),
+                text=human_starname_array[~is_observed],
+                hovertemplate='<b>%{text}</b><br>Az: %{theta:.1f}°<br>ZD: %{r:.1f}°<extra></extra>'
+            ),
+            # Telescope path
+            go.Scatterpolar(
+                r=tel_zen[:i+1] if i > 0 else tel_zen[:1],
+                theta=np.degrees(tel_az[:i+1] if i > 0 else tel_az[:1]),
+                mode='lines',
+                line=dict(color='orange', width=2),
+                name='Telescope Path',
+                showlegend=(i==0)
+            )
+        ]
+        
+        frames.append(go.Frame(data=frame_data, name=str(i)))
+
+    # Create initial figure with first frame
+    fig = go.Figure(
+        data=frames[0].data if frames else [],
+        frames=frames
+    )
+
+    # Update layout for polar plot
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(
+                range=[0, 90],  # 0=zenith (90° altitude), 90=horizon (0° altitude)
+                showticklabels=False,  # Hide altitude degree labels
+                ticks='',
+                showline=False,  # Hide the radial axis line
+                gridcolor='rgba(255, 255, 255, 0.2)',  # Soft white grid lines
+                gridwidth=1
+            ),
+            angularaxis=dict(
+                direction='counterclockwise',
+                rotation=90,
+                gridcolor='rgba(255, 255, 255, 0.2)',  # Soft white grid lines
+                gridwidth=1,
+                tickfont=dict(size=18, color='black'),  # Bigger azimuthal labels in black
+                showticklabels=True
+            ),
+            bgcolor='black'
+        ),
+        # Add cardinal direction annotations
+        annotations=[
+            dict(text='<b>N</b>', x=0.495, y=1.1, xref='paper', yref='paper', 
+                 showarrow=False, font=dict(size=22, color='black')),
+            dict(text='<b>W</b>', x=1.0, y=0.5, xref='paper', yref='paper', 
+                 showarrow=False, font=dict(size=22, color='black')),
+            dict(text='<b>S</b>', x=0.495, y=-0.1, xref='paper', yref='paper', 
+                 showarrow=False, font=dict(size=22, color='black')),
+            dict(text='<b>E</b>', x=-0.0, y=0.5, xref='paper', yref='paper', 
+                 showarrow=False, font=dict(size=22, color='black'))
+        ],
+        # Set default animation settings to match Play button
+        transition={'duration': 0},
+        updatemenus=[{
+            'type': 'buttons',
+            'showactive': False,
+            'direction': 'left',
+            'x': 0.35,
+            'y': -0.2,
+            'xanchor': 'left',
+            'yanchor': 'bottom',
+            'buttons': [
+                {
+                    'label': '  ▶ Play  ',
+                    'method': 'animate',
+                    'args': [None, {
+                        'frame': {'duration': 100, 'redraw': True},
+                        'fromcurrent': True,
+                        'mode': 'immediate',
+                        'transition': {'duration': 0}
+                    }]
+                },
+                {
+                    'label': '  ⏸ Pause  ',
+                    'method': 'animate',
+                    'args': [[None], {
+                        'frame': {'duration': 0, 'redraw': False},
+                        'mode': 'immediate',
+                        'transition': {'duration': 0}
+                    }]
+                }
+            ],
+            'bgcolor': 'white',
+            'bordercolor': 'black',
+            'borderwidth': 2,
+            'font': {'size': 16, 'color': 'black', 'family': 'Arial'},
+        }],
+        sliders=[{
+            'active': 0,
+            'yanchor': 'top',
+            'y': -0.15,
+            'xanchor': 'left',
+            'currentvalue': {
+                'prefix': 'Time: ',
+                'visible': True,
+                'xanchor': 'right',
+                'font': {'size': 14, 'color': 'black'}
+            },
+            'pad': {'b': 10, 't': 50},
+            'len': 0.9,
+            'x': 0.1,
+            'font': {'size': 12, 'color': 'black'},
+            'steps': [
+                {
+                    'args': [[f.name], {
+                        'frame': {'duration': 100, 'redraw': True},  # Match button duration
+                        'mode': 'immediate',
+                        'transition': {'duration': 0}
+                    }],
+                    'label': t[k].datetime.strftime('%H:%M'),  # HH:MM format only
+                    'method': 'animate'
+                }
+                for k, f in enumerate(frames)
+            ],
+            'transition': {'duration': 100}  # Match frame duration for consistent speed
+        }],
+        width=800,
+        height=800,
+        title=dict(
+            text='Telescope Slew Animation',
+            font=dict(color='black', size=20)
+        ),
+        template='plotly_white',
+        paper_bgcolor='white',
+        plot_bgcolor='white',
+        font=dict(color='black'),
+        # Configure animation behavior
+        hovermode='closest'
+    )
+
+    return fig
 
 def get_script_plan(night_planner):
     """Generate script plan DataFrame from semester planner and night planner objects.
