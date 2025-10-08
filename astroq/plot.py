@@ -281,8 +281,8 @@ def get_cof(semester_planner, all_stars):
     fig = go.Figure()
     fig.update_layout(plot_bgcolor=gray, paper_bgcolor=clear) #autosize=True,margin=dict(l=40, r=40, t=40, b=40),
     burn_line = np.linspace(0, 100, len(semester_planner.all_dates_array))
-    for b in range(len(burn_line)):
-        burn_line[b] = np.round(burn_line[b],2)
+    burn_line = np.round(burn_line, 2)
+
     fig.add_trace(go.Scatter(
         x=semester_planner.all_dates_array,
         y=burn_line,
@@ -295,11 +295,8 @@ def get_cof(semester_planner, all_stars):
     lines = []
     cume_observe = np.zeros(len(semester_planner.all_dates_array))
     max_value = 0
-    
-    # First, compute the total COF data for all stars
-    for i in range(len(all_stars)):
-        cume_observe += all_stars[i].cume_observe
-        max_value += all_stars[i].total_observations_requested
+    cume_observe = np.sum([star.cume_observe for star in all_stars], axis=0)
+    max_value = sum(star.total_observations_requested for star in all_stars)
     
     cume_observe_pct = (cume_observe / max_value) * 100
     
@@ -458,15 +455,17 @@ def get_birdseye(semester_planner, availablity, all_stars):
                 name='Connected Points'
             ))
 
-    # Add vertical grid lines every slot (x)
-    for x in np.arange(0.5, all_stars[i].starmap.shape[1], 1):
-        fig.add_shape(
-            type="line",
-            x0=x, x1=x,
-            y0=0, y1=all_stars[i].starmap.shape[0] - 1,
-            line=dict(color="lightgray", width=1),
-            layer="below"
-        )
+    add_grid_lines = False # this takes a long time to plot. Might not be necessary/worth it. 
+    if add_grid_lines:
+        # Add vertical grid lines every slot (x)
+        for x in np.arange(0.5, all_stars[i].starmap.shape[1], 1):
+            fig.add_shape(
+                type="line",
+                x0=x, x1=x,
+                y0=0, y1=all_stars[i].starmap.shape[0] - 1,
+                line=dict(color="lightgray", width=1),
+                layer="below"
+            )
     
     # Add vertical dashed line denoting "today"
     fig.add_vrect(
@@ -599,11 +598,12 @@ def get_tau_inter_line(semester_planner, all_stars, use_program_colors=False):
         starname_to_indices.setdefault(starname, []).append(i)
     
     for starname, indices in starname_to_indices.items():
-        x_vals = [all_request_tau_inters[i] for i in indices]
-        y_vals = [all_onsky_tau_inters[i] for i in indices]
+        idx_array = np.array(indices)
+        x_vals = all_request_tau_inters[idx_array]
+        y_vals = all_onsky_tau_inters[idx_array]
         text_vals = [f"{all_starnames[i]} in {all_programs[i]}" for i in indices]
-        color_vals = [all_colors[i] for i in indices]
-        maxyvals.append(max(y_vals))
+        color_vals = all_colors[idx_array].tolist()  # Convert to list for Plotly
+        maxyvals.append(np.max(y_vals))
         fig.add_trace(go.Scatter(
             x=x_vals,
             y=y_vals,
@@ -681,8 +681,8 @@ def get_timepie(semester_planner, all_stars, use_program_colors=False):
     
     programs_used = []
     for starobj in all_stars:
-        total_past += sum(starobj.observations_past.values()) * starobj.exptime + len(starobj.observations_past.keys()) * slew_overhead
-        total_future += sum(starobj.observations_future.values()) * starobj.exptime + len(starobj.observations_future.keys()) * slew_overhead
+        total_past += sum(starobj.observations_past.values()) * starobj.exptime + len(starobj.observations_past) * slew_overhead
+        total_future += sum(starobj.observations_future.values()) * starobj.exptime + len(starobj.observations_future) * slew_overhead
         total_requested_hours += starobj.total_requested_hours
         programs_used.append(starobj.program)
     
@@ -692,11 +692,13 @@ def get_timepie(semester_planner, all_stars, use_program_colors=False):
     total_incomplete_hours = total_requested_hours - total_past_hours - total_future_hours
 
     if len(programs_used) > 1:
-        total_allocated_hours = programmatics[programmatics['program'].isin(programs_used)]['hours'].sum()
-        total_allocated_nights = programmatics[programmatics['program'].isin(programs_used)]['nights'].sum()
+        program_rows = programmatics[programmatics['program'].isin(programs_used)]
+        total_allocated_hours = program_rows['hours'].sum()
+        total_allocated_nights = program_rows['nights'].sum()
     else:
-        total_allocated_hours = programmatics[programmatics['program'] == programs_used[0]]['hours'].sum()
-        total_allocated_nights = programmatics[programmatics['program'] == programs_used[0]]['nights'].sum()
+        program_rows = programmatics[programmatics['program'] == programs_used[0]]
+        total_allocated_hours = program_rows['hours'].sum()
+        total_allocated_nights = program_rows['nights'].sum()
 
     # Create pie chart data
     labels = ['Completed', 'Scheduled', 'Incomplete', "Unused"]
@@ -869,61 +871,76 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
     decs = np.degrees(angles_rad)
     RA_grid, DEC_grid = np.meshgrid(ras, decs)
 
+    n_points = n_dec * n_ra
     grid_stars = {
-        'starname': ['noname_' + str(i) for i in range(n_dec*n_ra)],
-        'program_code': ['noprog_' + str(i) for i in range(n_dec*n_ra)],
+        'starname': [f'noname_{i}' for i in range(n_points)],
+        'program_code': [f'noprog_{i}' for i in range(n_points)],
         'ra': RA_grid.flatten(),
         'dec': DEC_grid.flatten(),
-        'exptime': [300]*(n_dec*n_ra),
-        'n_exp': [1]*(n_dec*n_ra),
-        'n_intra_max': [1]*(n_dec*n_ra),
-        'n_intra_min': [1]*(n_dec*n_ra),
-        'n_inter_max': [1]*(n_dec*n_ra),
-        'tau_inter': [1]*(n_dec*n_ra),
-        'tau_intra': [1]*(n_dec*n_ra)
+        'exptime': np.full(n_points, 300),
+        'n_exp': np.full(n_points, 1),
+        'n_intra_max': np.full(n_points, 1),
+        'n_intra_min': np.full(n_points, 1),
+        'n_inter_max': np.full(n_points, 1),
+        'tau_inter': np.full(n_points, 1),
+        'tau_intra': np.full(n_points, 1)
     }
     grid_frame = pd.DataFrame(grid_stars)
 
-    available_nights_onsky_requests = compute_seasonality(semester_planner, program_frame['starname'], program_frame['ra'], program_frame['dec'])
+    # available_nights_onsky_requests = compute_seasonality(semester_planner, program_frame['starname'], program_frame['ra'], program_frame['dec'])
     
-    # Check if cached sky availability data exists for the background grid. 
+    # Check if cached grid data AND background image exist
     semester = semester_planner.semester_start_date[:4] + semester_planner.semester_letter
-    cache_file = f"{DATADIR}/{semester}_sky_availability.csv"
+    cache_grids_file = f"{DATADIR}/{semester}_sky_grids.npz"
+    cache_image_file = f"{DATADIR}/{semester}_sky_availability_image.txt"
     
-    if os.path.exists(cache_file):
-        grid_frame = pd.read_csv(cache_file)
+    # Try to load cached grid arrays (RA_grid, DEC_grid, NIGHTS_grid)
+    if os.path.exists(cache_grids_file):
+        # Load pre-computed grids from cache (FAST - skips griddata interpolation)
+        cached_data = np.load(cache_grids_file)
+        RA_grid = cached_data['RA_grid']
+        DEC_grid = cached_data['DEC_grid']
+        NIGHTS_grid = cached_data['NIGHTS_grid']
     else:
+        # Need to compute the grids from scratch
+        # First compute seasonality for the grid points
         grid_frame['nights_observable'] = compute_seasonality(semester_planner, grid_frame['starname'], grid_frame['ra'], grid_frame['dec'])
-        cache_df = pd.DataFrame({
-            'starname': grid_frame['starname'],
-            'ra': grid_frame['ra'],
-            'dec': grid_frame['dec'],
-            'nights_observable': grid_frame['nights_observable']
-        })
-        cache_df.to_csv(cache_file, index=False)
-
-    from scipy.interpolate import griddata
-    NIGHTS_grid = griddata(
-    points=(grid_frame.ra, grid_frame.dec),
-    values=grid_frame.nights_observable,
-    xi=(RA_grid, DEC_grid),
-    method='linear'
-    )
-
-    # Step 1: Generate static heatmap image with matplotlib
-    RA_shifted = np.radians(RA_grid - 180)
-    DEC_rad = np.radians(DEC_grid)
-
-    fig_mpl, ax = plt.subplots(subplot_kw={'projection': 'mollweide'}, figsize=(10, 5))
-    im = ax.pcolormesh(RA_shifted, DEC_rad, NIGHTS_grid, cmap='gray', shading='nearest', vmin=70, vmax=184)
-    ax.axis('off')
-
-    # Save to buffer
-    buf = BytesIO()
-    plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0, dpi=150)
-    plt.close()
-    buf.seek(0)
-    img_base64 = base64.b64encode(buf.read()).decode()
+        
+        # Perform griddata interpolation
+        from scipy.interpolate import griddata
+        NIGHTS_grid = griddata(
+            points=(grid_frame.ra, grid_frame.dec),
+            values=grid_frame.nights_observable,
+            xi=(RA_grid, DEC_grid),
+            method='linear'
+        )
+        
+        # Cache the grid arrays for next time
+        np.savez(cache_grids_file, RA_grid=RA_grid, DEC_grid=DEC_grid, NIGHTS_grid=NIGHTS_grid)
+    
+    # Try to load cached image (fastest path - skips matplotlib rendering)
+    if os.path.exists(cache_image_file):
+        with open(cache_image_file, 'r') as f:
+            img_base64 = f.read()
+    else:
+        # Need to generate and cache the matplotlib image
+        RA_shifted = np.radians(RA_grid - 180)
+        DEC_rad = np.radians(DEC_grid)
+        
+        fig_mpl, ax = plt.subplots(subplot_kw={'projection': 'mollweide'}, figsize=(10, 5))
+        im = ax.pcolormesh(RA_shifted, DEC_rad, NIGHTS_grid, cmap='gray', shading='nearest', vmin=70, vmax=184)
+        ax.axis('off')
+        
+        # Save to buffer
+        buf = BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0, dpi=150)
+        plt.close()
+        buf.seek(0)
+        img_base64 = base64.b64encode(buf.read()).decode()
+        
+        # Cache the base64 image for next time
+        with open(cache_image_file, 'w') as f:
+            f.write(img_base64)
 
     # Step 2: Create Plotly figure with static background image
     fig = go.Figure()
