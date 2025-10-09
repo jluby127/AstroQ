@@ -113,7 +113,7 @@ def kpfcc_prep(args):
     allocation_frame.to_csv(savepath+allocation_file, index=False)
     # Output the nights by program
     programmatics = pd.DataFrame({'program': awarded_programs, 'hours': list(hours_by_program.values()), 'nights': list(nights_by_program.values())})
-    programmatics.to_csv(savepath + 'programmatics.csv', index=False)
+    programmatics.to_csv(savepath + 'programs.csv', index=False)
 
     # CAPTURE REQUEST INFORMATION AND PROCESS
     # --------------------------------------------
@@ -227,9 +227,8 @@ def plot(args):
     config.read(cf)
     semester_directory = config.get('global', 'workdir')
 
-    if os.path.exists(semester_directory + '/outputs/semester_planner.pkl'):
-        with open(semester_directory + '/outputs/semester_planner.pkl', 'rb') as f:
-            semester_planner = pickle.load(f)
+    if os.path.exists(semester_directory + '/outputs/semester_planner.h5'):
+        semester_planner = SemesterPlanner.from_hdf5(semester_directory + '/outputs/semester_planner.h5')
         saveout = semester_planner.output_directory + "/saved_plots/"
         os.makedirs(saveout, exist_ok = True)
         
@@ -263,18 +262,25 @@ def plot(args):
         with open(os.path.join(saveout, "all_programs_tau_inter_line.html"), "w") as f:
             f.write(fig_tau_inter_line_html)
     else:
-        print(f'No semester_planner.pkl found in {semester_directory}/outputs/. No plots will be generated.')
+        print(f'No semester_planner.h5 found in {semester_directory}/outputs/. No plots will be generated.')
 
     if os.path.exists(semester_directory + '/outputs/night_planner.pkl'):
         with open(semester_directory + '/outputs/night_planner.pkl', "rb") as f:
             night_planner = pickle.load(f)
         data_ttp = night_planner.solution
+        
+        # Get the night start time from allocation file (this is "Minute 0")
+        from astroq.nplan import get_nightly_times_from_allocation
+        night_start_time, _ = get_nightly_times_from_allocation(
+            night_planner.allocation_file, 
+            night_planner.current_day
+        )
 
         # build the plots
         script_table_df = pl.get_script_plan(night_planner)
         ladder_fig = pl.get_ladder(data_ttp)
         slew_animation_figures = pl.get_slew_animation(data_ttp, animationStep=120)
-        slew_path_fig = pl.plot_path_2D_interactive(data_ttp)
+        slew_path_fig = pl.plot_path_2D_interactive(data_ttp, night_start_time=night_start_time)
 
         # write the html versions 
         script_table_html = pl.dataframe_to_html(script_table_df)

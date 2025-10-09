@@ -25,18 +25,19 @@ from astropy.time import Time, TimeDelta
 # Local imports
 import astroq.access as ac
 import astroq.io as io
+from astroq.splan import SemesterPlanner
 
 # TTP imports (assuming TTP is installed separately)
-# import sys 
-# sys.path.append('/Users/jack/Documents/github/ttp/ttp/')
-# import formatting as formatting
-# import telescope as telescope
-# import plotting as plotting
-# import model as model
-import ttp.formatting as formatting
-import ttp.telescope as telescope
-import ttp.plotting as plotting
-import ttp.model as model
+import sys 
+sys.path.append('/Users/jack/Documents/github/ttp/ttp/')
+import formatting as formatting
+import telescope as telescope
+import plotting as plotting
+import model as model
+# import ttp.formatting as formatting
+# import ttp.telescope as telescope
+# import ttp.plotting as plotting
+# import ttp.model as model
 
 class NightPlanner(object):
     """
@@ -102,10 +103,9 @@ class NightPlanner(object):
         config = ConfigParser()
         config.read(config_file)
         workdir = str(config.get('global', 'workdir')) + "/outputs/"
-        semester_planner_pkl = os.path.join(workdir, 'semester_planner.pkl')
-        
-        with open(semester_planner_pkl, 'rb') as f:
-            self.semester_planner = pickle.load(f)
+
+        semester_planner_h5 = os.path.join(workdir, 'semester_planner.h5')
+        self.semester_planner = SemesterPlanner.from_hdf5(semester_planner_h5)
         
         # Pull properties from SemesterPlanner for consistency
         self.semester_start_date = self.semester_planner.semester_start_date
@@ -151,7 +151,6 @@ class NightPlanner(object):
         selected_df['first_available'] = first_available
         selected_df['last_available'] = last_available
         
-
         # Fill NaN values with defaults --- for now in early 2025B since we had issues with the webform.c
         # Replace "None" strings with NaN first, then fill with defaults
         selected_df['n_intra_max'] = selected_df['n_intra_max'].replace('None', np.nan).fillna(1)
@@ -177,12 +176,16 @@ class NightPlanner(object):
             "Last Available": selected_df["last_available"],
         })
 
-        filename = os.path.join(self.output_directory, 'request_selected.txt')
+        filename = os.path.join(self.output_directory, 'ttp_prepared.csv')
         to_ttp.to_csv(filename, index=False)
-        target_list = formatting.theTTP(filename)
 
-        solution = model.TTPModel(observation_start_time, observation_stop_time, target_list,
-                                    observatory, observers_path, runtime=self.max_solve_time, optgap=self.max_solve_gap, useHighEl=False)
+        # target_list = formatting.theTTP(filename)
+        # solution = model.TTPModel(observation_start_time, observation_stop_time, target_list,
+        #                             observatory, observers_path, runtime=self.max_solve_time, optgap=self.max_solve_gap, useHighEl=False)
+
+        target_list = formatting.theTTP(filename, observatory, observation_start_time, observation_stop_time)
+        solution = model.TTPModel(target_list, observers_path, runtime=self.max_solve_time, optgap=self.max_solve_gap)
+
 
         gurobi_model_backup = solution.gurobi_model  # backup the attribute, probably don't need this
         del solution.gurobi_model                   # remove attribute so pickle works

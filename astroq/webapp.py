@@ -22,6 +22,8 @@ from socket import gethostname
 import astroq.nplan as nplan
 import astroq.plot as pl
 import astroq.splan as splan
+from astroq.splan import SemesterPlanner
+from astroq.nplan import get_nightly_times_from_allocation
 
 running_on_keck_machines = False
 
@@ -36,23 +38,22 @@ uptree_path = None
 
 def load_data_for_path(semester_code, date, band, uptree_path):
     """Load data for a specific semester_code/date/band combination"""
-    global data_astroq, data_ttp, semester_planner, night_planner, request_frame
+    global data_astroq, data_ttp, semester_planner, night_planner, request_frame_path, night_start_time
     
     # Construct the workdir path based on URL parameters
     workdir = f"{uptree_path}/{semester_code}/{date}/{band}/outputs/"
-    request_frame = os.path.join(workdir, 'request_selected.csv')
+    request_frame_path = os.path.join(workdir, 'request_selected.csv')
     
     # Check if the directory exists
     if not os.path.exists(workdir):
         return False, f"Directory not found: {workdir}"
     
-    semester_planner_pkl = os.path.join(workdir, 'semester_planner.pkl')
+    semester_planner_h5 = os.path.join(workdir, 'semester_planner.h5')
     night_planner_pkl = os.path.join(workdir, 'night_planner.pkl')
     
     # Load semester planner
     try:
-        with open(semester_planner_pkl, 'rb') as f:
-            semester_planner = pickle.load(f)
+        semester_planner = SemesterPlanner.from_hdf5(semester_planner_h5)
         data_astroq = pl.process_stars(semester_planner)
     except Exception as e:
         semester_planner = None
@@ -61,10 +62,18 @@ def load_data_for_path(semester_code, date, band, uptree_path):
     
     # Load night planner (optional)
     try:
+        print(night_planner_pkl)
         with open(night_planner_pkl, 'rb') as f:
             night_planner = pickle.load(f)
             data_ttp = night_planner.solution
+
+            # Get the night start time from allocation file (this is "Minute 0")
+            night_start_time, _ = get_nightly_times_from_allocation(
+                night_planner.allocation_file, 
+                night_planner.current_day
+    )
     except:
+        print("error loading night planner")
         night_planner = None
         data_ttp = None
     
@@ -238,11 +247,11 @@ def render_nightplan_page():
         return "Error: No night planner data available", 404
     
     plots = ['script_table', 'slewgif', 'ladder', 'slewpath']
-
+    
     script_table_df = pl.get_script_plan(night_planner)
     ladder_fig = pl.get_ladder(data_ttp)
-    slew_animation_fig = pl.get_slew_animation_plotly(data_ttp, request_frame, animationStep=120)
-    slew_path_fig = pl.plot_path_2D_interactive(data_ttp)
+    slew_animation_fig = pl.get_slew_animation_plotly(data_ttp, request_frame_path, animationStep=120)
+    slew_path_fig = pl.plot_path_2D_interactive(data_ttp, night_start_time=night_start_time)
     
     # Convert dataframe to HTML with unique table ID
     # Sort by starname (index 2) for better readability
