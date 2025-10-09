@@ -171,7 +171,7 @@ def process_stars(semester_planner):
     nulltime = np.array(nulltime).T
 
     # Read forecast CSV once instead of once per star (PERFORMANCE OPTIMIZATION)
-    forecast_df = pd.read_csv(semester_planner.output_directory + semester_planner.future_forecast)
+    forecast_df = semester_planner.serialized_schedule # pd.read_csv(semester_planner.output_directory + semester_planner.future_forecast)
     forecast_df['r'] = forecast_df['r'].astype(str)  # Convert to string once
 
     # Previously, there was a unique call to star names, every row of the request frame will be unique already when we switch to "id"
@@ -671,7 +671,7 @@ def get_timepie(semester_planner, all_stars, use_program_colors=False):
     Returns:
         plotly.graph_objects.Figure
     """
-    programmatics = pd.read_csv(semester_planner.semester_directory + 'programmatics.csv')
+    programmatics = pd.read_csv(semester_planner.semester_directory + 'programs.csv')
 
     # Accumulate total times across all stars
     total_past = 0
@@ -1612,8 +1612,13 @@ def get_script_plan(night_planner):
     
     return final_df
 
-def plot_path_2D_interactive(data):
-    """Create an interactive Plotly plot showing telescope azimuth and altitude paths with UTC times and white background."""
+def plot_path_2D_interactive(data, night_start_time=None):
+    """Create an interactive Plotly plot showing telescope azimuth and altitude paths with UTC times and white background.
+    
+    Args:
+        data: List containing the TTP model solution
+        night_start_time: Astropy Time object representing the start of night (Minute 0) from allocation file
+    """
 
     model = data[0]
 
@@ -1622,16 +1627,77 @@ def plot_path_2D_interactive(data):
     az_path = model.az_path
     alt_path = model.alt_path
     wrap = model.observatory.wrapLimitAngle
+    
+    # Use night_start_time as "Minute 0" reference
+    if night_start_time is None:
+        # Fallback: use first time from model
+        night_start_jd = times[0].jd
+    else:
+        night_start_jd = night_start_time.jd
 
-    # Use times as floats (e.g., minutes from start of night or JD)
-    # If times are astropy Time objects, convert to minutes from start of night
-    # Here, we'll use JD as the linear x-axis, but you can adjust to minutes if you have a reference
+    # Use times from model for telescope path (these are waypoints from TTP solver)
+    # These represent END of exposure times, so we need to subtract exposure duration
     obs_time = np.array([t.jd for t in times])
+    
+    # Adjust times to represent START of exposure instead of END
+    # The times array has 2 points per observation (both at end of exposure)
+    if hasattr(model, 'plotly') and 'Total Exp Time (min)' in model.plotly:
+        total_exp_times = model.plotly['Total Exp Time (min)']
+        
+        # Subtract exposure time from each pair of points
+        for i in range(len(total_exp_times)):
+            idx1 = i * 2
+            idx2 = i * 2 + 1
+            if idx2 < len(obs_time):
+                duration_days = total_exp_times[i] / 1440.0
+                obs_time[idx1] -= duration_days
+                obs_time[idx2] -= duration_days
+    
+    # The times/az/alt arrays have 2 points per observation (start and end)
+    # but names only has one entry per observation. Expand names to match.
+    if len(obs_time) == 2 * len(names):
+        # Each name should appear twice (for start and end of observation)
+        expanded_names = []
+        for name in names:
+            expanded_names.append(name)  # Start point
+            expanded_names.append(name)  # End point
+        names = expanded_names
+    elif len(obs_time) != len(names):
+        # Repeat names to match the length
+        names = names * (len(obs_time) // len(names) + 1)
+        names = names[:len(obs_time)]
+    
+    # Ensure all arrays are the same length
+    min_len = min(len(obs_time), len(az_path), len(alt_path), len(names))
+    obs_time = obs_time[:min_len]
+    az_path = np.array(az_path[:min_len])
+    alt_path = np.array(alt_path[:min_len])
+    names = names[:min_len]
+    
+    # Store original azimuth for hover text (0-360°)
+    az_path_original = az_path.copy()
+    
+    # Unwrap azimuth to handle 360°/0° crossing
+    # When telescope goes from 315° to 10°, show it as 315° to 370° instead
+    az_path_unwrapped = az_path.copy()
+    for i in range(1, len(az_path_unwrapped)):
+        diff = az_path_unwrapped[i] - az_path_unwrapped[i-1]
+        # If jump is > 180°, we likely wrapped around
+        if diff > 180:
+            # Wrapped from high to low (e.g., 350° to 10°), subtract 360 from current and future
+            az_path_unwrapped[i:] -= 360
+        elif diff < -180:
+            # Wrapped from low to high (e.g., 10° to 350°), add 360 to current and future
+            az_path_unwrapped[i:] += 360
+    
     # For tick labels and hover, format as HH:MM
     time_labels = [Time(t, format='jd').isot[11:16] for t in obs_time]
-
-    # Prepare custom hover text with HH:MM time
-    hover_texts = [f"Time: {label}<br>Target: {name}" for label, name in zip(time_labels, names)]
+    
+    # Create hover text arrays using ORIGINAL azimuth (0-360°)
+    hover_text_az = [f"Time: {time_labels[i]}<br>Target: {names[i]}<br>Az: {az_path_original[i]:.1f}°" 
+                     for i in range(len(obs_time))]
+    hover_text_alt = [f"Time: {time_labels[i]}<br>Target: {names[i]}<br>Alt: {alt_path[i]:.1f}°" 
+                      for i in range(len(obs_time))]
 
     fig = make_subplots(
         rows=2, cols=1,
@@ -1640,14 +1706,14 @@ def plot_path_2D_interactive(data):
         vertical_spacing=0.1
     )
 
-    # Azimuth plot
+    # Azimuth plot (use unwrapped azimuth for y-axis)
     fig.add_trace(go.Scatter(
-        x=obs_time, y=az_path,
+        x=obs_time, y=az_path_unwrapped,
         mode='lines+markers',
         marker=dict(color='indigo'),
         name='Azimuth',
-        text=hover_texts,
-        hovertemplate='%{text}<br>Az: %{y}'
+        text=hover_text_az,
+        hovertemplate='%{text}<extra></extra>'
     ), row=1, col=1)
 
     # Elevation plot
@@ -1656,41 +1722,65 @@ def plot_path_2D_interactive(data):
         mode='lines+markers',
         marker=dict(color='seagreen'),
         name='Elevation',
-        text=hover_texts,
-        hovertemplate='%{text}<br>Alt: %{y}'
+        text=hover_text_alt,
+        hovertemplate='%{text}<extra></extra>'
     ), row=2, col=1)
 
-    # Optional: wrap line on azimuth
+    # Add wrap limit line(s) at appropriate positions based on unwrapped azimuth range
     if wrap is not None:
-        fig.add_shape(
-            type="line",
-            x0=obs_time[0], x1=obs_time[-1],
-            y0=wrap, y1=wrap,
-            line=dict(color="red", dash="dash"),
-            row=1, col=1
-        )
-        fig.add_annotation(
-            x=obs_time[-1], y=wrap,
-            text=f"Wrap = {wrap}",
-            showarrow=False,
-            font=dict(color="red"),
-            row=1, col=1
-        )
+        az_min = np.min(az_path_unwrapped)
+        az_max = np.max(az_path_unwrapped)
+        
+        # Determine which wrap line positions to show
+        # The wrap limit repeats every 360°
+        wrap_positions = []
+        for offset in range(-2, 3):  # Check wrap-720, wrap-360, wrap, wrap+360, wrap+720
+            wrap_pos = wrap + (offset * 360)
+            if az_min <= wrap_pos <= az_max:
+                wrap_positions.append(wrap_pos)
+        
+        # Draw wrap limit line(s)
+        for wrap_pos in wrap_positions:
+            fig.add_shape(
+                type="line",
+                x0=obs_time[0], x1=obs_time[-1],
+                y0=wrap_pos, y1=wrap_pos,
+                line=dict(color="red", dash="dash"),
+                row=1, col=1
+            )
+            fig.add_annotation(
+                x=obs_time[-1], y=wrap_pos,
+                text=f"Wrap = {wrap}°",
+                showarrow=False,
+                font=dict(color="red", size=10),
+                row=1, col=1
+            )
 
-    # Highlight observed intervals (use obs_time for x0/x1)
-    for i in range(0, len(obs_time)-1, 2):
-        fig.add_vrect(
-            x0=obs_time[i], x1=obs_time[i+1],
-            fillcolor="orange", opacity=0.2,
-            layer="below", line_width=0,
-            row=1, col=1
-        )
-        fig.add_vrect(
-            x0=obs_time[i], x1=obs_time[i+1],
-            fillcolor="orange", opacity=0.2,
-            layer="below", line_width=0,
-            row=2, col=1
-        )
+    # Highlight observed intervals using Start/Stop Exposure times
+    # Shade from Start Exposure to Stop Exposure (both in minutes from night start)
+    if hasattr(model, 'plotly') and 'Start Exposure' in model.plotly and 'Stop Exposure' in model.plotly:
+        start_exposures = model.plotly['Start Exposure']  # Minutes from start of night
+        stop_exposures = model.plotly['Stop Exposure']    # Minutes from start of night
+        
+        for i, (start_min, stop_min) in enumerate(zip(start_exposures, stop_exposures)):
+            # Convert minutes from night start to JD
+            # 1 day = 1440 minutes, so minutes / 1440 = fraction of a day
+            start_jd = night_start_jd + (start_min / 1440.0)
+            stop_jd = night_start_jd + (stop_min / 1440.0)
+            
+            # Add yellow shaded region for this exposure
+            fig.add_vrect(
+                x0=start_jd, x1=stop_jd,
+                fillcolor="yellow", opacity=0.3,
+                layer="below", line_width=0,
+                row=1, col=1
+            )
+            fig.add_vrect(
+                x0=start_jd, x1=stop_jd,
+                fillcolor="yellow", opacity=0.3,
+                layer="below", line_width=0,
+                row=2, col=1
+            )
 
     # Set x-axis tick labels as HH:MM with evenly spaced grid
     # Create evenly spaced time ticks (e.g., every hour or every 30 minutes)
@@ -1723,11 +1813,37 @@ def plot_path_2D_interactive(data):
         row=2, col=1
     )
 
+    # Update y-axis for azimuth to always show full range from 271° to 270° (630° unwrapped)
+    # This represents the full valid range when wrap limit is at 270°
+    az_y_min = 271  # Just past the wrap limit
+    az_y_max = 630  # 270° in the next rotation
+    
+    # Generate tick positions every 45 degrees from 270 to 630
+    tick_interval = 45
+    az_tick_positions = np.arange(270, 631, tick_interval)  # Start at 270, go to 630
+    
+    # Create labels showing actual angle (mod 360)
+    az_tick_labels = [f"{int(pos % 360)}°" for pos in az_tick_positions]
+    
+    fig.update_yaxes(
+        tickmode='array',
+        tickvals=az_tick_positions,
+        ticktext=az_tick_labels,
+        range=[az_y_min, az_y_max],
+        title_text="Azimuth",
+        row=1, col=1
+    )
+    
+    # Update y-axis for altitude to always show 0° to 90°
+    fig.update_yaxes(
+        range=[0, 90],
+        title_text="Altitude (deg)",
+        row=2, col=1
+    )
+    
     fig.update_layout(
         height=600,
         width=1000,
-        yaxis_title="Azimuth (deg)",
-        yaxis2_title="Altitude (deg)",
         template="plotly_white"
     )
     return fig

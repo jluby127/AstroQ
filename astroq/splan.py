@@ -13,7 +13,7 @@ from configparser import ConfigParser
 from datetime import datetime, timedelta
 import pickle
 import json
-
+import h5py
 
 # Third-party imports
 import gurobipy as gp
@@ -44,18 +44,14 @@ class SemesterPlanner(object):
         config = ConfigParser()
         config.read(cf)
         self.run_band3 = run_band3
-        self.config = config  # Store config as instance variable
+        self.config = config 
 
-        
         # Extract configuration parameters from new format
         workdir = str(config.get('global', 'workdir'))
         self.semester_directory = workdir
         self.current_day = str(config.get('global', 'current_day'))
         self.observatory = config.get('global', 'observatory')
         
-        self.n_hours_in_night = 24 # later we will delete this
-        self.n_quarters_in_night = 4 # later we will delete this
-
         # Get semester parameters from semester section
         self.slot_size = config.getint('semester', 'slot_size')
         self.run_weather_loss = config.getboolean('semester', 'run_weather_loss')
@@ -70,8 +66,6 @@ class SemesterPlanner(object):
         check = os.path.isdir(self.output_directory)
         if not check:
             os.makedirs(self.output_directory)
-            # file = open(self.output_directory + "runReport.txt", "w")
-            # file.close()
         
         # Set up file paths from data section
         allocation_file_config = str(config.get('data', 'allocation_file'))
@@ -101,26 +95,15 @@ class SemesterPlanner(object):
             self.custom_file = custom_file_config
         else:
             self.custom_file = os.path.join(self.semester_directory, custom_file_config)
-
-        # # Set up file paths from data section
-        # self.allocation_file = os.path.join(self.semester_directory, str(config.get('data', 'allocation_file')))
-
-        # if self.run_band3:
-        #     self.request_file = str(config.get('data', 'filler_file'))
-        #     self.add_twilights()
-        # else:
-        #     self.request_file = str(config.get('data', 'request_file'))
-        # self.past_file = str(config.get('data', 'past_file'))
-        # self.custom_file = str(config.get('data', 'custom_file'))
         
         # Load data files
-        # requests_file_path = os.path.join(self.semester_directory, self.request_file)
         if not os.path.exists(self.request_file):
             raise FileNotFoundError(f"Requests file not found: {self.request_file}")
         self.requests_frame = pd.read_csv(self.request_file)
 
-        # Fill NaN values with defaults --- for now in early 2025B since we had issues with the webform.c
-        # Replace "None" strings with NaN first, then fill with defaults
+        # Data cleaning
+        # Fill NaN values with defaults --- for now in early 2025B since we had issues with the webform.
+        # Replace "None" strings with NaN first, then fill with defaults to make sure we get them all 
         self.requests_frame['n_intra_max'] = self.requests_frame['n_intra_max'].replace('None', np.nan).fillna(1)
         self.requests_frame['n_intra_min'] = self.requests_frame['n_intra_min'].replace('None', np.nan).fillna(1)
         self.requests_frame['tau_intra'] = self.requests_frame['tau_intra'].replace('None', np.nan).fillna(0)
@@ -129,10 +112,8 @@ class SemesterPlanner(object):
             weather_band_col = f'weather_band_{band_num}'
             if weather_band_col in self.requests_frame.columns:
                 self.requests_frame[weather_band_col] = self.requests_frame[weather_band_col].replace('None', np.nan).fillna(False)
-        
         self.requests_frame['unique_id'] = self.requests_frame['unique_id'].astype(str)
         self.requests_frame['starname'] = self.requests_frame['starname'].astype(str)
-
 
         # Build strategy dataframe. Note exptime is in minutes and tau_intra is in hours they are both converted to slots here
         strategy = self.requests_frame[['starname', 'unique_id', 'n_intra_min','n_intra_max','n_inter_max','tau_inter']]
@@ -304,8 +285,7 @@ class SemesterPlanner(object):
     def _calculate_slot_info(self):
         """Calculate slot-related information."""
         # Calculate slots per quarter and night
-        self.n_slots_in_quarter = int(((self.n_hours_in_night * 60) / self.n_quarters_in_night) / self.slot_size)
-        self.n_slots_in_night = self.n_slots_in_quarter * self.n_quarters_in_night
+        self.n_slots_in_night = int(24 * 60 / self.slot_size)
         
         # Calculate remaining semester info
         self.n_nights_in_semester = len(self.all_dates_dict) - self.all_dates_dict[self.current_day]
@@ -709,186 +689,226 @@ class SemesterPlanner(object):
         # Save to CSV with new name
         selected_df.to_csv(os.path.join(self.output_directory, 'request_selected.csv'), index=False)
 
-        self.to_json()
+        # # --- Save semester_planner to pickle file ---
+        # planner_pickle_path = os.path.join(self.output_directory, 'semester_planner.pkl')
+        # # Create a copy of self without unpicklable objects
+        # # Skip Gurobi model and variables which can't be pickled
+        # rm_unserializable = ['model', 'Yrds', 'Wrd', 'theta']
+        # planner_copy = type(self).__new__(type(self))
+        # for attr_name, attr_value in self.__dict__.items():
+        #     if attr_name in rm_unserializable:
+        #         continue
+        #     setattr(planner_copy, attr_name, attr_value)
+        # with open(planner_pickle_path, 'wb') as f:
+        #     pickle.dump(planner_copy, f)
 
-        # --- Save semester_planner to pickle file ---
-        planner_pickle_path = os.path.join(self.output_directory, 'semester_planner.pkl')
-        
-        # Create a copy of self without unpicklable objects
-        # Skip Gurobi model and variables which can't be pickled
-        rm_unserializable = ['model', 'Yrds', 'Wrd', 'theta']
-        planner_copy = type(self).__new__(type(self))
-        for attr_name, attr_value in self.__dict__.items():
-            if attr_name in rm_unserializable:
-                continue
-            setattr(planner_copy, attr_name, attr_value)
-        
-        with open(planner_pickle_path, 'wb') as f:
-            pickle.dump(planner_copy, f)
+        self.to_hdf5()
 
-    def to_json(self, json_path=None):
+    def to_hdf5(self, hdf5_path=None):
         """
-        Save the SemesterPlanner object to a JSON file.
+        Save the SemesterPlanner object to an HDF5 file.
         
         Args:
-            json_path (str, optional): Path to save the JSON file. 
-                                     If None, saves to output_directory/semester_planner.json
+            hdf5_path (str, optional): Path to save the HDF5 file. 
+                                      If None, saves to output_directory/semester_planner.h5
         """
-        if json_path is None:
-            json_path = os.path.join(self.output_directory, 'semester_planner.json')
+        if hdf5_path is None:
+            hdf5_path = os.path.join(self.output_directory, 'semester_planner.h5')
         
-        # Create a copy of self without unserializable objects
-        include_data = ['access_record', 'all_dates_array', 'current_day', 'n_hours_in_night', 'n_nights_in_semester', 
-                        'n_slots_in_night', 'n_slots_in_semester', 'output_directory', 'past_history', 'requests_frame'
-                        'semester_length', 'semester_start_date', 'serialized_schedule', 'slot_size', 
-                        'today_starting_night', 'today_starting_slot']
+        # Remove existing file if it exists
+        if os.path.exists(hdf5_path):
+            os.remove(hdf5_path)
         
-        data = {}
-        for attr_name, attr_value in self.__dict__.items():
-            if attr_name not in include_data:
-                continue
-                
-            # Handle different data types
-            if isinstance(attr_value, (str, int, float, bool, list, dict, type(None))):
-                data[attr_name] = attr_value
-            elif isinstance(attr_value, np.ndarray):
-                data[attr_name] = {
-                    'type': 'numpy_array',
-                    'data': attr_value.tolist(),
-                    'dtype': str(attr_value.dtype),
-                    'shape': attr_value.shape
-                }
-            elif isinstance(attr_value, pd.DataFrame):
-                data[attr_name] = {
-                    'type': 'pandas_dataframe',
-                    'data': attr_value.to_dict('records'),
-                    'index': attr_value.index.tolist(),
-                    'columns': attr_value.columns.tolist(),
-                    'dtypes': {col: str(dtype) for col, dtype in attr_value.dtypes.items()}
-                }
-            elif isinstance(attr_value, pd.Series):
-                data[attr_name] = {
-                    'type': 'pandas_series',
-                    'data': attr_value.to_dict(),
-                    'index': attr_value.index.tolist(),
-                    'dtype': str(attr_value.dtype)
-                }
-            elif isinstance(attr_value, Time):
-                data[attr_name] = {
-                    'type': 'astropy_time',
-                    'data': attr_value.iso,
-                    'format': attr_value.format,
-                    'scale': attr_value.scale
-                }
-            elif isinstance(attr_value, TimeDelta):
-                data[attr_name] = {
-                    'type': 'astropy_timedelta',
-                    'data': attr_value.jd,
-                    'format': attr_value.format
-                }
-            elif isinstance(attr_value, ConfigParser):
-                data[attr_name] = {
-                    'type': 'configparser',
-                    'data': {section: dict(attr_value[section]) for section in attr_value.sections()}
-                }
-            elif hasattr(attr_value, '__dict__'):
-                # For custom objects, try to serialize their attributes
-                try:
-                    nested_data = {}
-                    for nested_attr, nested_value in attr_value.__dict__.items():
-                        if isinstance(nested_value, (str, int, float, bool, list, dict, type(None))):
-                            nested_data[nested_attr] = nested_value
-                        elif isinstance(nested_value, np.ndarray):
-                            nested_data[nested_attr] = {
-                                'type': 'numpy_array',
-                                'data': nested_value.tolist(),
-                                'dtype': str(nested_value.dtype),
-                                'shape': nested_value.shape
-                            }
-                        # Add more type handling as needed
-                    data[attr_name] = {
-                        'type': 'custom_object',
-                        'class_name': attr_value.__class__.__name__,
-                        'data': nested_data
+        # Save DataFrames using pandas HDF5 support
+        dataframes_to_save = {
+            'requests_frame': self.requests_frame,
+            'serialized_schedule': self.serialized_schedule,
+        }
+        
+        for key, df in dataframes_to_save.items():
+            if df is not None:
+                df.to_hdf(hdf5_path, key=key, mode='a', format='table')
+        
+        # Save numpy arrays and other data using h5py
+        with h5py.File(hdf5_path, 'a') as f:
+            # Save numpy arrays
+            if hasattr(self, 'access_record') and self.access_record is not None:
+                # access_record is a structured array, save its fields
+                for field_name in self.access_record.dtype.names:
+                    f.create_dataset(f'access_record/{field_name}', 
+                                   data=self.access_record[field_name], 
+                                   compression='gzip')
+            
+            # Save scalar attributes
+            scalars = {
+                'current_day': self.current_day,
+                'semester_start_date': self.semester_start_date,
+                'semester_length': self.semester_length,
+                'semester_letter': self.semester_letter,
+                'slot_size': self.slot_size,
+                'n_slots_in_night': self.n_slots_in_night,
+                'n_nights_in_semester': self.n_nights_in_semester,
+                'n_slots_in_semester': self.n_slots_in_semester,
+                'today_starting_slot': self.today_starting_slot,
+                'today_starting_night': self.today_starting_night,
+                'run_band3': self.run_band3,
+                'observatory': self.observatory,
+                'output_directory': self.output_directory,
+                'run_weather_loss': self.run_weather_loss,
+                'solve_time_limit': self.solve_time_limit,
+                'gurobi_output': self.gurobi_output,
+                'solve_max_gap': self.solve_max_gap,
+                'max_bonus': self.max_bonus,
+                'run_bonus_round': self.run_bonus_round,
+                'semester_directory': self.semester_directory,
+            }
+            
+            for key, value in scalars.items():
+                if value is not None:
+                    f.attrs[key] = value
+            
+            # Save lists
+            if self.all_dates_array is not None:
+                f.create_dataset('all_dates_array', data=np.array(self.all_dates_array, dtype='S'))
+
+            # Save dictionaries as JSON strings
+            dicts_to_save = {
+                'all_dates_dict': getattr(self, 'all_dates_dict', None),
+                'slots_needed_for_exposure_dict': getattr(self, 'slots_needed_for_exposure_dict', None),
+                'past_nights_observed_dict': getattr(self, 'past_nights_observed_dict', None),
+            }
+            
+            for key, value in dicts_to_save.items():
+                if value is not None:
+                    f.attrs[f'{key}_json'] = json.dumps(value)
+            
+            # Save past_history dictionary (convert StarHistory namedtuples to dict)
+            if hasattr(self, 'past_history') and self.past_history is not None:
+                past_history_serialized = {}
+                for star_id, star_hist in self.past_history.items():
+                    past_history_serialized[star_id] = {
+                        'name': star_hist.name if hasattr(star_hist, 'name') else star_id,
+                        'date_last_observed': star_hist.date_last_observed if hasattr(star_hist, 'date_last_observed') else None,
+                        'total_n_exposures': star_hist.total_n_exposures if hasattr(star_hist, 'total_n_exposures') else 0,
+                        'total_n_visits': star_hist.total_n_visits if hasattr(star_hist, 'total_n_visits') else 0,
+                        'total_n_unique_nights': star_hist.total_n_unique_nights if hasattr(star_hist, 'total_n_unique_nights') else 0,
+                        'total_open_shutter_time': star_hist.total_open_shutter_time if hasattr(star_hist, 'total_open_shutter_time') else 0,
+                        'n_obs_on_nights': star_hist.n_obs_on_nights if hasattr(star_hist, 'n_obs_on_nights') else [],
+                        'n_visits_on_nights': star_hist.n_visits_on_nights if hasattr(star_hist, 'n_visits_on_nights') else [],
                     }
-                except:
-                    # If we can't serialize it, skip it
-                    continue
-            else:
-                # Skip unknown types
-                continue
+                f.attrs['past_history_json'] = json.dumps(past_history_serialized)
         
-        with open(json_path, 'w') as f:
-            json.dump(data, f, indent=2, default=str)
-        
-        logs.info(f"SemesterPlanner saved to JSON: {json_path}")
+        logs.info(f"SemesterPlanner saved to HDF5: {hdf5_path}")
+        return hdf5_path
 
     @classmethod
-    def from_json(cls, json_path, cf=None):
+    def from_hdf5(cls, hdf5_path):
         """
-        Load a SemesterPlanner object from a JSON file.
+        Load a SemesterPlanner object from an HDF5 file.
         
         Args:
-            json_path (str): Path to the JSON file
-            cf (str, optional): Path to config file if needed for reconstruction
+            hdf5_path (str): Path to the HDF5 file
             
         Returns:
             SemesterPlanner: Reconstructed SemesterPlanner object
-        """
-        with open(json_path, 'r') as f:
-            data = json.load(f)
+        """        
+        # Create a new instance without calling __init__
+        instance = cls.__new__(cls)
         
-        # Create a new instance
-        if cf is not None:
-            instance = cls(cf, run_band3=data.get('run_band3', False))
-        else:
-            # Create minimal instance without config
-            instance = cls.__new__(cls)
-            instance.config = None
-            instance.run_band3 = data.get('run_band3', False)
+        # Load DataFrames
+        try:
+            instance.requests_frame = pd.read_hdf(hdf5_path, key='requests_frame')
+        except KeyError:
+            instance.requests_frame = None
         
-        # Restore attributes
-        for attr_name, attr_value in data.items():
-            if isinstance(attr_value, dict) and 'type' in attr_value:
-                # Handle special types
-                if attr_value['type'] == 'numpy_array':
-                    restored_value = np.array(attr_value['data'], dtype=attr_value['dtype'])
-                    restored_value = restored_value.reshape(attr_value['shape'])
-                    setattr(instance, attr_name, restored_value)
-                elif attr_value['type'] == 'pandas_dataframe':
-                    df = pd.DataFrame(attr_value['data'])
-                    df.index = attr_value['index']
-                    df.columns = attr_value['columns']
-                    # Restore dtypes
-                    for col, dtype_str in attr_value['dtypes'].items():
-                        if col in df.columns:
-                            df[col] = df[col].astype(dtype_str)
-                    setattr(instance, attr_name, df)
-                elif attr_value['type'] == 'pandas_series':
-                    series = pd.Series(attr_value['data'])
-                    series.index = attr_value['index']
-                    series = series.astype(attr_value['dtype'])
-                    setattr(instance, attr_name, series)
-                elif attr_value['type'] == 'astropy_time':
-                    setattr(instance, attr_name, Time(attr_value['data'], format=attr_value['format'], scale=attr_value['scale']))
-                elif attr_value['type'] == 'astropy_timedelta':
-                    setattr(instance, attr_name, TimeDelta(attr_value['data'], format=attr_value['format']))
-                elif attr_value['type'] == 'configparser':
-                    config = ConfigParser()
-                    for section, section_data in attr_value['data'].items():
-                        config.add_section(section)
-                        for key, value in section_data.items():
-                            config.set(section, key, value)
-                    setattr(instance, attr_name, config)
-                elif attr_value['type'] == 'custom_object':
-                    # For custom objects, we'll store the data but can't fully reconstruct
-                    # This would need custom handling for each object type
-                    setattr(instance, attr_name, attr_value['data'])
+        try:
+            instance.serialized_schedule = pd.read_hdf(hdf5_path, key='serialized_schedule')
+        except KeyError:
+            instance.serialized_schedule = None
+        
+        # Load other data from HDF5
+        with h5py.File(hdf5_path, 'r') as f:
+            # Load scalar attributes
+            for key in ['current_day', 'semester_start_date', 'semester_length', 'semester_letter',
+                       'slot_size', 'n_slots_in_night', 'n_nights_in_semester', 'n_slots_in_semester',
+                       'today_starting_slot', 'today_starting_night', 'run_band3', 'observatory',
+                       'output_directory', 'run_weather_loss', 'solve_time_limit', 'gurobi_output',
+                       'solve_max_gap', 'max_bonus', 'run_bonus_round', 'semester_directory']:
+                if key in f.attrs:
+                    setattr(instance, key, f.attrs[key])
+            
+            # Load access_record (structured array)
+            if 'access_record' in f:
+                # Reconstruct structured array from saved fields
+                field_names = list(f['access_record'].keys())
+                if field_names:
+                    # Load all field data first
+                    field_data = {}
+                    for field_name in field_names:
+                        field_data[field_name] = f[f'access_record/{field_name}'][:]
+                    
+                    # Determine the number of records (first dimension of first field)
+                    first_field = field_data[field_names[0]]
+                    n_records = first_field.shape[0]
+                    
+                    # Create dtype list with proper shapes for multidimensional fields
+                    dtype_list = []
+                    for field_name in field_names:
+                        data = field_data[field_name]
+                        if data.ndim == 1:
+                            # 1D field: just use the dtype
+                            dtype_list.append((field_name, data.dtype))
+                        else:
+                            # Multidimensional field: include shape (excluding first dimension)
+                            dtype_list.append((field_name, data.dtype, data.shape[1:]))
+                    
+                    # Create structured array and populate it
+                    struct_array = np.zeros(n_records, dtype=dtype_list)
+                    for field_name in field_names:
+                        struct_array[field_name] = field_data[field_name]
+                    
+                    # Convert to recarray so we can use dot notation (e.g., access_record.is_observable)
+                    instance.access_record = struct_array.view(np.recarray)
+                else:
+                    instance.access_record = None
             else:
-                # Handle basic types
-                setattr(instance, attr_name, attr_value)
+                instance.access_record = None
+            
+            # Load lists
+            if 'all_dates_array' in f:
+                instance.all_dates_array = [d.decode('utf-8') if isinstance(d, bytes) else d 
+                                           for d in f['all_dates_array'][:]]
+            
+            # Load dictionaries from JSON
+            for key in ['all_dates_dict', 'slots_needed_for_exposure_dict', 
+                       'past_nights_observed_dict']:
+                json_key = f'{key}_json'
+                if json_key in f.attrs:
+                    setattr(instance, key, json.loads(f.attrs[json_key]))
+            
+            # Load past_history (reconstruct StarHistory namedtuples from dict)
+            if 'past_history_json' in f.attrs:
+                past_history_data = json.loads(f.attrs['past_history_json'])
+                # Import StarHistory namedtuple
+                from astroq.history import StarHistory
+                instance.past_history = {}
+                for star_id, hist_data in past_history_data.items():
+                    # Create StarHistory namedtuple with all required fields
+                    star_hist = StarHistory(
+                        name=hist_data.get('name', star_id),
+                        date_last_observed=hist_data.get('date_last_observed'),
+                        total_n_exposures=hist_data.get('total_n_exposures', 0),
+                        total_n_visits=hist_data.get('total_n_visits', 0),
+                        total_n_unique_nights=hist_data.get('total_n_unique_nights', 0),
+                        total_open_shutter_time=hist_data.get('total_open_shutter_time', 0),
+                        n_obs_on_nights=hist_data.get('n_obs_on_nights', []),
+                        n_visits_on_nights=hist_data.get('n_visits_on_nights', [])
+                    )
+                    instance.past_history[star_id] = star_hist
+            else:
+                instance.past_history = {}
         
-        logs.info(f"SemesterPlanner loaded from JSON: {json_path}")
+        logs.info(f"SemesterPlanner loaded from HDF5: {hdf5_path}")
         return instance
 
     def add_twilights(self):
