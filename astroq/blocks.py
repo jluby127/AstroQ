@@ -97,6 +97,24 @@ def pull_OBs(semester):
         print("ERROR")
         return
 
+def _validate_datetime_format(datetime_str):
+    """
+    Validate that datetime string follows the strict format: YYYY-MM-DDTHH:MM
+    
+    Args:
+        datetime_str (str): The datetime string to validate
+        
+    Returns:
+        bool: True if format is valid, False otherwise
+    """
+    import re
+    if not isinstance(datetime_str, str):
+        return False
+    
+    # Pattern for YYYY-MM-DDTHH:MM format
+    pattern = r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$'
+    return bool(re.match(pattern, datetime_str))
+
 def format_custom_csv(OBs):
     """
     Format the custom csv file for the OBs.
@@ -116,8 +134,8 @@ def format_custom_csv(OBs):
                         start = constraint.get('start_datetime', '')
                         stop = constraint.get('end_datetime', '')
                         
-                        # Only add rows that have the required data
-                        if start and stop:
+                        # Only add rows that have the required data and valid format
+                        if start and stop and _validate_datetime_format(start) and _validate_datetime_format(stop):
                             rows.append({
                                 'unique_id': unique_id,
                                 'starname': starname,
@@ -129,7 +147,7 @@ def format_custom_csv(OBs):
                 start = ctc.get('start_datetime', '')
                 stop = ctc.get('end_datetime', '')
                 
-                if start and stop:
+                if start and stop and _validate_datetime_format(start) and _validate_datetime_format(stop):
                     rows.append({
                         'unique_id': unique_id,
                         'starname': starname,
