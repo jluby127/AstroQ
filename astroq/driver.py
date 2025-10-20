@@ -325,10 +325,14 @@ def ttp(args):
     night_planner = nplan.NightPlanner(cf)
     night_planner.run_ttp()
    
-    # --- Save night_planner to pickle file ---
-    planner_pickle_path = os.path.join(night_planner.output_directory, 'night_planner.pkl')
-    with open(planner_pickle_path, 'wb') as f:
-        pickle.dump(night_planner, f)
+    # # --- Save night_planner to pickle file ---
+    # planner_pickle_path = os.path.join(night_planner.output_directory, 'night_planner.pkl')
+    # with open(planner_pickle_path, 'wb') as f:
+    #     pickle.dump(night_planner, f)
+    
+    # --- Save night_planner to HDF5 file ---
+    night_planner.to_hdf5()
+    
     return
 
 def requests_vs_schedule(args):
