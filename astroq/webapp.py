@@ -23,6 +23,7 @@ import astroq.nplan as nplan
 import astroq.plot as pl
 import astroq.splan as splan
 from astroq.splan import SemesterPlanner
+from astroq.nplan import NightPlanner
 from astroq.nplan import get_nightly_times_from_allocation
 
 running_on_keck_machines = False
@@ -49,8 +50,9 @@ def load_data_for_path(semester_code, date, band, uptree_path):
         return False, f"Directory not found: {workdir}"
     
     semester_planner_h5 = os.path.join(workdir, 'semester_planner.h5')
-    night_planner_pkl = os.path.join(workdir, 'night_planner.pkl')
-    
+    # night_planner_pkl = os.path.join(workdir, 'night_planner.pkl')
+    night_planner_h5 = os.path.join(workdir, 'night_planner.h5')
+
     # Load semester planner
     try:
         semester_planner = SemesterPlanner.from_hdf5(semester_planner_h5)
@@ -62,18 +64,19 @@ def load_data_for_path(semester_code, date, band, uptree_path):
     
     # Load night planner (optional)
     try:
-        print(night_planner_pkl)
-        with open(night_planner_pkl, 'rb') as f:
-            night_planner = pickle.load(f)
-            data_ttp = night_planner.solution
+        print(night_planner_h5)
+        night_planner = NightPlanner.from_hdf5(night_planner_h5)
+        data_ttp = night_planner.solution
 
-            # Get the night start time from allocation file (this is "Minute 0")
-            night_start_time, _ = get_nightly_times_from_allocation(
-                night_planner.allocation_file, 
-                night_planner.current_day
-    )
-    except:
-        print("error loading night planner")
+        # Get the night start time from allocation file (this is "Minute 0")
+        night_start_time, _ = get_nightly_times_from_allocation(
+            night_planner.allocation_file, 
+            night_planner.current_day
+        )
+    except Exception as e:
+        print(f"Error loading night planner: {e}")
+        import traceback
+        traceback.print_exc()
         night_planner = None
         data_ttp = None
     
