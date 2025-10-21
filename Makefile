@@ -3,7 +3,7 @@
 
 # Configuration variables
 # Conda environment to use for all commands
-CONDA_ENV ?= astroq_new
+CONDA_ENV ?= astroq
 WORKDIR ?= $(CC_OUTPUT_PATH)
 HOLDERS_DIR ?= $(CC_OUTPUT_PATH)/$(CC_RESULTS_COPY_PATH)/$(SEMESTER)/$(DATE)
 SEMESTER_DIR = $(WORKDIR)/$(SEMESTER)
@@ -13,7 +13,7 @@ DATE_DIR = $(SEMESTER_DIR)/$(DATE)
 SEMESTER ?= 2025B
 START_DATE ?= 2025-08-01
 END_DATE ?= 2026-01-31
-BANDS ?= full-band1 #band2 band3 full-band1 full-band2 full-band3
+BANDS ?= band1 band2 band3 full-band1 full-band2 full-band3
 FILLER_PROGRAM ?= 2025B_E473
 
 # Date validation and override
@@ -74,16 +74,16 @@ $(DATE_DIR)/%/config.ini: create_dirs
 	@mkdir -p $(@D)
 	@cp config_template.ini $@
 	@echo "📝 Updating placeholders for band $(notdir $(@D))..."
-	# @sed -i "s|CURRENT_DATE_PLACEHOLDER|$(DATE)|g" $@
-	# @sed -i "s|START_DATE_PLACEHOLDER|$(START_DATE)|g" $@
-	# @sed -i "s|END_DATE_PLACEHOLDER|$(END_DATE)|g" $@
-	# @sed -i "s|SEMESTER_PLACEHOLDER|$(SEMESTER)|g" $@
-	# @sed -i "s|WORKDIR_PLACEHOLDER|$(@D)|g" $@
-	@sed -i '' "s|CURRENT_DATE_PLACEHOLDER|$(DATE)|g" $@
-	@sed -i '' "s|START_DATE_PLACEHOLDER|$(START_DATE)|g" $@
-	@sed -i '' "s|END_DATE_PLACEHOLDER|$(END_DATE)|g" $@
-	@sed -i '' "s|SEMESTER_PLACEHOLDER|$(SEMESTER)|g" $@
-	@sed -i '' "s|WORKDIR_PLACEHOLDER|$(@D)|g" $@
+	@sed -i "s|CURRENT_DATE_PLACEHOLDER|$(DATE)|g" $@
+	@sed -i "s|START_DATE_PLACEHOLDER|$(START_DATE)|g" $@
+	@sed -i "s|END_DATE_PLACEHOLDER|$(END_DATE)|g" $@
+	@sed -i "s|SEMESTER_PLACEHOLDER|$(SEMESTER)|g" $@
+	@sed -i "s|WORKDIR_PLACEHOLDER|$(@D)|g" $@
+	# @sed -i '' "s|CURRENT_DATE_PLACEHOLDER|$(DATE)|g" $@
+	# @sed -i '' "s|START_DATE_PLACEHOLDER|$(START_DATE)|g" $@
+	# @sed -i '' "s|END_DATE_PLACEHOLDER|$(END_DATE)|g" $@
+	# @sed -i '' "s|SEMESTER_PLACEHOLDER|$(SEMESTER)|g" $@
+	# @sed -i '' "s|WORKDIR_PLACEHOLDER|$(@D)|g" $@
 	@echo "✅ Config file created and updated for band $(notdir $(@D))"
 
 # Validate date format

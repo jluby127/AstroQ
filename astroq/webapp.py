@@ -26,7 +26,7 @@ from astroq.splan import SemesterPlanner
 from astroq.nplan import NightPlanner
 from astroq.nplan import get_nightly_times_from_allocation
 
-running_on_keck_machines = False
+running_on_keck_machines = True
 
 app = Flask(__name__, template_folder="../templates")
 

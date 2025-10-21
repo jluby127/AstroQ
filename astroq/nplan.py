@@ -28,16 +28,10 @@ import astroq.io as io
 from astroq.splan import SemesterPlanner
 
 # TTP imports (assuming TTP is installed separately)
-import sys 
-sys.path.append('/Users/jack/Documents/github/ttp/ttp/')
-import formatting as formatting
-import telescope as telescope
-import plotting as plotting
-import model as model
-# import ttp.formatting as formatting
-# import ttp.telescope as telescope
-# import ttp.plotting as plotting
-# import ttp.model as model
+import ttp.formatting as formatting
+import ttp.telescope as telescope
+import ttp.plotting as plotting
+import ttp.model as model
 
 class NightPlanner(object):
     """
