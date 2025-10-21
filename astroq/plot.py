@@ -46,6 +46,9 @@ np.random.seed(24)
 gray = 'rgb(210,210,210)'
 clear = 'rgba(255,255,255,1)'
 labelsize = 38
+slew_overhead = 180.
+readout_overhead = 45.
+hours_per_night = 12.
 
 class StarPlotter(object):
     """
@@ -56,12 +59,13 @@ class StarPlotter(object):
     def __init__(self, unique_id):
         self.unique_id = unique_id
 
-    def get_stats(self, requests_frame, slot_size):
+    def get_stats(self, row, slot_size):
         """
         Grab the observational stategy information for a given star
 
         Args:
-
+            row (pd.Series): A row from the requests DataFrame containing star info
+            slot_size: The slot size in minutes
 
         Returns:
             expected_nobs_per_night (int): how many exposures we expect to take
@@ -70,20 +74,23 @@ class StarPlotter(object):
             slots_per_night (int): number of slots required to complete all exposures in a night
             program (str): the program code
         """
-        index = requests_frame.loc[requests_frame['unique_id'] == self.unique_id].index
-        self.starname = requests_frame['starname'][index].values[0]
-        self.ra = float(requests_frame['ra'][index].values[0])
-        self.dec = float(requests_frame['dec'][index].values[0])
-        self.program = str(requests_frame['program_code'][index].values[0])
-        self.exptime = int(requests_frame['exptime'][index].values[0])
-        self.n_exp = int(requests_frame['n_exp'][index])
-        self.n_intra_max = int(requests_frame['n_intra_max'][index])
-        self.n_intra_min = int(requests_frame['n_intra_min'][index])
-        self.tau_intra = int(requests_frame['tau_intra'][index])
-        self.n_inter_max = int(requests_frame['n_inter_max'][index])
-        self.tau_inter = int(requests_frame['tau_inter'][index])
+        # Access row data directly instead of filtering the entire DataFrame (PERFORMANCE OPTIMIZATION)
+        self.starname = row['starname']
+        self.ra = float(row['ra'])
+        self.dec = float(row['dec'])
+        self.program = str(row['program_code'])
+        self.exptime = int(row['exptime'])
+        self.n_exp = int(row['n_exp'])
+        self.n_intra_max = int(row['n_intra_max'])
+        self.n_intra_min = int(row['n_intra_min'])
+        self.tau_intra = int(row['tau_intra'])
+        self.n_inter_max = int(row['n_inter_max'])
+        self.tau_inter = int(row['tau_inter'])
         self.expected_nobs_per_night = self.n_exp * self.n_intra_max
         self.total_observations_requested = self.expected_nobs_per_night * self.n_inter_max
+        self.total_requested_seconds = self.n_exp*self.n_intra_max*self.n_inter_max*self.exptime + readout_overhead*(self.n_exp-1) + slew_overhead*self.n_intra_max*self.n_inter_max
+        self.total_requested_hours = self.total_requested_seconds / 3600
+        self.total_requested_nights = self.total_requested_hours / hours_per_night   
 
     def get_past(self, past):
         """
@@ -101,47 +108,55 @@ class StarPlotter(object):
         observations_past = star_obs_past.groupby('date').size().to_dict()
         self.observations_past = observations_past
 
-    def get_future(self, forecast_file, all_dates_array):
+    def get_future(self, forecast_df, all_dates_array):
         """
         Process a DataFrame with columns ['r', 'd', 's'] to gather the future schedule for this star.
 
         Args:
-            forecast_df (pd.DataFrame): DataFrame with columns ['r', 'd', 's']
+            forecast_df (pd.DataFrame): Pre-loaded forecast DataFrame with columns ['r', 'd', 's']
             all_dates_array (list): List of all dates in the semester, indexed by 'd'
         """
-        forecast_df = pd.read_csv(forecast_file)
-        forecast_df['r'] = forecast_df['r'].astype(str)
-
         # Only keep rows for this star
         star_rows = forecast_df[forecast_df['r'] == str(self.unique_id)]
         # Count number of slots scheduled per night (d)
         observations_future = {}
         for d, group in star_rows.groupby('d'):
             # d may be int or str; ensure it's int for indexing
-            d_idx = int(d)
-            date = all_dates_array[d_idx]
+            date = all_dates_array[int(d)]
             n_slots = len(group)
             # Optionally, normalize by slots_per_visit or n_intra_max as before
-            observations_future[date] = n_slots
+            observations_future[date] = n_slots*self.n_exp
         self.observations_future = observations_future
 
-    def get_map(self, semester_planner):
+    def get_map(self, semester_planner, forecast_df):
         """
         Build the starmap for this star using the new schedule format (future_forecast DataFrame with columns r, d, s).
         Only set starmap[d, s] = 1 if sched['r'] == self.unique_id.
+        
+        Args:
+            semester_planner: The semester planner object
+            forecast_df (pd.DataFrame): Pre-loaded forecast DataFrame with columns ['r', 'd', 's']
         """
-        forecast_df = pd.read_csv(semester_planner.output_directory + semester_planner.future_forecast)
         n_nights = semester_planner.semester_length
         n_slots = int((24 * 60) / semester_planner.slot_size)
         starmap = np.zeros((n_nights, n_slots), dtype=int)
-        for _, sched in forecast_df.iterrows():
-            if str(sched['r']) == str(self.unique_id):
-                d = int(sched['d'])
-                s = int(sched['s'])
-                starmap[d, s] = 1
-                reserve_slots = semester_planner.slots_needed_for_exposure_dict[str(self.unique_id)]
-                for r in range(1, reserve_slots):
-                    starmap[d, s+r] = 1
+        
+        # Filter to only this star's rows
+        star_forecast = forecast_df[forecast_df['r'] == str(self.unique_id)]
+        
+        if len(star_forecast) > 0:
+            # Vectorized approach: extract d,s values as numpy arrays and set all at once (PERFORMANCE OPTIMIZATION)
+            d_values = star_forecast['d'].values.astype(int)
+            s_values = star_forecast['s'].values.astype(int)
+            
+            # Set the primary slots
+            starmap[d_values, s_values] = 1
+            
+            # Set the reserve slots
+            reserve_slots = semester_planner.slots_needed_for_exposure_dict[str(self.unique_id)]
+            for r in range(1, reserve_slots):
+                starmap[d_values, s_values + r] = 1
+        
         self.starmap = starmap.T
 
 def process_stars(semester_planner):
@@ -154,6 +169,10 @@ def process_stars(semester_planner):
     nulltime = access['is_alloc'][0]
     nulltime = 1 - nulltime
     nulltime = np.array(nulltime).T
+
+    # Read forecast CSV once instead of once per star (PERFORMANCE OPTIMIZATION)
+    forecast_df = semester_planner.serialized_schedule # pd.read_csv(semester_planner.output_directory + semester_planner.future_forecast)
+    forecast_df['r'] = forecast_df['r'].astype(str)  # Convert to string once
 
     # Previously, there was a unique call to star names, every row of the request frame will be unique already when we switch to "id"
     starnames = semester_planner.requests_frame['starname'].unique()
@@ -169,17 +188,17 @@ def process_stars(semester_planner):
     for i, row in semester_planner.requests_frame.iterrows():
         # Create a StarPlotter object for each request, fill and compute relavant information
         newstar = StarPlotter(row['unique_id'])
-        newstar.get_map(semester_planner)
-        newstar.get_stats(semester_planner.requests_frame, semester_planner.slot_size)
+        newstar.get_map(semester_planner, forecast_df)
+        newstar.get_stats(row, semester_planner.slot_size)
         if newstar.unique_id in list(semester_planner.past_history.keys()):
             newstar.observations_past = semester_planner.past_history[newstar.unique_id].n_visits_on_nights
         else:
             newstar.observations_past = {}
-        newstar.get_future(semester_planner.output_directory + semester_planner.future_forecast, semester_planner.all_dates_array)
+        newstar.get_future(forecast_df, semester_planner.all_dates_array)
 
         # Create COF arrays for each request
         combined_set = set(list(newstar.observations_past.keys()) + list(newstar.observations_future.keys()))
-        newstar.dates_observe = [newstar.observations_past[date] if date in newstar.observations_past.keys() else (newstar.n_intra_max if date in combined_set else 0) for date in semester_planner.all_dates_array]
+        newstar.dates_observe = [newstar.observations_past[date] if date in newstar.observations_past.keys() else (newstar.n_intra_max*newstar.n_exp if date in combined_set else 0) for date in semester_planner.all_dates_array]
         # don't assume that all future observations forecast for getting all desired n_intra_max
         # for b in range(len(newstar.dates_observe)):
         #     if semester_planner.all_dates_array[b] in list(newstar.observations_future.keys()):
@@ -262,8 +281,8 @@ def get_cof(semester_planner, all_stars):
     fig = go.Figure()
     fig.update_layout(plot_bgcolor=gray, paper_bgcolor=clear) #autosize=True,margin=dict(l=40, r=40, t=40, b=40),
     burn_line = np.linspace(0, 100, len(semester_planner.all_dates_array))
-    for b in range(len(burn_line)):
-        burn_line[b] = np.round(burn_line[b],2)
+    burn_line = np.round(burn_line, 2)
+
     fig.add_trace(go.Scatter(
         x=semester_planner.all_dates_array,
         y=burn_line,
@@ -276,11 +295,8 @@ def get_cof(semester_planner, all_stars):
     lines = []
     cume_observe = np.zeros(len(semester_planner.all_dates_array))
     max_value = 0
-    
-    # First, compute the total COF data for all stars
-    for i in range(len(all_stars)):
-        cume_observe += all_stars[i].cume_observe
-        max_value += all_stars[i].total_observations_requested
+    cume_observe = np.sum([star.cume_observe for star in all_stars], axis=0)
+    max_value = sum(star.total_observations_requested for star in all_stars)
     
     cume_observe_pct = (cume_observe / max_value) * 100
     
@@ -439,15 +455,17 @@ def get_birdseye(semester_planner, availablity, all_stars):
                 name='Connected Points'
             ))
 
-    # Add vertical grid lines every slot (x)
-    for x in np.arange(0.5, all_stars[i].starmap.shape[1], 1):
-        fig.add_shape(
-            type="line",
-            x0=x, x1=x,
-            y0=0, y1=all_stars[i].starmap.shape[0] - 1,
-            line=dict(color="lightgray", width=1),
-            layer="below"
-        )
+    add_grid_lines = False # this takes a long time to plot. Might not be necessary/worth it. 
+    if add_grid_lines:
+        # Add vertical grid lines every slot (x)
+        for x in np.arange(0.5, all_stars[i].starmap.shape[1], 1):
+            fig.add_shape(
+                type="line",
+                x0=x, x1=x,
+                y0=0, y1=all_stars[i].starmap.shape[0] - 1,
+                line=dict(color="lightgray", width=1),
+                layer="below"
+            )
     
     # Add vertical dashed line denoting "today"
     fig.add_vrect(
@@ -580,11 +598,12 @@ def get_tau_inter_line(semester_planner, all_stars, use_program_colors=False):
         starname_to_indices.setdefault(starname, []).append(i)
     
     for starname, indices in starname_to_indices.items():
-        x_vals = [all_request_tau_inters[i] for i in indices]
-        y_vals = [all_onsky_tau_inters[i] for i in indices]
+        idx_array = np.array(indices)
+        x_vals = all_request_tau_inters[idx_array]
+        y_vals = all_onsky_tau_inters[idx_array]
         text_vals = [f"{all_starnames[i]} in {all_programs[i]}" for i in indices]
-        color_vals = [all_colors[i] for i in indices]
-        maxyvals.append(max(y_vals))
+        color_vals = all_colors[idx_array].tolist()  # Convert to list for Plotly
+        maxyvals.append(np.max(y_vals))
         fig.add_trace(go.Scatter(
             x=x_vals,
             y=y_vals,
@@ -640,6 +659,89 @@ def get_tau_inter_line(semester_planner, all_stars, use_program_colors=False):
     )
     return fig
 
+def get_timepie(semester_planner, all_stars, use_program_colors=False):
+    """
+    Create an pie chart of the time used vs forecasted vs available
+
+    Parameters:
+        semester_planner: the semester planner object
+        all_stars (list): array of StarPlotter objects
+        use_program_colors (bool): If True, use program_color_rgb; if False, use star_color_rgb (default: False)
+
+    Returns:
+        plotly.graph_objects.Figure
+    """
+    programmatics = pd.read_csv(semester_planner.semester_directory + 'programs.csv')
+
+    # Accumulate total times across all stars
+    total_past = 0
+    total_future = 0
+    total_incomplete = 0
+    total_requested_hours = 0
+    
+    programs_used = []
+    for starobj in all_stars:
+        total_past += sum(starobj.observations_past.values()) * starobj.exptime + len(starobj.observations_past) * slew_overhead
+        total_future += sum(starobj.observations_future.values()) * starobj.exptime + len(starobj.observations_future) * slew_overhead
+        total_requested_hours += starobj.total_requested_hours
+        programs_used.append(starobj.program)
+    
+    # Convert to hours for better readability
+    total_past_hours = total_past / 3600
+    total_future_hours = total_future / 3600
+    total_incomplete_hours = total_requested_hours - total_past_hours - total_future_hours
+
+    if len(programs_used) > 1:
+        program_rows = programmatics[programmatics['program'].isin(programs_used)]
+        total_allocated_hours = program_rows['hours'].sum()
+        total_allocated_nights = program_rows['nights'].sum()
+    else:
+        program_rows = programmatics[programmatics['program'] == programs_used[0]]
+        total_allocated_hours = program_rows['hours'].sum()
+        total_allocated_nights = program_rows['nights'].sum()
+
+    # Create pie chart data
+    labels = ['Completed', 'Scheduled', 'Incomplete', "Unused"]
+    values = [total_past_hours, total_future_hours, total_incomplete_hours, total_allocated_hours-total_requested_hours]
+    colors = ['#2E86AB', '#A23B72', '#F18F01', '#000000']  # Blue, Purple, Orange, Black
+    
+    # Create the pie chart
+    fig = go.Figure(data=[go.Pie(
+        labels=labels,
+        values=values,
+        marker=dict(colors=colors),
+        textinfo='label+percent+value',
+        texttemplate='%{label}<br>%{value:.1f} hrs<br>(%{percent})',
+        hovertemplate='<b>%{label}</b><br>%{value:.2f} hours<br>%{percent}<extra></extra>'
+    )])
+    
+    # Adjust margin if there's a warning to display
+    top_margin = 150 if total_requested_hours > total_allocated_hours else 100
+    
+    fig.update_layout(
+        title_text=f'<b>Total Requested:</b> {total_requested_hours:.1f} hours ≈ {total_requested_hours/hours_per_night:.1f} nights<br><b>Total Allocated:</b> {total_allocated_hours:.1f} hours = {total_allocated_nights:.1f} nights ----> w/ losses = {total_allocated_nights*0.75:.1f} nights',
+        template='plotly_white',
+        showlegend=False,
+        height=600,
+        width=700,
+        margin=dict(t=top_margin, b=50, l=50, r=50)
+    )
+    
+    # Add warning annotation if requested time exceeds allocated time
+    if total_requested_hours > total_allocated_hours*1.1:
+        fig.add_annotation(
+            text='<b>You have requested more time than you are allocated.</b>',
+            xref='paper', yref='paper',
+            x=0.5, y=1.05,
+            showarrow=False,
+            font=dict(size=18, color='red'),
+            xanchor='center',
+            yanchor='middle'
+        )
+    
+    return fig
+
+
 def compute_seasonality(semester_planner, starnames, ras, decs):
     """
     Compute seasonality using Access object's produce_ultimate_map function
@@ -665,7 +767,9 @@ def compute_seasonality(semester_planner, starnames, ras, decs):
         'n_intra_min': [1] * len(starnames),
         'n_inter_max': [1] * len(starnames),
         'tau_inter': [1] * len(starnames),
-        'tau_intra': [1] * len(starnames)
+        'tau_intra': [1] * len(starnames),
+        'minimum_elevation': [30.] * len(starnames),
+        'minimum_moon_separation': [30.] * len(starnames)
     })
     
     # Build or get the twilight allocation file
@@ -767,61 +871,74 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
     decs = np.degrees(angles_rad)
     RA_grid, DEC_grid = np.meshgrid(ras, decs)
 
+    n_points = n_dec * n_ra
     grid_stars = {
-        'starname': ['noname_' + str(i) for i in range(n_dec*n_ra)],
-        'program_code': ['noprog_' + str(i) for i in range(n_dec*n_ra)],
+        'starname': [f'noname_{i}' for i in range(n_points)],
+        'program_code': [f'noprog_{i}' for i in range(n_points)],
         'ra': RA_grid.flatten(),
         'dec': DEC_grid.flatten(),
-        'exptime': [300]*(n_dec*n_ra),
-        'n_exp': [1]*(n_dec*n_ra),
-        'n_intra_max': [1]*(n_dec*n_ra),
-        'n_intra_min': [1]*(n_dec*n_ra),
-        'n_inter_max': [1]*(n_dec*n_ra),
-        'tau_inter': [1]*(n_dec*n_ra),
-        'tau_intra': [1]*(n_dec*n_ra)
+        'exptime': np.full(n_points, 300),
+        'n_exp': np.full(n_points, 1),
+        'n_intra_max': np.full(n_points, 1),
+        'n_intra_min': np.full(n_points, 1),
+        'n_inter_max': np.full(n_points, 1),
+        'tau_inter': np.full(n_points, 1),
+        'tau_intra': np.full(n_points, 1)
     }
     grid_frame = pd.DataFrame(grid_stars)
-
-    available_nights_onsky_requests = compute_seasonality(semester_planner, program_frame['starname'], program_frame['ra'], program_frame['dec'])
     
-    # Check if cached sky availability data exists for the background grid. 
+    # Check if cached grid data AND background image exist
     semester = semester_planner.semester_start_date[:4] + semester_planner.semester_letter
-    cache_file = f"{DATADIR}/{semester}_sky_availability.csv"
+    cache_grids_file = f"{DATADIR}/{semester}_sky_grids.npz"
+    cache_image_file = f"{DATADIR}/{semester}_sky_availability_image.txt"
     
-    if os.path.exists(cache_file):
-        grid_frame = pd.read_csv(cache_file)
+    # Try to load cached grid arrays (RA_grid, DEC_grid, NIGHTS_grid)
+    if os.path.exists(cache_grids_file):
+        # Load pre-computed grids from cache (FAST - skips griddata interpolation)
+        cached_data = np.load(cache_grids_file)
+        RA_grid = cached_data['RA_grid']
+        DEC_grid = cached_data['DEC_grid']
+        NIGHTS_grid = cached_data['NIGHTS_grid']
     else:
+        # Need to compute the grids from scratch
+        # First compute seasonality for the grid points
         grid_frame['nights_observable'] = compute_seasonality(semester_planner, grid_frame['starname'], grid_frame['ra'], grid_frame['dec'])
-        cache_df = pd.DataFrame({
-            'starname': grid_frame['starname'],
-            'ra': grid_frame['ra'],
-            'dec': grid_frame['dec'],
-            'nights_observable': grid_frame['nights_observable']
-        })
-        cache_df.to_csv(cache_file, index=False)
-
-    from scipy.interpolate import griddata
-    NIGHTS_grid = griddata(
-    points=(grid_frame.ra, grid_frame.dec),
-    values=grid_frame.nights_observable,
-    xi=(RA_grid, DEC_grid),
-    method='linear'
-    )
-
-    # Step 1: Generate static heatmap image with matplotlib
-    RA_shifted = np.radians(RA_grid - 180)
-    DEC_rad = np.radians(DEC_grid)
-
-    fig_mpl, ax = plt.subplots(subplot_kw={'projection': 'mollweide'}, figsize=(10, 5))
-    im = ax.pcolormesh(RA_shifted, DEC_rad, NIGHTS_grid, cmap='gray', shading='nearest', vmin=70, vmax=184)
-    ax.axis('off')
-
-    # Save to buffer
-    buf = BytesIO()
-    plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0, dpi=150)
-    plt.close()
-    buf.seek(0)
-    img_base64 = base64.b64encode(buf.read()).decode()
+        
+        # Perform griddata interpolation
+        from scipy.interpolate import griddata
+        NIGHTS_grid = griddata(
+            points=(grid_frame.ra, grid_frame.dec),
+            values=grid_frame.nights_observable,
+            xi=(RA_grid, DEC_grid),
+            method='linear'
+        )
+        
+        # Cache the grid arrays for next time
+        np.savez(cache_grids_file, RA_grid=RA_grid, DEC_grid=DEC_grid, NIGHTS_grid=NIGHTS_grid)
+    
+    # Try to load cached image (fastest path - skips matplotlib rendering)
+    if os.path.exists(cache_image_file):
+        with open(cache_image_file, 'r') as f:
+            img_base64 = f.read()
+    else:
+        # Need to generate and cache the matplotlib image
+        RA_shifted = np.radians(RA_grid - 180)
+        DEC_rad = np.radians(DEC_grid)
+        
+        fig_mpl, ax = plt.subplots(subplot_kw={'projection': 'mollweide'}, figsize=(10, 5))
+        im = ax.pcolormesh(RA_shifted, DEC_rad, NIGHTS_grid, cmap='gray', shading='nearest', vmin=70, vmax=184)
+        ax.axis('off')
+        
+        # Save to buffer
+        buf = BytesIO()
+        plt.savefig(buf, format='png', bbox_inches='tight', pad_inches=0, dpi=150)
+        plt.close()
+        buf.seek(0)
+        img_base64 = base64.b64encode(buf.read()).decode()
+        
+        # Cache the base64 image for next time
+        with open(cache_image_file, 'w') as f:
+            f.write(img_base64)
 
     # Step 2: Create Plotly figure with static background image
     fig = go.Figure()
@@ -931,6 +1048,7 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
         ]
     )
     return fig
+
 
 def get_request_frame(semester_planner, all_stars):
     """
@@ -1064,13 +1182,10 @@ def get_slew_animation(data, animationStep=120):
     t = np.arange(model.nightstarts.jd, model.nightends.jd, TimeDelta(animationStep, format='sec').jd)
     t = Time(t, format='jd')
 
-    # Get list of astropy target objects in scheduled order
-    names = [s for s in model.schedule['Starname']]
-    list_targets = []
-    for n in range(len(model.schedule['Starname'])):
-        for s in model.stars:
-            if s.name == model.schedule['Starname'][n]:
-                list_targets.append(s.target)
+    # Get list of astropy target objects in scheduled order (OPTIMIZED - use dict lookup)
+    star_dict = {s.name: s.target for s in model.stars}  # O(m) - build once
+    names = list(model.schedule['Starname'])  # Convert to list if needed
+    list_targets = [star_dict[name] for name in names]  # O(n) - fast lookup
 
     # Compute alt/az of each target at each time
     AZ = model.observatory.observer.altaz(t, list_targets, grid_times_targets=True)
@@ -1089,6 +1204,11 @@ def get_slew_animation(data, animationStep=120):
     theta = np.arange(model.observatory.deckAzLim1 / 180, model.observatory.deckAzLim2 / 180, 1. / 180) * np.pi
     allaround = np.arange(0., 360 / 180, 1. / 180) * np.pi
 
+    # Pre-compute arrays outside loop (OPTIMIZATION #4)
+    schedule_times = np.array(model.schedule['Time'])
+    schedule_names = np.array(model.schedule['Starname'])
+    names_array = np.array(names)
+
     # Create list of matplotlib figures
     figures = []
     for i in range(len(t)):
@@ -1103,14 +1223,16 @@ def get_slew_animation(data, animationStep=120):
         ax.set_theta_zero_location('N')
         ax.set_facecolor('black')
 
-        # Determine which stars have been observed by this time
-        wasObserved = np.array(model.schedule['Time']) <= float(t[i].jd)
-        observed_list = np.array(model.schedule['Starname'])[wasObserved]
+        # Determine which stars have been observed by this time (OPTIMIZED - use pre-computed arrays)
+        wasObserved = schedule_times <= float(t[i].jd)
+        observed_list = schedule_names[wasObserved]
 
-        # Plot stars
-        for j in range(len(model.schedule['Starname'])):
-            color = 'orange' if names[j] in observed_list else 'white'
-            ax.scatter(alt[i][j], az[i][j], color=color, marker='*')
+        # Plot stars (OPTIMIZED - vectorized plotting)
+        alt_i = np.array(alt[i])
+        az_i = np.array(az[i])
+        is_observed = np.isin(names_array, observed_list)
+        colors = np.where(is_observed, 'orange', 'white')
+        ax.scatter(alt_i, az_i, c=colors, marker='*', s=50)
 
         # Draw telescope path
         ax.plot(tel_az[:i], tel_zen[:i], color='orange')
@@ -1118,6 +1240,273 @@ def get_slew_animation(data, animationStep=120):
         figures.append(fig)
 
     return figures
+
+def get_slew_animation_plotly(data, request_selected_path, animationStep=120):
+    """Create a Plotly animated polar plot showing telescope slew path during observations.
+
+    Args:
+        data: TTP data containing the schedule information
+        request_selected_path: Path to request_selected.csv file
+        animationStep (int): the time, in seconds, between animation frames. Default to 120s.
+        
+    Returns:
+        plotly.graph_objects.Figure: Interactive animated figure with play/pause controls
+    """
+
+    model = data[0]
+
+    # Read the request_selected.csv file
+    request_selected_df = pd.read_csv(request_selected_path)
+
+    # Set up animation times
+    t = np.arange(model.nightstarts.jd, model.nightends.jd, TimeDelta(animationStep, format='sec').jd)
+    t = Time(t, format='jd')
+
+    # Get list of astropy target objects in scheduled order (OPTIMIZED - use dict lookup)
+    star_dict = {s.name: s.target for s in model.stars}
+    names = list(model.schedule['Starname'])
+    list_targets = [star_dict[name] for name in names]
+
+    # Compute alt/az of each target at each time
+    AZ = model.observatory.observer.altaz(t, list_targets, grid_times_targets=True)
+    alt = np.round(AZ.az.rad, 2)
+    az = 90 - np.round(AZ.alt.deg, 2)
+
+    # Telescope slew path
+    stamps = [0] * len(t)
+    slewPath = createTelSlewPath(stamps, model.schedule['Time'], list_targets)
+    AZ1 = model.observatory.observer.altaz(t, slewPath, grid_times_targets=False)
+    tel_az = np.round(AZ1.az.rad, 2)
+    tel_zen = 90 - np.round(AZ1.alt.deg, 2)
+
+    # Pre-compute arrays
+    schedule_times = np.array(model.schedule['Time'])
+    schedule_names = np.array(model.schedule['Starname'])
+    names_array = np.array(names)
+    
+    # Cross-match unique_id (names_array) with starname from request_selected_df
+    # Create a dictionary for fast lookup
+    unique_id_to_starname = dict(zip(request_selected_df['unique_id'].astype(str), 
+                                      request_selected_df['starname']))
+    # Map each unique_id in names_array to its human-readable starname
+    human_starname_array = np.array([unique_id_to_starname.get(str(uid), str(uid)) 
+                                      for uid in names_array])
+
+    # Create telescope limit zones (red areas) - matching matplotlib version exactly
+    # In polar plot: r represents zenith distance (90 - altitude), where 0 is zenith and 90 is horizon
+    plotlowlim = 90  # Plotting limit to match matplotlib version
+    
+    # Deck limit zone (specific azimuth range)
+    theta_deck = np.linspace(model.observatory.deckAzLim1, model.observatory.deckAzLim2, 100)
+    r_deck_lower = np.full(100, 90 - model.observatory.deckAltLim)
+    r_deck_upper = np.full(100, plotlowlim - model.observatory.vigLim)
+    
+    # Vignetting limit (all around)
+    theta_all = np.linspace(0, 360, 100)
+    r_vig_lower = np.full(100, 90 - model.observatory.vigLim)
+    r_vig_upper = np.full(100, plotlowlim)
+    
+    # Zenith limit (all around, near center)
+    r_zen_lower = np.full(100, 90 - model.observatory.zenLim)
+    r_zen_upper = np.full(100, 0)
+
+    # Create frames for animation
+    frames = []
+    for i in range(len(t)):
+        # Determine which stars have been observed
+        wasObserved = schedule_times <= float(t[i].jd)
+        observed_list = schedule_names[wasObserved]
+        is_observed = np.isin(names_array, observed_list)
+        
+        # Create frame data
+        frame_data = [
+            # Telescope limit zones (red areas) - using fill='toself' with closed paths
+            # Deck limit
+            go.Scatterpolar(
+                r=np.concatenate([r_deck_lower, r_deck_upper[::-1], [r_deck_lower[0]]]),
+                theta=np.concatenate([theta_deck, theta_deck[::-1], [theta_deck[0]]]),
+                fill='toself',
+                fillcolor='rgba(255, 0, 0, 0.7)',
+                line=dict(color='rgba(255, 0, 0, 0)'),
+                showlegend=(i==0),
+                name='Deck Limit',
+                hoverinfo='skip'
+            ),
+            # Vignetting limit
+            go.Scatterpolar(
+                r=np.concatenate([r_vig_lower, r_vig_upper[::-1], [r_vig_lower[0]]]),
+                theta=np.concatenate([theta_all, theta_all[::-1], [theta_all[0]]]),
+                fill='toself',
+                fillcolor='rgba(255, 0, 0, 0.7)',
+                line=dict(color='rgba(255, 0, 0, 0)'),
+                showlegend=(i==0),
+                name='Vignetting Limit',
+                hoverinfo='skip'
+            ),
+            # Zenith limit
+            go.Scatterpolar(
+                r=np.concatenate([r_zen_lower, r_zen_upper[::-1], [r_zen_lower[0]]]),
+                theta=np.concatenate([theta_all, theta_all[::-1], [theta_all[0]]]),
+                fill='toself',
+                fillcolor='rgba(255, 0, 0, 0.7)',
+                line=dict(color='rgba(255, 0, 0, 0)'),
+                showlegend=(i==0),
+                name='Zenith Limit',
+                hoverinfo='skip'
+            ),
+            # Stars - observed
+            go.Scatterpolar(
+                r=az[:, i][is_observed],
+                theta=np.degrees(alt[:, i][is_observed]),
+                mode='markers',
+                marker=dict(size=10, color='orange', symbol='star'),
+                name='Observed',
+                showlegend=(i==0),
+                text=human_starname_array[is_observed],
+                hovertemplate='<b>%{text}</b><br>Az: %{theta:.1f}°<br>ZD: %{r:.1f}°<extra></extra>'
+            ),
+            # Stars - not observed
+            go.Scatterpolar(
+                r=az[:, i][~is_observed],
+                theta=np.degrees(alt[:, i][~is_observed]),
+                mode='markers',
+                marker=dict(size=10, color='white', symbol='star'),
+                name='Scheduled',
+                showlegend=(i==0),
+                text=human_starname_array[~is_observed],
+                hovertemplate='<b>%{text}</b><br>Az: %{theta:.1f}°<br>ZD: %{r:.1f}°<extra></extra>'
+            ),
+            # Telescope path
+            go.Scatterpolar(
+                r=tel_zen[:i+1] if i > 0 else tel_zen[:1],
+                theta=np.degrees(tel_az[:i+1] if i > 0 else tel_az[:1]),
+                mode='lines',
+                line=dict(color='orange', width=2),
+                name='Telescope Path',
+                showlegend=(i==0)
+            )
+        ]
+        
+        frames.append(go.Frame(data=frame_data, name=str(i)))
+
+    # Create initial figure with first frame
+    fig = go.Figure(
+        data=frames[0].data if frames else [],
+        frames=frames
+    )
+
+    # Update layout for polar plot
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(
+                range=[0, 90],  # 0=zenith (90° altitude), 90=horizon (0° altitude)
+                showticklabels=False,  # Hide altitude degree labels
+                ticks='',
+                showline=False,  # Hide the radial axis line
+                gridcolor='rgba(255, 255, 255, 0.2)',  # Soft white grid lines
+                gridwidth=1
+            ),
+            angularaxis=dict(
+                direction='counterclockwise',
+                rotation=90,
+                gridcolor='rgba(255, 255, 255, 0.2)',  # Soft white grid lines
+                gridwidth=1,
+                tickfont=dict(size=18, color='black'),  # Bigger azimuthal labels in black
+                showticklabels=True
+            ),
+            bgcolor='black'
+        ),
+        # Add cardinal direction annotations
+        annotations=[
+            dict(text='<b>N</b>', x=0.495, y=1.1, xref='paper', yref='paper', 
+                 showarrow=False, font=dict(size=22, color='black')),
+            dict(text='<b>W</b>', x=1.0, y=0.5, xref='paper', yref='paper', 
+                 showarrow=False, font=dict(size=22, color='black')),
+            dict(text='<b>S</b>', x=0.495, y=-0.1, xref='paper', yref='paper', 
+                 showarrow=False, font=dict(size=22, color='black')),
+            dict(text='<b>E</b>', x=-0.0, y=0.5, xref='paper', yref='paper', 
+                 showarrow=False, font=dict(size=22, color='black'))
+        ],
+        # Set default animation settings to match Play button
+        transition={'duration': 0},
+        updatemenus=[{
+            'type': 'buttons',
+            'showactive': False,
+            'direction': 'left',
+            'x': 0.35,
+            'y': -0.2,
+            'xanchor': 'left',
+            'yanchor': 'bottom',
+            'buttons': [
+                {
+                    'label': '  ▶ Play  ',
+                    'method': 'animate',
+                    'args': [None, {
+                        'frame': {'duration': 100, 'redraw': True},
+                        'fromcurrent': True,
+                        'mode': 'immediate',
+                        'transition': {'duration': 0}
+                    }]
+                },
+                {
+                    'label': '  ⏸ Pause  ',
+                    'method': 'animate',
+                    'args': [[None], {
+                        'frame': {'duration': 0, 'redraw': False},
+                        'mode': 'immediate',
+                        'transition': {'duration': 0}
+                    }]
+                }
+            ],
+            'bgcolor': 'white',
+            'bordercolor': 'black',
+            'borderwidth': 2,
+            'font': {'size': 16, 'color': 'black', 'family': 'Arial'},
+        }],
+        sliders=[{
+            'active': 0,
+            'yanchor': 'top',
+            'y': -0.15,
+            'xanchor': 'left',
+            'currentvalue': {
+                'prefix': 'Time: ',
+                'visible': True,
+                'xanchor': 'right',
+                'font': {'size': 14, 'color': 'black'}
+            },
+            'pad': {'b': 10, 't': 50},
+            'len': 0.9,
+            'x': 0.1,
+            'font': {'size': 12, 'color': 'black'},
+            'steps': [
+                {
+                    'args': [[f.name], {
+                        'frame': {'duration': 100, 'redraw': True},  # Match button duration
+                        'mode': 'immediate',
+                        'transition': {'duration': 0}
+                    }],
+                    'label': t[k].datetime.strftime('%H:%M'),  # HH:MM format only
+                    'method': 'animate'
+                }
+                for k, f in enumerate(frames)
+            ],
+            'transition': {'duration': 100}  # Match frame duration for consistent speed
+        }],
+        width=800,
+        height=800,
+        title=dict(
+            text='Telescope Slew Animation',
+            font=dict(color='black', size=20)
+        ),
+        template='plotly_white',
+        paper_bgcolor='white',
+        plot_bgcolor='white',
+        font=dict(color='black'),
+        # Configure animation behavior
+        hovermode='closest'
+    )
+
+    return fig
 
 def get_script_plan(night_planner):
     """Generate script plan DataFrame from semester planner and night planner objects.
@@ -1156,7 +1545,7 @@ def get_script_plan(night_planner):
     # Select and reorder only the specific columns requested
     desired_columns = [
         'Start Exposure', 'unique_id', 'starname', 'program_code', 'ra', 'dec', 
-        'exptime', 'n_exp', 'n_intra_max', 'tau_intra', 'weather_band', 'teff', 
+        'exptime', 'n_exp', 'n_intra_max', 'tau_intra', 'weather_band_1', 'weather_band_2', 'weather_band_3', 'teff', 
         'jmag', 'gmag', 'epoch', 'gaia_id', 'First Available', 'Last Available'
     ]
     
@@ -1223,8 +1612,13 @@ def get_script_plan(night_planner):
     
     return final_df
 
-def plot_path_2D_interactive(data):
-    """Create an interactive Plotly plot showing telescope azimuth and altitude paths with UTC times and white background."""
+def plot_path_2D_interactive(data, night_start_time=None):
+    """Create an interactive Plotly plot showing telescope azimuth and altitude paths with UTC times and white background.
+    
+    Args:
+        data: List containing the TTP model solution
+        night_start_time: Astropy Time object representing the start of night (Minute 0) from allocation file
+    """
 
     model = data[0]
 
@@ -1233,16 +1627,77 @@ def plot_path_2D_interactive(data):
     az_path = model.az_path
     alt_path = model.alt_path
     wrap = model.observatory.wrapLimitAngle
+    
+    # Use night_start_time as "Minute 0" reference
+    if night_start_time is None:
+        # Fallback: use first time from model
+        night_start_jd = times[0].jd
+    else:
+        night_start_jd = night_start_time.jd
 
-    # Use times as floats (e.g., minutes from start of night or JD)
-    # If times are astropy Time objects, convert to minutes from start of night
-    # Here, we'll use JD as the linear x-axis, but you can adjust to minutes if you have a reference
+    # Use times from model for telescope path (these are waypoints from TTP solver)
+    # These represent END of exposure times, so we need to subtract exposure duration
     obs_time = np.array([t.jd for t in times])
+    
+    # Adjust times to represent START of exposure instead of END
+    # The times array has 2 points per observation (both at end of exposure)
+    if hasattr(model, 'plotly') and 'Total Exp Time (min)' in model.plotly:
+        total_exp_times = model.plotly['Total Exp Time (min)']
+        
+        # Subtract exposure time from each pair of points
+        for i in range(len(total_exp_times)):
+            idx1 = i * 2
+            idx2 = i * 2 + 1
+            if idx2 < len(obs_time):
+                duration_days = total_exp_times[i] / 1440.0
+                obs_time[idx1] -= duration_days
+                obs_time[idx2] -= duration_days
+    
+    # The times/az/alt arrays have 2 points per observation (start and end)
+    # but names only has one entry per observation. Expand names to match.
+    if len(obs_time) == 2 * len(names):
+        # Each name should appear twice (for start and end of observation)
+        expanded_names = []
+        for name in names:
+            expanded_names.append(name)  # Start point
+            expanded_names.append(name)  # End point
+        names = expanded_names
+    elif len(obs_time) != len(names):
+        # Repeat names to match the length
+        names = names * (len(obs_time) // len(names) + 1)
+        names = names[:len(obs_time)]
+    
+    # Ensure all arrays are the same length
+    min_len = min(len(obs_time), len(az_path), len(alt_path), len(names))
+    obs_time = obs_time[:min_len]
+    az_path = np.array(az_path[:min_len])
+    alt_path = np.array(alt_path[:min_len])
+    names = names[:min_len]
+    
+    # Store original azimuth for hover text (0-360°)
+    az_path_original = az_path.copy()
+    
+    # Unwrap azimuth to handle 360°/0° crossing
+    # When telescope goes from 315° to 10°, show it as 315° to 370° instead
+    az_path_unwrapped = az_path.copy()
+    for i in range(1, len(az_path_unwrapped)):
+        diff = az_path_unwrapped[i] - az_path_unwrapped[i-1]
+        # If jump is > 180°, we likely wrapped around
+        if diff > 180:
+            # Wrapped from high to low (e.g., 350° to 10°), subtract 360 from current and future
+            az_path_unwrapped[i:] -= 360
+        elif diff < -180:
+            # Wrapped from low to high (e.g., 10° to 350°), add 360 to current and future
+            az_path_unwrapped[i:] += 360
+    
     # For tick labels and hover, format as HH:MM
     time_labels = [Time(t, format='jd').isot[11:16] for t in obs_time]
-
-    # Prepare custom hover text with HH:MM time
-    hover_texts = [f"Time: {label}<br>Target: {name}" for label, name in zip(time_labels, names)]
+    
+    # Create hover text arrays using ORIGINAL azimuth (0-360°)
+    hover_text_az = [f"Time: {time_labels[i]}<br>Target: {names[i]}<br>Az: {az_path_original[i]:.1f}°" 
+                     for i in range(len(obs_time))]
+    hover_text_alt = [f"Time: {time_labels[i]}<br>Target: {names[i]}<br>Alt: {alt_path[i]:.1f}°" 
+                      for i in range(len(obs_time))]
 
     fig = make_subplots(
         rows=2, cols=1,
@@ -1251,14 +1706,14 @@ def plot_path_2D_interactive(data):
         vertical_spacing=0.1
     )
 
-    # Azimuth plot
+    # Azimuth plot (use unwrapped azimuth for y-axis)
     fig.add_trace(go.Scatter(
-        x=obs_time, y=az_path,
+        x=obs_time, y=az_path_unwrapped,
         mode='lines+markers',
         marker=dict(color='indigo'),
         name='Azimuth',
-        text=hover_texts,
-        hovertemplate='%{text}<br>Az: %{y}'
+        text=hover_text_az,
+        hovertemplate='%{text}<extra></extra>'
     ), row=1, col=1)
 
     # Elevation plot
@@ -1267,56 +1722,128 @@ def plot_path_2D_interactive(data):
         mode='lines+markers',
         marker=dict(color='seagreen'),
         name='Elevation',
-        text=hover_texts,
-        hovertemplate='%{text}<br>Alt: %{y}'
+        text=hover_text_alt,
+        hovertemplate='%{text}<extra></extra>'
     ), row=2, col=1)
 
-    # Optional: wrap line on azimuth
+    # Add wrap limit line(s) at appropriate positions based on unwrapped azimuth range
     if wrap is not None:
-        fig.add_shape(
-            type="line",
-            x0=obs_time[0], x1=obs_time[-1],
-            y0=wrap, y1=wrap,
-            line=dict(color="red", dash="dash"),
-            row=1, col=1
-        )
-        fig.add_annotation(
-            x=obs_time[-1], y=wrap,
-            text=f"Wrap = {wrap}",
-            showarrow=False,
-            font=dict(color="red"),
-            row=1, col=1
-        )
+        az_min = np.min(az_path_unwrapped)
+        az_max = np.max(az_path_unwrapped)
+        
+        # Determine which wrap line positions to show
+        # The wrap limit repeats every 360°
+        wrap_positions = []
+        for offset in range(-2, 3):  # Check wrap-720, wrap-360, wrap, wrap+360, wrap+720
+            wrap_pos = wrap + (offset * 360)
+            if az_min <= wrap_pos <= az_max:
+                wrap_positions.append(wrap_pos)
+        
+        # Draw wrap limit line(s)
+        for wrap_pos in wrap_positions:
+            fig.add_shape(
+                type="line",
+                x0=obs_time[0], x1=obs_time[-1],
+                y0=wrap_pos, y1=wrap_pos,
+                line=dict(color="red", dash="dash"),
+                row=1, col=1
+            )
+            fig.add_annotation(
+                x=obs_time[-1], y=wrap_pos,
+                text=f"Wrap = {wrap}°",
+                showarrow=False,
+                font=dict(color="red", size=10),
+                row=1, col=1
+            )
 
-    # Highlight observed intervals (use obs_time for x0/x1)
-    for i in range(0, len(obs_time)-1, 2):
-        fig.add_vrect(
-            x0=obs_time[i], x1=obs_time[i+1],
-            fillcolor="orange", opacity=0.2,
-            layer="below", line_width=0,
-            row=1, col=1
-        )
-        fig.add_vrect(
-            x0=obs_time[i], x1=obs_time[i+1],
-            fillcolor="orange", opacity=0.2,
-            layer="below", line_width=0,
-            row=2, col=1
-        )
+    # Highlight observed intervals using Start/Stop Exposure times
+    # Shade from Start Exposure to Stop Exposure (both in minutes from night start)
+    if hasattr(model, 'plotly') and 'Start Exposure' in model.plotly and 'Stop Exposure' in model.plotly:
+        start_exposures = model.plotly['Start Exposure']  # Minutes from start of night
+        stop_exposures = model.plotly['Stop Exposure']    # Minutes from start of night
+        
+        for i, (start_min, stop_min) in enumerate(zip(start_exposures, stop_exposures)):
+            # Convert minutes from night start to JD
+            # 1 day = 1440 minutes, so minutes / 1440 = fraction of a day
+            start_jd = night_start_jd + (start_min / 1440.0)
+            stop_jd = night_start_jd + (stop_min / 1440.0)
+            
+            # Add yellow shaded region for this exposure
+            fig.add_vrect(
+                x0=start_jd, x1=stop_jd,
+                fillcolor="yellow", opacity=0.3,
+                layer="below", line_width=0,
+                row=1, col=1
+            )
+            fig.add_vrect(
+                x0=start_jd, x1=stop_jd,
+                fillcolor="yellow", opacity=0.3,
+                layer="below", line_width=0,
+                row=2, col=1
+            )
 
-    # Set x-axis tick labels as HH:MM but keep axis linear in time
+    # Set x-axis tick labels as HH:MM with evenly spaced grid
+    # Create evenly spaced time ticks (e.g., every hour or every 30 minutes)
+    time_span = obs_time[-1] - obs_time[0]
+    # Determine appropriate interval based on time span
+    if time_span < 0.1:  # Less than ~2.4 hours
+        interval_hours = 0.5  # 30 minutes
+    elif time_span < 0.3:  # Less than ~7 hours  
+        interval_hours = 1.0  # 1 hour
+    else:
+        interval_hours = 2.0  # 2 hours
+    
+    # Convert interval to JD units (1 hour = 1/24 JD)
+    interval_jd = interval_hours / 24
+    
+    # Create evenly spaced tick positions
+    start_time = obs_time[0]
+    end_time = obs_time[-1]
+    num_ticks = int((end_time - start_time) / interval_jd) + 2
+    tick_positions = np.linspace(start_time, end_time, num_ticks)
+    
+    # Convert tick positions to time labels
+    tick_labels = [Time(t, format='jd').isot[11:16] for t in tick_positions]
+    
     fig.update_xaxes(
         tickmode='array',
-        tickvals=obs_time,
-        ticktext=time_labels,
+        tickvals=tick_positions,
+        ticktext=tick_labels,
         title_text='Time (UTC)',
         row=2, col=1
     )
 
+    # Update y-axis for azimuth to always show full range from 271° to 270° (630° unwrapped)
+    # This represents the full valid range when wrap limit is at 270°
+    az_y_min = 271  # Just past the wrap limit
+    az_y_max = 630  # 270° in the next rotation
+    
+    # Generate tick positions every 45 degrees from 270 to 630
+    tick_interval = 45
+    az_tick_positions = np.arange(270, 631, tick_interval)  # Start at 270, go to 630
+    
+    # Create labels showing actual angle (mod 360)
+    az_tick_labels = [f"{int(pos % 360)}°" for pos in az_tick_positions]
+    
+    fig.update_yaxes(
+        tickmode='array',
+        tickvals=az_tick_positions,
+        ticktext=az_tick_labels,
+        range=[az_y_min, az_y_max],
+        title_text="Azimuth",
+        row=1, col=1
+    )
+    
+    # Update y-axis for altitude to always show 0° to 90°
+    fig.update_yaxes(
+        range=[0, 90],
+        title_text="Altitude (deg)",
+        row=2, col=1
+    )
+    
     fig.update_layout(
         height=600,
         width=1000,
-        yaxis_title="Azimuth (deg)",
-        yaxis2_title="Altitude (deg)",
         template="plotly_white"
     )
     return fig
@@ -1601,14 +2128,16 @@ def dataframe_to_html(dataframe, sort_column=2, page_size=10, table_id='request-
                 {{ targets: 7, width: '50px' }},   // n_exp
                 {{ targets: 8, width: '50px' }},   // n_intra_max
                 {{ targets: 9, width: '50px' }},   // tau_intra
-                {{ targets: 10, width: '50px' }},  // weather_band
-                {{ targets: 11, width: '50px' }},  // teff
-                {{ targets: 12, width: '50px' }},  // jmag
-                {{ targets: 13, width: '50px' }},  // gmag
-                {{ targets: 14, width: '50px' }},  // epoch
-                {{ targets: 15, width: '260px' }}, // gaia_id
-                {{ targets: 16, width: '60px' }},  // First Available
-                {{ targets: 17, width: '60px' }}   // Last Available
+                {{ targets: 10, width: '50px' }},  // weather_band_1
+                {{ targets: 11, width: '50px' }},  // weather_band_2
+                {{ targets: 12, width: '50px' }},  // weather_band_3
+                {{ targets: 13, width: '50px' }},  // teff
+                {{ targets: 14, width: '50px' }},  // jmag
+                {{ targets: 15, width: '50px' }},  // gmag
+                {{ targets: 16, width: '50px' }},  // epoch
+                {{ targets: 17, width: '260px' }}, // gaia_id
+                {{ targets: 18, width: '60px' }},  // First Available
+                {{ targets: 19, width: '60px' }}   // Last Available
             ],
             initComplete: function() {{
                 // Simple styling after DataTables is initialized

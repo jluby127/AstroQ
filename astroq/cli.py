@@ -99,11 +99,21 @@ def main():
                             default="db",
                             help="Absolute path of a past history file. Use 'db' to pull from the database."
                               )
-    psr_kpfcc_prep.add_argument('-b3', '--band3_program_code',
+    psr_kpfcc_prep.add_argument('-fillers', '--filler_programs',
                           type=str,
+                          required=False,
                           default="2025B_E473",
-                          help="The program code for the band 3 program."
+                          help="The semester ID for the filler program. Ex. 2025B_E473."
                             )
+    psr_kpfcc_prep.add_argument('-band', '--band_number',
+                          type=int,
+                          required=True,
+                          help="Band number (1, 2, 3, etc.) for filtering request.csv."
+                          )
+    psr_kpfcc_prep.add_argument('-full', '--is_full_band',
+                          action='store_true',
+                          help="Whether this is a full-band that should update allocation.csv."
+                          )
     psr_kpfcc_prep.set_defaults(func=astroq.driver.kpfcc_prep)
 
  
