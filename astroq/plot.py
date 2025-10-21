@@ -705,14 +705,15 @@ def get_timepie(semester_planner, all_stars, use_program_colors=False):
     values = [total_past_hours, total_future_hours, total_incomplete_hours, total_allocated_hours-total_requested_hours]
     colors = ['#2E86AB', '#A23B72', '#F18F01', '#000000']  # Blue, Purple, Orange, Black
     
-    # Create the pie chart
+    # Create the pie chart positioned on the left side
     fig = go.Figure(data=[go.Pie(
         labels=labels,
         values=values,
         marker=dict(colors=colors),
         textinfo='label+percent+value',
         texttemplate='%{label}<br>%{value:.1f} hrs<br>(%{percent})',
-        hovertemplate='<b>%{label}</b><br>%{value:.2f} hours<br>%{percent}<extra></extra>'
+        hovertemplate='<b>%{label}</b><br>%{value:.2f} hours<br>%{percent}<extra></extra>',
+        domain=dict(x=[0, 0.5], y=[0, 1])  # Position pie chart on left half of plot
     )])
     
     # Adjust margin if there's a warning to display
@@ -723,8 +724,131 @@ def get_timepie(semester_planner, all_stars, use_program_colors=False):
         template='plotly_white',
         showlegend=False,
         height=600,
-        width=700,
+        width=1200,  # Wider to make room for text
         margin=dict(t=top_margin, b=50, l=50, r=50)
+    )
+    
+    # Add multiple annotations using update_layout
+    fig.update_layout(
+        annotations=[
+            dict(
+                text="Requested time is measured in hours. Allocated time is measured in nights.",
+                xref='paper', yref='paper',
+                x=0.55, y=0.99,
+                showarrow=False,
+                font=dict(size=11, color='black'),
+                xanchor='left',
+                yanchor='middle'
+            ),
+            dict(
+                text="Conversion is 12 hours per night.",
+                xref='paper', yref='paper',
+                x=0.55, y=0.96,
+                showarrow=False,
+                font=dict(size=11, color='black'),
+                xanchor='left',
+                yanchor='middle'
+            ),
+            dict(
+                text="All slices include exposure times and standard overheads.",
+                xref='paper', yref='paper',
+                x=0.55, y=0.8,
+                showarrow=False,
+                font=dict(size=11, color='black'),
+                xanchor='left',
+                yanchor='middle'
+            ),
+            dict(
+                text="<b>Completed:</b>",
+                xref='paper', yref='paper',
+                x=0.55, y=0.75,
+                showarrow=False,
+                font=dict(size=11, color='black'),
+                xanchor='left',
+                yanchor='middle'
+            ),
+            dict(
+                text="The sum time of the observations already obtained.",
+                xref='paper', yref='paper',
+                x=0.55, y=0.72,
+                showarrow=False,
+                font=dict(size=11, color='black'),
+                xanchor='left',
+                yanchor='middle'
+            ),
+            dict(
+                text="<b>Scheduled:</b>",
+                xref='paper', yref='paper',
+                x=0.55, y=0.65,
+                showarrow=False,
+                font=dict(size=11, color='black'),
+                xanchor='left',
+                yanchor='middle'
+            ),
+            dict(
+                text="The sum time of the forecasted observations.<br>",
+                xref='paper', yref='paper',
+                x=0.55, y=0.62,
+                showarrow=False,
+                font=dict(size=11, color='black'),
+                xanchor='left',
+                yanchor='middle'
+            ),
+            dict(
+                text="<b>Incomplete:</b>",
+                xref='paper', yref='paper',
+                x=0.55, y=0.55,
+                showarrow=False,
+                font=dict(size=11, color='black'),
+                xanchor='left',
+                yanchor='middle'
+            ),
+            dict(
+                text="The sum time of infeasible observations.<br>",
+                xref='paper', yref='paper',
+                x=0.55, y=0.52,
+                showarrow=False,
+                font=dict(size=11, color='black'),
+                xanchor='left',
+                yanchor='middle'
+            ),
+            dict(
+                text="This is time that can be redistributed to other or new targets so as to maximize your award.<br>",
+                xref='paper', yref='paper',
+                x=0.55, y=0.49,
+                showarrow=False,
+                font=dict(size=11, color='black'),
+                xanchor='left',
+                yanchor='middle'
+            ),
+            dict(
+                text="<b>Unused:</b>",
+                xref='paper', yref='paper',
+                x=0.55, y=0.42,
+                showarrow=False,
+                font=dict(size=11, color='black'),
+                xanchor='left',
+                yanchor='middle'
+            ),
+            dict(
+                text="The difference between the total allocated time and the total requested time.",
+                xref='paper', yref='paper',
+                x=0.55, y=0.39,
+                showarrow=False,
+                font=dict(size=11, color='black'),
+                xanchor='left',
+                yanchor='middle'
+            ),
+            dict(
+                text="This is time you are leaving on the table. Consider adding requests!<br>",
+                xref='paper', yref='paper',
+                x=0.55, y=0.36,
+                showarrow=False,
+                font=dict(size=11, color='black'),
+                xanchor='left',
+                yanchor='middle'
+            ),
+        ]
     )
     
     # Add warning annotation if requested time exceeds allocated time
