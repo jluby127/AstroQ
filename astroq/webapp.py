@@ -112,8 +112,8 @@ def dynamic_page(semester_code, date, band, page=None, starname=None, program_co
     global uptree_path
     
     # Validate parameters
-    if band not in ['band1', 'band3']:
-        abort(400, description="Band must be 'band1' or 'band3'")
+    if band not in ['band1', 'band2', 'band3', 'full-band1', 'full-band2', 'full-band3']:
+        abort(400, description="Band must be 'band1', 'band2', 'band3', 'full-band1', 'full-band2', or 'full-band3'")
     
     # Load data for this path
     success, message = load_data_for_path(semester_code, date, band, uptree_path)
