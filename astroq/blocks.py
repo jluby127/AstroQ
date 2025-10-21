@@ -16,18 +16,18 @@ import requests
 from astropy.coordinates import SkyCoord
 from astropy.time import Time
 import astropy.units as u
+import astroplan as apl
 
 exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', 'metadata.history',
                     'metadata.instruments', 'metadata.is_approved', 'metadata.last_modification',
                     'metadata.ob_feasible', 'metadata.observer_name', 'metadata.state', 'metadata.status',
                     'metadata.submitted', 'metadata.submitter', 'metadata.tags', 'observation.auto_exp_meter',
                     'observation.auto_nd_filters', 'observation.cal_n_d_1', 'observation.cal_n_d_2',
-                    'observation.exp_meter_exp_time', 'observation.exp_meter_mode',
-                    'observation.exp_meter_threshold', 'observation.guide_here',
+                    'observation.exp_meter_exp_time', 'observation.exp_meter_mode', 'observation.guide_here',
                     'observation.object', 'observation.take_simulcal', 'observation.exp_meter_bin',
                     'observation.trigger_ca_h_k', 'observation.trigger_green', 'observation.trigger_red',
                     'schedule.accessibility_map', 'schedule.days_observable', 'schedule.fast_read_mode_requested',
-                    'schedule.minimum_elevation', 'schedule.minimum_moon_separation', 'schedule.num_visits_per_night',
+                    'schedule.num_visits_per_night',
                     'schedule.rise_semester_day', 'schedule.scheduling_mode', 'schedule.sets_semester_day',
                     'schedule.total_observations_requested', 'schedule.total_time_for_target',
                     'schedule.total_time_for_target_hours', 'target.isNew', 'target.parallax', 'target.equinox', 'target.systemic_velocity',
@@ -40,9 +40,40 @@ exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', '
                     'calibration.wide_flat_pos', 'observation.block_sky', 'observation.nod_e', 'observation.nod_n',
                     'schedule.isNew', 'observation.isNew', 'schedule.comment', 'target.d_ra', 'target.d_dec', 'target.undefined',
                     'target.ra_deg', 'target.dec_deg', 'observation.undefined', 'schedule.num_visits_per_night', 'schedule.undefined',
+                    'schedule.custom_time_constraints', #make this an exception field because it is handled elsewhere to make the custom.csv file
                     'schedule.desired_num_visits_per_night', 'schedule.minimum_num_visits_per_night', 'history', # NOTE: this line will be removed 
-                    'schedule.custom_time_constraints', 'schedule.weather_band_1', 'schedule.weather_band_2', 'schedule.weather_band_3'# NOTE: this line will be removed 
+                    'schedule.weather_band_1', 'schedule.weather_band_2', 'schedule.weather_band_3'# NOTE: this line will be removed 
+                    # 'observation.exp_meter_threshold', 'schedule.minimum_elevation', 'schedule.minimum_moon_separation', # for now. 
 ]
+
+# Column definitions: mapping from original names to new names and data types
+column_definitions = {
+    '_id': {'new_name': 'unique_id', 'type': 'string'},
+    'metadata.semid': {'new_name': 'program_code', 'type': 'string'},
+    'target.target_name': {'new_name': 'starname', 'type': 'string'},
+    'target.ra': {'new_name': 'ra', 'type': 'string'},
+    'target.dec': {'new_name': 'dec', 'type': 'string'},
+    'observation.exposure_time': {'new_name': 'exptime', 'type': 'Int64'},
+    'observation.num_exposures': {'new_name': 'n_exp', 'type': 'Int64'},
+    'schedule.num_nights_per_semester': {'new_name': 'n_inter_max', 'type': 'Int64'},
+    'schedule.num_internight_cadence': {'new_name': 'tau_inter', 'type': 'Int64'},
+    'schedule.desired_num_visits_per_night': {'new_name': 'n_intra_max', 'type': 'Int64'},
+    'schedule.minimum_num_visits_per_night': {'new_name': 'n_intra_min', 'type': 'Int64'},
+    'schedule.num_intranight_cadence': {'new_name': 'tau_intra', 'type': 'Float64'},
+    'schedule.minimum_elevation': {'new_name': 'minimum_elevation', 'type': 'Float64'},
+    'schedule.minimum_moon_separation': {'new_name': 'minimum_moon_separation', 'type': 'Float64'},
+    'schedule.weather_band_1': {'new_name': 'weather_band_1', 'type': 'boolean'},
+    'schedule.weather_band_2': {'new_name': 'weather_band_2', 'type': 'boolean'},
+    'schedule.weather_band_3': {'new_name': 'weather_band_3', 'type': 'boolean'},
+    'target.gaia_id': {'new_name': 'gaia_id', 'type': 'string'},
+    'target.t_eff': {'new_name': 'teff', 'type': 'Float64'},
+    'target.j_mag': {'new_name': 'jmag', 'type': 'Float64'},
+    'target.g_mag': {'new_name': 'gmag', 'type': 'Float64'},
+    'target.pm_ra': {'new_name': 'pmra', 'type': 'Float64'},
+    'target.pm_dec': {'new_name': 'pmdec', 'type': 'Float64'},
+    'target.epoch': {'new_name': 'epoch', 'type': 'Float64'},
+    'observation.exp_meter_threshold': {'new_name': 'exp_meter_threshold', 'type': 'Float64'},
+}
 
 def pull_OBs(semester):
     """
@@ -66,7 +97,25 @@ def pull_OBs(semester):
         print("ERROR")
         return
 
-def format_custom_csv(OBs, savefile):
+def _validate_datetime_format(datetime_str):
+    """
+    Validate that datetime string follows the strict format: YYYY-MM-DDTHH:MM
+    
+    Args:
+        datetime_str (str): The datetime string to validate
+        
+    Returns:
+        bool: True if format is valid, False otherwise
+    """
+    import re
+    if not isinstance(datetime_str, str):
+        return False
+    
+    # Pattern for YYYY-MM-DDTHH:MM format
+    pattern = r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$'
+    return bool(re.match(pattern, datetime_str))
+
+def format_custom_csv(OBs):
     """
     Format the custom csv file for the OBs.
     """
@@ -85,8 +134,8 @@ def format_custom_csv(OBs, savefile):
                         start = constraint.get('start_datetime', '')
                         stop = constraint.get('end_datetime', '')
                         
-                        # Only add rows that have the required data
-                        if start and stop:
+                        # Only add rows that have the required data and valid format
+                        if start and stop and _validate_datetime_format(start) and _validate_datetime_format(stop):
                             rows.append({
                                 'unique_id': unique_id,
                                 'starname': starname,
@@ -98,7 +147,7 @@ def format_custom_csv(OBs, savefile):
                 start = ctc.get('start_datetime', '')
                 stop = ctc.get('end_datetime', '')
                 
-                if start and stop:
+                if start and stop and _validate_datetime_format(start) and _validate_datetime_format(stop):
                     rows.append({
                         'unique_id': unique_id,
                         'starname': starname,
@@ -109,10 +158,15 @@ def format_custom_csv(OBs, savefile):
             pass
 
     # Create DataFrame and save to CSV
-    df = pd.DataFrame(rows)
-    df.to_csv('custom_constraints.csv', index=False)
+    if len(rows) > 0:
+        df = pd.DataFrame(rows)
+    else:
+        # Create empty DataFrame with proper column headers
+        df = pd.DataFrame(columns=['unique_id', 'starname', 'start', 'stop'])
+    
+    return df 
         
-def pull_allocation_info(start_date, numdays, instrument, savepath):
+def pull_allocation_info(start_date, numdays, instrument):
     params = {}
     params['cmd'] = "getSchedule"
     params["date"] = start_date
@@ -126,6 +180,7 @@ def pull_allocation_info(start_date, numdays, instrument, savepath):
         awarded_programs = df['ProjCode'].unique()
         df['start'] = pd.to_datetime(df['Date'] + ' ' + df['StartTime']).dt.strftime('%Y-%m-%dT%H:%M')
         df['stop']  = pd.to_datetime(df['Date'] + ' ' + df['EndTime']).dt.strftime('%Y-%m-%dT%H:%M')
+
         allocation_frame = df[['start', 'stop']].copy() # TODO: add observer and comment
         
         # Calculate hours for each row
@@ -138,17 +193,16 @@ def pull_allocation_info(start_date, numdays, instrument, savepath):
         
         # Calculate total hours per ProjCode
         hours_by_program = df.groupby('ProjCode')['hours'].sum().round(3).to_dict()
-        
+        nights_by_program = df.groupby('ProjCode')['FractionOfNight'].sum().round(3).to_dict()
     except:
         print("ERROR: allocation information not found. Double check date and instrument. Saving an empty file.")
         allocation_frame = pd.DataFrame(columns=['start', 'stop'])
         awarded_programs = []
         hours_by_program = {}
-    os.makedirs(os.path.dirname(savepath), exist_ok=True)
-    allocation_frame.to_csv(savepath, index=False)
-    return hours_by_program
+        nights_by_program = {}
+    return allocation_frame, hours_by_program, nights_by_program
 
-def format_keck_allocation_info(allocation_file, savepath):
+def format_keck_allocation_info(allocation_file):
     """
     Read in allocation file and parse start/stop times to calculate hours by program.
     
@@ -169,7 +223,7 @@ def format_keck_allocation_info(allocation_file, savepath):
     # Convert start and stop times to datetime for hour calculation
     allocation['start'] = pd.to_datetime(allocation['Date'] + ' ' + allocation['Start']).dt.strftime('%Y-%m-%dT%H:%M')
     allocation['stop'] = pd.to_datetime(allocation['Date'] + ' ' + allocation['Stop']).dt.strftime('%Y-%m-%dT%H:%M')
-    
+
     # Calculate hours for each row
     start_times = pd.to_datetime(allocation['start'])
     stop_times = pd.to_datetime(allocation['stop'])
@@ -183,12 +237,12 @@ def format_keck_allocation_info(allocation_file, savepath):
     
     # Ensure the directory exists before saving
     os.makedirs(os.path.dirname(savepath), exist_ok=True)
-    allocation_frame.to_csv(savepath, index=False)
     
     # Calculate total hours per ProjCode
     hours_by_program = allocation.groupby('ProjCode')['hours'].sum().round(3).to_dict()
-    
-    return hours_by_program
+    nights_by_program = df.groupby('ProjCode')['FractionOfNight'].sum().round(3).to_dict()
+
+    return allocation_frame, hours_by_program, nights_by_program
 
 def get_request_sheet(OBs, awarded_programs, savepath):
     good_obs, bad_obs_values, bad_obs_hasFields = sort_good_bad(OBs, awarded_programs)
@@ -208,7 +262,6 @@ def get_request_sheet(OBs, awarded_programs, savepath):
         good_obs['starname'] = good_obs['starname'].astype(str)
     
     os.makedirs(os.path.dirname(savepath), exist_ok=True)
-    good_obs.to_csv(savepath, index=False)
     return good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram
 
 def flatten(d, parent_key='', sep='.'):
@@ -261,54 +314,69 @@ def create_checks_dataframes(OBs, exception_fields):
 
     run_safety_valves = True
     if run_safety_valves:
-        # Safety valve for missing required fields
-        if 'schedule.num_intranight_cadence' in value_df.columns:
-            value_df['schedule.num_intranight_cadence'] = value_df['schedule.num_intranight_cadence'].fillna(0)
-            presence_df['schedule.num_intranight_cadence'] = presence_df['schedule.num_intranight_cadence'] | value_df['schedule.num_intranight_cadence'].notna()
-        else:
-            value_df['schedule.num_intranight_cadence'] = 0
-            presence_df['schedule.num_intranight_cadence'] = True
+        # Define default values for safety valves
+        safety_valve_defaults = {
+            'schedule.num_intranight_cadence': 0,
+            'schedule.desired_num_visits_per_night': 1,
+            'schedule.minimum_num_visits_per_night': 0,  # Will be overridden by special logic below
+            'target.gaia_id': 'NoGaiaName',
+            'observation.exp_meter_threshold': -1.0,
+            'schedule.minimum_elevation': 33,
+            'schedule.minimum_moon_separation': 33,
+            'schedule.weather_band_1': True,
+            'schedule.weather_band_2': True,
+            'schedule.weather_band_3': False,
+            'target.t_eff': -1000.0,
+        }
+        
+        # Apply safety valves using a loop
+        for col_name, default_value in safety_valve_defaults.items():
+            if col_name not in value_df.columns:
+                # Column doesn't exist, create it with default value
+                value_df[col_name] = default_value
+                presence_df[col_name] = True
+            else:
+                # Column exists, fill NaN values with default
+                value_df[col_name] = value_df[col_name].fillna(default_value)
+                # Also handle empty strings for string columns
+                if isinstance(default_value, str):
+                    value_df[col_name] = value_df[col_name].replace('', default_value)
+                presence_df[col_name] = presence_df[col_name] | value_df[col_name].notna()
+                
+        # Special case for fixing default ExpMeterThreshold
+        # Using default of 1.6, this is in MegaPhotons/A which gives SNR ~150
+        if 'observation.exp_meter_threshold' in value_df.columns:
+            value_df['observation.exp_meter_threshold'] = 1.6
 
-        if 'schedule.desired_num_visits_per_night' not in value_df.columns:
-            value_df['schedule.desired_num_visits_per_night'] = 1
-            presence_df['schedule.desired_num_visits_per_night'] = True
-        else:
-            value_df['schedule.desired_num_visits_per_night'] = 1
-            presence_df['schedule.desired_num_visits_per_night'] = True
-
-        if 'schedule.minimum_num_visits_per_night' in value_df.columns:
-            if 'schedule.desired_num_visits_per_night' in value_df.columns:
+        # Special case for weather bands based on metadata.semid
+        if 'metadata.semid' in value_df.columns:
+            # Check for 2025B_E473 semid and set opposite weather band values
+            mask_2025B_E473 = value_df['metadata.semid'] == '2025B_E473'
+            if mask_2025B_E473.any():
+                # Set weather bands to opposite values for 2025B_E473
+                if 'schedule.weather_band_1' in value_df.columns:
+                    value_df.loc[mask_2025B_E473, 'schedule.weather_band_1'] = False
+                if 'schedule.weather_band_2' in value_df.columns:
+                    value_df.loc[mask_2025B_E473, 'schedule.weather_band_2'] = False
+                if 'schedule.weather_band_3' in value_df.columns:
+                    value_df.loc[mask_2025B_E473, 'schedule.weather_band_3'] = True
+        
+        # Special case: minimum_num_visits_per_night should use desired_num_visits_per_night if available
+        if 'schedule.desired_num_visits_per_night' in value_df.columns:
+            if 'schedule.minimum_num_visits_per_night' in value_df.columns:
+                # Fill NaN values in minimum with corresponding desired values
                 value_df['schedule.minimum_num_visits_per_night'] = value_df['schedule.minimum_num_visits_per_night'].fillna(value_df['schedule.desired_num_visits_per_night'])
-                presence_df['schedule.minimum_num_visits_per_night'] = presence_df['schedule.minimum_num_visits_per_night'] | value_df['schedule.minimum_num_visits_per_night'].notna()
             else:
-                value_df['schedule.minimum_num_visits_per_night'] = value_df['schedule.minimum_num_visits_per_night'].fillna(0)
-                presence_df['schedule.minimum_num_visits_per_night'] = presence_df['schedule.minimum_num_visits_per_night'] | value_df['schedule.minimum_num_visits_per_night'].notna()
-        else:
-            if 'schedule.desired_num_visits_per_night' in value_df.columns:
+                # Use desired values as minimum
                 value_df['schedule.minimum_num_visits_per_night'] = value_df['schedule.desired_num_visits_per_night']
-                presence_df['schedule.minimum_num_visits_per_night'] = value_df['schedule.minimum_num_visits_per_night'].notna()
-            else:
-                value_df['schedule.minimum_num_visits_per_night'] = 0
-                presence_df['schedule.minimum_num_visits_per_night'] = True
-
-        # New safety valve: if schedule.num_nights_per_semester == 1, set schedule.num_internight_cadence to 0
+            presence_df['schedule.minimum_num_visits_per_night'] = presence_df['schedule.minimum_num_visits_per_night'] | value_df['schedule.minimum_num_visits_per_night'].notna()
+        
+        # Special case: if schedule.num_nights_per_semester == 1, set schedule.num_internight_cadence to 0
         if 'schedule.num_nights_per_semester' in value_df.columns and 'schedule.num_internight_cadence' in value_df.columns:
             mask = value_df['schedule.num_nights_per_semester'] == 1
             value_df.loc[mask, 'schedule.num_internight_cadence'] = 0
             presence_df.loc[mask, 'schedule.num_internight_cadence'] = True
 
-        # Safety valve: if target.teff is missing, assign 0
-        if 'target.teff' not in value_df.columns:
-            value_df['target.t_eff'] = 0
-            presence_df['target.t_eff'] = True
-
-        # Safety valve: if target.gaia_id is missing or empty, assign 'NoGaiaName'
-        if 'target.gaia_id' not in value_df.columns:
-            value_df['target.gaia_id'] = 'NoGaiaName'
-            presence_df['target.gaia_id'] = True
-        else:
-            value_df['target.gaia_id'] = value_df['target.gaia_id'].fillna('NoGaiaName').replace('', 'NoGaiaName')
-            presence_df['target.gaia_id'] = presence_df['target.gaia_id'] | value_df['target.gaia_id'].notna()
 
     # Create masks considering the exception fields
     def row_is_good(row):
@@ -332,23 +400,22 @@ def create_checks_dataframes(OBs, exception_fields):
     return value_df, presence_df, all_true_mask
 
 def cast_columns(df):
-
-    type_dict = {'observation.exposure_time':'Int64',
-                'observation.num_exposures':'Int64',
-                'schedule.num_internight_cadence':'Int64',
-                'schedule.num_intranight_cadence':'Float64',
-                'schedule.num_nights_per_semester':'Int64',
-                'schedule.minimum_num_visits_per_night':'Int64',
-                'schedule.desired_num_visits_per_night':'Int64',
-                }
-
+    """
+    Cast columns to their appropriate data types based on the column_definitions dictionary.
+    """
     df = df.copy()
-    for col, dtype in type_dict.items():
+    for col, col_info in column_definitions.items():
         if col in df.columns:
+            dtype = col_info['type']
             if dtype in ['Int64', 'Float64']:
                 df[col] = pd.to_numeric(df[col], errors='coerce').astype(dtype)
+            elif dtype == 'string':
+                df[col] = df[col].astype('string')
+            elif dtype == 'boolean':
+                # Convert to boolean, handling various representations
+                df[col] = df[col].astype('boolean')
             else:
-                raise ValueError(f"Unsupported dtype: {dtype}. Only 'Int64' and 'Float64' are allowed.")
+                raise ValueError(f"Unsupported dtype: {dtype}. Only 'Int64', 'Float64', 'string', and 'boolean' are allowed.")
     return df
 
 def sort_good_bad(OBs, awarded_programs):
@@ -373,53 +440,10 @@ def sort_good_bad(OBs, awarded_programs):
     good_OBs_awarded.reset_index(inplace=True, drop='True')
     
 
-    columns_to_keep = [
-        '_id',
-        'metadata.semid',
-        'target.target_name',
-        'target.ra',
-        'target.dec',
-        'observation.exposure_time',
-        'observation.num_exposures',
-        'schedule.num_nights_per_semester',
-        'schedule.num_internight_cadence',
-        'schedule.desired_num_visits_per_night',
-        'schedule.minimum_num_visits_per_night',
-        'schedule.num_intranight_cadence',
-        'schedule.weather_band',
-        'target.gaia_id',
-        'target.t_eff',
-        'target.j_mag',
-        'target.g_mag',
-        'target.pm_ra',
-        'target.pm_dec',
-        'target.epoch',
-    ]
-
-    new_column_names = {
-        '_id':'unique_id',
-        'metadata.semid':'program_code',
-        'target.target_name':'starname',
-        'target.ra':'ra',
-        'target.dec':'dec',
-        'observation.exposure_time':'exptime',
-        'observation.num_exposures':'n_exp',
-        'schedule.num_nights_per_semester':'n_inter_max',
-        'schedule.num_internight_cadence':'tau_inter',
-        'schedule.desired_num_visits_per_night':'n_intra_max',
-        'schedule.minimum_num_visits_per_night':'n_intra_min',
-        'schedule.num_intranight_cadence':'tau_intra',
-        'schedule.weather_band':'weather_band',
-        'target.gaia_id':'gaia_id',
-        'target.t_eff':'teff',
-        'target.j_mag':'jmag',
-        'target.g_mag':'gmag',
-        'target.pm_ra':'pmra',
-        'target.pm_dec':'pmdec',
-        'target.epoch':'epoch',
-    }
-
-    trimmed_good = good_OBs_awarded[columns_to_keep].rename(columns=new_column_names)
+    # Create column mapping from column_definitions
+    new_column_names = {col: col_info['new_name'] for col, col_info in column_definitions.items()}
+    
+    trimmed_good = good_OBs_awarded[list(column_definitions.keys())].rename(columns=new_column_names)
     trimmed_good.columns.values[9] = 'n_intra_max'
 
     ra_list = trimmed_good['ra'].astype(str).tolist()
@@ -465,6 +489,21 @@ def sort_good_bad(OBs, awarded_programs):
     trimmed_good['dec'] = coords.dec.deg
 
     return trimmed_good, bad_OBs_values, bad_OBs_hasFields
+
+def recompute_exposure_times(request_frame, slowdown_factor):
+    """
+    Recompute the exposure times for the request frame based on the band number slowdown factor.
+    """
+    new_exptimes = []
+    for i in range(len(request_frame)):
+        # Using Teff = 5800 and V=10, the KPF ETC predicts time to achieve  SNR=120 @ 604 nm is 307 seconds. We use this as scaling time.
+        # At SNR=120, the corresponding ExpMeterThreshold is 1.0 MegaPhotons/A. 
+        # See this website for more details: https://www2.keck.hawaii.edu/inst/kpf/expmetertermination/
+        t0 = 307.0 
+        nominal_exptime = t0*request_frame['exp_meter_threshold'][i]
+        final_time = min([nominal_exptime*slowdown_factor, request_frame['exptime'][i]])
+        new_exptimes.append(final_time)
+    return new_exptimes
 
 def analyze_bad_obs(trimmed_good, bad_OBs_values, bad_OBs_hasFields, awarded_programs,exception_fields=exception_fields):
     """
@@ -625,3 +664,72 @@ Jack
 #         badparams=reasons
 #     )
 #     return email_address, email_body
+
+def filter_request_csv(request_df, weather_band_num):
+    """
+    Filter request.csv file to only keep rows where weather_band_X = True
+    
+    Args:
+        request_file_path (str): Path to the request.csv file
+        weather_band_num (int): Weather band number to filter by
+        
+    Returns:
+        bool: True if filtering was successful, False otherwise
+    """
+    weather_band_col = f'weather_band_{weather_band_num}'
+    
+    if weather_band_col in request_df.columns:
+        filtered_df = request_df[request_df[weather_band_col] == True]
+    else:
+        print(f'Warning: Column {weather_band_col} not found in request.csv. No filtering applied.')
+    return filtered_df
+    
+def update_allocation_file(allocation_df, current_date):
+    """
+    Update allocation.csv file with today's 12-degree twilight times
+    
+    Args:
+        allocation_file_path (str): Path to the allocation.csv file
+        current_date (str): Current date in YYYY-MM-DD format
+        
+    Returns:
+        bool: True if update was successful, False otherwise
+    """
+    date_exists = False
+    date_idx = -1
+    
+    # Check if current date exists in allocation file
+    for idx, row in allocation_df.iterrows():
+        row_date = str(row['start'])[:10]  # Get YYYY-MM-DD portion
+        if row_date == current_date:
+            date_exists = True
+            date_idx = idx
+            break
+    
+    # Get 12-degree twilight times for current date
+    observatory = 'Keck Observatory'
+    keck = apl.Observer.at_site(observatory)
+    day = Time(current_date, format='isot', scale='utc')
+    
+    evening_12 = keck.twilight_evening_nautical(day, which='next')
+    morning_12 = keck.twilight_morning_nautical(day, which='next')
+    
+    if not date_exists:
+        print(f'Adding allocation row for current_day: {current_date}')
+        # Add new row at the bottom
+        new_row = pd.DataFrame({
+            'start': [evening_12.strftime('%Y-%m-%dT%H:%M')],
+            'stop': [morning_12.strftime('%Y-%m-%dT%H:%M')]
+        })
+        allocation_df = pd.concat([allocation_df, new_row], ignore_index=True)
+        allocation_df.loc[len(allocation_df)-1, 'comment'] = 'added as part of full-band processing'
+        print(f'Added allocation: {evening_12.iso} to {morning_12.iso}')
+    else:
+        print(f'Updating existing allocation row for current_day: {current_date}')
+        # Update existing row
+        allocation_df.loc[date_idx, 'start'] = evening_12.strftime('%Y-%m-%dT%H:%M')
+        allocation_df.loc[date_idx, 'stop'] = morning_12.strftime('%Y-%m-%dT%H:%M')
+        allocation_df.loc[date_idx, 'comment'] = 'added as part of full-band processing'
+        print(f'Updated allocation: {evening_12.iso} to {morning_12.iso}')
+    
+    return allocation_df
