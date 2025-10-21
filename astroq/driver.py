@@ -74,6 +74,8 @@ def kpfcc_prep(args):
     print(f'kpfcc_prep function: config_file is {cf}')
     config = ConfigParser()
     config.read(cf)
+    band_number = args.band_number
+    is_full_band = args.is_full_band
 
     # Get workdir from global section
     workdir = str(config.get('global', 'workdir'))
@@ -82,61 +84,108 @@ def kpfcc_prep(args):
     semester = str(config.get('global', 'semester'))
     start_date = str(config.get('global', 'semester_start_day'))
     end_date = str(config.get('global', 'semester_end_day'))
+    current_date = str(config.get('global', 'current_day'))
     start = datetime.strptime(start_date, "%Y-%m-%d")
     end = datetime.strptime(end_date, "%Y-%m-%d")
     n_days = (end - start).days
 
-    # First capture the allocation info
+
+    # CAPTURE ALLOCATION INFORMATION AND PROCESS
+    # --------------------------------------------
+    # --------------------------------------------
     allo_source = args.allo_source
     allocation_file = str(config.get('data', 'allocation_file'))
+    # pull the allocation 
     if allo_source == 'db':
         print(f'Pulling allocation information from database')
-        hours_by_program = ob.pull_allocation_info(start_date, n_days, 'KPF-CC', savepath+allocation_file)
+        allocation_frame, hours_by_program, nights_by_program = ob.pull_allocation_info(start_date, n_days, 'KPF-CC')
         awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())] 
     else:
         print(f'Using allocation information from file: {allo_source}')
-        hours_by_program = ob.format_keck_allocation_info(allo_source, savepath+allocation_file)
+        allocation_frame, hours_by_program, nights_by_program = ob.format_keck_allocation_info(allo_source)
         awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())]
-    
-    # Check if current_day exists in allocation file, add if missing    
-    allocation_df = pd.read_csv(savepath+allocation_file)
-    current_day_str = str(config.get('global', 'current_day'))
-    
-    # Check if any row's date matches current_day
-    date_exists = False
-    for idx, row in allocation_df.iterrows():
-        row_date = str(row['start'])[:10]  # Get YYYY-MM-DD portion
-        if row_date == current_day_str:
-            date_exists = True
-            break
-    
-    if not date_exists:
-        print(f"Adding allocation row for current_day: {current_day_str}")
-        # Get 12-degree twilight times for current_day
-        observatory = config.get('global', 'observatory')
-        keck = apl.Observer.at_site(observatory)
-        day = Time(current_day_str, format='isot', scale='utc')
-        
-        evening_12 = keck.twilight_evening_nautical(day, which='next')
-        morning_12 = keck.twilight_morning_nautical(day, which='next')
-        
-        # Add new row at the bottom
-        new_row = pd.DataFrame({
-            'start': [evening_12.strftime('%Y-%m-%dT%H:%M')],
-            'stop': [morning_12.strftime('%Y-%m-%dT%H:%M')]
-        })
-        allocation_df = pd.concat([allocation_df, new_row], ignore_index=True)
-        allocation_df.to_csv(savepath+allocation_file, index=False)
-        print(f"Added allocation: {evening_12.iso} to {morning_12.iso}")
+    allocation_frame['comment'] = [''] * len(allocation_frame)
+    # Update allocation times for tonight if this is a full-band
+    if is_full_band:
+        print("Updating allocation.csv for full-band")
+        allocation_frame = ob.update_allocation_file(allocation_frame, current_date)
+    allocation_frame.sort_values(by='start', inplace=True)
+    allocation_frame.to_csv(savepath+allocation_file, index=False)
+    # Output the nights by program
+    programmatics = pd.DataFrame({'program': awarded_programs, 'hours': list(hours_by_program.values()), 'nights': list(nights_by_program.values())})
+    programmatics.to_csv(savepath + 'programs.csv', index=False)
 
-    # Next get the request sheet
+    # CAPTURE REQUEST INFORMATION AND PROCESS
+    # --------------------------------------------
+    # --------------------------------------------
+    # Add filler programs if specified
+    fillers = args.filler_programs
+    # temporarily comment out this block for 2025B.
+    if fillers is not None:
+        print(f'Adding filler program to awarded_programs: {fillers}')
+        awarded_programs.append(fillers)
+    # Pull the request sheet
     request_file = str(config.get('data', 'request_file'))
     OBs = ob.pull_OBs(semester)
     good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram = ob.get_request_sheet(OBs, awarded_programs, savepath + request_file)
+    # Filter the request sheet by weather band
+    filtered_good_obs = ob.filter_request_csv(good_obs, band_number)
+    # If no exposure meter threshold set, then OB can only be part of band 1
+    if band_number != 1:
+        filtered_good_obs = filtered_good_obs[filtered_good_obs['exp_meter_threshold'] != -1.0]
+    filtered_good_obs.reset_index(drop=True, inplace=True)
+    # Compute nominal exposure times and increase exposure times for different bands
+    slowdown_factors = {1: 1.0, 2: 2.0, 3: 4.0}
+    slow = slowdown_factors[band_number]
+    # new_exptimes = ob.recompute_exposure_times(filtered_good_obs, slow)
+    # filtered_good_obs['exptime'] = new_exptimes
+    filtered_good_obs.to_csv(savepath + request_file, index=False)
     
+    # CAPTURE CUSTOM INFORMATION AND PROCESS
+    # --------------------------------------------
+    # --------------------------------------------
     custom_file = str(config.get('data', 'custom_file'))
-    ob.format_custom_csv(OBs, savepath + custom_file)
-    
+    custom_frame = ob.format_custom_csv(OBs)
+    custom_frame.to_csv(savepath + custom_file, index=False)
+
+
+    # CAPTURE FILLER REQUEST INFORMATION AND PROCESS
+    # --------------------------------------------
+    # --------------------------------------------
+    # Now get the bright backup stars information from the filler program
+    filler_file = str(config.get('data', 'filler_file'))
+    if fillers is not None:
+        print(f'Generating filler.csv from program: {fillers}')
+        good_obs_backup, bad_obs_values_backup, bad_obs_hasFields_backup, bad_obs_count_by_semid_backup, bad_field_histogram_backup = ob.get_request_sheet(OBs, [fillers], savepath + filler_file)
+    else:
+        print(f'No fillers specified, creating blank filler.csv file.')
+        good_obs_backup = pd.DataFrame(columns=good_obs.columns)
+    filtered_good_obs_backup = ob.filter_request_csv(good_obs_backup, band_number)
+    filtered_good_obs_backup.to_csv(savepath + filler_file, index=False)
+
+    # if band_number == 3:
+    #     print(f'Temporarily swapping the request.csv with filler.csv, just for band 3 and just for 2025B.')
+    #     filtered_good_obs_backup.to_csv(savepath + request_file, index=False)
+
+
+    # CAPTURE PAST HISTORY INFORMATION AND PROCESS
+    # --------------------------------------------
+    # --------------------------------------------
+    past_source = args.past_source
+    past_file = str(config.get('data', 'past_file'))
+    if past_source == 'db':
+        print(f'Pulling past history information from database')
+        raw_history = hs.pull_OB_histories(semester)
+        obhist = hs.write_OB_histories_to_csv(raw_history)
+    else:
+        print(f'Using past history information from file: {past_source}')
+        obhist = hs.write_OB_histories_to_csv_JUMP(good_obs, past_source)
+    obhist.to_csv(savepath + past_file, index=False)
+
+
+    # CAPTURE EMAIL INFORMATION AND PROCESS
+    # --------------------------------------------
+    # --------------------------------------------
     send_emails_with = []
     for i in range(len(bad_obs_values)):
         if bad_obs_values['metadata.semid'][i] in awarded_programs:
@@ -144,26 +193,6 @@ def kpfcc_prep(args):
     '''
     this is where code to automatically send emails will go. Not implemented yet.
     '''
-
-    # Now get the bright backup stars information from the designated program code
-    filler_file = str(config.get('data', 'filler_file'))
-    try:
-        band3_program_code = args.band3_program_code
-        good_obs_backup, bad_obs_values_backup, bad_obs_hasFields_backup, bad_obs_count_by_semid_backup, bad_field_histogram_backup = ob.get_request_sheet(OBs, [band3_program_code], savepath + filler_file)
-    except:
-        print(f'No band3 program code provided, creating a blank filler.csv file.')
-        pd.DataFrame(columns=good_obs.columns).to_csv(savepath + filler_file, index=False)
-
-    # Next get the past history 
-    past_source = args.past_source
-    past_file = str(config.get('data', 'past_file'))
-    if past_source == 'db':
-        print(f'Pulling past history information from database')
-        raw_history = hs.pull_OB_histories(semester)
-        obhist = hs.write_OB_histories_to_csv(raw_history, savepath + past_file)
-    else:
-        print(f'Using past history information from file: {past_source}')
-        obhist = hs.write_OB_histories_to_csv_JUMP(good_obs, past_source, savepath + past_file)
 
     return
 
@@ -198,9 +227,8 @@ def plot(args):
     config.read(cf)
     semester_directory = config.get('global', 'workdir')
 
-    if os.path.exists(semester_directory + '/outputs/semester_planner.pkl'):
-        with open(semester_directory + '/outputs/semester_planner.pkl', 'rb') as f:
-            semester_planner = pickle.load(f)
+    if os.path.exists(semester_directory + '/outputs/semester_planner.h5'):
+        semester_planner = SemesterPlanner.from_hdf5(semester_directory + '/outputs/semester_planner.h5')
         saveout = semester_planner.output_directory + "/saved_plots/"
         os.makedirs(saveout, exist_ok = True)
         
@@ -234,18 +262,25 @@ def plot(args):
         with open(os.path.join(saveout, "all_programs_tau_inter_line.html"), "w") as f:
             f.write(fig_tau_inter_line_html)
     else:
-        print(f'No semester_planner.pkl found in {semester_directory}/outputs/. No plots will be generated.')
+        print(f'No semester_planner.h5 found in {semester_directory}/outputs/. No plots will be generated.')
 
     if os.path.exists(semester_directory + '/outputs/night_planner.pkl'):
         with open(semester_directory + '/outputs/night_planner.pkl', "rb") as f:
             night_planner = pickle.load(f)
         data_ttp = night_planner.solution
+        
+        # Get the night start time from allocation file (this is "Minute 0")
+        from astroq.nplan import get_nightly_times_from_allocation
+        night_start_time, _ = get_nightly_times_from_allocation(
+            night_planner.allocation_file, 
+            night_planner.current_day
+        )
 
         # build the plots
         script_table_df = pl.get_script_plan(night_planner)
         ladder_fig = pl.get_ladder(data_ttp)
         slew_animation_figures = pl.get_slew_animation(data_ttp, animationStep=120)
-        slew_path_fig = pl.plot_path_2D_interactive(data_ttp)
+        slew_path_fig = pl.plot_path_2D_interactive(data_ttp, night_start_time=night_start_time)
 
         # write the html versions 
         script_table_html = pl.dataframe_to_html(script_table_df)
@@ -289,19 +324,15 @@ def ttp(args):
     # Use the new NightPlanner class for object-oriented night planning
     night_planner = nplan.NightPlanner(cf)
     night_planner.run_ttp()
-    # --- Save night_planner to pickle file ---
-    planner_pickle_path = os.path.join(night_planner.output_directory, 'night_planner.pkl')
+   
+    # # --- Save night_planner to pickle file ---
+    # planner_pickle_path = os.path.join(night_planner.output_directory, 'night_planner.pkl')
+    # with open(planner_pickle_path, 'wb') as f:
+    #     pickle.dump(night_planner, f)
     
-    # # Create a copy of self without unpicklable objects
-    # planner_copy = type(self).__new__(type(self))
-    # for attr_name, attr_value in self.__dict__.items():
-    #     # Skip Gurobi model and variables which can't be pickled
-    #     if attr_name in ['model', 'Yrds', 'Wrd', 'theta']:
-    #         continue
-    #     setattr(planner_copy, attr_name, attr_value)
+    # --- Save night_planner to HDF5 file ---
+    night_planner.to_hdf5()
     
-    with open(planner_pickle_path, 'wb') as f:
-        pickle.dump(night_planner, f)
     return
 
 def requests_vs_schedule(args):

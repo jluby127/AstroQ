@@ -22,8 +22,11 @@ from socket import gethostname
 import astroq.nplan as nplan
 import astroq.plot as pl
 import astroq.splan as splan
+from astroq.splan import SemesterPlanner
+from astroq.nplan import NightPlanner
+from astroq.nplan import get_nightly_times_from_allocation
 
-running_on_keck_machines = False
+running_on_keck_machines = True
 
 app = Flask(__name__, template_folder="../templates")
 
@@ -36,22 +39,23 @@ uptree_path = None
 
 def load_data_for_path(semester_code, date, band, uptree_path):
     """Load data for a specific semester_code/date/band combination"""
-    global data_astroq, data_ttp, semester_planner, night_planner
+    global data_astroq, data_ttp, semester_planner, night_planner, request_frame_path, night_start_time
     
     # Construct the workdir path based on URL parameters
     workdir = f"{uptree_path}/{semester_code}/{date}/{band}/outputs/"
+    request_frame_path = os.path.join(workdir, 'request_selected.csv')
     
     # Check if the directory exists
     if not os.path.exists(workdir):
         return False, f"Directory not found: {workdir}"
     
-    semester_planner_pkl = os.path.join(workdir, 'semester_planner.pkl')
-    night_planner_pkl = os.path.join(workdir, 'night_planner.pkl')
-    
+    semester_planner_h5 = os.path.join(workdir, 'semester_planner.h5')
+    # night_planner_pkl = os.path.join(workdir, 'night_planner.pkl')
+    night_planner_h5 = os.path.join(workdir, 'night_planner.h5')
+
     # Load semester planner
     try:
-        with open(semester_planner_pkl, 'rb') as f:
-            semester_planner = pickle.load(f)
+        semester_planner = SemesterPlanner.from_hdf5(semester_planner_h5)
         data_astroq = pl.process_stars(semester_planner)
     except Exception as e:
         semester_planner = None
@@ -60,10 +64,19 @@ def load_data_for_path(semester_code, date, band, uptree_path):
     
     # Load night planner (optional)
     try:
-        with open(night_planner_pkl, 'rb') as f:
-            night_planner = pickle.load(f)
-            data_ttp = night_planner.solution
-    except:
+        print(night_planner_h5)
+        night_planner = NightPlanner.from_hdf5(night_planner_h5)
+        data_ttp = night_planner.solution
+
+        # Get the night start time from allocation file (this is "Minute 0")
+        night_start_time, _ = get_nightly_times_from_allocation(
+            night_planner.allocation_file, 
+            night_planner.current_day
+        )
+    except Exception as e:
+        print(f"Error loading night planner: {e}")
+        import traceback
+        traceback.print_exc()
         night_planner = None
         data_ttp = None
     
@@ -146,13 +159,15 @@ def render_admin_page():
     fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], list(data_astroq[1].values()))
     fig_football = pl.get_football(semester_planner, all_stars_from_all_programs, use_program_colors=True)
     fig_tau_inter_line = pl.get_tau_inter_line(semester_planner, all_stars_from_all_programs, use_program_colors=True)
+    fig_timepie = pl.get_timepie(semester_planner, all_stars_from_all_programs, use_program_colors=True)
 
     fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
     fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
     fig_football_html = pio.to_html(fig_football, full_html=True, include_plotlyjs='cdn')
     fig_tau_inter_line_html = pio.to_html(fig_tau_inter_line, full_html=True, include_plotlyjs='cdn')
-    
-    figures_html = [fig_cof_html, fig_birdseye_html, fig_tau_inter_line_html, fig_football_html]
+    fig_timepie_html = pio.to_html(fig_timepie, full_html=True, include_plotlyjs='cdn')
+
+    figures_html = [fig_timepie_html, fig_cof_html, fig_birdseye_html, fig_tau_inter_line_html, fig_football_html]
 
     return render_template("admin.html", tables_html=[request_table_html], figures_html=figures_html)
 
@@ -176,13 +191,15 @@ def render_program_page(semester_code, date, band, program_code):
     fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], program_stars)
     fig_tau_inter_line = pl.get_tau_inter_line(semester_planner, program_stars)
     fig_football = pl.get_football(semester_planner, program_stars)
+    fig_timepie = pl.get_timepie(semester_planner, program_stars, use_program_colors=True)
 
     fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
     fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
     fig_tau_inter_line_html = pio.to_html(fig_tau_inter_line, full_html=True, include_plotlyjs='cdn')
     fig_football_html = pio.to_html(fig_football, full_html=True, include_plotlyjs='cdn')
+    fig_timepie_html = pio.to_html(fig_timepie, full_html=True, include_plotlyjs='cdn')
 
-    figures_html = [fig_cof_html, fig_birdseye_html, fig_tau_inter_line_html, fig_football_html]
+    figures_html = [fig_timepie_html, fig_cof_html, fig_birdseye_html, fig_tau_inter_line_html, fig_football_html]
     
     return render_template("semesterplan.html", 
                          programname=program_code, 
@@ -233,35 +250,19 @@ def render_nightplan_page():
         return "Error: No night planner data available", 404
     
     plots = ['script_table', 'slewgif', 'ladder', 'slewpath']
-
+    
     script_table_df = pl.get_script_plan(night_planner)
     ladder_fig = pl.get_ladder(data_ttp)
-    slew_animation_figures = pl.get_slew_animation(data_ttp, animationStep=120)
-    slew_path_fig = pl.plot_path_2D_interactive(data_ttp)
+    slew_animation_fig = pl.get_slew_animation_plotly(data_ttp, request_frame_path, animationStep=120)
+    slew_path_fig = pl.plot_path_2D_interactive(data_ttp, night_start_time=night_start_time)
     
     # Convert dataframe to HTML with unique table ID
     # Sort by starname (index 2) for better readability
     script_table_html = pl.dataframe_to_html(script_table_df, sort_column=0, page_size=100, table_id='script-table')
     # Convert figures to HTML
     ladder_html = pio.to_html(ladder_fig, full_html=True, include_plotlyjs='cdn')
+    slew_animation_html = pio.to_html(slew_animation_fig, full_html=True, include_plotlyjs='cdn')
     slew_path_html = pio.to_html(slew_path_fig, full_html=True, include_plotlyjs='cdn')
-    
-    # Convert matplotlib figures to GIF and then to HTML
-    gif_frames = []
-    for fig in slew_animation_figures:
-        buf = BytesIO()
-        fig.savefig(buf, format='png', dpi=100)
-        buf.seek(0)
-        gif_frames.append(iio.imread(buf))
-        buf.close()
-    
-    gif_buf = BytesIO()
-    iio.imwrite(gif_buf, gif_frames, format='gif', loop=0, duration=0.3)
-    gif_buf.seek(0)
-    
-    gif_base64 = base64.b64encode(gif_buf.getvalue()).decode('utf-8')
-    slew_animation_html = f'<img src="data:image/gif;base64,{gif_base64}" alt="Observing Animation"/>'
-    gif_buf.close()
     
     figure_html_list = [script_table_html, ladder_html, slew_animation_html, slew_path_html]
 

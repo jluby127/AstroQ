@@ -25,6 +25,7 @@ from astropy.time import Time, TimeDelta
 # Local imports
 import astroq.access as ac
 import astroq.io as io
+from astroq.splan import SemesterPlanner
 
 # TTP imports (assuming TTP is installed separately)
 import ttp.formatting as formatting
@@ -85,7 +86,6 @@ class NightPlanner(object):
         else:
             self.filler_file = os.path.join(self.semester_directory, filler_file_config)
 
-        
         # Set up custom file path from data section
         custom_file_config = str(config.get('data', 'custom_file'))
         if os.path.isabs(custom_file_config):
@@ -97,10 +97,9 @@ class NightPlanner(object):
         config = ConfigParser()
         config.read(config_file)
         workdir = str(config.get('global', 'workdir')) + "/outputs/"
-        semester_planner_pkl = os.path.join(workdir, 'semester_planner.pkl')
-        
-        with open(semester_planner_pkl, 'rb') as f:
-            self.semester_planner = pickle.load(f)
+
+        semester_planner_h5 = os.path.join(workdir, 'semester_planner.h5')
+        self.semester_planner = SemesterPlanner.from_hdf5(semester_planner_h5)
         
         # Pull properties from SemesterPlanner for consistency
         self.semester_start_date = self.semester_planner.semester_start_date
@@ -124,15 +123,28 @@ class NightPlanner(object):
 
         observatory = telescope.Keck1()
         # Get start/stop times from allocation file
-        observation_start_time, observation_stop_time = get_nightly_times_from_allocation(self.allocation_file, self.current_day)
-        total_time = np.round((observation_stop_time.jd-observation_start_time.jd)*24,3)
-        print("Time in Night for Observations: " + str(total_time) + " hours.")
+        try:
+            observation_start_time, observation_stop_time = get_nightly_times_from_allocation(self.allocation_file, self.current_day)
+            total_time = np.round((observation_stop_time.jd-observation_start_time.jd)*24,3)
+            print("Time in Night for Observations: " + str(total_time) + " hours.")
+        except ValueError as e:
+            print(f"No allocation times found for date {self.current_day}. Not running TTP. No night_planner.pkl file will be created.")
+            return
 
         # Use only request_selected.csv as the source of scheduled targets
         selected_path = os.path.join(self.output_directory, 'request_selected.csv')
         if not os.path.exists(selected_path):
             raise FileNotFoundError(f"{selected_path} not found. Please run the scheduler first.")
         selected_df = pd.read_csv(selected_path)
+        if len(selected_df) == 0:
+            print(f"No targets found in {selected_path}. Not running TTP. No night_planner.pkl file will be created.")
+            return
+
+        # Add the first and last available columns to the selected_df for use by the TTP
+        first_available, last_available = self.get_first_last_indices(selected_df)
+        selected_df['first_available'] = first_available
+        selected_df['last_available'] = last_available
+        
         # Fill NaN values with defaults --- for now in early 2025B since we had issues with the webform.c
         # Replace "None" strings with NaN first, then fill with defaults
         selected_df['n_intra_max'] = selected_df['n_intra_max'].replace('None', np.nan).fillna(1)
@@ -153,15 +165,21 @@ class NightPlanner(object):
             "Exposures Per Visit": selected_df["n_exp"],
             "Visits In Night": selected_df["n_intra_max"],
             "Intra_Night_Cadence": selected_df["tau_intra"],
-            "Priority": 10  # Default priority, or you can add logic if needed
+            "Priority": 10,  # Default priority, or you can add logic if needed
+            "First Available": selected_df["first_available"],
+            "Last Available": selected_df["last_available"],
         })
 
-        filename = os.path.join(self.output_directory, 'request_selected.txt')
+        filename = os.path.join(self.output_directory, 'ttp_prepared.csv')
         to_ttp.to_csv(filename, index=False)
-        target_list = formatting.theTTP(filename)
 
-        solution = model.TTPModel(observation_start_time, observation_stop_time, target_list,
-                                    observatory, observers_path, runtime=self.max_solve_time, optgap=self.max_solve_gap, useHighEl=False)
+        # target_list = formatting.theTTP(filename)
+        # solution = model.TTPModel(observation_start_time, observation_stop_time, target_list,
+        #                             observatory, observers_path, runtime=self.max_solve_time, optgap=self.max_solve_gap, useHighEl=False)
+
+        target_list = formatting.theTTP(filename, observatory, observation_start_time, observation_stop_time)
+        solution = model.TTPModel(target_list, observers_path, runtime=self.max_solve_time, optgap=self.max_solve_gap)
+
 
         gurobi_model_backup = solution.gurobi_model  # backup the attribute, probably don't need this
         del solution.gurobi_model                   # remove attribute so pickle works
@@ -206,6 +224,356 @@ class NightPlanner(object):
 
         return #save_data
 
+    def get_first_last_indices(self, selected_df):
+        """
+        Get the first and last available time slots for each target in selected_df.
+        
+        Args:
+            selected_df (pd.DataFrame): DataFrame containing selected targets with unique_id column
+            
+        Returns:
+            tuple: (first_available_list, last_available_list) - Lists of time strings in HH:MM format
+        """
+        # Get tonight's index from the all_dates_dict
+        tonight_index = self.all_dates_dict[self.current_day]
+        
+        # Get the access record from semester planner
+        access_record = self.semester_planner.access_record
+        
+        # Create mapping from unique_id to target index in the access record
+        # The access record was created from the original requests_frame, so we need to map
+        # selected_df targets back to their indices in the original requests_frame
+        target_to_index = {}
+        for idx, row in self.semester_planner.requests_frame.iterrows():
+            target_to_index[row['unique_id']] = idx
+        
+        # Initialize the new columns
+        first_available = []
+        last_available = []
+        
+        # For each target in selected_df, find first and last available slots tonight
+        for _, row in selected_df.iterrows():
+            target_id = row['unique_id']
+            
+            # Get the target's index in the access record
+            if target_id in target_to_index:
+                target_idx = target_to_index[target_id]
+                
+                # Get tonight's observability array for this target (shape: nslots)
+                tonight_observable = access_record.is_observable[target_idx, tonight_index, :]
+                
+                # Find first and last True indices
+                true_indices = np.where(tonight_observable)[0]
+                
+                if len(true_indices) > 0:
+                    first_slot = true_indices[0]
+                    last_slot = true_indices[-1]
+                    
+                    # Convert slot indices to time strings (assuming slot_size is in minutes)
+                    first_time_minutes = first_slot * self.semester_planner.slot_size
+                    last_time_minutes = last_slot * self.semester_planner.slot_size
+                    
+                    first_hour = first_time_minutes // 60
+                    first_minute = first_time_minutes % 60
+                    last_hour = last_time_minutes // 60
+                    last_minute = last_time_minutes % 60
+                    
+                    first_available.append(f"{self.current_day} {first_hour:02d}:{first_minute:02d}")
+                    last_available.append(f"{self.current_day} {last_hour:02d}:{last_minute:02d}")
+                else:
+                    # No available slots tonight
+                    first_available.append("N/A")
+                    last_available.append("N/A")
+            else:
+                # Target not found in original requests_frame
+                first_available.append("N/A")
+                last_available.append("N/A")
+        
+        return first_available, last_available
+
+    def to_hdf5(self, hdf5_path=None):
+        """
+        Save the NightPlanner object to an HDF5 file.
+        
+        Args:
+            hdf5_path (str, optional): Path to save the HDF5 file. 
+                                      If None, saves to output_directory/night_planner.h5
+        """
+        import h5py
+        import json
+        
+        if hdf5_path is None:
+            hdf5_path = os.path.join(self.output_directory, 'night_planner.h5')
+        
+        # Remove existing file if it exists
+        if os.path.exists(hdf5_path):
+            os.remove(hdf5_path)
+        
+        # Save solution data
+        if hasattr(self, 'solution') and self.solution is not None and len(self.solution) > 0:
+            solution = self.solution[0]
+            
+            # Save solution.extras (can be DataFrame or dict)
+            extras_is_dict = False
+            if hasattr(solution, 'extras') and solution.extras is not None:
+                if isinstance(solution.extras, pd.DataFrame):
+                    solution.extras.to_hdf(hdf5_path, key='solution_extras', mode='a', format='table')
+                elif isinstance(solution.extras, dict):
+                    # Save as DataFrame
+                    extras_df = pd.DataFrame(solution.extras)
+                    extras_df.to_hdf(hdf5_path, key='solution_extras', mode='a', format='table')
+                    extras_is_dict = True
+            
+            # Use h5py for the rest
+            with h5py.File(hdf5_path, 'a') as f:
+                # Save flag for extras type
+                f.attrs['extras_was_dict'] = extras_is_dict
+                
+                # Save solution.plotly dictionary as JSON
+                if hasattr(solution, 'plotly') and solution.plotly is not None:
+                    # Convert any numpy arrays in plotly to lists for JSON serialization
+                    plotly_serializable = {}
+                    for key, value in solution.plotly.items():
+                        if isinstance(value, np.ndarray):
+                            plotly_serializable[key] = value.tolist()
+                        elif isinstance(value, list):
+                            plotly_serializable[key] = value
+                        else:
+                            plotly_serializable[key] = str(value)
+                    f.attrs['solution_plotly_json'] = json.dumps(plotly_serializable)
+                
+                # Save solution.times (list of Time objects)
+                if hasattr(solution, 'times') and solution.times is not None:
+                    times_jd = np.array([t.jd for t in solution.times])
+                    f.create_dataset('solution_times_jd', data=times_jd)
+                
+                # Save solution.nightstarts and nightends (Time objects)
+                if hasattr(solution, 'nightstarts') and solution.nightstarts is not None:
+                    f.attrs['nightstarts_jd'] = solution.nightstarts.jd
+                
+                if hasattr(solution, 'nightends') and solution.nightends is not None:
+                    f.attrs['nightends_jd'] = solution.nightends.jd
+                
+                # Save solution.schedule dictionary as JSON
+                if hasattr(solution, 'schedule') and solution.schedule is not None:
+                    schedule_serializable = {}
+                    for key, value in solution.schedule.items():
+                        if isinstance(value, np.ndarray):
+                            schedule_serializable[key] = value.tolist()
+                        elif isinstance(value, list):
+                            schedule_serializable[key] = value
+                        else:
+                            schedule_serializable[key] = str(value)
+                    f.attrs['solution_schedule_json'] = json.dumps(schedule_serializable)
+                
+                # Save solution.stars (list of star objects with name and target attributes)
+                if hasattr(solution, 'stars') and solution.stars is not None:
+                    star_names = []
+                    star_ras = []
+                    star_decs = []
+                    for s in solution.stars:
+                        star_names.append(s.name)
+                        if hasattr(s, 'target') and s.target is not None:
+                            star_ras.append(s.target.ra.deg)
+                            star_decs.append(s.target.dec.deg)
+                        else:
+                            star_ras.append(np.nan)
+                            star_decs.append(np.nan)
+                    
+                    f.create_dataset('solution_star_names', data=np.array(star_names, dtype='S'))
+                    f.create_dataset('solution_star_ras', data=np.array(star_ras))
+                    f.create_dataset('solution_star_decs', data=np.array(star_decs))
+                
+                # Save solution.az_path and alt_path
+                if hasattr(solution, 'az_path') and solution.az_path is not None:
+                    f.create_dataset('solution_az_path', data=np.array(solution.az_path))
+                
+                if hasattr(solution, 'alt_path') and solution.alt_path is not None:
+                    f.create_dataset('solution_alt_path', data=np.array(solution.alt_path))
+                
+                # Save observatory object attributes (just the essential ones)
+                if hasattr(solution, 'observatory') and solution.observatory is not None:
+                    obs = solution.observatory
+                    observatory_data = {
+                        'name': getattr(obs, 'name', 'Unknown'),
+                        'wrapLimitAngle': getattr(obs, 'wrapLimitAngle', None),
+                    }
+                    f.attrs['observatory_json'] = json.dumps(observatory_data)
+        
+        # Save simple NightPlanner attributes
+        with h5py.File(hdf5_path, 'a') as f:
+            simple_attrs = {
+                'upstream_path': self.upstream_path,
+                'semester_directory': self.semester_directory,
+                'current_day': self.current_day,
+                'output_directory': self.output_directory,
+                'reports_directory': self.reports_directory,
+                'max_solve_gap': self.max_solve_gap,
+                'max_solve_time': self.max_solve_time,
+                'show_gurobi_output': self.show_gurobi_output,
+                'allocation_file': self.allocation_file,
+                'filler_file': self.filler_file,
+                'custom_file': self.custom_file,
+            }
+            
+            for key, value in simple_attrs.items():
+                if value is not None:
+                    f.attrs[key] = value
+            
+            # Save path to semester_planner.h5 file
+            semester_planner_h5_path = os.path.join(self.output_directory, 'semester_planner.h5')
+            f.attrs['semester_planner_h5_path'] = semester_planner_h5_path
+        
+        return hdf5_path
+
+    @classmethod
+    def from_hdf5(cls, hdf5_path):
+        """
+        Load a NightPlanner object from an HDF5 file.
+        
+        Args:
+            hdf5_path (str): Path to the HDF5 file
+            
+        Returns:
+            NightPlanner: Reconstructed NightPlanner object
+        """
+        import h5py
+        import json
+        
+        # Create a new instance without calling __init__
+        instance = cls.__new__(cls)
+        
+        # First check if solution_extras exists and load it if it does
+        # solution.extras might be a dict, so it may not have been saved
+        import tables
+        with tables.open_file(hdf5_path, 'r') as store:
+            if '/solution_extras' in store:
+                solution_extras_df = pd.read_hdf(hdf5_path, key='solution_extras')
+            else:
+                solution_extras_df = None
+        
+        # Reconstruct solution object (define outside the h5py block)
+        class SolutionContainer:
+            pass
+        
+        solution = SolutionContainer()
+        
+        with h5py.File(hdf5_path, 'r') as f:
+            # Load simple attributes
+            for key in ['upstream_path', 'semester_directory', 'current_day', 'output_directory',
+                       'reports_directory', 'max_solve_gap', 'max_solve_time', 'show_gurobi_output',
+                       'allocation_file', 'filler_file', 'custom_file']:
+                if key in f.attrs:
+                    setattr(instance, key, f.attrs[key])
+            
+            # Load semester_planner using its from_hdf5 method
+            if 'semester_planner_h5_path' in f.attrs:
+                semester_planner_h5_path = f.attrs['semester_planner_h5_path']
+                if os.path.exists(semester_planner_h5_path):
+                    instance.semester_planner = SemesterPlanner.from_hdf5(semester_planner_h5_path)
+                    
+                    # Pull properties from SemesterPlanner
+                    instance.semester_start_date = instance.semester_planner.semester_start_date
+                    instance.semester_length = instance.semester_planner.semester_length
+                    instance.all_dates_dict = instance.semester_planner.all_dates_dict
+                    instance.all_dates_array = instance.semester_planner.all_dates_array
+                    instance.today_starting_night = instance.semester_planner.today_starting_night
+                    instance.past_history = instance.semester_planner.past_history
+                    instance.slots_needed_for_exposure_dict = instance.semester_planner.slots_needed_for_exposure_dict
+                    instance.run_weather_loss = instance.semester_planner.run_weather_loss
+                else:
+                    print(f"Warning: semester_planner.h5 not found at {semester_planner_h5_path}")
+                    instance.semester_planner = None
+            
+            # Load solution.plotly from JSON
+            if 'solution_plotly_json' in f.attrs:
+                plotly_data = json.loads(f.attrs['solution_plotly_json'])
+                # Convert lists back to numpy arrays where appropriate
+                solution.plotly = {}
+                for key, value in plotly_data.items():
+                    if isinstance(value, list):
+                        solution.plotly[key] = np.array(value)
+                    else:
+                        solution.plotly[key] = value
+            
+            # Load solution.times
+            if 'solution_times_jd' in f:
+                times_jd = f['solution_times_jd'][:]
+                solution.times = [Time(jd, format='jd') for jd in times_jd]
+            
+            # Load solution.nightstarts and nightends
+            if 'nightstarts_jd' in f.attrs:
+                solution.nightstarts = Time(f.attrs['nightstarts_jd'], format='jd')
+            
+            if 'nightends_jd' in f.attrs:
+                solution.nightends = Time(f.attrs['nightends_jd'], format='jd')
+            
+            # Load solution.schedule
+            if 'solution_schedule_json' in f.attrs:
+                schedule_data = json.loads(f.attrs['solution_schedule_json'])
+                solution.schedule = {}
+                for key, value in schedule_data.items():
+                    if isinstance(value, list):
+                        solution.schedule[key] = np.array(value)
+                    else:
+                        solution.schedule[key] = value
+            
+            # Load solution.stars (reconstruct star objects with targets)
+            if 'solution_star_names' in f:
+                from astropy.coordinates import SkyCoord
+                import astropy.units as u
+                
+                star_names = [name.decode('utf-8') if isinstance(name, bytes) else name 
+                             for name in f['solution_star_names'][:]]
+                star_ras = f['solution_star_ras'][:] if 'solution_star_ras' in f else [np.nan] * len(star_names)
+                star_decs = f['solution_star_decs'][:] if 'solution_star_decs' in f else [np.nan] * len(star_names)
+                
+                # Create star objects with target SkyCoord
+                solution.stars = []
+                for name, ra, dec in zip(star_names, star_ras, star_decs):
+                    star = SolutionContainer()
+                    star.name = name
+                    if not np.isnan(ra) and not np.isnan(dec):
+                        star.target = SkyCoord(ra=ra*u.deg, dec=dec*u.deg)
+                    else:
+                        star.target = None
+                    solution.stars.append(star)
+            
+            # Load solution.az_path and alt_path
+            if 'solution_az_path' in f:
+                solution.az_path = f['solution_az_path'][:]
+            
+            if 'solution_alt_path' in f:
+                solution.alt_path = f['solution_alt_path'][:]
+            
+            # Load observatory
+            # Reconstruct the full telescope object instead of minimal container
+            if 'observatory_json' in f.attrs:
+                obs_data = json.loads(f.attrs['observatory_json'])
+                # Import telescope module and recreate the observatory
+                import sys
+                sys.path.append('/Users/jack/Documents/github/ttp/ttp/')
+                import telescope
+                # Recreate the Keck1 observatory object with all its methods and attributes
+                solution.observatory = telescope.Keck1()
+        
+        # Assign the pre-loaded extras to solution (convert back to dict if needed)
+        if solution_extras_df is not None:
+            # Check if it was originally a dict
+            with h5py.File(hdf5_path, 'r') as f:
+                extras_was_dict = f.attrs.get('extras_was_dict', False)
+            
+            if extras_was_dict:
+                solution.extras = solution_extras_df.to_dict('list')
+            else:
+                solution.extras = solution_extras_df
+        else:
+            solution.extras = {}
+        
+        instance.solution = [solution]
+        
+        return instance
+
 def get_nightly_times_from_allocation(allocation_file, current_day):
     """
     Extract start and stop times for a specific date from allocation.csv.
@@ -240,4 +608,5 @@ def get_nightly_times_from_allocation(allocation_file, current_day):
     latest_stop = max(stop_times)
     
     return earliest_start, latest_stop
+
         

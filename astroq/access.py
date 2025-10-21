@@ -26,16 +26,6 @@ DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')
 
 logs = logging.getLogger(__name__)
 
-# Define list of observatories which are currently supported.
-# To add an obseratory/telescope, add the Astroplan resolvable name to the list in generate_night_plan
-# Then add the same name to the appropriate element of the locations dictionary.
-# If necessary, add a location to the locations dictionary, if so, add the location to each of the
-# pre_sunrise and post_sunrise dictionaries. Ensure times are 14 hours apart, at least one hour
-# before the earliest sunset and one hour after the latest sunrise of the year.
-locations = {"Keck Observatory":"Hawaii", "Kitt Peak National Observatory":"Arizona"}
-pre_sunset = {'Hawaii':'03:30', 'Arizona':'05:00'}
-post_sunrise = {'Hawaii':'17:30', 'Arizona':'14:00'}
-
 class Access:
     """
     Access class that provides accessibility computation functionality.
@@ -122,9 +112,9 @@ class Access:
         # 2D mask (n targets, n slots))
         is_altaz0 = np.ones_like(alt0, dtype=bool)
         is_altaz0 &= ~((5.3 < az0 ) & (az0 < 146.2) & (alt0 < 33.3)) # remove nasymth deck
-        # remove min elevation for mid declination stars
-        ismiddec = ((-30 < targets.dec.deg) & (targets.dec.deg < 75))
-        fail = ismiddec[:,np.newaxis] & (alt0 < 30) # broadcast declination array
+        # remove min elevation using per-row minimum_elevation values for all stars
+        min_elevation = rf['minimum_elevation'].values  # Get per-row minimum elevation values
+        fail = alt0 < min_elevation[:, np.newaxis] # broadcast elevation array
         is_altaz0 &= ~fail
         # all stars must be between 18 and 85 deg
         fail = (alt0 < 18) | (alt0 > 85)
@@ -155,7 +145,9 @@ class Access:
             targets.ra.reshape(-1,1), targets.dec.reshape(-1,1),
             moon.ra.reshape(1,-1), moon.dec.reshape(1,-1),
         ) # (ntargets)
-        is_moon = is_moon & (ang_dist.to(u.deg) > 30*u.deg)[:, :, np.newaxis]
+        # Use per-row minimum_moon_separation values instead of hardcoded 30 degrees
+        min_moon_sep = rf['minimum_moon_separation'].values * u.deg  # Convert to degrees
+        is_moon = is_moon & (ang_dist.to(u.deg) > min_moon_sep[:, np.newaxis])[:, :, np.newaxis]
 
         is_custom = np.ones((ntargets, nnights, nslots), dtype=bool)
         # Handle case where custom file doesn't exist
