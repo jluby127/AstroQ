@@ -90,16 +90,21 @@ def index():
     url/{semester_code}/{date}/{band}/{page} 
     
     where:
-    - semester_code is 2025B (for example)
+    - semester_code is the four digit year and one letter semester
     - date is in format YYYY-MM-DD
-    - band is either band1 or band3
-    - page is one of the following: admin, star/{starname}, nightplan, or {program_code}
-    
+    - band is either band1, band2, or band3 (or full-band1, full-band2, or full-band3)
+    - page is one of the following: {program_code}, star/{starname}, nightplan, or admin
+
     Examples:
     - /2025B/2025-01-15/band1/admin
-    - /2025B/2025-01-15/band1/star/HD4614
     - /2025B/2025-01-15/band3/nightplan
+    - /2025B/2025-01-15/band1/star/HD4614
     - /2025B/2025-01-15/band1/2025B_N001 
+
+    Note: program_code contains the semester information. Correct: 2025B_N001, Incorrect: N001
+    Note: You only have access to the programs and stars for which you are a PI or named Co-I on the proposal coversheet.
+    Note: Access to nightplan pages is for observers.
+    Note: Access to admin pages is for the queue manager and observatory staff.
     """
     return render_template("homepage.html", navigation_text=navigation_text)
 
@@ -112,8 +117,8 @@ def dynamic_page(semester_code, date, band, page=None, starname=None, program_co
     global uptree_path
     
     # Validate parameters
-    if band not in ['band1', 'band3']:
-        abort(400, description="Band must be 'band1' or 'band3'")
+    if band not in ['band1', 'band2', 'band3', 'full-band1', 'full-band2', 'full-band3']:
+        abort(400, description="Band must be 'band1', 'band2', 'band3', 'full-band1', 'full-band2', or 'full-band3'")
     
     # Load data for this path
     success, message = load_data_for_path(semester_code, date, band, uptree_path)

@@ -705,14 +705,15 @@ def get_timepie(semester_planner, all_stars, use_program_colors=False):
     values = [total_past_hours, total_future_hours, total_incomplete_hours, total_allocated_hours-total_requested_hours]
     colors = ['#2E86AB', '#A23B72', '#F18F01', '#000000']  # Blue, Purple, Orange, Black
     
-    # Create the pie chart
+    # Create the pie chart positioned on the left side
     fig = go.Figure(data=[go.Pie(
         labels=labels,
         values=values,
         marker=dict(colors=colors),
         textinfo='label+percent+value',
         texttemplate='%{label}<br>%{value:.1f} hrs<br>(%{percent})',
-        hovertemplate='<b>%{label}</b><br>%{value:.2f} hours<br>%{percent}<extra></extra>'
+        hovertemplate='<b>%{label}</b><br>%{value:.2f} hours<br>%{percent}<extra></extra>',
+        domain=dict(x=[0, 0.5], y=[0, 1])  # Position pie chart on left half of plot
     )])
     
     # Adjust margin if there's a warning to display
@@ -723,8 +724,131 @@ def get_timepie(semester_planner, all_stars, use_program_colors=False):
         template='plotly_white',
         showlegend=False,
         height=600,
-        width=700,
+        width=1200,  # Wider to make room for text
         margin=dict(t=top_margin, b=50, l=50, r=50)
+    )
+    
+    # Add multiple annotations using update_layout
+    fig.update_layout(
+        annotations=[
+            dict(
+                text="Requested time is measured in hours. Allocated time is measured in nights.",
+                xref='paper', yref='paper',
+                x=0.55, y=0.99,
+                showarrow=False,
+                font=dict(size=11, color='black'),
+                xanchor='left',
+                yanchor='middle'
+            ),
+            dict(
+                text="Conversion is 12 hours per night.",
+                xref='paper', yref='paper',
+                x=0.55, y=0.96,
+                showarrow=False,
+                font=dict(size=11, color='black'),
+                xanchor='left',
+                yanchor='middle'
+            ),
+            dict(
+                text="All slices include exposure times and standard overheads.",
+                xref='paper', yref='paper',
+                x=0.55, y=0.8,
+                showarrow=False,
+                font=dict(size=11, color='black'),
+                xanchor='left',
+                yanchor='middle'
+            ),
+            dict(
+                text="<b>Completed:</b>",
+                xref='paper', yref='paper',
+                x=0.55, y=0.75,
+                showarrow=False,
+                font=dict(size=11, color='black'),
+                xanchor='left',
+                yanchor='middle'
+            ),
+            dict(
+                text="The sum time of the observations already obtained.",
+                xref='paper', yref='paper',
+                x=0.55, y=0.72,
+                showarrow=False,
+                font=dict(size=11, color='black'),
+                xanchor='left',
+                yanchor='middle'
+            ),
+            dict(
+                text="<b>Scheduled:</b>",
+                xref='paper', yref='paper',
+                x=0.55, y=0.65,
+                showarrow=False,
+                font=dict(size=11, color='black'),
+                xanchor='left',
+                yanchor='middle'
+            ),
+            dict(
+                text="The sum time of the forecasted observations.<br>",
+                xref='paper', yref='paper',
+                x=0.55, y=0.62,
+                showarrow=False,
+                font=dict(size=11, color='black'),
+                xanchor='left',
+                yanchor='middle'
+            ),
+            dict(
+                text="<b>Incomplete:</b>",
+                xref='paper', yref='paper',
+                x=0.55, y=0.55,
+                showarrow=False,
+                font=dict(size=11, color='black'),
+                xanchor='left',
+                yanchor='middle'
+            ),
+            dict(
+                text="The sum time of infeasible observations.<br>",
+                xref='paper', yref='paper',
+                x=0.55, y=0.52,
+                showarrow=False,
+                font=dict(size=11, color='black'),
+                xanchor='left',
+                yanchor='middle'
+            ),
+            dict(
+                text="This is time that can be redistributed to other or new targets so as to maximize your award.<br>",
+                xref='paper', yref='paper',
+                x=0.55, y=0.49,
+                showarrow=False,
+                font=dict(size=11, color='black'),
+                xanchor='left',
+                yanchor='middle'
+            ),
+            dict(
+                text="<b>Unused:</b>",
+                xref='paper', yref='paper',
+                x=0.55, y=0.42,
+                showarrow=False,
+                font=dict(size=11, color='black'),
+                xanchor='left',
+                yanchor='middle'
+            ),
+            dict(
+                text="The difference between the total allocated time and the total requested time.",
+                xref='paper', yref='paper',
+                x=0.55, y=0.39,
+                showarrow=False,
+                font=dict(size=11, color='black'),
+                xanchor='left',
+                yanchor='middle'
+            ),
+            dict(
+                text="This is time you are leaving on the table. Consider adding requests!<br>",
+                xref='paper', yref='paper',
+                x=0.55, y=0.36,
+                showarrow=False,
+                font=dict(size=11, color='black'),
+                xanchor='left',
+                yanchor='middle'
+            ),
+        ]
     )
     
     # Add warning annotation if requested time exceeds allocated time
@@ -1674,21 +1798,17 @@ def plot_path_2D_interactive(data, night_start_time=None):
     alt_path = np.array(alt_path[:min_len])
     names = names[:min_len]
     
+    # First, ensure all azimuth values are within 0-360 degrees using mod 360
+    # This prevents values like -10° or 370° from appearing
+    az_path = np.mod(az_path, 360)
+    
     # Store original azimuth for hover text (0-360°)
     az_path_original = az_path.copy()
     
-    # Unwrap azimuth to handle 360°/0° crossing
-    # When telescope goes from 315° to 10°, show it as 315° to 370° instead
-    az_path_unwrapped = az_path.copy()
-    for i in range(1, len(az_path_unwrapped)):
-        diff = az_path_unwrapped[i] - az_path_unwrapped[i-1]
-        # If jump is > 180°, we likely wrapped around
-        if diff > 180:
-            # Wrapped from high to low (e.g., 350° to 10°), subtract 360 from current and future
-            az_path_unwrapped[i:] -= 360
-        elif diff < -180:
-            # Wrapped from low to high (e.g., 10° to 350°), add 360 to current and future
-            az_path_unwrapped[i:] += 360
+    # For display: values above 270° should be shown as negative (subtract 360)
+    # e.g., 290° becomes -70°, 350° becomes -10°
+    az_path_display = az_path.copy()
+    az_path_display[az_path_display > 270] -= 360
     
     # For tick labels and hover, format as HH:MM
     time_labels = [Time(t, format='jd').isot[11:16] for t in obs_time]
@@ -1706,9 +1826,9 @@ def plot_path_2D_interactive(data, night_start_time=None):
         vertical_spacing=0.1
     )
 
-    # Azimuth plot (use unwrapped azimuth for y-axis)
+    # Azimuth plot (use display values: >270° shown as negative)
     fig.add_trace(go.Scatter(
-        x=obs_time, y=az_path_unwrapped,
+        x=obs_time, y=az_path_display,
         mode='lines+markers',
         marker=dict(color='indigo'),
         name='Azimuth',
@@ -1726,35 +1846,32 @@ def plot_path_2D_interactive(data, night_start_time=None):
         hovertemplate='%{text}<extra></extra>'
     ), row=2, col=1)
 
-    # Add wrap limit line(s) at appropriate positions based on unwrapped azimuth range
+    # Add wrap limit line at the wrap position
+    # Apply same conversion as display values: if wrap > 270°, subtract 360
     if wrap is not None:
-        az_min = np.min(az_path_unwrapped)
-        az_max = np.max(az_path_unwrapped)
+        # Normalize wrap to 0-360 range
+        wrap_normalized = wrap % 360
         
-        # Determine which wrap line positions to show
-        # The wrap limit repeats every 360°
-        wrap_positions = []
-        for offset in range(-2, 3):  # Check wrap-720, wrap-360, wrap, wrap+360, wrap+720
-            wrap_pos = wrap + (offset * 360)
-            if az_min <= wrap_pos <= az_max:
-                wrap_positions.append(wrap_pos)
+        # Apply same display conversion: if > 270°, show as negative
+        wrap_display = wrap_normalized
+        if wrap_display > 270:
+            wrap_display -= 360
         
-        # Draw wrap limit line(s)
-        for wrap_pos in wrap_positions:
-            fig.add_shape(
-                type="line",
-                x0=obs_time[0], x1=obs_time[-1],
-                y0=wrap_pos, y1=wrap_pos,
-                line=dict(color="red", dash="dash"),
-                row=1, col=1
-            )
-            fig.add_annotation(
-                x=obs_time[-1], y=wrap_pos,
-                text=f"Wrap = {wrap}°",
-                showarrow=False,
-                font=dict(color="red", size=10),
-                row=1, col=1
-            )
+        # Draw wrap limit line at the display position
+        fig.add_shape(
+            type="line",
+            x0=obs_time[0], x1=obs_time[-1],
+            y0=wrap_display, y1=wrap_display,
+            line=dict(color="red", dash="dash", width=2),
+            row=1, col=1
+        )
+        fig.add_annotation(
+            x=obs_time[-1], y=wrap_display,
+            text=f"Wrap = {wrap_normalized}°",
+            showarrow=False,
+            font=dict(color="red", size=10),
+            row=1, col=1
+        )
 
     # Highlight observed intervals using Start/Stop Exposure times
     # Shade from Start Exposure to Stop Exposure (both in minutes from night start)
@@ -1813,24 +1930,33 @@ def plot_path_2D_interactive(data, night_start_time=None):
         row=2, col=1
     )
 
-    # Update y-axis for azimuth to always show full range from 271° to 270° (630° unwrapped)
-    # This represents the full valid range when wrap limit is at 270°
-    az_y_min = 271  # Just past the wrap limit
-    az_y_max = 630  # 270° in the next rotation
+    # Update y-axis for azimuth to always show consistent range with 270° at the top
+    # Values >270° are displayed as negative (by subtracting 360)
+    # Range goes from -95° to 275° with 5° buffer on both ends
+    az_y_min = -95
+    az_y_max = 275
     
-    # Generate tick positions every 45 degrees from 270 to 630
+    # Generate tick positions every 45 degrees from -90 to 270
     tick_interval = 45
-    az_tick_positions = np.arange(270, 631, tick_interval)  # Start at 270, go to 630
+    az_tick_positions = np.arange(-90, 271, tick_interval)  # -90, -45, 0, 45, 90, 135, 180, 225, 270
     
-    # Create labels showing actual angle (mod 360)
-    az_tick_labels = [f"{int(pos % 360)}°" for pos in az_tick_positions]
+    # Create labels - convert negative angles to their 360° equivalents
+    # -90° → 270°, -45° → 315°, etc.
+    az_tick_labels = []
+    for pos in az_tick_positions:
+        if pos < 0:
+            # Convert negative to 360° equivalent
+            label = int(pos + 360)
+        else:
+            label = int(pos)
+        az_tick_labels.append(f"{label}°")
     
     fig.update_yaxes(
         tickmode='array',
         tickvals=az_tick_positions,
         ticktext=az_tick_labels,
         range=[az_y_min, az_y_max],
-        title_text="Azimuth",
+        title_text="Azimuth (deg)",
         row=1, col=1
     )
     
