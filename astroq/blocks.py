@@ -307,7 +307,7 @@ def create_checks_dataframes(OBs, exception_fields):
     for col in columns:
         for idx in index_labels:
             val = value_df.at[idx, col]
-            if not pd.api.types.is_scalar(val) or pd.isna(val):
+            if not pd.api.types.is_scalar(val) or pd.isna(val) or val == '':
             # if pd.isna(value_df.at[idx, col]):
             # if value_df.at[idx, col] is None or value_df.at[idx, col] == "<NA>":
                 presence_df.at[idx, col] = False
@@ -377,6 +377,10 @@ def create_checks_dataframes(OBs, exception_fields):
             value_df.loc[mask, 'schedule.num_internight_cadence'] = 0
             presence_df.loc[mask, 'schedule.num_internight_cadence'] = True
 
+        # Special case: if schedule.num_nights_per_semester == N/A set to 30
+        if 'schedule.num_nights_per_semester' in value_df.columns:
+            mask = value_df['schedule.num_nights_per_semester'] == 1
+            presence_df.loc[mask, 'schedule.num_internight_cadence'] = True
 
     # Create masks considering the exception fields
     def row_is_good(row):

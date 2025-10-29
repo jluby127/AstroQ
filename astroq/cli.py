@@ -89,21 +89,10 @@ def main():
                               required=True,
                               help="Relative path of config file."
                                 )
-    psr_kpfcc_prep.add_argument('-as', '--allo_source',
-                            type=str,
-                            default="db",
-                            help="Absolute path of observatory-provided allocation file. Use 'db' to pull from the database."
-                              )
-    psr_kpfcc_prep.add_argument('-ps', '--past_source',
-                            type=str,
-                            default="db",
-                            help="Absolute path of a past history file. Use 'db' to pull from the database."
-                              )
-    psr_kpfcc_prep.add_argument('-fillers', '--filler_programs',
+    psr_kpfcc_prep.add_argument('-ws', '--award_source',
                           type=str,
-                          required=False,
-                          default="2025B_E473",
-                          help="The semester ID for the filler program. Ex. 2025B_E473."
+                          default="db",
+                          help="Absolute path of the awarded programs file. Use 'db' to pull from the database."
                             )
     psr_kpfcc_prep.add_argument('-band', '--band_number',
                           type=int,

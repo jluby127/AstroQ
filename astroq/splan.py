@@ -761,6 +761,8 @@ class SemesterPlanner(object):
                 'max_bonus': self.max_bonus,
                 'run_bonus_round': self.run_bonus_round,
                 'semester_directory': self.semester_directory,
+                'custom_file': getattr(self, 'custom_file', None),
+                'allocation_file': getattr(self, 'allocation_file', None),
             }
             
             for key, value in scalars.items():
@@ -833,7 +835,8 @@ class SemesterPlanner(object):
                        'slot_size', 'n_slots_in_night', 'n_nights_in_semester', 'n_slots_in_semester',
                        'today_starting_slot', 'today_starting_night', 'run_band3', 'observatory',
                        'output_directory', 'run_weather_loss', 'solve_time_limit', 'gurobi_output',
-                       'solve_max_gap', 'max_bonus', 'run_bonus_round', 'semester_directory']:
+                       'solve_max_gap', 'max_bonus', 'run_bonus_round', 'semester_directory',
+                       'custom_file', 'allocation_file']:
                 if key in f.attrs:
                     setattr(instance, key, f.attrs[key])
             
@@ -907,6 +910,36 @@ class SemesterPlanner(object):
                     instance.past_history[star_id] = star_hist
             else:
                 instance.past_history = {}
+        
+        # Recreate access_obj using the loaded parameters
+        # Only recreate if we have the necessary attributes and requests_frame
+        if (hasattr(instance, 'requests_frame') and instance.requests_frame is not None and
+            hasattr(instance, 'semester_start_date') and hasattr(instance, 'all_dates_dict')):
+            try:
+                instance.access_obj = ac.Access(
+                    semester_start_date=instance.semester_start_date,
+                    semester_length=instance.semester_length,
+                    slot_size=instance.slot_size,
+                    observatory=instance.observatory,
+                    current_day=instance.current_day,
+                    all_dates_dict=getattr(instance, 'all_dates_dict', {}),
+                    all_dates_array=getattr(instance, 'all_dates_array', []),
+                    n_nights_in_semester=instance.n_nights_in_semester,
+                    custom_file=getattr(instance, 'custom_file', None),
+                    allocation_file=getattr(instance, 'allocation_file', None),
+                    past_history=getattr(instance, 'past_history', {}),
+                    today_starting_night=instance.today_starting_night,
+                    slots_needed_for_exposure_dict=getattr(instance, 'slots_needed_for_exposure_dict', {}),
+                    run_weather_loss=getattr(instance, 'run_weather_loss', False),
+                    output_directory=instance.output_directory,
+                    run_band3=getattr(instance, 'run_band3', False)
+                )
+                logs.info("access_obj recreated from HDF5")
+            except Exception as e:
+                logs.warning(f"Could not recreate access_obj: {e}")
+                instance.access_obj = None
+        else:
+            instance.access_obj = None
         
         logs.info(f"SemesterPlanner loaded from HDF5: {hdf5_path}")
         return instance

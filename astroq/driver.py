@@ -93,37 +93,39 @@ def kpfcc_prep(args):
     # CAPTURE ALLOCATION INFORMATION AND PROCESS
     # --------------------------------------------
     # --------------------------------------------
-    allo_source = args.allo_source
-    allocation_file = str(config.get('data', 'allocation_file'))
-    # pull the allocation 
-    if allo_source == 'db':
-        print(f'Pulling allocation information from database')
-        allocation_frame, hours_by_program, nights_by_program = ob.pull_allocation_info(start_date, n_days, 'KPF-CC')
-        awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())] 
-    else:
-        print(f'Using allocation information from file: {allo_source}')
-        allocation_frame, hours_by_program, nights_by_program = ob.format_keck_allocation_info(allo_source)
-        awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())]
-    allocation_frame['comment'] = [''] * len(allocation_frame)
-    # Update allocation times for tonight if this is a full-band
-    if is_full_band:
-        print("Updating allocation.csv for full-band")
-        allocation_frame = ob.update_allocation_file(allocation_frame, current_date)
-    allocation_frame.sort_values(by='start', inplace=True)
-    allocation_frame.to_csv(savepath+allocation_file, index=False)
-    # Output the nights by program
-    programmatics = pd.DataFrame({'program': awarded_programs, 'hours': list(hours_by_program.values()), 'nights': list(nights_by_program.values())})
-    programmatics.to_csv(savepath + 'programs.csv', index=False)
+    awarded_programs = pd.read_csv(args.award_source)['program'].tolist()
+    # allo_source = args.allo_source
+    # allocation_file = str(config.get('data', 'allocation_file'))
+    # # pull the allocation 
+    # if allo_source == 'db':
+    #     print(f'Pulling allocation information from database')
+    #     allocation_frame, hours_by_program, nights_by_program = ob.pull_allocation_info(start_date, n_days, 'KPF-CC')
+    #     awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())] 
+
+    # else:
+    #     print(f'Using allocation information from file: {allo_source}')
+    #     allocation_frame, hours_by_program, nights_by_program = ob.format_keck_allocation_info(allo_source)
+    #     awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())]
+    # allocation_frame['comment'] = [''] * len(allocation_frame)
+    # # Update allocation times for tonight if this is a full-band
+    # if is_full_band:
+    #     print("Updating allocation.csv for full-band")
+    #     allocation_frame = ob.update_allocation_file(allocation_frame, current_date)
+    # allocation_frame.sort_values(by='start', inplace=True)
+    # allocation_frame.to_csv(savepath+allocation_file, index=False)
+    # # Output the nights by program
+    # programmatics = pd.DataFrame({'program': awarded_programs, 'hours': list(hours_by_program.values()), 'nights': list(nights_by_program.values())})
+    # programmatics.to_csv(savepath + 'programs.csv', index=False)
 
     # CAPTURE REQUEST INFORMATION AND PROCESS
     # --------------------------------------------
     # --------------------------------------------
-    # Add filler programs if specified
-    fillers = args.filler_programs
-    # temporarily comment out this block for 2025B.
-    if fillers is not None:
-        print(f'Adding filler program to awarded_programs: {fillers}')
-        awarded_programs.append(fillers)
+    # # Add filler programs if specified
+    # fillers = args.filler_programs
+    # # temporarily comment out this block for 2025B.
+    # if fillers is not None:
+    #     print(f'Adding filler program to awarded_programs: {fillers}')
+    #     awarded_programs.append(fillers)
     # Pull the request sheet
     request_file = str(config.get('data', 'request_file'))
     OBs = ob.pull_OBs(semester)
@@ -149,50 +151,50 @@ def kpfcc_prep(args):
     custom_frame.to_csv(savepath + custom_file, index=False)
 
 
-    # CAPTURE FILLER REQUEST INFORMATION AND PROCESS
-    # --------------------------------------------
-    # --------------------------------------------
-    # Now get the bright backup stars information from the filler program
-    filler_file = str(config.get('data', 'filler_file'))
-    if fillers is not None:
-        print(f'Generating filler.csv from program: {fillers}')
-        good_obs_backup, bad_obs_values_backup, bad_obs_hasFields_backup, bad_obs_count_by_semid_backup, bad_field_histogram_backup = ob.get_request_sheet(OBs, [fillers], savepath + filler_file)
-    else:
-        print(f'No fillers specified, creating blank filler.csv file.')
-        good_obs_backup = pd.DataFrame(columns=good_obs.columns)
-    filtered_good_obs_backup = ob.filter_request_csv(good_obs_backup, band_number)
-    filtered_good_obs_backup.to_csv(savepath + filler_file, index=False)
+    # # CAPTURE FILLER REQUEST INFORMATION AND PROCESS
+    # # --------------------------------------------
+    # # --------------------------------------------
+    # # Now get the bright backup stars information from the filler program
+    # filler_file = str(config.get('data', 'filler_file'))
+    # if fillers is not None:
+    #     print(f'Generating filler.csv from program: {fillers}')
+    #     good_obs_backup, bad_obs_values_backup, bad_obs_hasFields_backup, bad_obs_count_by_semid_backup, bad_field_histogram_backup = ob.get_request_sheet(OBs, [fillers], savepath + filler_file)
+    # else:
+    #     print(f'No fillers specified, creating blank filler.csv file.')
+    #     good_obs_backup = pd.DataFrame(columns=good_obs.columns)
+    # filtered_good_obs_backup = ob.filter_request_csv(good_obs_backup, band_number)
+    # filtered_good_obs_backup.to_csv(savepath + filler_file, index=False)
 
     # if band_number == 3:
     #     print(f'Temporarily swapping the request.csv with filler.csv, just for band 3 and just for 2025B.')
     #     filtered_good_obs_backup.to_csv(savepath + request_file, index=False)
 
 
-    # CAPTURE PAST HISTORY INFORMATION AND PROCESS
-    # --------------------------------------------
-    # --------------------------------------------
-    past_source = args.past_source
-    past_file = str(config.get('data', 'past_file'))
-    if past_source == 'db':
-        print(f'Pulling past history information from database')
-        raw_history = hs.pull_OB_histories(semester)
-        obhist = hs.write_OB_histories_to_csv(raw_history)
-    else:
-        print(f'Using past history information from file: {past_source}')
-        obhist = hs.write_OB_histories_to_csv_JUMP(good_obs, past_source)
-    obhist.to_csv(savepath + past_file, index=False)
+    # # CAPTURE PAST HISTORY INFORMATION AND PROCESS
+    # # --------------------------------------------
+    # # --------------------------------------------
+    # past_source = args.past_source
+    # past_file = str(config.get('data', 'past_file'))
+    # if past_source == 'db':
+    #     print(f'Pulling past history information from database')
+    #     raw_history = hs.pull_OB_histories(semester)
+    #     obhist = hs.write_OB_histories_to_csv(raw_history)
+    # else:
+    #     print(f'Using past history information from file: {past_source}')
+    #     obhist = hs.write_OB_histories_to_csv_JUMP(good_obs, past_source)
+    # obhist.to_csv(savepath + past_file, index=False)
 
 
-    # CAPTURE EMAIL INFORMATION AND PROCESS
-    # --------------------------------------------
-    # --------------------------------------------
-    send_emails_with = []
-    for i in range(len(bad_obs_values)):
-        if bad_obs_values['metadata.semid'][i] in awarded_programs:
-            send_emails_with.append(ob.inspect_row(bad_obs_hasFields, bad_obs_values, i))
-    '''
-    this is where code to automatically send emails will go. Not implemented yet.
-    '''
+    # # CAPTURE EMAIL INFORMATION AND PROCESS
+    # # --------------------------------------------
+    # # --------------------------------------------
+    # send_emails_with = []
+    # for i in range(len(bad_obs_values)):
+    #     if bad_obs_values['metadata.semid'][i] in awarded_programs:
+    #         send_emails_with.append(ob.inspect_row(bad_obs_hasFields, bad_obs_values, i))
+    # '''
+    # this is where code to automatically send emails will go. Not implemented yet.
+    # '''
 
     return
 
