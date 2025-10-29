@@ -33,15 +33,6 @@ import astroq.webapp as app
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)  # Lower level to capture more messages
 
-def kpfcc(args):
-    """
-    Main KPFCC command line interface.
-    """
-    if args.kpfcc_subcommand is None:
-        print("run astroq kpfcc --help for helpfile")
-        return
-    return
-
 def bench(args):
     cf = args.config_file
     number_slots = args.number_slots
