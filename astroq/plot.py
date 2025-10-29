@@ -900,6 +900,7 @@ def compute_seasonality(semester_planner, starnames, ras, decs):
     twilight_allocation_file = ac.build_twilight_allocation_file(semester_planner)
     
     # Temporarily override the allocation file path in the access object
+    print(semester_planner)
     original_allocation_file = semester_planner.access_obj.allocation_file
     semester_planner.access_obj.allocation_file = twilight_allocation_file
    
