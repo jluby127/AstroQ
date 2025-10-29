@@ -92,7 +92,7 @@ def index():
     where:
     - semester_code is the four digit year and one letter semester
     - date is in format YYYY-MM-DD
-    - band is either band1, band2, or band3
+    - band is either band1, band2, or band3 (or full-band1, full-band2, or full-band3)
     - page is one of the following: {program_code}, star/{starname}, nightplan, or admin
 
     Examples:
