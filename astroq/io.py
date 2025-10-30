@@ -1,9 +1,5 @@
 """
-Module for building reports after the solution is found. Designed to be only run as a function
-call from the generateScript.py script.
-
-Example usage:
-    import reporting_functions as rf
+Module for the building and writing of reports for human readability and debugging of schedule solution. 
 """
 
 # Standard library imports
@@ -30,7 +26,7 @@ def serialize_schedule(Yrds, semester_planner):
 
     Args:
         Yrds (array): the Gurobi solution with keys of (unique_id, day, slot) and values 1 or 0.
-        planner (obj): a SemesterPlanner object
+        semester_planner (obj): a SemesterPlanner object from splan.py
 
     Returns:
         None
@@ -84,8 +80,8 @@ def build_fullness_report(semester_planner, round_info):
     Determine how full the schedule is: slots available, slots scheduled, and slots required
 
     Args:
-        semester_planner (obj): a SemesterPlanner object
-        round_info (str): information about the optimization round
+        semester_planner (obj): a SemesterPlanner object from splan.py
+        round_info (str): information about the optimization round (e.g. Round1, Round2)
 
     Returns:
         None
@@ -157,14 +153,14 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
     Generate the nightly script in the correct format.
 
     Args:
-        frame (dataframe): the csv of PI requests for just the targets that were selected
-                            to be observed tonight
-        solution_frame (dataframe): the solution to the TTP model.plotly
+        frame (dataframe): the request.csv in dataframe format for just the targets that were selected to be observed tonight
+        solution_frame (dataframe): the solution attribute from the TTP model.plotly object
         night_start_time (astropy time object): Beginning of observing interval
         extras (array): starnames of "extra" stars (those not fit into the script)
         filler_stars (array): star names of the stars added in the bonus round
         current_day (str): today's date in format YYYY-MM-DD
         outputdir (str): the directory to save the script file
+        version (str): a tag for thescript (e.g. nominal, slowdown, backups, etc)
 
     Returns:
         None
