@@ -13,7 +13,7 @@ DATE_DIR = $(SEMESTER_DIR)/$(DATE)
 SEMESTER ?= 2025B
 START_DATE ?= 2025-08-01
 END_DATE ?= 2026-01-31
-BANDS ?= band1 band2 band3 full-band1 full-band2 full-band3
+BANDS ?= band1 #band2 band3 full-band1 full-band2 full-band3
 FILLER_PROGRAM ?= 2025B_E473
 
 # Date validation and override
@@ -61,10 +61,10 @@ $(DATE_DIR)/%/prep-run: $(DATE_DIR)/%/config.ini
 	IS_FULL_BAND=$$(echo $(notdir $(@D)) | grep -q '^full-' && echo "true" || echo "false"); \
 	if [ "$$IS_FULL_BAND" = "true" ]; then \
 		echo "📅 Running prep for full-band $$BAND_NUM..." && \
-		cd $(@D) && conda run -n $(CONDA_ENV) astroq kpfcc_prep -cf config.ini -fillers $(FILLER_PROGRAM) -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
+		cd $(@D) && conda run -n $(CONDA_ENV) astroq prep kpfcc -cf config.ini -fillers $(FILLER_PROGRAM) -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
 	else \
 		echo "📊 Running prep for band $$BAND_NUM..." && \
-		cd $(@D) && conda run -n $(CONDA_ENV) astroq kpfcc_prep -cf config.ini -fillers $(FILLER_PROGRAM) -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
+		cd $(@D) && conda run -n $(CONDA_ENV) astroq prep kpfcc -cf config.ini -fillers $(FILLER_PROGRAM) -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
 	fi
 	@touch $@
 

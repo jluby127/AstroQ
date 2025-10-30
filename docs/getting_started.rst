@@ -71,7 +71,7 @@ Run ``pytest`` from your terminal to execute a suite of tests verifying that the
 
         $ pytest -v
 
-This may take a few minutes on the first run. The desired result is that all tests pass successfully.
+This may take a few minutes on the first run. The desired result is that all tests pass successfully. However, if you do not have token access to the KPF-CC database, then the ``test_prep`` will fail. 
                 
 
 Required Files
@@ -99,7 +99,9 @@ Required Files
     - ``tau_intra`` - The minimum time (hours) between visits of the target within a night.
     - ``n_inter_max`` - The maximum number of unique nights to observe the target.
     - ``tau_inter`` - The minimum time (days) between unique night observations of the target.
-    More columns may be added as needed for your queue. 
+    - ``minimum_elevation`` - The minimum elevation (degrees) of the target.
+    - ``minimum_moon_separation`` - The minimum separation (degrees) between the target and the moon.
+    More columns may be added as needed for your queue (e.g. observational parameters like proper motions, magnitudes, temperatures, etc.) but these are optional record keeping columns.
 
 4. ``past.csv`` - Contains information about the past history of observations. While it may be blank, it must contain appropriate column headers:
     - ``id`` - the unique identifier for the target.
@@ -120,15 +122,15 @@ Required Files
     - ``stop`` - the stop time of the time window.
     Times are in format "YYYY-MM-DD HH:MM"
 
-**The kpfcc_prep subcommand compiles and prepares all of these necessary files for the KPF-CC program specifically.** Use of this command requires token access to the KPF-CC database. If you are using AstroQ for a different facility, then you must prepare these files through your own means. Feel free to write your own "prep" command to automate the process.
+**The ``kpfcc`` subcommand of ``prep`` (see below) compiles and prepares all of these necessary files for the KPF-CC program specifically.** Use of this command requires token access to the KPF-CC database. If you are using AstroQ for a different facility, then you must prepare these files through your own means. Feel free to write your own "prep" command to automate the process.
 
 It is strongly recommended that you create the following folder structure for your AstroQ project:
     <upstream path>/<semester>/<date>/<band>/
 
-    where upstream path is the path to the top-level directory of your AstroQ project.
-    semester is the semester ID of your project.
-    date is the date of your project.
-    band is the weather band number (use band1 if you not interested in multiple bands).
+    - <upstream path> is the path to the top-level directory of your AstroQ project.
+    - <semester> is the semester ID of your project (e.g. 2025B).
+    - <date> is the date you are generating the schedule (e.g. 2025-08-01).
+    - <band> is the weather band number (use band1 if you not interested in multiple bands).
 
     For example, if your upstream path is ``/Desktop/``, your semester is ``2025B``, your date is ``2025-08-01``, and your band is ``1``, then your folder structure should be:
     /Desktop/2025B/2025-08-01/band1/
@@ -153,7 +155,7 @@ Let's see which subcommands are available using ``astroq --help``:
             -V, --version         Print version number and exit.
 
             subcommands:
-            {bench,plot,kpfcc_prep,webapp,plan-semester,plan-night,compare}
+            {bench,plot,prep,webapp,plan-semester,plan-night,compare}
                 
 
 The AstroQ command-line interface provides the following subcommands:
