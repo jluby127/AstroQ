@@ -1,8 +1,10 @@
 .. _plot:
 
-Plot
-=================
-.. module:: kpfcc
+plot
+====
 
-.. automodule:: kpfcc.plot
+.. automodule:: astroq.plot
    :members:
+   :undoc-members:
+   :private-members:
+   :show-inheritance:

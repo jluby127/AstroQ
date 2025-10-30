@@ -23,8 +23,10 @@ Please cite the following papers if you use AstroQ in your to plan your observat
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
+   :includehidden:
 
    getting_started
+   ob_construction
    api
 
 Indices and tables

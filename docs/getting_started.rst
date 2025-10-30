@@ -122,7 +122,7 @@ Required Files
     - ``stop`` - the stop time of the time window.
     Times are in format "YYYY-MM-DD HH:MM"
 
-**The ``kpfcc`` subcommand of ``prep`` (see below) compiles and prepares all of these necessary files for the KPF-CC program specifically.** Use of this command requires token access to the KPF-CC database. If you are using AstroQ for a different facility, then you must prepare these files through your own means. Feel free to write your own "prep" command to automate the process.
+**The** ``kpfcc`` **subcommand of** ``prep`` **(see below) compiles and prepares all of these necessary files for the KPF-CC program specifically.** Use of this command requires token access to the KPF-CC database. If you are using AstroQ for a different facility, then you must prepare these files through your own means. Feel free to write your own "prep" command to automate the process.
 
 It is strongly recommended that you create the following folder structure for your AstroQ project:
     <upstream path>/<semester>/<date>/<band>/
@@ -233,7 +233,7 @@ Let's take a look at the outputs produced:
         4,62,e2,HIP1532
         4,63,,
 
-- ``serialized_outputs_dense_v2.csv`` is identical to ``serialized_outputs_dense_v1.csv``, but now slots that cannot be filled (due to day time or allocation, are denoted with an "X"). See example:
+- ``serialized_outputs_dense_v2.csv`` is identical to ``serialized_outputs_dense_v1.csv``, but now slots that cannot be filled for all stars (like sky brightness or telescope allocation, are denoted with an "X"). See example:
 
     ::
 
@@ -273,7 +273,7 @@ Let's take a look at the outputs produced:
 
 - ``request_selected.csv``: contains a copy of the request.csv file but only for the targets that were selected to be observed.:
 
-- ``semester_planner.h5``: is a serialized and compressed version of the splan object used for scheduling. This will be used later in the webapp/plotting routines.
+- ``semester_planner.h5``: is a serialized and compressed version of the splan object used for scheduling. This will be used later in the webapp/plotting routines and serves as a record of the schedule inputs/outputs.
 
 Now that we have the stars to be observed each night of the semester, let's determine the optimal ordering of the stars selected for tonight, mimizing slew times, to generate a night plan:
 
@@ -350,10 +350,10 @@ Scrolling down a bit, you should see the "birdseye" plot of the schedule look so
         :alt: Webapp screenshot
 
         
-The Hello World Example is an easy model to solve. Try something a bit more complex by running our benchmark test. The inputs and outputs are well defined in our paper, compare your computer's performance to ours! See `Lubin et al. 2025 <https://ui.adsabs.harvard.edu/abs/2025arXiv250608195L/abstract>`_:
+The Hello World Example is an easy model to solve. Try something a bit more complex by running our benchmark test:
 
     .. code-block:: bash
     
         $ astroq bench -cf examples/bench/config_benchmark.ini -ns 12 
 
-        
+The inputs and expected outputs are well defined in our paper, compare your computer's performance to ours! See `Lubin et al. 2025 <https://ui.adsabs.harvard.edu/abs/2025arXiv250608195L/abstract>`_.       
