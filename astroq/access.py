@@ -82,12 +82,11 @@ class Access:
         Combine all maps for a target to produce the final map
 
         Args:
-            rf (dataframe): request frame
+            rf (dataframe): the dataframe of request information
             running_backup_stars (bool): if true, then do not run the extra map of stepping back in time to account for the starting slot fitting into the night
 
         Returns:
-            available_indices_for_request (dictionary): keys are the starnames and values are a 1D array
-                                                      the indices where available_slots_for_request is 1.
+            access (record array): keys are the map names and values are the 3D boolean maps (targets, nights, slots)
         """
         # Prepatory work
         start_date = Time(self.semester_start_date,format='iso',scale='utc')
@@ -290,15 +289,12 @@ class Access:
             loss_stats_this_semester.append(historical_weather_data['% Total Loss'][ind])
         self.loss_stats_this_semester = loss_stats_this_semester
 
-    def simulate_weather_losses(self, covariance=0.14):#slot_size, loss_stats, covariance=0.14):
+    def simulate_weather_losses(self, covariance=0.14):
         """
         Simulate nights totally lost to weather using historical data
 
         Args:
-            slot_size (int): Size of time slots in minutes
-            loss_stats (array): 1D array of semester_length where elements are the
-                                percent of the time that night is totally lost to weather
-            covariance (float): the added percent that tomorrow will be lost if today is lost
+            covariance (float): the added percent chance that tomorrow will be lost if today is lost
 
         Returns:
             is_clear (array): Trues represent clear nights, Falses represent weathered nights
@@ -322,14 +318,15 @@ class Access:
 
 def build_twilight_allocation_file(semester_planner):
     """
-    Build a dummy allocation file with 12-degree twilight times for each night in the semester.
+    Build an allocation.csv file where every night of the semester is allocated 
+    from evening to morning 12-degree twilight times. 
     This is used exclusively by the football plot in the webapp.
     
     Args:
-        semester_planner (SemesterPlanner): the semester planner object containing configuration
+        semester_planner (SemesterPlanner): a semester planner object from splan.py
         
     Returns:
-        str: Path to the created twilight allocation file
+        twilight_file (str): Path to the created allocation.csv file
     """
     
     # Create the filename based on semester

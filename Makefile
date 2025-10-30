@@ -13,8 +13,15 @@ DATE_DIR = $(SEMESTER_DIR)/$(DATE)
 SEMESTER ?= 2025B
 START_DATE ?= 2025-08-01
 END_DATE ?= 2026-01-31
-BANDS ?= band1 #band2 band3 full-band1 full-band2 full-band3
+BANDS ?= band1 band2 band3 full-band1 full-band2 full-band3
 FILLER_PROGRAM ?= 2025B_E473
+
+# Cross-platform sed in-place flag (Darwin uses -i '')
+UNAME_S := $(shell uname)
+SED_I_FLAG :=
+ifeq ($(UNAME_S),Darwin)
+  SED_I_FLAG := ''
+endif
 
 # Date validation and override
 DATE ?= $(shell date +%Y-%m-%d)
@@ -73,17 +80,17 @@ $(DATE_DIR)/%/config.ini: create_dirs
 	@echo "📋 Copying config template for band $(notdir $(@D))..."
 	@mkdir -p $(@D)
 	@cp config_template.ini $@
-	# @echo "📝 Updating placeholders for band $(notdir $(@D))..."
-	# @sed -i "s|CURRENT_DATE_PLACEHOLDER|$(DATE)|g" $@
-	# @sed -i "s|START_DATE_PLACEHOLDER|$(START_DATE)|g" $@
-	# @sed -i "s|END_DATE_PLACEHOLDER|$(END_DATE)|g" $@
-	# @sed -i "s|SEMESTER_PLACEHOLDER|$(SEMESTER)|g" $@
-	# @sed -i "s|WORKDIR_PLACEHOLDER|$(@D)|g" $@
-	@sed -i '' "s|CURRENT_DATE_PLACEHOLDER|$(DATE)|g" $@
-	@sed -i '' "s|START_DATE_PLACEHOLDER|$(START_DATE)|g" $@
-	@sed -i '' "s|END_DATE_PLACEHOLDER|$(END_DATE)|g" $@
-	@sed -i '' "s|SEMESTER_PLACEHOLDER|$(SEMESTER)|g" $@
-	@sed -i '' "s|WORKDIR_PLACEHOLDER|$(@D)|g" $@
+	@sed -i $(SED_I_FLAG) "s|CURRENT_DATE_PLACEHOLDER|$(DATE)|g" $@
+	@sed -i $(SED_I_FLAG) "s|START_DATE_PLACEHOLDER|$(START_DATE)|g" $@
+	@sed -i $(SED_I_FLAG) "s|END_DATE_PLACEHOLDER|$(END_DATE)|g" $@
+	@sed -i $(SED_I_FLAG) "s|SEMESTER_PLACEHOLDER|$(SEMESTER)|g" $@
+	@sed -i $(SED_I_FLAG) "s|WORKDIR_PLACEHOLDER|$(@D)|g" $@
+	# If this is band3 or full-band3, tighten the max_solve_gap for semester solver
+	@BAND_NAME=$(notdir $(@D)); \
+	if [ "$$BAND_NAME" = "band3" ] || [ "$$BAND_NAME" = "full-band3" ]; then \
+		echo "⚙️  Detected $$BAND_NAME: setting [semester] max_solve_gap = 0.005"; \
+		sed -i $(SED_I_FLAG) -e '/^\[semester\]/,/^\[/{s/^max_solve_gap.*/max_solve_gap = 0.005/;}' $@; \
+	fi
 	@echo "✅ Config file created and updated for band $(notdir $(@D))"
 
 # Validate date format
