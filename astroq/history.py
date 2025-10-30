@@ -56,7 +56,13 @@ def pull_OB_histories(semester):
 
 def write_OB_histories_to_csv(histories):
     """
-    Write the OB histories to a CSV file.
+    Prepare dataframe of past history for writing to CSV.
+
+    Args:
+        histories (json): the OB histories in json format
+
+    Returns:
+        df (pandas DataFrame): the OB histories in dataframe format
     """
     rows = []
     for entry in histories["history"]:
@@ -78,7 +84,14 @@ def write_OB_histories_to_csv(histories):
 
 def write_OB_histories_to_csv_JUMP(requests_frame, jump_file):
     """
-    Convert a JUMP-style CSV to the OB histories format and write to CSV.
+    Convert a JUMP-style CSV to the OB histories format and prepare dataframe for writing to CSV.
+
+    Args:
+        requests_frame (pandas DataFrame): the requests frame in dataframe format
+        jump_file (str): the path to the JUMP-style CSV file
+
+    Returns:
+        df (pandas DataFrame): the OB histories in dataframe format
     """
     # Check if file is empty or doesn't exist
     if not os.path.exists(jump_file) or os.path.getsize(jump_file) == 0:
@@ -127,11 +140,15 @@ def write_OB_histories_to_csv_JUMP(requests_frame, jump_file):
 
 def process_star_history(filename):
     """
-    Given a CSV file (output of write_OB_histories_to_csv), return a dict:
-      keys are 'id', values are objects with attributes:
-      date_last_observed, total_n_exposures, total_n_visits, total_n_unique_nights, total_open_shutter_time
-    Each key is for one target (star).
+    Process the past.csv file to return a dict of star histories.
+
+    Args:
+        filename (str): the path to the past.csv file
+
+    Returns:
+        result (dict): a dictionary of star histories where keys are 'id', values are objects with attributes: date_last_observed, total_n_exposures, total_n_visits, total_n_unique_nights, total_open_shutter_time
     """
+
     # Check if file is empty or doesn't exist
     if not os.path.exists(filename) or os.path.getsize(filename) == 0:
         # Create empty DataFrame with expected columns
@@ -206,6 +223,12 @@ def crossmatch_star_name(name):
     Convert between canonical and CPS star naming conventions.
     If given a CPS name, returns the canonical name.
     If given a canonical name, returns the CPS name.
+
+    Args:
+        name (str): the star name to convert
+
+    Returns:
+        name (str): the converted star name
     """
     if name.startswith('KEPLER'):
         return name.replace("KEPLER", "Kepler")
