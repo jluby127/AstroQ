@@ -1,8 +1,7 @@
 """
 Module for processing data from Keck Observatory's custom made Observing Block (OB) database.
-
-Example usage:
-    import ob_functions as ob
+This is specific to the KPF-CC program and the observatory's infrastructure as way to power the prep kpfcc command.
+New observatories should write their own module to connect to a new "prep <your observatory>" command.
 """
 
 # Standard library imports
@@ -18,6 +17,7 @@ from astropy.time import Time
 import astropy.units as u
 import astroplan as apl
 
+# The OB database has many fields that are not needed for the AstroQ pipeline.
 exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', 'metadata.history',
                     'metadata.instruments', 'metadata.is_approved', 'metadata.last_modification',
                     'metadata.ob_feasible', 'metadata.observer_name', 'metadata.state', 'metadata.status',
@@ -43,7 +43,6 @@ exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', '
                     'schedule.custom_time_constraints', #make this an exception field because it is handled elsewhere to make the custom.csv file
                     'schedule.desired_num_visits_per_night', 'schedule.minimum_num_visits_per_night', 'history', # NOTE: this line will be removed 
                     'schedule.weather_band_1', 'schedule.weather_band_2', 'schedule.weather_band_3'# NOTE: this line will be removed 
-                    # 'observation.exp_meter_threshold', 'schedule.minimum_elevation', 'schedule.minimum_moon_separation', # for now. 
 ]
 
 # Column definitions: mapping from original names to new names and data types
@@ -77,11 +76,11 @@ column_definitions = {
 
 def pull_OBs(semester):
     """
-    Pull the latest database OBs down to local.
+    Pull the latest info from Keck Observatory's KPF-CC database OBs down to local machine.
+    Note you must set environment variables KECK_OB_DATABASE_API_USERNAME and KECK_OB_DATABASE_API_PASSWORD to your credentials.
 
     Args:
         semester (str) - the semester from which to query OBs, format YYYYL
-        histories (bool) - if True, pull the history of OBs for the semester, if False, pull the latest OBs for the semester
 
     Returns:
         data (json) - the OB information in json format
@@ -117,7 +116,13 @@ def _validate_datetime_format(datetime_str):
 
 def format_custom_csv(OBs):
     """
-    Format the custom csv file for the OBs.
+    Format the custom.csv file from the OBs.
+
+    Args:
+        OBs (json): the OB information in json format
+
+    Returns:
+        custom_frame (pandas DataFrame): a DataFrame with the custom information, equivalent to the custom.csv file.
     """
     rows = []
     for ob in OBs['observing_blocks']:
@@ -159,14 +164,27 @@ def format_custom_csv(OBs):
 
     # Create DataFrame and save to CSV
     if len(rows) > 0:
-        df = pd.DataFrame(rows)
+        custom_frame = pd.DataFrame(rows)
     else:
         # Create empty DataFrame with proper column headers
-        df = pd.DataFrame(columns=['unique_id', 'starname', 'start', 'stop'])
+        custom_frame = pd.DataFrame(columns=['unique_id', 'starname', 'start', 'stop'])
     
-    return df 
+    return custom_frame 
         
 def pull_allocation_info(start_date, numdays, instrument):
+    """
+    Pull the allocation information directly from the Keck Observatory's operations schedule via the API.
+
+    Args:
+        start_date (str): the start date of the allocation (day one of the semester)
+        numdays (int): the number of days beyond the start_date to pull allocation information (usually ~180)
+        instrument (str): the instrument to pull allocation data, here it is "KPF-CC"
+
+    Returns:
+        allocation_frame (pandas DataFrame): a DataFrame with the allocation information, equivalent to the allocation.csv file.
+        hours_by_program (dict): a dictionary mapping the program code to the total hours allocated to that program
+        nights_by_program (dict): a dictionary mapping the program code to the total nights allocated to that program
+    """
     params = {}
     params['cmd'] = "getSchedule"
     params["date"] = start_date
@@ -204,14 +222,15 @@ def pull_allocation_info(start_date, numdays, instrument):
 
 def format_keck_allocation_info(allocation_file):
     """
-    Read in allocation file and parse start/stop times to calculate hours by program.
+    An alternate way to produce the allocation.csv file. Read in a Keck operations schedule file.
     
     Args:
         allocation_file (str): the path and filename to the downloaded csv
-        savepath (str): the path and filename where to save the processed allocation data
         
     Returns:
-        hours_by_program (dict): dictionary mapping ProjCode to total hours
+        allocation_frame (pandas DataFrame): a DataFrame with the allocation information, equivalent to the allocation.csv file.
+        hours_by_program (dict): a dictionary mapping the program code to the total hours allocated to that program
+        nights_by_program (dict): a dictionary mapping the program code to the total nights allocated to that program
     """
     allocation = pd.read_csv(allocation_file)
     
@@ -245,6 +264,21 @@ def format_keck_allocation_info(allocation_file):
     return allocation_frame, hours_by_program, nights_by_program
 
 def get_request_sheet(OBs, awarded_programs, savepath):
+    """
+    Produce the request.csv file from the json OBs.
+
+    Args:
+        OBs (json): the OB information in json format
+        awarded_programs (list): a list of the awarded programs
+        savepath (str): the path and filename where to save the request sheet
+
+    Returns:
+        good_obs (pandas DataFrame): a DataFrame with the OBs that pass the checks
+        bad_obs_values (pandas DataFrame): a DataFrame with the values of the bad OBs fields
+        bad_obs_hasFields (pandas DataFrame): a DataFrame with the indication of fields existing or not for thebad OBs
+        bad_obs_count_by_semid (pandas DataFrame): a DataFrame with the count of bad OBs by semester, for admin plotting purposes
+        bad_field_histogram (pandas DataFrame): a DataFrame with the histogram of bad OBs by field, for admin plotting purposes
+    """
     good_obs, bad_obs_values, bad_obs_hasFields = sort_good_bad(OBs, awarded_programs)
 
     # Filter bad OBs to only those in awarded programs
@@ -265,6 +299,17 @@ def get_request_sheet(OBs, awarded_programs, savepath):
     return good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram
 
 def flatten(d, parent_key='', sep='.'):
+    """
+    Flatten a dictionary into a single level.
+
+    Args:
+        d (dict): the nested dictionary to flatten
+        parent_key (str): the parent key
+        sep (str): the separator between the parent key and the child key
+
+    Returns:
+        items (dict): a dictionary with the flattened keys and values
+    """
     items = {}
     for k, v in d.items():
         new_key = f"{parent_key}{sep}{k}" if parent_key else k
@@ -275,6 +320,18 @@ def flatten(d, parent_key='', sep='.'):
     return items
 
 def create_checks_dataframes(OBs, exception_fields):
+    """
+    Create the dataframes to determine the good and bad OBs.
+
+    Args:
+        OBs (json): the OB information in json format
+        exception_fields (list): a list of the exception fields
+
+    Returns:
+        value_df (pandas DataFrame): a DataFrame with the values of the OBs
+        presence_df (pandas DataFrame): a DataFrame with the indication of fields existing or not for the OBs
+        all_true_mask (pandas Series): a mask indicating which OBs in the list are good. 
+    """
     # Store flattened rows and collect all keys
     flat_value_rows = []
     flat_presence_rows = []
@@ -402,6 +459,12 @@ def create_checks_dataframes(OBs, exception_fields):
 def cast_columns(df):
     """
     Cast columns to their appropriate data types based on the column_definitions dictionary.
+
+    Args:
+        df (pandas DataFrame): the DataFrame to cast the columns of
+
+    Returns:
+        df (pandas DataFrame): the DataFrame with the columns cast to the appropriate data types
     """
     df = df.copy()
     for col, col_info in column_definitions.items():
@@ -419,6 +482,18 @@ def cast_columns(df):
     return df
 
 def sort_good_bad(OBs, awarded_programs):
+    """
+    Sort the OBs into good and bad buckets.
+    
+    Args:
+        OBs (json): the OB information in json format
+        awarded_programs (list): a list of the awarded programs
+
+    Returns:
+        trimmed_good (pandas DataFrame): a DataFrame with the good OBs
+        bad_OBs_values (pandas DataFrame): a DataFrame with the values of the bad OBs fields
+        bad_OBs_hasFields (pandas DataFrame): a DataFrame with the indication of fields existing or not for the bad OBs
+    """
 
     OB_values, OB_hasFields, pass_OBs_mask = create_checks_dataframes(OBs, exception_fields)
 
@@ -439,7 +514,6 @@ def sort_good_bad(OBs, awarded_programs):
     good_OBs_awarded = good_OBs[good_OBs['metadata.semid'].isin(awarded_programs)]
     good_OBs_awarded.reset_index(inplace=True, drop='True')
     
-
     # Create column mapping from column_definitions
     new_column_names = {col: col_info['new_name'] for col, col_info in column_definitions.items()}
     
@@ -493,6 +567,13 @@ def sort_good_bad(OBs, awarded_programs):
 def recompute_exposure_times(request_frame, slowdown_factor):
     """
     Recompute the exposure times for the request frame based on the band number slowdown factor.
+
+    Args:
+        request_frame (pandas DataFrame): the request.csv in dataframe format
+        slowdown_factor (float): the slowdown factor to apply to the exposure times
+
+    Returns:
+        new_exptimes (list): a list of the new exposure times based on slowdown. 
     """
     new_exptimes = []
     for i in range(len(request_frame)):
@@ -507,6 +588,15 @@ def recompute_exposure_times(request_frame, slowdown_factor):
 
 def analyze_bad_obs(trimmed_good, bad_OBs_values, bad_OBs_hasFields, awarded_programs,exception_fields=exception_fields):
     """
+    Analyze the bad OBs and produce a count of bad OBs by semester and a histogram of bad OBs by field.
+
+    Args:
+        trimmed_good (pandas DataFrame): the good OBs 
+        bad_OBs_values (pandas DataFrame): the values of the fields in the bad OBs 
+        bad_OBs_hasFields (pandas DataFrame): the existence of the fields in the bad OBs
+        awarded_programs (list): a list of the awarded programs
+        exception_fields (list): a list of the exception fields
+
     Returns:
         - bad_obs_count_by_semid: dict {metadata.semid: count of bad OBs}
         - bad_field_histogram: dict {field: count of times field was missing in a bad OB}
@@ -535,6 +625,13 @@ def plot_bad_obs_histograms(bad_obs_count_by_semid, bad_field_histogram):
     """
     Plots histograms for bad_obs_count_by_semid and bad_field_histogram.
     X: keys, Y: values.
+
+    Args:
+        bad_obs_count_by_semid (dict): a dictionary mapping the program code to the count of bad OBs
+        bad_field_histogram (dict): a dictionary mapping the field to the count of times field was missing in a bad OB
+
+    Returns:
+        None
     """
     import matplotlib.pyplot as plt
 
@@ -561,6 +658,15 @@ def plot_bad_obs_histograms(bad_obs_count_by_semid, bad_field_histogram):
 def inspect_row(df_exists, df_values, row_num, exception_fields=exception_fields):
     """
     Inspect and print a summary of a specific row's key existence and requirement status.
+
+    Args:
+        df_exists (pandas DataFrame): the existence of the fields in the OBs
+        df_values (pandas DataFrame): the values of the fields in the OBs
+        row_num (int): the row number to inspect
+        exception_fields (list): a list of the exception fields
+
+    Returns:
+        email_body (str): the email body for the inspection
     """
     row_exists = df_exists.iloc[row_num]
     row_values = df_values.iloc[row_num]
