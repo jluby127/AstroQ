@@ -1,8 +1,10 @@
 .. _io:
 
-IO
-=================
-.. module:: kpfcc
+io
+==
 
-.. automodule:: kpfcc.io
+.. automodule:: astroq.io
    :members:
+   :undoc-members:
+   :private-members:
+   :show-inheritance:

@@ -1,8 +1,10 @@
 .. _access:
 
-Access
+access
 =================
-.. module:: kpfcc
 
-.. automodule:: kpfcc.acces
+.. automodule:: astroq.access
    :members:
+   :undoc-members:
+   :private-members:
+   :show-inheritance:
