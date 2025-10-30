@@ -1,9 +1,6 @@
 """
-Module for processing the inputs and outputs of the autoscheduler to/from various sources.
-Designed to be only run as a function call from the generateScript.py script.
-
-Example usage:
-    import processing_functions as pf
+Module for processing the past history of observations from OB database or user inputted file. 
+Used to populate the past.csv file for the optimization.
 """
 
 # Standard library imports
