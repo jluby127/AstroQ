@@ -24,17 +24,17 @@ class TestClass(unittest.TestCase):
         dr.kpfcc(argparse.Namespace(kpfcc_subcommand=None))
 
     def test_helloworld(self):
-        dr.kpfcc_plan_semester(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini', run_band3=False))
+        dr.plan_semester(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini', run_band3=False))
 
     def test_round2_weather(self):
-        dr.kpfcc_plan_semester(argparse.Namespace(config_file='examples/hello_world/config_hello_world_bonus_weather.ini', run_band3=False))
+        dr.plan_semester(argparse.Namespace(config_file='examples/hello_world/config_hello_world_bonus_weather.ini', run_band3=False))
 
-    def test_ttp(self):
-        dr.ttp(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
+    def test_plan_night(self):
+        dr.plan_night(argparse.Namespace(config_file='examples/hello_world/config_hello_world.ini'))
 
     def test_bench(self):
         dr.bench(argparse.Namespace(config_file='examples/bench/config_benchmark.ini', number_slots=12, thin=10))
-        dr.ttp(argparse.Namespace(config_file='examples/bench/config_benchmark.ini'))
+        dr.plan_night(argparse.Namespace(config_file='examples/bench/config_benchmark.ini'))
         dr.plot(argparse.Namespace(config_file='examples/bench/config_benchmark.ini'))
 
     def test_prep(self):

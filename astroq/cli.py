@@ -1,5 +1,5 @@
 """
-Command Line Interface
+Define the command line interface for running AstroQ. Each subcommand connects to a driver function. 
 """
 
 # Standard library imports
@@ -143,7 +143,7 @@ def main():
                                          default=False,
                                          help="Turn on to run filler.csv as if it were request.csv"
                                          )
-    psr_plan_semester.set_defaults(func=astroq.driver.kpfcc_plan_semester)
+    psr_plan_semester.set_defaults(func=astroq.driver.plan_semester)
 
     ## subcommand of astroq: plan-night -- run the night planner
     psr_plan_night = subpsr.add_parser('plan-night', parents=[psr_parent],
@@ -155,7 +155,7 @@ def main():
                                       required=True,
                                       help="Relative path of config file."
                                       )
-    psr_plan_night.set_defaults(func=astroq.driver.ttp)
+    psr_plan_night.set_defaults(func=astroq.driver.plan_night)
 
     ## subcommand of astroq: compare -- compare request set and schedule file
     psr_compare = subpsr.add_parser('compare', parents=[psr_parent],

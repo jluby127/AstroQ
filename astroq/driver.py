@@ -1,5 +1,5 @@
 """
-Driver module for AstroQ command line interface and main functionality.
+Module for executing AstroQ functions based on command line interface inputs.
 """
 
 # Standard library imports
@@ -34,6 +34,17 @@ log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)  # Lower level to capture more messages
 
 def bench(args):
+    """
+    Benchmark the AstroQ pipeline using a toy model.
+    
+    Args:
+        args (argparse.Namespace): the command line arguments with flags:
+            -cf (str): the path to the config file.
+            -ns (int): the number of slots needed to complete each of the single shot requests in program 6.
+            -thin (int): the factor to thin the request frame by (for very fast testing).
+    Returns:
+        None
+    """
     cf = args.config_file
     number_slots = args.number_slots
     thin = args.thin
@@ -61,6 +72,22 @@ def bench(args):
     return
 
 def kpfcc_prep(args):
+    """
+    Prepare the KPF-CC program for a new semester. This function is specific to the KPF-CC program and the observatory's infrastructure.
+    If you are adapting AstroQ for a new observatory, you will need to write your own module to connect to a new prep <your observatory> command.
+    
+    Args:
+        args (argparse.Namespace): the command line arguments with flags:
+            -cf (str): the path to the config file.
+            -band_number (int): the band number to filter the request.csv by.
+            -is_full_band (bool): whether this is a full-band that should update allocation.csv.
+            -allo_source (str): the source of the allocation information, either 'db' or a file path.
+            -past_source (str): the source of the past history information, either 'db' or a file path.
+            -filler_programs (str): the semester ID for the filler program. Ex. 2025B_E473.
+    
+    Returns:
+        None
+    """
     cf = args.config_file
     print(f'kpfcc_prep function: config_file is {cf}')
     config = ConfigParser()
@@ -189,29 +216,70 @@ def kpfcc_prep(args):
 
 def kpfcc_webapp(args):
     """
-    Launch web app to view interactive
-    plots.
+    Launch web app to view interactive plots.
+    
+    Args:
+        args (argparse.Namespace): the command line arguments with flags:
+            -uptree_path (str): the path to the uptree directory below which the folder structure is <semester_code>/<date>/<band>/.
+    
+    Returns:
+        None
     """
     uptree_path = args.uptree_path
     app.launch_app(uptree_path)
     return
 
-def kpfcc_plan_semester(args):
+def plan_semester(args):
     """
-    Plan a semester's worth of observations using optimization.
-    Builds the request set on-the-fly from input data, then runs optimization.
+    Run the core optimization algorithm for determining what stars to observe on what nights.
+    
+    Args:
+        args (argparse.Namespace): the command line arguments with flags:
+            -cf (str): the path to the config file.
+            -run_band3 (bool): whether to run the band 3 filler program.
+    
+    Returns:
+        None
     """
     cf = args.config_file
-    print(f'kpfcc_plan_semester function: config_file is {cf}')
+    print(f'plan_semester function: config_file is {cf}')
     b3 = args.run_band3
-    print(f'kpfcc_plan_semester function: b3 is {b3}')
-
-    # Run the semester planner directly from config file
+    print(f'plan_semester function: b3 is {b3}')
     semester_planner = splan.SemesterPlanner(cf, b3)
     semester_planner.run_model()
     return
 
+def plan_night(args):
+    """
+    Run the slew path optimization using the TTP package for a given night's selected targets.
+    
+    Args:
+        args (argparse.Namespace): the command line arguments with flags:
+            -cf (str): the path to the config file.
+    
+    Returns:
+        None
+    """
+
+    cf = args.config_file
+    print(f'plan_night function: config_file is {cf}')
+    night_planner = nplan.NightPlanner(cf)
+    night_planner.run_ttp()
+    night_planner.to_hdf5()
+    return
+
 def plot(args):
+    """
+    Generate html and png files of the standard AstroQ output plots. Mirrors those produced by the webapp. 
+    
+    Args:
+        args (argparse.Namespace): the command line arguments with flags:
+            -cf (str): the path to the config file.
+    
+    Returns:
+        None
+    """
+
     cf = args.config_file
     print(f'plot function: using config file from {cf}')
     config = ConfigParser()
@@ -308,25 +376,18 @@ def plot(args):
         print(f'No night_planner.pkl found in {semester_directory}/outputs/. No plots will be generated.')
     return
 
-def ttp(args):
-    cf = args.config_file
-    print(f'ttp function: config_file is {cf}')
-    
-    # Use the new NightPlanner class for object-oriented night planning
-    night_planner = nplan.NightPlanner(cf)
-    night_planner.run_ttp()
-   
-    # # --- Save night_planner to pickle file ---
-    # planner_pickle_path = os.path.join(night_planner.output_directory, 'night_planner.pkl')
-    # with open(planner_pickle_path, 'wb') as f:
-    #     pickle.dump(night_planner, f)
-    
-    # --- Save night_planner to HDF5 file ---
-    night_planner.to_hdf5()
-    
-    return
-
 def requests_vs_schedule(args):
+    """
+    Compare the request.csv file to the schedule.csv file to ensure that the schedule is valid. This is a sanity check to ensure that the schedule is not violating any of the constraints.
+    
+    Args:
+        args (argparse.Namespace): the command line arguments with flags:
+            -cf (str): the path to the config file.
+            -schedule_file (str): the path to the schedule file.
+    
+    Returns:
+        None
+    """
     cf = args.config_file
     sf = args.schedule_file
     print(f'requests_vs_schedule function: config_file is {cf}')
