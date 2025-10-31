@@ -24,7 +24,7 @@ exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', '
                     'metadata.submitted', 'metadata.submitter', 'metadata.tags', 'observation.auto_exp_meter',
                     'observation.auto_nd_filters', 'observation.cal_n_d_1', 'observation.cal_n_d_2',
                     'observation.exp_meter_exp_time', 'observation.exp_meter_mode', 'observation.guide_here',
-                    'observation.object', 'observation.take_simulcal', 'observation.exp_meter_bin',
+                    'observation.take_simulcal', 'observation.exp_meter_bin', #'observation.object',
                     'observation.trigger_ca_h_k', 'observation.trigger_green', 'observation.trigger_red',
                     'schedule.accessibility_map', 'schedule.days_observable', 'schedule.fast_read_mode_requested',
                     'schedule.num_visits_per_night',
