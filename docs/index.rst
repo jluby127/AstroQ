@@ -27,7 +27,7 @@ Please cite the following papers if you use AstroQ in your to plan your observat
 
    getting_started
    ob_construction
-   api
+   modules
 
 Indices and tables
 ==================
