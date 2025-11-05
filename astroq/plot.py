@@ -646,7 +646,10 @@ def get_tau_inter_line(semester_planner, all_stars, use_program_colors=False):
 
     # Add 1-to-1 line
     min_val = 0
-    max_val = max(maxyvals)
+    if maxyvals == []:
+        max_val = 0
+    else:
+        max_val = max(maxyvals)
     fig.add_trace(go.Scatter(
         x=[min_val, max_val],
         y=[min_val, max_val],
