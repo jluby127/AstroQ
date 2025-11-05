@@ -230,6 +230,12 @@ def main():
             slew = f"{log_stats.get('slew_min', 'N/A'):.1f}" if 'slew_min' in log_stats else "N/A"
             idle = f"{log_stats.get('idle_min', 'N/A'):.1f}" if 'idle_min' in log_stats else "N/A"
             shutter = f"{log_stats.get('shutter_hours', 'N/A'):.2f}" if 'shutter_hours' in log_stats else "N/A"
+            
+            # Check if idle time exceeds 45 minutes and add warning to status
+            if exists and 'idle_min' in log_stats:
+                idle_min = log_stats.get('idle_min')
+                if idle_min > 45:
+                    status = f"⚠️  WARNING: Idle > 45min"
         else:
             requested = "N/A"
             scheduled = "N/A"
