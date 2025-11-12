@@ -233,15 +233,10 @@ def format_keck_allocation_info(allocation_file):
         nights_by_program (dict): a dictionary mapping the program code to the total nights allocated to that program
     """
     allocation = pd.read_csv(allocation_file)
-    
-    # Parse the Time column to extract start and stop times
-    # Pattern: "10:28 - 15:07 ( 50%)"
-    pattern = r'(\d{2}:\d{2}) - (\d{2}:\d{2}) \(\s*(\d{2,3})%\)'
-    allocation[['Start', 'Stop', 'Percentage']] = allocation['Time'].str.extract(pattern)
-    
+        
     # Convert start and stop times to datetime for hour calculation
-    allocation['start'] = pd.to_datetime(allocation['Date'] + ' ' + allocation['Start']).dt.strftime('%Y-%m-%dT%H:%M')
-    allocation['stop'] = pd.to_datetime(allocation['Date'] + ' ' + allocation['Stop']).dt.strftime('%Y-%m-%dT%H:%M')
+    allocation['start'] = pd.to_datetime(allocation['Date'] + ' ' + allocation['StartTime']).dt.strftime('%Y-%m-%dT%H:%M')
+    allocation['stop'] = pd.to_datetime(allocation['Date'] + ' ' + allocation['EndTime']).dt.strftime('%Y-%m-%dT%H:%M')
 
     # Calculate hours for each row
     start_times = pd.to_datetime(allocation['start'])
@@ -254,12 +249,9 @@ def format_keck_allocation_info(allocation_file):
     # Create allocation frame with start/stop times for saving
     allocation_frame = allocation[['start', 'stop']].copy()
     
-    # Ensure the directory exists before saving
-    os.makedirs(os.path.dirname(savepath), exist_ok=True)
-    
     # Calculate total hours per ProjCode
     hours_by_program = allocation.groupby('ProjCode')['hours'].sum().round(3).to_dict()
-    nights_by_program = df.groupby('ProjCode')['FractionOfNight'].sum().round(3).to_dict()
+    nights_by_program = allocation.groupby('ProjCode')['FractionOfNight'].sum().round(3).to_dict()
 
     return allocation_frame, hours_by_program, nights_by_program
 

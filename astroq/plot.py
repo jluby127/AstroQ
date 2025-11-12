@@ -1283,6 +1283,47 @@ def get_ladder(data):
     fig.update_layout(xaxis_range=[0,orderData['Start Exposure'][0] + orderData["Total Exp Time (min)"][0]])
     return fig
 
+def createTelSlewPath(stamps, changes, pointings, animationStep=120):
+    '''
+    Correctly assign each frame of the animation to the telescope pointing at that time
+
+    stamps (list of zeros) - the list where each element represents a frame of the animation. We manipulate and return this at the end.
+    changes (list) - the times at which the telescope pointing changes (in order of the slew path)
+    poitings (list) - the astropy target objects of for the stars to be observed, in order of the slew path
+    animationStep (int) - the time, in seconds, between frames
+
+    return
+        stamps - now a list where element holds the pointing of the telescope (aka the star object) at that frame
+
+    '''
+    # determine how many minutes each frame of the animation represents
+    minPerStep = int(animationStep/60)
+    mins = int(60/minPerStep)
+
+    # offset the timestamps of the observations to a zero point
+    changes = (changes - changes[0])*24*mins
+    for c in range(len(changes)):
+        changes[c] = int(changes[c])
+
+    # determine telescope pointing at each frame
+    for i in range(len(changes)-1):
+        for j in range(len(stamps)):
+            if j >= changes[i] and j < changes[i+1]:
+                stamps[j] = pointings[i]
+
+    # Add edge cases of the first and last telescope pointing
+    if len(stamps) > 0:
+        k = 0
+        while k < len(stamps) and stamps[k] == 0:
+            stamps[k] = pointings[0]
+            k += 1
+        l = len(stamps)-1
+        while l >= 0 and stamps[l] == 0:
+            stamps[l] = pointings[-1]
+            l -= 1
+
+    return stamps
+
 def get_slew_animation_plotly(data, request_selected_path, animationStep=120):
     """Create a Plotly animated polar plot showing telescope slew path during observations.
 

@@ -83,6 +83,7 @@ def kpfcc_prep(args):
             -is_full_band (bool): whether this is a full-band that should update allocation.csv.
             -allo_source (str): the source of the allocation information, either 'db' or a file path.
             -past_source (str): the source of the past history information, either 'db' or a file path.
+            -request_source (str): the source of the request information, either 'db' or a file path.
             -filler_programs (str): the semester ID for the filler program. Ex. 2025B_E473.
     
     Returns:
@@ -136,54 +137,66 @@ def kpfcc_prep(args):
     # CAPTURE REQUEST INFORMATION AND PROCESS
     # --------------------------------------------
     # --------------------------------------------
-    # Add filler programs if specified
-    fillers = args.filler_programs
-    # temporarily comment out this block for 2025B.
-    if fillers is not None:
-        print(f'Adding filler program to awarded_programs: {fillers}')
-        awarded_programs.append(fillers)
-    # Pull the request sheet
-    request_file = str(config.get('data', 'request_file'))
-    OBs = ob.pull_OBs(semester)
-    good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram = ob.get_request_sheet(OBs, awarded_programs, savepath + request_file)
-    # Filter the request sheet by weather band
-    filtered_good_obs = ob.filter_request_csv(good_obs, band_number)
-    # If no exposure meter threshold set, then OB can only be part of band 1
-    if band_number != 1:
-        filtered_good_obs = filtered_good_obs[filtered_good_obs['exp_meter_threshold'] != -1.0]
-    filtered_good_obs.reset_index(drop=True, inplace=True)
-    # Compute nominal exposure times and increase exposure times for different bands
-    slowdown_factors = {1: 1.0, 2: 2.0, 3: 4.0}
-    slow = slowdown_factors[band_number]
-    # new_exptimes = ob.recompute_exposure_times(filtered_good_obs, slow)
-    # filtered_good_obs['exptime'] = new_exptimes
-    filtered_good_obs.to_csv(savepath + request_file, index=False)
+    if args.request_source == 'db':
+        # Add filler programs if specified
+        fillers = args.filler_programs
+        # temporarily comment out this block for 2025B.
+        if fillers is not None:
+            print(f'Adding filler program to awarded_programs: {fillers}')
+            awarded_programs.append(fillers)
+        # Pull the request sheet
+        request_file = str(config.get('data', 'request_file'))
+        OBs = ob.pull_OBs(semester)
+        good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram = ob.get_request_sheet(OBs, awarded_programs, savepath + request_file)
+        # Filter the request sheet by weather band
+        filtered_good_obs = ob.filter_request_csv(good_obs, band_number)
+        # If no exposure meter threshold set, then OB can only be part of band 1
+        if band_number != 1:
+            filtered_good_obs = filtered_good_obs[filtered_good_obs['exp_meter_threshold'] != -1.0]
+        filtered_good_obs.reset_index(drop=True, inplace=True)
+        # Compute nominal exposure times and increase exposure times for different bands
+        slowdown_factors = {1: 1.0, 2: 2.0, 3: 4.0}
+        slow = slowdown_factors[band_number]
+        # new_exptimes = ob.recompute_exposure_times(filtered_good_obs, slow)
+        # filtered_good_obs['exptime'] = new_exptimes
+        filtered_good_obs.to_csv(savepath + request_file, index=False)
     
-    # CAPTURE CUSTOM INFORMATION AND PROCESS
-    # --------------------------------------------
-    # --------------------------------------------
-    custom_file = str(config.get('data', 'custom_file'))
-    custom_frame = ob.format_custom_csv(OBs)
-    custom_frame.to_csv(savepath + custom_file, index=False)
+        # CAPTURE CUSTOM INFORMATION AND PROCESS
+        # --------------------------------------------
+        # --------------------------------------------
+        custom_file = str(config.get('data', 'custom_file'))
+        custom_frame = ob.format_custom_csv(OBs)
+        custom_frame.to_csv(savepath + custom_file, index=False)
 
 
-    # CAPTURE FILLER REQUEST INFORMATION AND PROCESS
-    # --------------------------------------------
-    # --------------------------------------------
-    # Now get the bright backup stars information from the filler program
-    filler_file = str(config.get('data', 'filler_file'))
-    if fillers is not None:
-        print(f'Generating filler.csv from program: {fillers}')
-        good_obs_backup, bad_obs_values_backup, bad_obs_hasFields_backup, bad_obs_count_by_semid_backup, bad_field_histogram_backup = ob.get_request_sheet(OBs, [fillers], savepath + filler_file)
+        # CAPTURE FILLER REQUEST INFORMATION AND PROCESS
+        # --------------------------------------------
+        # --------------------------------------------
+        # Now get the bright backup stars information from the filler program
+        filler_file = str(config.get('data', 'filler_file'))
+        if fillers is not None:
+            print(f'Generating filler.csv from program: {fillers}')
+            good_obs_backup, bad_obs_values_backup, bad_obs_hasFields_backup, bad_obs_count_by_semid_backup, bad_field_histogram_backup = ob.get_request_sheet(OBs, [fillers], savepath + filler_file)
+        else:
+            print(f'No fillers specified, creating blank filler.csv file.')
+            good_obs_backup = pd.DataFrame(columns=good_obs.columns)
+        filtered_good_obs_backup = ob.filter_request_csv(good_obs_backup, band_number)
+        filtered_good_obs_backup.to_csv(savepath + filler_file, index=False)
+
+        # CAPTURE EMAIL INFORMATION AND PROCESS
+        # --------------------------------------------
+        # --------------------------------------------
+        send_emails_with = []
+        for i in range(len(bad_obs_values)):
+            if bad_obs_values['metadata.semid'][i] in awarded_programs:
+                send_emails_with.append(ob.inspect_row(bad_obs_hasFields, bad_obs_values, i))
+        '''
+        this is where code to automatically send emails will go. Not implemented yet.
+        '''
     else:
-        print(f'No fillers specified, creating blank filler.csv file.')
-        good_obs_backup = pd.DataFrame(columns=good_obs.columns)
-    filtered_good_obs_backup = ob.filter_request_csv(good_obs_backup, band_number)
-    filtered_good_obs_backup.to_csv(savepath + filler_file, index=False)
-
-    # if band_number == 3:
-    #     print(f'Temporarily swapping the request.csv with filler.csv, just for band 3 and just for 2025B.')
-    #     filtered_good_obs_backup.to_csv(savepath + request_file, index=False)
+        print(f'User specified request source: {args.request_source}')
+        print("No action taken on request.csv")
+        print("User must also supply a custom.csv file and a filler.csv file.")
 
 
     # CAPTURE PAST HISTORY INFORMATION AND PROCESS
@@ -197,20 +210,10 @@ def kpfcc_prep(args):
         obhist = hs.write_OB_histories_to_csv(raw_history)
     else:
         print(f'Using past history information from file: {past_source}')
+        good_obs = pd.read_csv(args.request_source)
         obhist = hs.write_OB_histories_to_csv_JUMP(good_obs, past_source)
     obhist.to_csv(savepath + past_file, index=False)
 
-
-    # CAPTURE EMAIL INFORMATION AND PROCESS
-    # --------------------------------------------
-    # --------------------------------------------
-    send_emails_with = []
-    for i in range(len(bad_obs_values)):
-        if bad_obs_values['metadata.semid'][i] in awarded_programs:
-            send_emails_with.append(ob.inspect_row(bad_obs_hasFields, bad_obs_values, i))
-    '''
-    this is where code to automatically send emails will go. Not implemented yet.
-    '''
 
     return
 
@@ -287,7 +290,7 @@ def plot(args):
     semester_directory = config.get('global', 'workdir')
 
     if os.path.exists(semester_directory + '/outputs/semester_planner.h5'):
-        semester_planner = SemesterPlanner.from_hdf5(semester_directory + '/outputs/semester_planner.h5')
+        semester_planner = splan.SemesterPlanner.from_hdf5(semester_directory + '/outputs/semester_planner.h5')
         saveout = semester_planner.output_directory + "/saved_plots/"
         os.makedirs(saveout, exist_ok = True)
         
@@ -338,30 +341,31 @@ def plot(args):
         # build the plots
         script_table_df = pl.get_script_plan(night_planner)
         ladder_fig = pl.get_ladder(data_ttp)
-        slew_animation_figures = pl.get_slew_animation(data_ttp, animationStep=120)
+        slew_animation_fig = pl.get_slew_animation_plotly(data_ttp, semester_directory + "request.csv",animationStep=120)
         slew_path_fig = pl.plot_path_2D_interactive(data_ttp, night_start_time=night_start_time)
 
         # write the html versions 
         script_table_html = pl.dataframe_to_html(script_table_df)
         ladder_html = pio.to_html(ladder_fig, full_html=True, include_plotlyjs='cdn')
         slew_path_html = pio.to_html(slew_path_fig, full_html=True, include_plotlyjs='cdn')
+        slew_animation_html = pio.to_html(slew_animation_fig, full_html=True, include_plotlyjs='cdn')
 
-        # Convert matplotlib figures to GIF and then to HTML
-        gif_frames = []
-        for fig in slew_animation_figures:
-            buf = BytesIO()
-            fig.savefig(buf, format='png', dpi=100)
-            buf.seek(0)
-            gif_frames.append(iio.imread(buf))
-            buf.close()
+        # # Convert matplotlib figures to GIF and then to HTMLkpfcc_prep
+        # gif_frames = []
+        # for fig in slew_animation_figures:
+        #     buf = BytesIO()
+        #     fig.savefig(buf, format='png', dpi=100)
+        #     buf.seek(0)
+        #     gif_frames.append(iio.imread(buf))
+        #     buf.close()
         
-        gif_buf = BytesIO()
-        iio.imwrite(gif_buf, gif_frames, format='gif', loop=0, duration=0.3)
-        gif_buf.seek(0)
+        # gif_buf = BytesIO()
+        # iio.imwrite(gif_buf, gif_frames, format='gif', loop=0, duration=0.3)
+        # gif_buf.seek(0)
         
-        gif_base64 = base64.b64encode(gif_buf.getvalue()).decode('utf-8')
-        slew_animation_html = f'<img src="data:image/gif;base64,{gif_base64}" alt="Observing Animation"/>'
-        gif_buf.close()
+        # gif_base64 = base64.b64encode(gif_buf.getvalue()).decode('utf-8')
+        # slew_animation_html = f'<img src="data:image/gif;base64,{gif_base64}" alt="Observing Animation"/>'
+        # gif_buf.close()
 
         # write out the html files 
         with open(os.path.join(saveout, "script_table.html"), "w") as f:
