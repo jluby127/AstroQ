@@ -98,6 +98,11 @@ def main():
                                 default="db",
                                 help="Absolute path of a past history file. Use 'db' to pull from the database."
                                 )
+    psr_prep_kpfcc.add_argument('-rs', '--request_source',
+                                type=str,
+                                default="db",
+                                help="Absolute path of a request file. Use 'db' to pull from the database, otherwise no action taken."
+                                )
     psr_prep_kpfcc.add_argument('-fillers', '--filler_programs',
                                 type=str,
                                 required=False,
