@@ -32,6 +32,12 @@ examples/bench/*
 !examples/bench/past.csv
 !examples/bench/custom.csv
 
+# In general, ignore files in the data/ folder, with exception
+data/*
+!data/maunakea_weather_loss_data.csv
+!data/template_OB.json
+!data/template_OB_annotated.json
+
 # Byte-compiled / optimized / DLL files
 .DS_Store
 __pycache__/
