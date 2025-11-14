@@ -1,14 +1,6 @@
 """
-Night Planning Module (nplan.py)
-
 Module for night-level observation planning and optimization.
-Uses the Target & Time Planner (TTP) to optimize nightly observation sequences.
-
-Main Functions:
-- run_ttp(config_file): Optimize nightly observation sequences
-- produce_bright_backups(config_file): Create backup target lists for poor weather
-- prepare_for_ttp(...): Prepare data for the TTP system
-
+Uses the TTP package to optimize nightly observation sequences.
 See https://github.com/lukehandley/ttp/tree/main for more info about the TTP
 """
 
@@ -35,13 +27,8 @@ import ttp.model as model
 
 class NightPlanner(object):
     """
-    Night Planner for optimizing observation sequences within a single night.
-    
-    Uses the Target & Time Planner (TTP) to create optimal observation schedules
-    and backup target lists for poor weather conditions.
-    
-    Reads configuration directly from config file and uses SemesterPlanner
-    for semester calculations and data management.
+    The NightPlanner object is responsible for preparing, running, and outputting the TTP slew path optimization. 
+    It is built from the config file and requires a semester_planner object to have been created and saved to an h5 file first.
     """
     
     def __init__(self, config_file):
@@ -113,9 +100,17 @@ class NightPlanner(object):
         
     def run_ttp(self):
         """
-        Produce the TTP solution given the results of the autoscheduler.
-        Optimizes the nightly observation sequence for scheduled targets.
+        Prepare the TTP input dataframe by parsing the request_selected.csv file. Ensure data is in the correct format for TTP.
+        Then run the TTP optimization to produce the solution which is then saved out as an hdf5 file.
+        If no targets are selected, the function will gracefully return without running the TTP.
+
+        Args:
+            None
+
+        Returns:
+            None
         """
+
         observers_path = self.semester_directory + 'outputs/'
         check1 = os.path.isdir(observers_path)
         if not check1:
@@ -172,11 +167,7 @@ class NightPlanner(object):
 
         filename = os.path.join(self.output_directory, 'ttp_prepared.csv')
         to_ttp.to_csv(filename, index=False)
-
-        # target_list = formatting.theTTP(filename)
-        # solution = model.TTPModel(observation_start_time, observation_stop_time, target_list,
-        #                             observatory, observers_path, runtime=self.max_solve_time, optgap=self.max_solve_gap, useHighEl=False)
-
+    
         target_list = formatting.theTTP(filename, observatory, observation_start_time, observation_stop_time)
         solution = model.TTPModel(target_list, observers_path, runtime=self.max_solve_time, optgap=self.max_solve_gap)
 
@@ -222,7 +213,7 @@ class NightPlanner(object):
                             [], str(self.current_day), observers_path)
         print("The optimal path through the sky for the selected stars is found. Clear skies!")
 
-        return #save_data
+        return 
 
     def get_first_last_indices(self, selected_df):
         """
@@ -232,8 +223,10 @@ class NightPlanner(object):
             selected_df (pd.DataFrame): DataFrame containing selected targets with unique_id column
             
         Returns:
-            tuple: (first_available_list, last_available_list) - Lists of time strings in HH:MM format
+            first_available_list (list) - Lists of time strings in HH:MM format for each target's first available slot
+            last_available_list (list) - Lists of time strings in HH:MM format for each target's last available slot
         """
+
         # Get tonight's index from the all_dates_dict
         tonight_index = self.all_dates_dict[self.current_day]
         
@@ -583,7 +576,8 @@ def get_nightly_times_from_allocation(allocation_file, current_day):
         current_day (str): the date to look for in YYYY-MM-DD format
         
     Returns:
-        tuple: (start_time, stop_time) as Time objects
+       start_time (Time object): the start time of the allocation for the current day
+       stop_time (Time object): the stop time of the allocation for the current day
     """
     allocated_times_frame = pd.read_csv(allocation_file)
     allocated_times_frame['start'] = allocated_times_frame['start'].apply(Time)

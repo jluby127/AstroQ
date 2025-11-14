@@ -38,7 +38,18 @@ night_planner = None
 uptree_path = None
 
 def load_data_for_path(semester_code, date, band, uptree_path):
-    """Load data for a specific semester_code/date/band combination"""
+    """
+    Load data for a specific semester_code/date/band combination
+    
+    Args:
+        semester_code (str): the semester code
+        date (str): the date in YYYY-MM-DD format
+        band (str): the band
+        uptree_path (str): the path to the uptree directory
+
+    Returns:
+        success (bool): True if data loaded successfully, False otherwise
+    """
     global data_astroq, data_ttp, semester_planner, night_planner, request_frame_path, night_start_time
     
     # Construct the workdir path based on URL parameters

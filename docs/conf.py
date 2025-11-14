@@ -26,7 +26,8 @@ extensions = [
     'sphinx.ext.doctest',
     'sphinx.ext.mathjax',
     'sphinx.ext.napoleon',
-    'sphinx.ext.viewcode'
+    'sphinx.ext.viewcode',
+    'sphinx.ext.autosummary'
 ]
 
 
@@ -40,3 +41,25 @@ exclude_patterns = []
 
 html_theme = 'sphinx_rtd_theme'
 html_static_path = ['_static']
+
+# Theme options to improve sidebar navigation
+html_theme_options = {
+    'collapse_navigation': False,
+    'navigation_depth': 4,
+    'titles_only': False,
+    'sticky_navigation': True,
+}
+
+# Ensure API docs update automatically when code changes
+autosummary_generate = True
+autodoc_default_options = {
+    'members': True,
+    'undoc-members': True,
+    'private-members': True,
+    'inherited-members': True,
+    'show-inheritance': True,
+}
+
+# Napoleon settings (Google/NumPy docstrings)
+napoleon_google_docstring = True
+napoleon_numpy_docstring = True
