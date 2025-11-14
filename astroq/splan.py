@@ -82,14 +82,22 @@ class SemesterPlanner(object):
         self.solve_max_gap = config.getfloat('semester', 'max_solve_gap')
         self.max_bonus = config.getfloat('semester', 'maximum_bonus_size')
         self.run_bonus_round = config.getboolean('semester', 'run_bonus_round')
-        
+        self.throttle_grace = config.getfloat('semester', 'throttle_grace')
+        self.hours_per_night = config.getfloat('semester', 'hours_per_night')
+
         # Output directory
         self.output_directory = workdir + "outputs/"
         check = os.path.isdir(self.output_directory)
         if not check:
             os.makedirs(self.output_directory)
-        
+
         # Set up file paths from data section
+        programs_file_config = str(config.get('data', 'programs_file'))
+        if os.path.isabs(programs_file_config):
+            self.programs_file = programs_file_config
+        else:
+            self.programs_file = os.path.join(self.semester_directory, programs_file_config)
+        
         allocation_file_config = str(config.get('data', 'allocation_file'))
         if os.path.isabs(allocation_file_config):
             self.allocation_file = allocation_file_config
@@ -402,6 +410,47 @@ class SemesterPlanner(object):
         else:
             return round(exposure_time / time_per_slot)
 
+    def constraint_throttle(self):
+        """
+        Not described in Lubin et al. 2025.
+
+        Ensure that no program is scheduled for more time than they bring to the queue, 
+        within a grace amount, decided by the observatory.
+        There is one constraint per program. 
+        """
+        logs.info("Constraint: Throttling over-requested programs.")
+        program_frame = pd.read_csv(self.programs_file)
+        program_requests_map = {
+            prog: set(
+                self.requests_frame.loc[self.requests_frame['program_code'] == prog, 'unique_id']
+            )
+            for prog in program_frame['program']
+        }
+
+        for program in program_frame['program']:
+            program_row = program_frame.loc[program_frame['program'] == program].iloc[0]
+            awarded_time_slots = (program_row['nights'] * self.hours_per_night * 60) / self.slot_size
+            awarded_time_slots_grace = int(awarded_time_slots * self.throttle_grace)
+
+            max_slots_allowed_for_scheduling_program = gp.quicksum(
+                self.Yrds[r, d, s] * self.slots_needed_for_exposure_dict[r] # proper accounting of multi-slot exposures?
+                for r, d, s in self.observability_tuples
+                if r in program_requests_map[program]
+            )
+
+            # Count past used slots for this program
+            past_used_slots = 0
+            if hasattr(self, 'past_history') and self.past_history is not None:
+                for r in program_requests_map[program]:
+                    if r in self.past_history:
+                        past_hist = self.past_history[r]
+                        slots_per_exposure = self.slots_needed_for_exposure_dict.get(r, 1)
+                        past_used_slots += past_hist.total_n_exposures * slots_per_exposure
+            
+            lhs = awarded_time_slots_grace - past_used_slots
+            rhs = max_slots_allowed_for_scheduling_program
+            self.model.addConstr(lhs >= rhs, f'throttle_program_{program}')
+
     def constraint_reserve_multislot_exposures(self):
         """
         See Constraint 1 in Lubin et al. 2025.
@@ -519,7 +568,7 @@ class SemesterPlanner(object):
         and the sum of the past and future scheduled
         observations of that target.
         """
-        logs.info("Constraint 0: Build theta variable")
+        logs.info("Constraint: Build theta variable")
         for starid in self.schedulable_requests:
             idx = self.requests_frame.index[self.requests_frame['unique_id']==starid][0]
             lhs1 = self.theta[starid]
@@ -704,6 +753,7 @@ class SemesterPlanner(object):
         self.constraint_build_enforce_intranight_cadence()
         self.constraint_set_min_max_visits_per_night()
         self.constraint_build_theta_multivisit()
+        self.constraint_throttle()
         self.set_objective_minimize_theta_time_normalized()
         logs.info(f"Time to build constraints: {np.round(time.time()-t1,3):.3f}")
 
