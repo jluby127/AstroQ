@@ -75,6 +75,115 @@ def serialize_schedule(Yrds, semester_planner):
     build_fullness_report(semester_planner, "Round1")
     return sparse
 
+def compute_program_statistics(semester_planner, schedule_df):
+    """
+    Compute awarded, requested, and scheduled statistics per program.
+    
+    Args:
+        semester_planner (obj): a SemesterPlanner object from splan.py
+        schedule_df (DataFrame): DataFrame containing scheduled observations
+        
+    Returns:
+        dict: Dictionary keyed by program name, with values containing:
+            - awarded_nights, awarded_hours, awarded_slots
+            - past_nights, past_hours, past_slots
+            - requested_nights, requested_hours, requested_slots
+            - scheduled_nights, scheduled_hours, scheduled_slots
+            - fullness1 ((scheduled+past)/requested %)
+            - fullness2 ((scheduled+past)/awarded %)
+    """
+    # Get conversion factors
+    slot_size = semester_planner.slot_size  # in minutes
+    hours_per_night = semester_planner.hours_per_night  # in hours
+    slots_per_hour = 60 / slot_size
+    slots_per_night = hours_per_night * slots_per_hour
+    
+    # Read programs.csv to get awarded nights per program
+    program_frame = pd.read_csv(semester_planner.programs_file)
+    
+    # Initialize result dictionary
+    program_stats = {}
+    
+    # Process each program
+    for _, prog_row in program_frame.iterrows():
+        program = prog_row['program']
+        awarded_nights = prog_row['nights']
+        awarded_hours = awarded_nights * hours_per_night
+        awarded_slots = awarded_nights * slots_per_night
+        
+        # Calculate requested slots for this program
+        program_requests = semester_planner.requests_frame[
+            semester_planner.requests_frame['program_code'] == program
+        ]
+        
+        requested_slots = 0
+        for _, req_row in program_requests.iterrows():
+            star_id = req_row['unique_id']
+            if star_id in semester_planner.slots_needed_for_exposure_dict:
+                slots_needed = semester_planner.slots_needed_for_exposure_dict[star_id]
+                n_intra_max = req_row['n_intra_max']
+                n_inter_max = req_row['n_inter_max']
+                requested_slots += slots_needed * n_intra_max * n_inter_max
+        
+        requested_hours = requested_slots / slots_per_hour
+        requested_nights = requested_hours / hours_per_night
+        
+        # Calculate past slots for this program (already observed)
+        past_slots = 0
+        if hasattr(semester_planner, 'past_history') and semester_planner.past_history is not None:
+            for _, req_row in program_requests.iterrows():
+                star_id = req_row['unique_id']
+                if star_id in semester_planner.past_history:
+                    past_hist = semester_planner.past_history[star_id]
+                    # Get slots per exposure for this star
+                    slots_per_exposure = semester_planner.slots_needed_for_exposure_dict.get(star_id, 1)
+                    # Total past slots = number of exposures * slots per exposure
+                    past_slots += past_hist.total_n_exposures * slots_per_exposure
+        
+        past_hours = past_slots / slots_per_hour
+        past_nights = past_hours / hours_per_night
+        
+        # Calculate scheduled slots for this program
+        scheduled_slots = 0
+        for _, sched_row in schedule_df.iterrows():
+            star_name = sched_row['r']
+            star_row = semester_planner.requests_frame[
+                semester_planner.requests_frame['unique_id'] == star_name
+            ]
+            if len(star_row) > 0 and 'program_code' in star_row.columns:
+                if star_row['program_code'].iloc[0] == program:
+                    slots_needed = semester_planner.slots_needed_for_exposure_dict.get(star_name, 1)
+                    scheduled_slots += slots_needed
+        
+        scheduled_hours = scheduled_slots / slots_per_hour
+        scheduled_nights = scheduled_hours / hours_per_night
+        
+        # Calculate fullness percentages based on (scheduled + past)
+        total_scheduled_and_past_slots = scheduled_slots + past_slots
+        fullness1 = (total_scheduled_and_past_slots * 100.0 / requested_slots) if requested_slots > 0 else 0.0
+        fullness2 = (total_scheduled_and_past_slots * 100.0 / awarded_slots) if awarded_slots > 0 else 0.0
+        fullness3 = (requested_slots * 100.0 / awarded_slots) if awarded_slots > 0 else 0.0
+
+        program_stats[program] = {
+            'awarded_nights': awarded_nights,
+            'awarded_hours': awarded_hours,
+            'awarded_slots': awarded_slots,
+            'past_nights': past_nights,
+            'past_hours': past_hours,
+            'past_slots': past_slots,
+            'requested_nights': requested_nights,
+            'requested_hours': requested_hours,
+            'requested_slots': requested_slots,
+            'scheduled_nights': scheduled_nights,
+            'scheduled_hours': scheduled_hours,
+            'scheduled_slots': scheduled_slots,
+            'fullness1': fullness1,
+            'fullness2': fullness2,
+            'fullness3': fullness3
+        }
+    
+    return program_stats
+
 def build_fullness_report(semester_planner, round_info):
     """
     Determine how full the schedule is: slots available, slots scheduled, and slots required
@@ -133,6 +242,10 @@ def build_fullness_report(semester_planner, round_info):
     percentage_of_available = np.round((total_scheduled_slots * 100) / allocated_slots, 3) if allocated_slots > 0 else 0
     percentage_of_requested = np.round((total_scheduled_slots * 100) / total_slots_requested, 3) if total_slots_requested > 0 else 0
     
+    # Compute program statistics
+    program_stats = compute_program_statistics(semester_planner, schedule_df)
+
+    
     with open(semester_planner.output_directory + "runReport.txt", "w") as file:
         file.write("Stats for " + str(round_info) + "\n")
         file.write("------------------------------------------------------" + "\n")
@@ -145,6 +258,27 @@ def build_fullness_report(semester_planner, round_info):
         file.write("N slots requested (total): " + str(total_slots_requested) + "\n")
         file.write("Utilization (% of available slots): " + str(percentage_of_available) + "%" + "\n")
         file.write("Utilization (% of requested slots): " + str(percentage_of_requested) + "%" + "\n")
+        file.write("\n")
+        file.write("Program Statistics:" + "\n")
+        file.write("------------------------------------------------------" + "\n")
+        if program_stats:
+            # Sort by program name for consistent output
+            for program in sorted(program_stats.keys()):
+                stats = program_stats[program]
+                file.write(f"{program}\n")
+                file.write(f" -- Awarded {stats['awarded_nights']:.2f} nights = {stats['awarded_hours']:.2f} hours = {stats['awarded_slots']:.1f} slots.\n")
+                file.write(f" -- Requested {stats['requested_nights']:.2f} nights = {stats['requested_hours']:.2f} hours = {stats['requested_slots']:.1f} slots\n")
+                file.write(f" ------ Fullness1 {stats['fullness3']:.2f}% of requested to awarded\n")
+                file.write(f" -- Past {stats['past_nights']:.2f} nights = {stats['past_hours']:.2f} hours = {stats['past_slots']:.1f} slots.\n")
+                file.write(f" -- Scheduled {stats['scheduled_nights']:.2f} nights = {stats['scheduled_hours']:.2f} hours = {stats['scheduled_slots']:.1f} slots\n")
+                file.write(f" ------ Fullness2 {stats['fullness1']:.2f}% of past/scheduled to requested\n")
+                file.write(f" ------ Fullness3 {stats['fullness2']:.2f}% of past/scheduled to awarded\n")
+                file.write("\n")
+                file.write("\n")
+                file.write("\n")
+
+        else:
+            file.write("  No program information available" + "\n")
         file.close()
         
 def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars, current_day,

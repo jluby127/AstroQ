@@ -157,8 +157,15 @@ def kpfcc_prep(args):
         # Compute nominal exposure times and increase exposure times for different bands
         slowdown_factors = {1: 1.0, 2: 2.0, 3: 4.0}
         slow = slowdown_factors[band_number]
-        # new_exptimes = ob.recompute_exposure_times(filtered_good_obs, slow)
-        # filtered_good_obs['exptime'] = new_exptimes
+        new_exptimes = ob.recompute_exposure_times(filtered_good_obs, slow)
+        for i in range(len(filtered_good_obs)):
+            if filtered_good_obs['program_code'][i] == "2025B_N427":
+                print("exp meter threshold: ", filtered_good_obs['exp_meter_threshold'][i])
+                print("old exptime: ", filtered_good_obs['exptime'][i])
+                print("new exptime: ", new_exptimes[i])
+                print("factor: ", np.round(filtered_good_obs['exptime'][i]/new_exptimes[i], 2))
+                print("--------------------------------")
+        filtered_good_obs['exptime'] = new_exptimes
         filtered_good_obs.to_csv(savepath + request_file, index=False)
     
         # CAPTURE CUSTOM INFORMATION AND PROCESS
