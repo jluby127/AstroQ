@@ -393,9 +393,9 @@ def create_checks_dataframes(OBs, exception_fields):
                 presence_df[col_name] = presence_df[col_name] | value_df[col_name].notna()
                 
         # Special case for fixing default ExpMeterThreshold
-        # Using default of 1.6, this is in MegaPhotons/A which gives SNR ~150
-        if 'observation.exp_meter_threshold' in value_df.columns:
-            value_df['observation.exp_meter_threshold'] = 1.6
+        # Using default of 1.616161, this is in MegaPhotons/A which gives SNR ~150 and is a unique value for filter on
+        # if 'observation.exp_meter_threshold' in value_df.columns:
+        #     value_df['observation.exp_meter_threshold'] = 1.616161
 
         # Special case for weather bands based on metadata.semid
         if 'metadata.semid' in value_df.columns:
@@ -569,13 +569,18 @@ def recompute_exposure_times(request_frame, slowdown_factor):
     """
     new_exptimes = []
     for i in range(len(request_frame)):
-        # Using Teff = 5800 and V=10, the KPF ETC predicts time to achieve  SNR=120 @ 604 nm is 307 seconds. We use this as scaling time.
-        # At SNR=120, the corresponding ExpMeterThreshold is 1.0 MegaPhotons/A. 
-        # See this website for more details: https://www2.keck.hawaii.edu/inst/kpf/expmetertermination/
-        t0 = 307.0 
-        nominal_exptime = t0*request_frame['exp_meter_threshold'][i]
-        final_time = min([nominal_exptime*slowdown_factor, request_frame['exptime'][i]])
-        new_exptimes.append(final_time)
+        # If the exp_meter_threshold is not the default value (indicating PI did not assign a value), 
+        # then compute the nominal exposure time based on desired SNR
+        if request_frame['exp_meter_threshold'][i] != 1.616161:
+            # Using Teff = 5800 and V=10, the KPF ETC predicts time to achieve  SNR=120 @ 604 nm is 307 seconds. We use this as scaling time.
+            # At SNR=120, the corresponding ExpMeterThreshold is 1.0 MegaPhotons/A. 
+            # See this website for more details: https://www2.keck.hawaii.edu/inst/kpf/expmetertermination/
+            t0 = 307.0 
+            nominal_exptime = t0*request_frame['exp_meter_threshold'][i]
+            final_time = min([nominal_exptime*slowdown_factor, request_frame['exptime'][i]])
+            new_exptimes.append(final_time)
+        else:
+            new_exptimes.append(request_frame['exptime'][i])
     return new_exptimes
 
 def analyze_bad_obs(trimmed_good, bad_OBs_values, bad_OBs_hasFields, awarded_programs,exception_fields=exception_fields):
