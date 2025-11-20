@@ -21,8 +21,8 @@ import astroq.access as ac
 
 def serialize_schedule(Yrds, semester_planner):
     """
-    Turns the non-square matrix of the solution into a square matrix and starts the human readable
-    solution by filling in the slots where a star's exposre is started.
+    Turns the ragged matrix of the Gurobi solution Yrds into a human readable 
+    solution by filling in the slots where a star's exposure is started.
 
     Args:
         Yrds (array): the Gurobi solution with keys of (unique_id, day, slot) and values 1 or 0.
@@ -150,10 +150,11 @@ def build_fullness_report(semester_planner, round_info):
 def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars, current_day,
                     outputdir, version='nominal'):
     """
-    Generate the nightly script in the correct format.
+    Generate the nightly script in the format required by the Keck "Magiq" software. 
+    Backwards compatable to pre-KPF-CC observing
 
     Args:
-        frame (dataframe): the request.csv in dataframe format for just the targets that were selected to be observed tonight
+        frame (dataframe): the request_frame of just the targets that were selected to be observed tonight
         solution_frame (dataframe): the solution attribute from the TTP model.plotly object
         night_start_time (astropy time object): Beginning of observing interval
         extras (array): starnames of "extra" stars (those not fit into the script)
@@ -163,7 +164,7 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
         version (str): a tag for thescript (e.g. nominal, slowdown, backups, etc)
 
     Returns:
-        None
+        lines (str): the script file as a string
     """
     # Cast starname column to strings to ensure proper matching
     frame['starname'] = frame['starname'].astype(str)

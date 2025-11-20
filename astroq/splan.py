@@ -202,14 +202,14 @@ class SemesterPlanner(object):
         # Define the Gurobi model
         self.model = gp.Model('Semester_Scheduler')
         # Yrds is technically a 1D matrix indexed by tuples.
-        # But in practice best think of it as a 3D square matrix of requests r, nights d, and slots s, with gaps.
+        # But in practice best think of it as a 3D ragged matrix of requests r, nights d, and slots s, with gaps.
         # Day d / Slot s for request r will be 1 to indicate starting an exposure for that request in that day/slot
         observability_array = list(self.observability.itertuples(index=False, name=None))
         self.Yrds = self.model.addVars(observability_array, vtype = GRB.BINARY, name = 'Requests_Slots')
 
         if len(self.observability_nights) != 0:
             # Wrd is technically a 1D matrix indexed by tuples.
-            # But in practice best think of it as a 2D square matrix of requests r and nights d, with gaps.
+            # But in practice best think of it as a 2D ragged matrix of requests r and nights d, with gaps.
             # Night d for request r will be 1 to indicate at least one exposure is scheduled for this night.
             # Note that Wrd is only valid for requests r which have at least 2 visits requested in the night.
             observability_array_onsky = list(self.observability_nights.itertuples(index=False, name=None))
