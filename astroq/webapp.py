@@ -26,7 +26,7 @@ from astroq.splan import SemesterPlanner
 from astroq.nplan import NightPlanner
 from astroq.nplan import get_nightly_times_from_allocation
 
-running_on_keck_machines = True
+running_on_keck_machines = False
 
 app = Flask(__name__, template_folder="../templates")
 
@@ -61,7 +61,6 @@ def load_data_for_path(semester_code, date, band, uptree_path):
         return False, f"Directory not found: {workdir}"
     
     semester_planner_h5 = os.path.join(workdir, 'semester_planner.h5')
-    # night_planner_pkl = os.path.join(workdir, 'night_planner.pkl')
     night_planner_h5 = os.path.join(workdir, 'night_planner.h5')
 
     # Load semester planner
@@ -80,7 +79,7 @@ def load_data_for_path(semester_code, date, band, uptree_path):
         data_ttp = night_planner.solution
 
         # Get the night start time from allocation file (this is "Minute 0")
-        night_start_time, _ = get_nightly_times_from_allocation(
+        night_start_time, _ = nplan.get_nightly_times_from_allocation(
             night_planner.allocation_file, 
             night_planner.current_day
         )
@@ -268,7 +267,7 @@ def render_nightplan_page():
     plots = ['script_table', 'slewgif', 'ladder', 'slewpath']
     
     script_table_df = pl.get_script_plan(night_planner)
-    ladder_fig = pl.get_ladder(data_ttp)
+    ladder_fig = pl.get_ladder(data_ttp, night_start_time)
     slew_animation_fig = pl.get_slew_animation_plotly(data_ttp, request_frame_path, animationStep=120)
     slew_path_fig = pl.plot_path_2D_interactive(data_ttp, night_start_time=night_start_time)
     

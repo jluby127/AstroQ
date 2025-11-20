@@ -5,6 +5,7 @@ From there, they can be used as is or saved as png files.
 
 # Standard library imports
 from collections import defaultdict
+from datetime import datetime, timedelta
 import os
 import pickle
 import base64
@@ -1228,7 +1229,7 @@ def get_request_frame(semester_planner, all_stars):
     
     return filtered_frame
 
-def get_ladder(data):
+def get_ladder(data, tonight_start_time):
     """Produce a plotly figure which illustrates the night plan solution.
 
     Args:
@@ -1239,6 +1240,7 @@ def get_ladder(data):
     """
 
     orderData = data[0].plotly
+    print(orderData.keys())
 
     # reverse the order so that the plot flows from top to bottom with time
     orderData = pd.DataFrame.from_dict(orderData)
@@ -1259,9 +1261,10 @@ def get_ladder(data):
                 '1':'blue'}
 
     # build the outline of the plot, add dummy points that are not displyed within the x/y limits so as to fill in the legend
-    fig = px.scatter(orderData, x='Minutes the from Start of the Night', y="human_starname", hover_data=['First Available', 'Last Available', 'Exposure Time (min)', "N_shots", "Total Exp Time (min)"] ,title='Night Plan', width=800, height=1000) #color='Program'
-    fig.add_shape(type="rect", x0=-100, x1=-80, y0=-0.5, y1=0.5, fillcolor='red', showlegend=True, name='Expose P1')
-    fig.add_shape(type="rect", x0=-100, x1=-80, y0=-0.5, y1=0.5, fillcolor='blue', showlegend=True, name='Expose P3')
+    fig = px.scatter(orderData, x='Minutes the from Start of the Night', y='human_starname', hover_data=['First Available', 'Last Available', 'Exposure Time (min)', "N_shots", "Total Exp Time (min)", 'UTC Start Time'] ,title='Night Plan', width=800, height=1000) #color='Program'
+    # Hide the y-axis label
+    fig.update_layout(yaxis_title='')
+    fig.add_shape(type="rect", x0=-100, x1=-80, y0=-0.5, y1=0.5, fillcolor='red', showlegend=True, name='Exposure')
     fig.add_shape(type="rect", x0=-100, x1=-80, y0=-0.5, y1=0.5, fillcolor='lime', opacity=0.3, showlegend=True, name='Accessible')
 
     new_already_processed = []
@@ -1280,7 +1283,48 @@ def get_ladder(data):
             # if we already did this star, it is a multi-visit star and we need to adjust the row counter for plotting purposes
             ifixer -= 1
 
-    fig.update_layout(xaxis_range=[0,orderData['Start Exposure'][0] + orderData["Total Exp Time (min)"][0]])
+    # Get the x-axis range
+    x_min = 0
+    if len(orderData) > 0:
+        # Calculate the maximum end time (start + duration) across all observations
+        end_times = orderData['Start Exposure'] + orderData["Total Exp Time (min)"]
+        x_max = end_times.max()
+    else:
+        x_max = 600
+    fig.update_layout(xaxis_range=[x_min, x_max])
+    # Add secondary x-axis with UTC time
+    start_time = tonight_start_time.to_datetime()
+    # Create tick positions (every 60 minutes or so, adjust as needed)
+    tick_interval = 60  # minutes
+    tick_positions = list(range(0, int(x_max) + tick_interval, tick_interval))
+    tick_labels = [(start_time + timedelta(minutes=pos)).strftime('%H:%M') for pos in tick_positions]
+    # Add secondary x-axis
+    # Add an invisible trace to force the secondary axis to appear
+    fig.add_trace(go.Scatter(
+        x=[x_min, x_max],
+        y=["Starname","Starname"],  # Place just below the visible range
+        mode='markers',
+        marker=dict(size=0.1, opacity=0),
+        showlegend=False,
+        hoverinfo='skip',
+        xaxis='x2'
+    ))
+    # Create the secondary x-axis configuration
+    fig.update_layout(
+        xaxis2=dict(
+            title=dict(text='UTC Time', standoff=0),
+            overlaying='x',
+            side='top',
+            range=[x_min, x_max],
+            tickmode='array',
+            tickvals=tick_positions,
+            ticktext=tick_labels,
+            showgrid=False,
+            showline=True,
+            mirror=True
+        )
+    )
+    
     return fig
 
 def createTelSlewPath(stamps, changes, pointings, animationStep=120):

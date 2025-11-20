@@ -182,6 +182,14 @@ class NightPlanner(object):
         ]
         self.solution = [solution]
 
+        solution.plotly['UTC Start Time'] = [0]*len(solution.plotly['Start Exposure'])
+        for i in range(len(solution.plotly['Start Exposure'])):
+            solution.plotly['UTC Start Time'][i] = str(TimeDelta(solution.plotly['Start Exposure'][i]*60,format='sec') + observation_start_time)[11:16]
+        numeric_columns = ['Start Exposure', 'First Available', 'Last Available', 'Minutes the from Start of the Night']
+        for col in numeric_columns:
+            if col in solution.plotly:
+                solution.plotly[col] = np.round(np.array(solution.plotly[col]), 2).tolist()
+
         observe_order_file = os.path.join(observers_path, f"ObserveOrder_{self.current_day}.txt")
         # Convert solution.plotly to a DataFrame for easier handling
         plotly_df = pd.DataFrame(solution.plotly)
