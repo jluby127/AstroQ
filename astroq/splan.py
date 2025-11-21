@@ -91,7 +91,7 @@ class SemesterPlanner(object):
         self.semester_letter = config.get('global', 'semester')[-1]
         
         # Output directory
-        self.output_directory = workdir + "outputs/"
+        self.output_directory = os.path.join(workdir, "outputs")
         check = os.path.isdir(self.output_directory)
         if not check:
             os.makedirs(self.output_directory)

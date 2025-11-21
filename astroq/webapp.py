@@ -53,7 +53,7 @@ def load_data_for_path(semester_code, date, band, uptree_path):
     global data_astroq, data_ttp, semester_planner, night_planner, request_frame_path, night_start_time
     
     # Construct the workdir path based on URL parameters
-    workdir = f"{uptree_path}/{semester_code}/{date}/{band}/outputs/"
+    workdir = os.path.join(uptree_path, semester_code, date, band, "outputs")
     request_frame_path = os.path.join(workdir, 'request_selected.csv')
     
     # Check if the directory exists

@@ -129,10 +129,10 @@ def kpfcc_prep(args):
         print("Updating allocation.csv for full-band")
         allocation_frame = ob.update_allocation_file(allocation_frame, current_date)
     allocation_frame.sort_values(by='start', inplace=True)
-    allocation_frame.to_csv(savepath+allocation_file, index=False)
+    allocation_frame.to_csv(os.path.join(savepath, allocation_file), index=False)
     # Output the nights by program
     programmatics = pd.DataFrame({'program': awarded_programs, 'hours': list(hours_by_program.values()), 'nights': list(nights_by_program.values())})
-    programmatics.to_csv(savepath + 'programs.csv', index=False)
+    programmatics.to_csv(os.path.join(savepath, 'programs.csv'), index=False)
 
     # CAPTURE REQUEST INFORMATION AND PROCESS
     # --------------------------------------------
@@ -147,7 +147,7 @@ def kpfcc_prep(args):
         # Pull the request sheet
         request_file = str(config.get('data', 'request_file'))
         OBs = ob.pull_OBs(semester)
-        good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram = ob.get_request_sheet(OBs, awarded_programs, savepath + request_file)
+        good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram = ob.get_request_sheet(OBs, awarded_programs, os.path.join(savepath, request_file))
         # Filter the request sheet by weather band
         filtered_good_obs = ob.filter_request_csv(good_obs, band_number)
         # If no exposure meter threshold set, then OB can only be part of band 1
@@ -159,14 +159,14 @@ def kpfcc_prep(args):
         slow = slowdown_factors[band_number]
         # new_exptimes = ob.recompute_exposure_times(filtered_good_obs, slow)
         # filtered_good_obs['exptime'] = new_exptimes
-        filtered_good_obs.to_csv(savepath + request_file, index=False)
+        filtered_good_obs.to_csv(os.path.join(savepath, request_file), index=False)
     
         # CAPTURE CUSTOM INFORMATION AND PROCESS
         # --------------------------------------------
         # --------------------------------------------
         custom_file = str(config.get('data', 'custom_file'))
         custom_frame = ob.format_custom_csv(OBs)
-        custom_frame.to_csv(savepath + custom_file, index=False)
+        custom_frame.to_csv(os.path.join(savepath, custom_file), index=False)
 
 
         # CAPTURE FILLER REQUEST INFORMATION AND PROCESS
@@ -176,12 +176,12 @@ def kpfcc_prep(args):
         filler_file = str(config.get('data', 'filler_file'))
         if fillers is not None:
             print(f'Generating filler.csv from program: {fillers}')
-            good_obs_backup, bad_obs_values_backup, bad_obs_hasFields_backup, bad_obs_count_by_semid_backup, bad_field_histogram_backup = ob.get_request_sheet(OBs, [fillers], savepath + filler_file)
+            good_obs_backup, bad_obs_values_backup, bad_obs_hasFields_backup, bad_obs_count_by_semid_backup, bad_field_histogram_backup = ob.get_request_sheet(OBs, [fillers], os.path.join(savepath, filler_file))
         else:
             print(f'No fillers specified, creating blank filler.csv file.')
             good_obs_backup = pd.DataFrame(columns=good_obs.columns)
         filtered_good_obs_backup = ob.filter_request_csv(good_obs_backup, band_number)
-        filtered_good_obs_backup.to_csv(savepath + filler_file, index=False)
+        filtered_good_obs_backup.to_csv(os.path.join(savepath, filler_file), index=False)
 
         # CAPTURE EMAIL INFORMATION AND PROCESS
         # --------------------------------------------
@@ -212,8 +212,7 @@ def kpfcc_prep(args):
         print(f'Using past history information from file: {past_source}')
         good_obs = pd.read_csv(args.request_source)
         obhist = hs.write_OB_histories_to_csv_JUMP(good_obs, past_source)
-    obhist.to_csv(savepath + past_file, index=False)
-
+    obhist.to_csv(os.path.join(savepath, past_file), index=False)
 
     return
 
@@ -263,7 +262,6 @@ def plan_night(args):
     Returns:
         None
     """
-
     cf = args.config_file
     print(f'plan_night function: config_file is {cf}')
     night_planner = nplan.NightPlanner(cf)
@@ -289,9 +287,9 @@ def plot(args):
     config.read(cf)
     semester_directory = config.get('global', 'workdir')
 
-    if os.path.exists(semester_directory + '/outputs/semester_planner.h5'):
-        semester_planner = splan.SemesterPlanner.from_hdf5(semester_directory + '/outputs/semester_planner.h5')
-        saveout = semester_planner.output_directory + "/saved_plots/"
+    if os.path.exists(os.path.join(semester_directory, 'outputs', 'semester_planner.h5')):
+        semester_planner = splan.SemesterPlanner.from_hdf5(os.path.join(semester_directory, 'outputs', 'semester_planner.h5'))
+        saveout = os.path.join(semester_planner.output_directory, "saved_plots")
         os.makedirs(saveout, exist_ok = True)
         
         data_astroq = pl.process_stars(semester_planner)
@@ -326,8 +324,8 @@ def plot(args):
     else:
         print(f'No semester_planner.h5 found in {semester_directory}/outputs/. No plots will be generated.')
 
-    if os.path.exists(semester_directory + '/outputs/night_planner.pkl'):
-        with open(semester_directory + '/outputs/night_planner.pkl', "rb") as f:
+    if os.path.exists(os.path.join(semester_directory, 'outputs', 'night_planner.pkl')):
+        with open(os.path.join(semester_directory, 'outputs', 'night_planner.pkl'), "rb") as f:
             night_planner = pickle.load(f)
         data_ttp = night_planner.solution
         
@@ -341,7 +339,7 @@ def plot(args):
         # build the plots
         script_table_df = pl.get_script_plan(night_planner)
         ladder_fig = pl.get_ladder(data_ttp)
-        slew_animation_fig = pl.get_slew_animation_plotly(data_ttp, semester_directory + "request.csv",animationStep=120)
+        slew_animation_fig = pl.get_slew_animation_plotly(data_ttp, os.path.join(semester_directory, "request.csv"), animationStep=120)
         slew_path_fig = pl.plot_path_2D_interactive(data_ttp, night_start_time=night_start_time)
 
         # write the html versions 
@@ -350,22 +348,6 @@ def plot(args):
         slew_path_html = pio.to_html(slew_path_fig, full_html=True, include_plotlyjs='cdn')
         slew_animation_html = pio.to_html(slew_animation_fig, full_html=True, include_plotlyjs='cdn')
 
-        # # Convert matplotlib figures to GIF and then to HTMLkpfcc_prep
-        # gif_frames = []
-        # for fig in slew_animation_figures:
-        #     buf = BytesIO()
-        #     fig.savefig(buf, format='png', dpi=100)
-        #     buf.seek(0)
-        #     gif_frames.append(iio.imread(buf))
-        #     buf.close()
-        
-        # gif_buf = BytesIO()
-        # iio.imwrite(gif_buf, gif_frames, format='gif', loop=0, duration=0.3)
-        # gif_buf.seek(0)
-        
-        # gif_base64 = base64.b64encode(gif_buf.getvalue()).decode('utf-8')
-        # slew_animation_html = f'<img src="data:image/gif;base64,{gif_base64}" alt="Observing Animation"/>'
-        # gif_buf.close()
 
         # write out the html files 
         with open(os.path.join(saveout, "script_table.html"), "w") as f:

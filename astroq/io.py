@@ -38,7 +38,7 @@ def serialize_schedule(Yrds, semester_planner):
     sparse['name'] = sparse['r'].map(
         dict(zip(semester_planner.requests_frame['unique_id'], semester_planner.requests_frame['starname']))
     ).fillna("NO MATCHING NAME")
-    sparse.to_csv(semester_planner.output_directory + "semester_plan.csv", index=False, na_rep="")
+    sparse.to_csv(os.path.join(semester_planner.output_directory, "semester_plan.csv"), index=False, na_rep="")
     semester_planner.future_forecast = "semester_plan.csv"
 
     day, slot = np.mgrid[:semester_planner.semester_length,:semester_planner.n_slots_in_night]
@@ -46,7 +46,7 @@ def serialize_schedule(Yrds, semester_planner):
     dense1 = pd.merge(dense1, sparse, left_on=['d','s'],right_on=['d','s'],how='left')
     dense1['r'] = dense1['r'].fillna('')
     # dense1 has keys for all days and slots, where no star was scheduled to start its observation, the r column is blank
-    dense1.to_csv(semester_planner.output_directory + "serialized_outputs_dense_v1.csv", index=False, na_rep="")
+    dense1.to_csv(os.path.join(semester_planner.output_directory, "serialized_outputs_dense_v1.csv"), index=False, na_rep="")
 
     dense2 = dense1.copy()
     # Use the stored access record from the first run (no need to recompute)
@@ -61,15 +61,13 @@ def serialize_schedule(Yrds, semester_planner):
         if isClear[slot] == 0:
             name_string += "W"
         dense2.loc[slot, 'r'] = name_string + str(dense2.loc[slot, 'r'])
-
         if dense2.loc[slot, 'r'] in list(semester_planner.requests_frame['unique_id']):
             slots_needed = semester_planner.slots_needed_for_exposure_dict[dense2.loc[slot, 'r']]
             if slots_needed > 1:
                 for t in range(1, slots_needed):
                     dense2.loc[slot + t, 'r'] = str(dense2.loc[slot + t, 'r']) + str(dense2.loc[slot, 'r'])
-
     # dense2 has keys for all days and slots, manually fill in the reserved slots for each observation and fill in Past/Twilight/Weather info
-    dense2.to_csv(semester_planner.output_directory + "serialized_outputs_dense_v2.csv", index=False, na_rep="")
+    dense2.to_csv(os.path.join(semester_planner.output_directory, "serialized_outputs_dense_v2.csv"), index=False, na_rep="")
     
     # Generate the fullness report
     build_fullness_report(semester_planner, "Round1")
@@ -86,8 +84,8 @@ def build_fullness_report(semester_planner, round_info):
     Returns:
         None
     """
-    file_path = semester_planner.output_directory + "runReport.txt"
-    print(f"Writing to: {file_path}")
+    file_path = os.path.join(semester_planner.output_directory, "runReport.txt")
+    print(f"Writing runReport.txt to: {file_path}")
     
     # Read the semester plan CSV file
     semester_plan_path = os.path.join(semester_planner.output_directory, "semester_plan.csv")
@@ -133,7 +131,7 @@ def build_fullness_report(semester_planner, round_info):
     percentage_of_available = np.round((total_scheduled_slots * 100) / allocated_slots, 3) if allocated_slots > 0 else 0
     percentage_of_requested = np.round((total_scheduled_slots * 100) / total_slots_requested, 3) if total_slots_requested > 0 else 0
     
-    with open(semester_planner.output_directory + "runReport.txt", "w") as file:
+    with open(os.path.join(semester_planner.output_directory, "runReport.txt"), "w") as file:
         file.write("Stats for " + str(round_info) + "\n")
         file.write("------------------------------------------------------" + "\n")
         file.write("N slots in semester:" + str(total_slots_in_semester) + "\n")
@@ -147,6 +145,7 @@ def build_fullness_report(semester_planner, round_info):
         file.write("Utilization (% of requested slots): " + str(percentage_of_requested) + "%" + "\n")
         file.close()
         
+# move this to the coming kpfcc.py module
 def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars, current_day,
                     outputdir, version='nominal'):
     """
@@ -223,6 +222,7 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
     print("Total Open Shutter Time Scheduled: " + str(np.round((total_exptime/3600),2)) + " hours")
     return lines
 
+# move this to the coming kpfcc.py module
 def format_kpf_row(row, obs_time, first_available, last_available, current_day,
                     filler_flag = False, extra=False):
     """
@@ -322,6 +322,7 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
 
     return line
 
+# move this to the coming kpfcc.py module
 def pm_correcter(ra, dec, pmra, pmdec, current_day, equinox="2000"):
     """
     Update a star's coordinates due to proper motion.
