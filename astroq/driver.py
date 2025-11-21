@@ -22,7 +22,7 @@ import base64
 # Local imports
 import astroq.access as ac
 import astroq.benchmarking as bn
-import astroq.blocks as ob
+import astroq.prep.kpfcc as ob
 import astroq.history as hs
 import astroq.io as io
 import astroq.nplan as nplan
@@ -99,7 +99,6 @@ def kpfcc_prep(args):
     # Get workdir from global section
     workdir = str(config.get('global', 'workdir'))
     savepath = workdir
-    
     semester = str(config.get('global', 'semester'))
     start_date = str(config.get('global', 'semester_start_day'))
     end_date = str(config.get('global', 'semester_end_day'))
@@ -107,7 +106,6 @@ def kpfcc_prep(args):
     start = datetime.strptime(start_date, "%Y-%m-%d")
     end = datetime.strptime(end_date, "%Y-%m-%d")
     n_days = (end - start).days
-
 
     # CAPTURE ALLOCATION INFORMATION AND PROCESS
     # --------------------------------------------
@@ -119,10 +117,32 @@ def kpfcc_prep(args):
         print(f'Pulling allocation information from database')
         allocation_frame, hours_by_program, nights_by_program = ob.pull_allocation_info(start_date, n_days, 'KPF-CC')
         awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())] 
-    else:
-        print(f'Using allocation information from file: {allo_source}')
+        programmatics = pd.DataFrame({'program': awarded_programs, 'hours': list(hours_by_program.values()), 'nights': list(nights_by_program.values())})
+        programmatics.to_csv(os.path.join(savepath, 'programs.csv'), index=False)
+    elif allo_source == 'koip':
+        print(f'Using allocation information from Keck Observatory Instrument Plan (KOIP) file: {allo_source}')
         allocation_frame, hours_by_program, nights_by_program = ob.format_keck_allocation_info(allo_source)
         awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())]
+        programmatics = pd.DataFrame({'program': awarded_programs, 'hours': list(hours_by_program.values()), 'nights': list(nights_by_program.values())})
+        programmatics.to_csv(os.path.join(savepath, 'programs.csv'), index=False)
+    else:
+        print(f'Using allocation information from file: {allo_source}')
+        # Validate that the file has the correct columns
+        expected_columns = ['start', 'stop']
+        if os.path.exists(allo_source):
+            df = pd.read_csv(allo_source, nrows=0)
+            actual_columns = set(df.columns)
+            expected_set = set(expected_columns)
+            missing_columns = expected_set - actual_columns
+            if missing_columns:
+                logging.warning(f"Allocation file '{allo_source}' is missing required columns: {missing_columns}")
+                print("Note: if inputing your own formatted allocation file, you must also provide your own programs.csv file.")
+            else:
+                print(f"Allocation file columns validated: all required columns present")
+                awarded_programs = df['program'].unique().tolist()
+        else:
+            logging.warning(f"Allocation file '{allo_source}' does not exist")
+
     allocation_frame['comment'] = [''] * len(allocation_frame)
     # Update allocation times for tonight if this is a full-band
     if is_full_band:
@@ -130,9 +150,6 @@ def kpfcc_prep(args):
         allocation_frame = ob.update_allocation_file(allocation_frame, current_date)
     allocation_frame.sort_values(by='start', inplace=True)
     allocation_frame.to_csv(os.path.join(savepath, allocation_file), index=False)
-    # Output the nights by program
-    programmatics = pd.DataFrame({'program': awarded_programs, 'hours': list(hours_by_program.values()), 'nights': list(nights_by_program.values())})
-    programmatics.to_csv(os.path.join(savepath, 'programs.csv'), index=False)
 
     # CAPTURE REQUEST INFORMATION AND PROCESS
     # --------------------------------------------
@@ -167,7 +184,6 @@ def kpfcc_prep(args):
         custom_file = str(config.get('data', 'custom_file'))
         custom_frame = ob.format_custom_csv(OBs)
         custom_frame.to_csv(os.path.join(savepath, custom_file), index=False)
-
 
         # CAPTURE FILLER REQUEST INFORMATION AND PROCESS
         # --------------------------------------------
@@ -208,11 +224,22 @@ def kpfcc_prep(args):
         print(f'Pulling past history information from database')
         raw_history = hs.pull_OB_histories(semester)
         obhist = hs.write_OB_histories_to_csv(raw_history)
+        obhist.to_csv(os.path.join(savepath, past_file), index=False)
     else:
         print(f'Using past history information from file: {past_source}')
-        good_obs = pd.read_csv(args.request_source)
-        obhist = hs.write_OB_histories_to_csv_JUMP(good_obs, past_source)
-    obhist.to_csv(os.path.join(savepath, past_file), index=False)
+        # Validate that the file has the correct columns
+        expected_columns = ['id', 'target', 'semid', 'timestamp', 'exposure_start_time', 'exposure_time', 'observer']
+        if os.path.exists(past_source):
+            df = pd.read_csv(past_source, nrows=0)
+            actual_columns = set(df.columns)
+            expected_set = set(expected_columns)
+            missing_columns = expected_set - actual_columns
+            if missing_columns:
+                logging.warning(f"Past history file '{past_source}' is missing required columns: {missing_columns}")
+            else:
+                print(f"Past history file columns validated: all required columns present")
+        else:
+            logging.warning(f"Past history file '{past_source}' does not exist")
 
     return
 

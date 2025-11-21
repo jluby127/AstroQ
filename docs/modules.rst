@@ -9,7 +9,7 @@ Modules
 
    individual_rsts/access
    individual_rsts/benchmarking
-   individual_rsts/blocks
+   individual_rsts/kpfcc
    individual_rsts/cli
    individual_rsts/driver
    individual_rsts/history
