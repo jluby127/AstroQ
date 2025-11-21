@@ -1,9 +1,9 @@
-.. _blocks:
+.. _kpfcc:
 
-blocks
-======
+kpfcc
+=====
 
-.. automodule:: astroq.blocks
+.. automodule:: astroq.prep.kpfcc
    :members:
    :undoc-members:
    :private-members:
