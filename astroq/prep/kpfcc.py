@@ -595,7 +595,7 @@ def recompute_exposure_times(request_frame, slowdown_factor):
         # At SNR=120, the corresponding ExpMeterThreshold is 1.0 MegaPhotons/A. 
         # See this website for more details: https://www2.keck.hawaii.edu/inst/kpf/expmetertermination/
         t0 = 307.0 
-        nominal_exptime = t0*request_frame['exp_meter_threshold'][i]
+        nominal_exptime = t0*request_frame['exp_meter_threshold'][i] * 10**(0.4*(request_frame['gmag'][i] - 10.0))
         final_time = min([nominal_exptime*slowdown_factor, request_frame['exptime'][i]])
         new_exptimes.append(final_time)
     return new_exptimes
