@@ -49,8 +49,8 @@ class NightPlanner(object):
         self.upstream_path = workdir
         self.semester_directory = self.upstream_path
         self.current_day = str(config.get('global', 'current_day'))
-        self.output_directory = self.upstream_path + "outputs/"
-        self.reports_directory = self.upstream_path + "outputs/"
+        self.output_directory = os.path.join(self.upstream_path, "outputs")
+        self.reports_directory = os.path.join(self.upstream_path, "outputs")
 
         # Get night plan specific parameters
         self.max_solve_gap = config.getfloat('night', 'max_solve_gap')
@@ -65,8 +65,6 @@ class NightPlanner(object):
             self.allocation_file = os.path.join(self.semester_directory, allocation_file_config)
             
         # Set up backup file path
-        # DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')
-        # self.backup_file = os.path.join(DATADIR, "bright_backups_frame.csv")
         filler_file_config = str(config.get('data', 'filler_file'))
         if os.path.isabs(filler_file_config):
             self.filler_file = filler_file_config
@@ -83,7 +81,7 @@ class NightPlanner(object):
         # Load SemesterPlanner from pickle file instead of creating new one
         config = ConfigParser()
         config.read(config_file)
-        workdir = str(config.get('global', 'workdir')) + "/outputs/"
+        workdir = os.path.join(str(config.get('global', 'workdir')), "outputs")
 
         semester_planner_h5 = os.path.join(workdir, 'semester_planner.h5')
         self.semester_planner = SemesterPlanner.from_hdf5(semester_planner_h5)
@@ -111,7 +109,7 @@ class NightPlanner(object):
             None
         """
 
-        observers_path = self.semester_directory + 'outputs/'
+        observers_path = os.path.join(self.semester_directory, 'outputs')
         check1 = os.path.isdir(observers_path)
         if not check1:
             os.makedirs(observers_path)
@@ -131,6 +129,7 @@ class NightPlanner(object):
         if not os.path.exists(selected_path):
             raise FileNotFoundError(f"{selected_path} not found. Please run the scheduler first.")
         selected_df = pd.read_csv(selected_path)
+        # Gracefully fail if no targets are selected (useful on non-"full" bands when not allocated)
         if len(selected_df) == 0:
             print(f"No targets found in {selected_path}. Not running TTP. No night_planner.pkl file will be created.")
             return
@@ -171,9 +170,8 @@ class NightPlanner(object):
         target_list = formatting.theTTP(filename, observatory, observation_start_time, observation_stop_time)
         solution = model.TTPModel(target_list, observers_path, runtime=self.max_solve_time, optgap=self.max_solve_gap)
 
-
         gurobi_model_backup = solution.gurobi_model  # backup the attribute, probably don't need this
-        del solution.gurobi_model                   # remove attribute so pickle works
+        del solution.gurobi_model                   # remove attribute so object is hdf5 compatable
     
         # add human readable starname to the solution so that it can be used in the plotting functions
         id_to_name = dict(zip(selected_df['unique_id'], selected_df['starname']))
@@ -190,8 +188,8 @@ class NightPlanner(object):
             if col in solution.plotly:
                 solution.plotly[col] = np.round(np.array(solution.plotly[col]), 2).tolist()
 
-        observe_order_file = os.path.join(observers_path, f"ObserveOrder_{self.current_day}.txt")
         # Convert solution.plotly to a DataFrame for easier handling
+        observe_order_file = os.path.join(observers_path, f"ObserveOrder_{self.current_day}.txt")
         plotly_df = pd.DataFrame(solution.plotly)
         use_starnames = []
         use_star_ids = []
@@ -201,9 +199,9 @@ class NightPlanner(object):
             use_start_exposures.append(str(adjusted_timestamp)[11:16])            
             use_starnames.append(selected_df[selected_df['unique_id'] == plotly_df['Starname'].iloc[i]]['starname'].iloc[0])
             use_star_ids.append(str(plotly_df['Starname'].iloc[i]))
+       
         # Convert solution.extras to a DataFrame for consistency
         extras_df = pd.DataFrame(solution.extras)
-
         for j in range(len(extras_df)):
             use_start_exposures.append('24:00')
             use_star_ids.append(str(extras_df['Starname'].iloc[j]))
@@ -211,12 +209,12 @@ class NightPlanner(object):
         use_frame = pd.DataFrame({'unique_id': use_star_ids, 'Target': use_starnames, 'StartExposure': use_start_exposures})
         use_frame.to_csv(observe_order_file, index=False)
 
-        # Check if the file was created before trying to read it
-        if os.path.exists(observe_order_file):
-            obs_and_times = pd.read_csv(observe_order_file)
-        else:
-            print(f"Warning: {observe_order_file} was not created by writeStarList")
-            obs_and_times = pd.DataFrame()  # Create empty DataFrame as fallback
+        # # Check if the file was created before trying to read it
+        # if os.path.exists(observe_order_file):
+        #     obs_and_times = pd.read_csv(observe_order_file)
+        # else:
+        #     print(f"Warning: {observe_order_file} was not created by writeStarList")
+        #     obs_and_times = pd.DataFrame()  # Create empty DataFrame as fallback
         io.write_starlist(selected_df, solution.plotly, observation_start_time, solution.extras,
                             [], str(self.current_day), observers_path)
         print("The optimal path through the sky for the selected stars is found. Clear skies!")
@@ -282,13 +280,17 @@ class NightPlanner(object):
                     first_available.append(f"{self.current_day} {first_hour:02d}:{first_minute:02d}")
                     last_available.append(f"{self.current_day} {last_hour:02d}:{last_minute:02d}")
                 else:
-                    # No available slots tonight
-                    first_available.append("N/A")
-                    last_available.append("N/A")
+                    # No available slots tonight, use dummy values so TTP doesn't break
+                    last_hour = 23
+                    last_minute = 59
+                    first_available.append(f"{self.current_day} {last_hour:02d}:{last_minute:02d}")
+                    last_available.append(f"{self.current_day} {last_hour:02d}:{last_minute:02d}")
             else:
                 # Target not found in original requests_frame
-                first_available.append("N/A")
-                last_available.append("N/A")
+                last_hour = 23
+                last_minute = 59
+                first_available.append(f"{self.current_day} {last_hour:02d}:{last_minute:02d}")
+                last_available.append(f"{self.current_day} {last_hour:02d}:{last_minute:02d}")
         
         return first_available, last_available
 

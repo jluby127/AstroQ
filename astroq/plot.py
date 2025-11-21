@@ -705,7 +705,7 @@ def get_timepie(semester_planner, all_stars, use_program_colors=False):
     Returns:
         fig (plotly figure): a plotly figure showing the time used vs forecasted vs available
     """
-    programmatics = pd.read_csv(semester_planner.semester_directory + 'programs.csv')
+    programmatics = pd.read_csv(os.path.join(semester_planner.semester_directory, 'programs.csv'))
 
     # Accumulate total times across all stars
     total_past = 0
