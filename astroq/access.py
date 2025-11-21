@@ -30,6 +30,13 @@ DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')
 
 logs = logging.getLogger(__name__)
 
+# Keck limits -- lets talk about making this a subclass
+nays_az_low = 5.3
+nays_az_high = 146.2
+nays_alt = 33.3
+tel_min = 18
+tel_max = 85
+
 class Access:
     """
     The Access class encapsulates all the parameters needed for accessibility computation
@@ -98,28 +105,27 @@ class Access:
         # Determine observability
         coords = apy.coordinates.SkyCoord(rf.ra * u.deg, rf.dec * u.deg, frame='icrs')
         targets = apl.FixedTarget(name=rf.unique_id, coord=coords)
-        keck = apl.Observer.at_site(self.observatory)
+        observatory = apl.Observer.at_site(self.observatory)
 
         # Set up time grid for one night, first night of the semester
-        daily_start = Time(start_date, location=keck.location)
+        daily_start = Time(start_date, location=observatory.location)
         daily_end = daily_start + TimeDelta(1.0, format='jd') # full day from start of first night
-        t = Time(np.arange(daily_start.jd, daily_end.jd, slot_size_time.jd), format='jd',location=keck.location)
+        t = Time(np.arange(daily_start.jd, daily_end.jd, slot_size_time.jd), format='jd',location=observatory.location)
         t = t[np.argsort(t.sidereal_time('mean'))] # sort by lst
 
         # Compute base alt/az pattern, shape = (ntargets, nslots)
-        coord0 = keck.altaz(t, targets, grid_times_targets=True)
+        coord0 = observatory.altaz(t, targets, grid_times_targets=True)
         alt0 = coord0.alt.deg
         az0 = coord0.az.deg
         # 2D mask (n targets, n slots))
-        is_altaz0 = np.ones_like(alt0, dtype=bool)
-        is_altaz0 &= ~((5.3 < az0 ) & (az0 < 146.2) & (alt0 < 33.3)) # remove nasymth deck
+        is_altaz0 = np.ones_like(alt0, dtype=bool)        
+        is_altaz0 &= ~((nays_az_low < az0 ) & (az0 < nays_az_high) & (alt0 < nays_alt)) # remove nasymth deck
         # remove min elevation using per-row minimum_elevation values for all stars
         min_elevation = rf['minimum_elevation'].values  # Get per-row minimum elevation values
-        fail = alt0 < min_elevation[:, np.newaxis] # broadcast elevation array
+        fail = alt0 < min_elevation[:, np.newaxis]
         is_altaz0 &= ~fail
         # all stars must be between 18 and 85 deg
-        fail = (alt0 < 18) | (alt0 > 85)
-        # fail = (alt0 < 38) | (alt0 > 85)
+        fail = (alt0 < tel_min) | (alt0 > tel_max)
         is_altaz0 &= ~fail
         # computing slot midpoint for all nights in semester 2D array (slots, nights)
         slotmidpoint0 = daily_start + (np.arange(nslots) + 0.5) *  self.slot_size * u.min
@@ -140,7 +146,7 @@ class Access:
         
         # Compute moon accessibility
         is_moon = np.ones_like(is_altaz, dtype=bool)
-        moon = apy.coordinates.get_moon(slotmidpoint[:,0] , keck.location)
+        moon = apy.coordinates.get_moon(slotmidpoint[:,0] , observatory.location)
         # Reshaping uses broadcasting to achieve a (ntarget, night) array
         ang_dist = apy.coordinates.angular_separation(
             targets.ra.reshape(-1,1), targets.dec.reshape(-1,1),
@@ -342,7 +348,7 @@ def build_twilight_allocation_file(semester_planner):
     os.makedirs(data_dir, exist_ok=True)
     
     # Get observatory location
-    keck = apl.Observer.at_site(semester_planner.observatory)
+    observatory = apl.Observer.at_site(semester_planner.observatory)
     
     # Create allocation data
     allocation_data = []
@@ -352,8 +358,8 @@ def build_twilight_allocation_file(semester_planner):
         date = Time(date_str, format='iso', scale='utc')
         
         # Get 12-degree twilight times for this night
-        evening_12 = keck.twilight_evening_nautical(date, which='next')
-        morning_12 = keck.twilight_morning_nautical(date, which='next')
+        evening_12 = observatory.twilight_evening_nautical(date, which='next')
+        morning_12 = observatory.twilight_morning_nautical(date, which='next')
         
         # Add to allocation data
         allocation_data.append({
