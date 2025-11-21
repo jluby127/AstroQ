@@ -1240,8 +1240,6 @@ def get_ladder(data, tonight_start_time):
     """
 
     orderData = data[0].plotly
-    print(orderData.keys())
-
     # reverse the order so that the plot flows from top to bottom with time
     orderData = pd.DataFrame.from_dict(orderData)
     orderData = orderData.iloc[::-1]
@@ -1670,11 +1668,14 @@ def get_script_plan(night_planner):
                          how='inner')
                              
     # Select and reorder only the specific columns requested
+    # desired_columns = [
+    #     'Start Exposure', 'unique_id', 'starname', 'program_code', 'ra', 'dec', 
+    #     'exptime', 'n_exp', 'n_intra_max', 'tau_intra', 'weather_band_1', 'weather_band_2', 'weather_band_3', 'teff', 
+    #     'jmag', 'gmag', 'epoch', 'gaia_id', 'First Available', 'Last Available'
+    # ]
     desired_columns = [
-        'Start Exposure', 'unique_id', 'starname', 'program_code', 'ra', 'dec', 
-        'exptime', 'n_exp', 'n_intra_max', 'tau_intra', 'weather_band_1', 'weather_band_2', 'weather_band_3', 'teff', 
-        'jmag', 'gmag', 'epoch', 'gaia_id', 'First Available', 'Last Available'
-    ]
+         'First Available', 'Start Exposure', 'Last Available', 'unique_id', 'starname', 'program_code', 'ra', 'dec', 
+        'exptime', 'n_exp', 'n_intra_max', 'tau_intra', 'jmag', 'gmag',]
     
     # Keep only the columns that exist in the merged dataframe
     available_columns = [col for col in desired_columns if col in merged_df.columns]
@@ -1686,12 +1687,12 @@ def get_script_plan(night_planner):
     if 'ra' in final_df.columns:
         # Ensure ra is numeric before rounding, handle 'None' strings
         final_df['ra'] = final_df['ra'].replace('None', pd.NA)
-        final_df['ra'] = pd.to_numeric(final_df['ra'], errors='coerce').round(3)
+        final_df['ra'] = pd.to_numeric(final_df['ra'], errors='coerce').round(1)
     
     if 'dec' in final_df.columns:
         # Ensure dec is numeric before rounding, handle 'None' strings
         final_df['dec'] = final_df['dec'].replace('None', pd.NA)
-        final_df['dec'] = pd.to_numeric(final_df['dec'], errors='coerce').round(3)
+        final_df['dec'] = pd.to_numeric(final_df['dec'], errors='coerce').round(1)
     
     if 'jmag' in final_df.columns:
         # Ensure jmag is numeric before rounding, handle 'None' strings
@@ -1702,6 +1703,11 @@ def get_script_plan(night_planner):
         # Ensure gmag is numeric before rounding, handle 'None' strings
         final_df['gmag'] = final_df['gmag'].replace('None', pd.NA)
         final_df['gmag'] = pd.to_numeric(final_df['gmag'], errors='coerce').round(1)
+
+    # if 'teff' in final_df.columns:
+    #     # Ensure teff is numeric before rounding, handle 'None' strings
+    #     final_df['teff'] = final_df['teff'].replace('None', pd.NA)
+    #     final_df['teff'] = pd.to_numeric(final_df['teff'], errors='coerce').round(0)
     
     # Convert time fields from "minutes from start of night" to HST timestamps
     try:
@@ -1736,6 +1742,17 @@ def get_script_plan(night_planner):
     
     # Handle missing values and 'None' strings
     final_df = final_df.replace(['', 'NoGaiaName', 'None'], pd.NA)
+    
+    # Ensure DataFrame is clean and properly structured for DataTables
+    final_df = final_df.reset_index(drop=True)
+    # Remove duplicate column names if any exist
+    final_df = final_df.loc[:, ~final_df.columns.duplicated(keep='first')]
+    # Fill NaN values with empty strings to ensure consistent structure
+    final_df = final_df.fillna('')
+    # Ensure all columns have consistent data types (convert objects to strings)
+    for col in final_df.columns:
+        if final_df[col].dtype == 'object':
+            final_df[col] = final_df[col].astype(str).replace('nan', '').replace('None', '').replace('', '')
     
     return final_df
 
@@ -1994,6 +2011,22 @@ def dataframe_to_html(dataframe, sort_column=2, page_size=10, table_id='request-
     Returns:
         table_html (str): HTML string with table and DataTables initialization
     """
+    # Ensure DataFrame is clean and properly structured
+    dataframe = dataframe.reset_index(drop=True)
+    # Remove duplicate column names if any exist
+    dataframe = dataframe.loc[:, ~dataframe.columns.duplicated(keep='first')]
+    # Fill NaN values with empty strings
+    dataframe = dataframe.fillna('')
+    # Ensure all object columns are strings
+    for col in dataframe.columns:
+        if dataframe[col].dtype == 'object':
+            dataframe[col] = dataframe[col].astype(str).replace('nan', '').replace('None', '')
+    
+    # Validate sort_column is within bounds
+    num_columns = len(dataframe.columns)
+    if sort_column >= num_columns:
+        sort_column = 0  # Default to first column if out of bounds
+    
     # Convert DataFrame to HTML table with unique ID
     table_html = dataframe.to_html(
         classes='table table-striped table-hover', 
@@ -2230,6 +2263,33 @@ def dataframe_to_html(dataframe, sort_column=2, page_size=10, table_id='request-
     </style>
     """
     
+    # Generate columnDefs dynamically based on actual number of columns
+    num_columns = len(dataframe.columns)
+    column_defs = []
+    # Default width mapping for common column names
+    width_map = {
+        'First Available': '80px',
+        'Start Exposure': '80px',
+        'Last Available': '80px',
+        'unique_id': '200px',
+        'starname': '200px',
+        'program_code': '120px',
+        'ra': '100px',
+        'dec': '100px',
+        'exptime': '80px',
+        'n_exp': '60px',
+        'n_intra_max': '80px',
+        'tau_intra': '80px',
+        'jmag': '60px',
+        'gmag': '60px'
+    }
+    
+    for i, col in enumerate(dataframe.columns):
+        width = width_map.get(col, '100px')  # Default width if not in map
+        column_defs.append(f"{{ targets: {i}, width: '{width}' }}")
+    
+    column_defs_str = ',\n                '.join(column_defs)
+    
     # DataTables initialization script - destroy existing instance first
     init_script = f"""
     <script>
@@ -2248,28 +2308,9 @@ def dataframe_to_html(dataframe, sort_column=2, page_size=10, table_id='request-
             scrollX: false,  // Disable horizontal scrolling to prevent header misalignment
             responsive: false,  // Disable responsive features that can cause header issues
             lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
-            tableLayout: 'fixed',  // Force fixed table layout for consistent column widths
+            tableLayout: 'auto',  // Use auto layout for better column width handling
             columnDefs: [
-                {{ targets: 0, width: '60px' }},   // Start Exposure
-                {{ targets: 1, width: '260px' }},  // unique_id
-                {{ targets: 2, width: '260px' }},  // starname
-                {{ targets: 3, width: '120px' }},  // program_code
-                {{ targets: 4, width: '100px' }},  // ra
-                {{ targets: 5, width: '100px' }},  // dec
-                {{ targets: 6, width: '50px' }},   // exptime
-                {{ targets: 7, width: '50px' }},   // n_exp
-                {{ targets: 8, width: '50px' }},   // n_intra_max
-                {{ targets: 9, width: '50px' }},   // tau_intra
-                {{ targets: 10, width: '50px' }},  // weather_band_1
-                {{ targets: 11, width: '50px' }},  // weather_band_2
-                {{ targets: 12, width: '50px' }},  // weather_band_3
-                {{ targets: 13, width: '50px' }},  // teff
-                {{ targets: 14, width: '50px' }},  // jmag
-                {{ targets: 15, width: '50px' }},  // gmag
-                {{ targets: 16, width: '50px' }},  // epoch
-                {{ targets: 17, width: '260px' }}, // gaia_id
-                {{ targets: 18, width: '60px' }},  // First Available
-                {{ targets: 19, width: '60px' }}   // Last Available
+                {column_defs_str}
             ],
             initComplete: function() {{
                 // Simple styling after DataTables is initialized

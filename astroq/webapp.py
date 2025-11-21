@@ -142,7 +142,7 @@ def dynamic_page(semester_code, date, band, page=None, starname=None, program_co
     elif page == "admin":
         return render_admin_page()
     elif page == "nightplan":
-        return render_nightplan_page()
+        return render_nightplan_page(band)
     elif program_code is not None:
         # This is a program route - check if it's a valid program code
         if program_code in data_astroq[0]:
@@ -153,7 +153,7 @@ def dynamic_page(semester_code, date, band, page=None, starname=None, program_co
             if page == "admin":
                 return render_admin_page()
             elif page == "nightplan":
-                return render_nightplan_page()
+                return render_nightplan_page(band)
             else:
                 abort(404, description=f"Page '{page}' not found")
     else:
@@ -259,7 +259,7 @@ def render_star_page(starname):
     
     return f"Error, star {starname} not found in programs {list(program_names)}"
 
-def render_nightplan_page():
+def render_nightplan_page(band):
     """Render the night plan page"""
     if data_ttp is None:
         return "Error: No night planner data available", 404
@@ -282,7 +282,7 @@ def render_nightplan_page():
     figure_html_list = [script_table_html, ladder_html, slew_animation_html, slew_path_html]
 
     return render_template("nightplan.html", starname=None, figure_html_list=figure_html_list, 
-                         semester_planner=semester_planner, night_planner=night_planner)
+                         semester_planner=semester_planner, night_planner=night_planner, band=band)
 
 @app.route("/<semester_code>/<date>/<band>/download_nightplan")
 def download_nightplan(semester_code, date, band):
