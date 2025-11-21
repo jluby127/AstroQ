@@ -82,6 +82,13 @@ class SemesterPlanner(object):
         self.solve_max_gap = config.getfloat('semester', 'max_solve_gap')
         self.max_bonus = config.getfloat('semester', 'maximum_bonus_size')
         self.run_bonus_round = config.getboolean('semester', 'run_bonus_round')
+
+        self.semester_start_date = config.get('global', 'semester_start_day')
+        semester_end_date = config.get('global', 'semester_end_day')
+        start_date = datetime.strptime(self.semester_start_date, '%Y-%m-%d')
+        end_date = datetime.strptime(semester_end_date, '%Y-%m-%d')
+        self.semester_length = int((end_date - start_date).days + 1)
+        self.semester_letter = config.get('global', 'semester')[-1]
         
         # Output directory
         self.output_directory = workdir + "outputs/"
@@ -146,7 +153,6 @@ class SemesterPlanner(object):
         # Compile additional data and metadata 
         self.past_history = hs.process_star_history(self.past_file)
         self.slots_needed_for_exposure_dict = self._build_slots_required_dictionary()
-        self._calculate_semester_info()
         self.all_dates_dict, self.all_dates_array = self._build_date_dictionary()
         self._calculate_slot_info()
         
@@ -247,41 +253,6 @@ class SemesterPlanner(object):
             self.absolute_max_obs_allowed_dict = absolute_max_obs_allowed_dict
             self.past_nights_observed_dict = past_nights_observed_dict
         logs.debug("Initializing complete.")
-
-    def _calculate_semester_info(self):
-        """
-        Compile parameters defining the semester based on the current day.
-
-        Returns:
-            None
-        """
-
-        current_date = datetime.strptime(self.current_day, '%Y-%m-%d')
-        
-        # Determine semester based on date
-        if current_date.month in [8, 9, 10, 11, 12]:
-            semester_letter = 'A'
-            semester_year = current_date.year
-        else:
-            semester_letter = 'B'
-            semester_year = current_date.year - 1
-        
-        # Set semester boundaries
-        if semester_letter == 'A':
-            semester_start_date = f"{semester_year}-08-01"
-            semester_end_date = f"{semester_year + 1}-01-31"
-        else:
-            semester_start_date = f"{semester_year + 1}-02-01"
-            semester_end_date = f"{semester_year + 1}-07-31"
-        
-        # Calculate semester length
-        start_date = datetime.strptime(semester_start_date, '%Y-%m-%d')
-        end_date = datetime.strptime(semester_end_date, '%Y-%m-%d')
-        semester_length = (end_date - start_date).days + 1
-        
-        self.semester_start_date = semester_start_date
-        self.semester_length = semester_length
-        self.semester_letter = semester_letter
 
     def _build_date_dictionary(self):
         """
