@@ -2026,6 +2026,11 @@ def dataframe_to_html(dataframe, sort_column=2, page_size=10, table_id='request-
     num_columns = len(dataframe.columns)
     if sort_column >= num_columns:
         sort_column = 0  # Default to first column if out of bounds
+
+    # if 'exptime' in dataframe.columns:
+    #     # Ensure exptime is an integer, handle 'None' strings
+    #     dataframe['exptime'] = dataframe['exptime'].replace('None', pd.NA)
+    #     dataframe['exptime'] = pd.to_numeric(dataframe['exptime'], errors='coerce').fillna(0).astype(int)
     
     # Convert DataFrame to HTML table with unique ID
     table_html = dataframe.to_html(
