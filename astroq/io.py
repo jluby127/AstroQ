@@ -14,6 +14,7 @@ from astropy.time import Time, TimeDelta
 from astropy import units as u
 import numpy as np
 import pandas as pd
+from jinja2 import Template
 
 # Local imports
 import astroq.history as hs
@@ -98,13 +99,8 @@ def compute_program_statistics(semester_planner, schedule_df):
     slots_per_hour = 60 / slot_size
     slots_per_night = hours_per_night * slots_per_hour
     
-    # Read programs.csv to get awarded nights per program
-    program_frame = pd.read_csv(semester_planner.programs_file)
-    
-    # Initialize result dictionary
+    program_frame = pd.read_csv(semester_planner.programs_file)    
     program_stats = {}
-    
-    # Process each program
     for _, prog_row in program_frame.iterrows():
         program = prog_row['program']
         awarded_nights = prog_row['nights']
@@ -116,53 +112,51 @@ def compute_program_statistics(semester_planner, schedule_df):
             semester_planner.requests_frame['program_code'] == program
         ]
         
-        requested_slots = 0
-        for _, req_row in program_requests.iterrows():
-            star_id = req_row['unique_id']
-            if star_id in semester_planner.slots_needed_for_exposure_dict:
-                slots_needed = semester_planner.slots_needed_for_exposure_dict[star_id]
-                n_intra_max = req_row['n_intra_max']
-                n_inter_max = req_row['n_inter_max']
-                requested_slots += slots_needed * n_intra_max * n_inter_max
-        
+        # Map slots_needed from dict and calculate requested slots using vectorized operations
+        program_requests = program_requests.copy()
+        program_requests['slots_needed'] = program_requests['unique_id'].map(
+            semester_planner.slots_needed_for_exposure_dict
+        ).fillna(0)
+        requested_slots = (program_requests['slots_needed'] * 
+                          program_requests['n_intra_max'] * 
+                          program_requests['n_inter_max']).sum()
         requested_hours = requested_slots / slots_per_hour
         requested_nights = requested_hours / hours_per_night
         
         # Calculate past slots for this program (already observed)
         past_slots = 0
-        if hasattr(semester_planner, 'past_history') and semester_planner.past_history is not None:
-            for _, req_row in program_requests.iterrows():
-                star_id = req_row['unique_id']
-                if star_id in semester_planner.past_history:
-                    past_hist = semester_planner.past_history[star_id]
-                    # Get slots per exposure for this star
-                    slots_per_exposure = semester_planner.slots_needed_for_exposure_dict.get(star_id, 1)
-                    # Total past slots = number of exposures * slots per exposure
-                    past_slots += past_hist.total_n_exposures * slots_per_exposure
-        
+        for _, req_row in program_requests.iterrows():
+            star_id = req_row['unique_id']
+            if star_id in semester_planner.past_history:
+                past_hist = semester_planner.past_history[star_id]
+                # Get slots per exposure for this star
+                slots_per_exposure = semester_planner.slots_needed_for_exposure_dict.get(star_id, 1)
+                # Total past slots = number of exposures * slots per exposure
+                past_slots += past_hist.total_n_exposures * slots_per_exposure
         past_hours = past_slots / slots_per_hour
         past_nights = past_hours / hours_per_night
         
         # Calculate scheduled slots for this program
-        scheduled_slots = 0
-        for _, sched_row in schedule_df.iterrows():
-            star_name = sched_row['r']
-            star_row = semester_planner.requests_frame[
-                semester_planner.requests_frame['unique_id'] == star_name
-            ]
-            if len(star_row) > 0 and 'program_code' in star_row.columns:
-                if star_row['program_code'].iloc[0] == program:
-                    slots_needed = semester_planner.slots_needed_for_exposure_dict.get(star_name, 1)
-                    scheduled_slots += slots_needed
-        
+        # Merge schedule_df with requests_frame to get program_code for each scheduled star
+        schedule_with_program = schedule_df.merge(
+            semester_planner.requests_frame[['unique_id', 'program_code']],
+            left_on='r',
+            right_on='unique_id',
+            how='inner'
+        )
+        # Filter for current program and map slots_needed, then sum
+        program_scheduled = schedule_with_program[schedule_with_program['program_code'] == program]
+        scheduled_slots = program_scheduled['r'].map(
+            semester_planner.slots_needed_for_exposure_dict
+        ).fillna(1).sum()
         scheduled_hours = scheduled_slots / slots_per_hour
         scheduled_nights = scheduled_hours / hours_per_night
         
         # Calculate fullness percentages based on (scheduled + past)
         total_scheduled_and_past_slots = scheduled_slots + past_slots
-        fullness1 = (total_scheduled_and_past_slots * 100.0 / requested_slots) if requested_slots > 0 else 0.0
-        fullness2 = (total_scheduled_and_past_slots * 100.0 / awarded_slots) if awarded_slots > 0 else 0.0
-        fullness3 = (requested_slots * 100.0 / awarded_slots) if awarded_slots > 0 else 0.0
+        fullnessA = (total_scheduled_and_past_slots * 100.0 / requested_slots) if requested_slots > 0 else 0.0
+        fullnessB = (total_scheduled_and_past_slots * 100.0 / awarded_slots) if awarded_slots > 0 else 0.0
+        fullnessC = (requested_slots * 100.0 / awarded_slots) if awarded_slots > 0 else 0.0
 
         program_stats[program] = {
             'awarded_nights': awarded_nights,
@@ -177,9 +171,9 @@ def compute_program_statistics(semester_planner, schedule_df):
             'scheduled_nights': scheduled_nights,
             'scheduled_hours': scheduled_hours,
             'scheduled_slots': scheduled_slots,
-            'fullness1': fullness1,
-            'fullness2': fullness2,
-            'fullness3': fullness3
+            'fullnessA': fullnessA,
+            'fullnessB': fullnessB,
+            'fullnessC': fullnessC
         }
     
     return program_stats
@@ -262,20 +256,23 @@ def build_fullness_report(semester_planner, round_info):
         file.write("Program Statistics:" + "\n")
         file.write("------------------------------------------------------" + "\n")
         if program_stats:
+            # Template for program statistics
+            program_template = Template("""{{ program }}
+ -- Awarded {{ "%.2f"|format(stats['awarded_nights']) }} nights = {{ "%.2f"|format(stats['awarded_hours']) }} hours = {{ "%.1f"|format(stats['awarded_slots']) }} slots.
+ -- Requested {{ "%.2f"|format(stats['requested_nights']) }} nights = {{ "%.2f"|format(stats['requested_hours']) }} hours = {{ "%.1f"|format(stats['requested_slots']) }} slots
+ ------ Fullness of requested to awarded: {{ "%.2f"|format(stats['fullnessC']) }}%
+ -- Past {{ "%.2f"|format(stats['past_nights']) }} nights = {{ "%.2f"|format(stats['past_hours']) }} hours = {{ "%.1f"|format(stats['past_slots']) }} slots.
+ -- Scheduled {{ "%.2f"|format(stats['scheduled_nights']) }} nights = {{ "%.2f"|format(stats['scheduled_hours']) }} hours = {{ "%.1f"|format(stats['scheduled_slots']) }} slots
+ ------ Fullness of past/scheduled to requested: {{ "%.2f"|format(stats['fullnessA']) }}%
+ ------ Fullness of past/scheduled to awarded: {{ "%.2f"|format(stats['fullnessB']) }}%
+
+
+""")
             # Sort by program name for consistent output
             for program in sorted(program_stats.keys()):
                 stats = program_stats[program]
-                file.write(f"{program}\n")
-                file.write(f" -- Awarded {stats['awarded_nights']:.2f} nights = {stats['awarded_hours']:.2f} hours = {stats['awarded_slots']:.1f} slots.\n")
-                file.write(f" -- Requested {stats['requested_nights']:.2f} nights = {stats['requested_hours']:.2f} hours = {stats['requested_slots']:.1f} slots\n")
-                file.write(f" ------ Fullness1 {stats['fullness3']:.2f}% of requested to awarded\n")
-                file.write(f" -- Past {stats['past_nights']:.2f} nights = {stats['past_hours']:.2f} hours = {stats['past_slots']:.1f} slots.\n")
-                file.write(f" -- Scheduled {stats['scheduled_nights']:.2f} nights = {stats['scheduled_hours']:.2f} hours = {stats['scheduled_slots']:.1f} slots\n")
-                file.write(f" ------ Fullness2 {stats['fullness1']:.2f}% of past/scheduled to requested\n")
-                file.write(f" ------ Fullness3 {stats['fullness2']:.2f}% of past/scheduled to awarded\n")
-                file.write("\n")
-                file.write("\n")
-                file.write("\n")
+                rendered = program_template.render(program=program, stats=stats)
+                file.write(rendered)
 
         else:
             file.write("  No program information available" + "\n")
@@ -303,13 +300,7 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
     frame['starname'] = frame['starname'].astype(str)
     
     # Cast extras star names to strings to ensure proper matching
-    if extras is not None and len(extras) > 0:
-        if hasattr(extras, 'astype'):
-            # If extras is a DataFrame
-            extras['Starname'] = extras['Starname'].astype(str)
-        else:
-            # If extras is a list, convert each star name to string
-            extras['Starname'] = [str(star) for star in extras['Starname']]
+    extras['Starname'] = extras['Starname'].astype(str) if isinstance(extras, pd.DataFrame) else [str(star) for star in extras['Starname']]
     
     total_exptime = 0
     if not os.path.isdir(outputdir):
