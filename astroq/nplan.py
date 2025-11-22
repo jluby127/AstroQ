@@ -18,6 +18,7 @@ from astropy.time import Time, TimeDelta
 import astroq.access as ac
 import astroq.io as io
 from astroq.splan import SemesterPlanner
+import astroq.prep.kpfcc as kpfcc
 
 # TTP imports (assuming TTP is installed separately)
 import ttp.formatting as formatting
@@ -209,14 +210,8 @@ class NightPlanner(object):
         use_frame = pd.DataFrame({'unique_id': use_star_ids, 'Target': use_starnames, 'StartExposure': use_start_exposures})
         use_frame.to_csv(observe_order_file, index=False)
 
-        # # Check if the file was created before trying to read it
-        # if os.path.exists(observe_order_file):
-        #     obs_and_times = pd.read_csv(observe_order_file)
-        # else:
-        #     print(f"Warning: {observe_order_file} was not created by writeStarList")
-        #     obs_and_times = pd.DataFrame()  # Create empty DataFrame as fallback
-        # io.write_starlist(selected_df, solution.plotly, observation_start_time, solution.extras,
-        #                     [], str(self.current_day), observers_path)
+        kpfcc.write_starlist(selected_df, solution.plotly, observation_start_time, solution.extras,
+                            [], str(self.current_day), observers_path)
         print("The optimal path through the sky for the selected stars is found. Clear skies!")
 
         return 
