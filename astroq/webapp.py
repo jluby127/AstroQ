@@ -37,6 +37,8 @@ semester_planner = None
 night_planner = None
 uptree_path = None
 
+desired_order = ["unique_id", "starname", "exptime", "n_exp", 'n_inter_max', 'tau_inter', "n_intra_max", "n_intra_min", "tau_intra", "weather_band_1", "weather_band_2", "weather_band_3"]
+
 def load_data_for_path(semester_code, date, band, uptree_path):
     """
     Load data for a specific semester_code/date/band combination
@@ -168,6 +170,7 @@ def render_admin_page():
     
     # Get request frame table for all stars
     request_df = pl.get_request_frame(semester_planner, all_stars_from_all_programs)
+    request_df = request_df[desired_order]
     request_table_html = pl.dataframe_to_html(request_df)
     
     fig_cof = pl.get_cof(semester_planner, list(data_astroq[1].values()))

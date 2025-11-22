@@ -202,6 +202,18 @@ class NightPlanner(object):
             use_star_ids.append(str(plotly_df['Starname'].iloc[i]))
        
         # Convert solution.extras to a DataFrame for consistency
+        print("--------------------------------")
+        print("--------------------------------")
+        print("--------------------------------")
+        print("--------------------------------")
+        print("--------------------------------")
+        print(solution.extras)
+        print("--------------------------------")
+        print("--------------------------------")
+        print("--------------------------------")
+        print("--------------------------------")
+        print("--------------------------------")
+        print("--------------------------------")
         extras_df = pd.DataFrame(solution.extras)
         for j in range(len(extras_df)):
             use_start_exposures.append('24:00')
@@ -344,9 +356,18 @@ class NightPlanner(object):
         # Save solution.extras first (special case - DataFrame or dict)
         extras_is_dict = isinstance(solution.extras, dict)
         if isinstance(solution.extras, pd.DataFrame):
-            solution.extras.to_hdf(hdf5_path, key='solution_extras', mode='a', format='table')
+            # Save DataFrame (even if empty)
+            extras_df = solution.extras
         elif isinstance(solution.extras, dict):
+            # Convert dict to DataFrame (handles empty dicts with empty lists)
+            # pd.DataFrame() creates empty DataFrame with columns when all lists are empty
             extras_df = pd.DataFrame(solution.extras)
+        
+        # Always save, even if DataFrame is empty (0 rows)
+        # Use 'fixed' format for empty DataFrames, 'table' for non-empty
+        if extras_df.empty:
+            extras_df.to_hdf(hdf5_path, key='solution_extras', mode='a', format='fixed')
+        else:
             extras_df.to_hdf(hdf5_path, key='solution_extras', mode='a', format='table')
         
         # Save all attributes
@@ -456,11 +477,12 @@ class NightPlanner(object):
         ]
         
         # Load solution.extras (special case - DataFrame or dict)
-        with tables.open_file(hdf5_path, 'r') as store:
-            if '/solution_extras' in store:
-                solution_extras_df = pd.read_hdf(hdf5_path, key='solution_extras')
-            else:
+        # Check that it exists first - if not, that's a problem
+        with h5py.File(hdf5_path, 'r') as f:
+            if 'solution_extras' not in f:
                 raise AttributeError("solution.extras not found in HDF5 file")
+        
+        solution_extras_df = pd.read_hdf(hdf5_path, key='solution_extras')
         
         # Reconstruct solution object
         class SolutionContainer:
