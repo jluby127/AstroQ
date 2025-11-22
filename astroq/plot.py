@@ -953,7 +953,7 @@ def compute_seasonality(semester_planner, starnames, ras, decs):
     is_moon = access_record.is_moon
     
     ntargets = len(starnames)
-    nnights = semester_planner.n_nights_in_semester
+    nnights = semester_planner.semester_length
     nslots = semester_planner.n_slots_in_night
     
     # Create the combined observability mask
