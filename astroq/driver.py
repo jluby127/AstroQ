@@ -173,8 +173,8 @@ def kpfcc_prep(args):
         # Compute nominal exposure times and increase exposure times for different bands
         slowdown_factors = {1: 1.0, 2: 2.0, 3: 4.0}
         slow = slowdown_factors[band_number]
-        # new_exptimes = kpfcc.recompute_exposure_times(filtered_good_obs, slow)
-        # filtered_good_obs['exptime'] = new_exptimes
+        new_exptimes = kpfcc.recompute_exposure_times(filtered_good_obs, slow)
+        filtered_good_obs['exptime'] = new_exptimes
         filtered_good_obs.to_csv(os.path.join(savepath, request_file), index=False)
     
         # CAPTURE CUSTOM INFORMATION AND PROCESS
@@ -364,20 +364,23 @@ def plot(args):
 
         # build the plots
         script_table_df = pl.get_script_plan(night_planner)
+        timepie_fig = pl.get_timepie(semester_planner, all_stars_from_all_programs, use_program_colors=False)
         ladder_fig = pl.get_ladder(data_ttp, night_start_time)
         slew_animation_fig = pl.get_slew_animation_plotly(data_ttp, os.path.join(semester_directory, "request.csv"), animationStep=120)
         slew_path_fig = pl.plot_path_2D_interactive(data_ttp, night_start_time=night_start_time)
 
         # write the html versions 
         script_table_html = pl.dataframe_to_html(script_table_df)
+        timepie_html = pio.to_html(timepie_fig, full_html=True, include_plotlyjs='cdn')
         ladder_html = pio.to_html(ladder_fig, full_html=True, include_plotlyjs='cdn')
         slew_path_html = pio.to_html(slew_path_fig, full_html=True, include_plotlyjs='cdn')
         slew_animation_html = pio.to_html(slew_animation_fig, full_html=True, include_plotlyjs='cdn')
 
-
         # write out the html files 
         with open(os.path.join(saveout, "script_table.html"), "w") as f:
             f.write(script_table_html)
+        with open(os.path.join(saveout, "timepie_plot.html"), "w") as f:
+            f.write(timepie_html)
         with open(os.path.join(saveout, "ladder_plot.html"), "w") as f:
             f.write(ladder_html)
         with open(os.path.join(saveout, "slew_animation_plot.html"), "w") as f:

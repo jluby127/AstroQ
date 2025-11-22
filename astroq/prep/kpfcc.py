@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import requests
 from astropy.coordinates import SkyCoord
-from astropy.time import Time
+from astropy.time import Time, TimeDelta
 import astropy.units as u
 import astroplan as apl
 
@@ -960,7 +960,8 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
     if updated_dec[0] != "-":
         updated_dec = "+" + updated_dec
 
-    namestring = ' '*(16-len(row['starname'][:16])) + row['starname'][:16]
+    starname_str = str(row['starname'].iloc[0])
+    namestring = ' '*(16-len(starname_str[:16])) + starname_str[:16]
 
     # Handle missing columns with default values
     jmag_val = row.get('jmag', [15.0])[0] if 'jmag' in row else 15.0
