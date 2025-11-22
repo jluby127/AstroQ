@@ -11,7 +11,6 @@ from configparser import ConfigParser
 # Third-party imports
 import numpy as np
 import pandas as pd
-import pickle
 import astroplan as apl
 import plotly.io as pio
 from astropy.time import Time, TimeDelta
@@ -22,7 +21,7 @@ import base64
 # Local imports
 import astroq.access as ac
 import astroq.benchmarking as bn
-import astroq.prep.kpfcc as ob
+import astroq.prep.kpfcc as kpfcc
 import astroq.history as hs
 import astroq.io as io
 import astroq.nplan as nplan
@@ -115,39 +114,39 @@ def kpfcc_prep(args):
     # pull the allocation 
     if allo_source == 'db':
         print(f'Pulling allocation information from database')
-        allocation_frame, hours_by_program, nights_by_program = ob.pull_allocation_info(start_date, n_days, 'KPF-CC')
+        allocation_frame, hours_by_program, nights_by_program = kpfcc.pull_allocation_info(start_date, n_days, 'KPF-CC')
         awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())] 
         programmatics = pd.DataFrame({'program': awarded_programs, 'hours': list(hours_by_program.values()), 'nights': list(nights_by_program.values())})
         programmatics.to_csv(os.path.join(savepath, 'programs.csv'), index=False)
-    elif allo_source == 'koip':
+    else:
         print(f'Using allocation information from Keck Observatory Instrument Plan (KOIP) file: {allo_source}')
-        allocation_frame, hours_by_program, nights_by_program = ob.format_keck_allocation_info(allo_source)
+        allocation_frame, hours_by_program, nights_by_program = kpfcc.format_keck_allocation_info(allo_source)
         awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())]
         programmatics = pd.DataFrame({'program': awarded_programs, 'hours': list(hours_by_program.values()), 'nights': list(nights_by_program.values())})
         programmatics.to_csv(os.path.join(savepath, 'programs.csv'), index=False)
-    else:
-        print(f'Using allocation information from file: {allo_source}')
-        # Validate that the file has the correct columns
-        expected_columns = ['start', 'stop']
-        if os.path.exists(allo_source):
-            df = pd.read_csv(allo_source, nrows=0)
-            actual_columns = set(df.columns)
-            expected_set = set(expected_columns)
-            missing_columns = expected_set - actual_columns
-            if missing_columns:
-                logging.warning(f"Allocation file '{allo_source}' is missing required columns: {missing_columns}")
-                print("Note: if inputing your own formatted allocation file, you must also provide your own programs.csv file.")
-            else:
-                print(f"Allocation file columns validated: all required columns present")
-                awarded_programs = df['program'].unique().tolist()
-        else:
-            logging.warning(f"Allocation file '{allo_source}' does not exist")
+    # else:
+    #     print(f'Using allocation information from file: {allo_source}')
+    #     # Validate that the file has the correct columns
+    #     expected_columns = ['start', 'stop']
+    #     if os.path.exists(allo_source):
+    #         df = pd.read_csv(allo_source, nrows=0)
+    #         actual_columns = set(df.columns)
+    #         expected_set = set(expected_columns)
+    #         missing_columns = expected_set - actual_columns
+    #         if missing_columns:
+    #             logging.warning(f"Allocation file '{allo_source}' is missing required columns: {missing_columns}")
+    #             print("Note: if inputing your own formatted allocation file, you must also provide your own programs.csv file.")
+    #         else:
+    #             print(f"Allocation file columns validated: all required columns present")
+    #             awarded_programs = df['program'].unique().tolist()
+    #     else:
+    #         logging.warning(f"Allocation file '{allo_source}' does not exist")
 
     allocation_frame['comment'] = [''] * len(allocation_frame)
     # Update allocation times for tonight if this is a full-band
     if is_full_band:
         print("Updating allocation.csv for full-band")
-        allocation_frame = ob.update_allocation_file(allocation_frame, current_date)
+        allocation_frame = kpfcc.update_allocation_file(allocation_frame, current_date)
     allocation_frame.sort_values(by='start', inplace=True)
     allocation_frame.to_csv(os.path.join(savepath, allocation_file), index=False)
 
@@ -163,10 +162,10 @@ def kpfcc_prep(args):
             awarded_programs.append(fillers)
         # Pull the request sheet
         request_file = str(config.get('data', 'request_file'))
-        OBs = ob.pull_OBs(semester)
-        good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram = ob.get_request_sheet(OBs, awarded_programs, os.path.join(savepath, request_file))
+        OBs = kpfcc.pull_OBs(semester)
+        good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram = kpfcc.get_request_sheet(OBs, awarded_programs, os.path.join(savepath, request_file))
         # Filter the request sheet by weather band
-        filtered_good_obs = ob.filter_request_csv(good_obs, band_number)
+        filtered_good_obs = kpfcc.filter_request_csv(good_obs, band_number)
         # If no exposure meter threshold set, then OB can only be part of band 1
         if band_number != 1:
             filtered_good_obs = filtered_good_obs[filtered_good_obs['exp_meter_threshold'] != -1.0]
@@ -174,7 +173,7 @@ def kpfcc_prep(args):
         # Compute nominal exposure times and increase exposure times for different bands
         slowdown_factors = {1: 1.0, 2: 2.0, 3: 4.0}
         slow = slowdown_factors[band_number]
-        # new_exptimes = ob.recompute_exposure_times(filtered_good_obs, slow)
+        # new_exptimes = kpfcc.recompute_exposure_times(filtered_good_obs, slow)
         # filtered_good_obs['exptime'] = new_exptimes
         filtered_good_obs.to_csv(os.path.join(savepath, request_file), index=False)
     
@@ -182,7 +181,7 @@ def kpfcc_prep(args):
         # --------------------------------------------
         # --------------------------------------------
         custom_file = str(config.get('data', 'custom_file'))
-        custom_frame = ob.format_custom_csv(OBs)
+        custom_frame = kpfcc.format_custom_csv(OBs)
         custom_frame.to_csv(os.path.join(savepath, custom_file), index=False)
 
         # CAPTURE FILLER REQUEST INFORMATION AND PROCESS
@@ -192,11 +191,11 @@ def kpfcc_prep(args):
         filler_file = str(config.get('data', 'filler_file'))
         if fillers is not None:
             print(f'Generating filler.csv from program: {fillers}')
-            good_obs_backup, bad_obs_values_backup, bad_obs_hasFields_backup, bad_obs_count_by_semid_backup, bad_field_histogram_backup = ob.get_request_sheet(OBs, [fillers], os.path.join(savepath, filler_file))
+            good_obs_backup, bad_obs_values_backup, bad_obs_hasFields_backup, bad_obs_count_by_semid_backup, bad_field_histogram_backup = kpfcc.get_request_sheet(OBs, [fillers], os.path.join(savepath, filler_file))
         else:
             print(f'No fillers specified, creating blank filler.csv file.')
             good_obs_backup = pd.DataFrame(columns=good_obs.columns)
-        filtered_good_obs_backup = ob.filter_request_csv(good_obs_backup, band_number)
+        filtered_good_obs_backup = kpfcc.filter_request_csv(good_obs_backup, band_number)
         filtered_good_obs_backup.to_csv(os.path.join(savepath, filler_file), index=False)
 
         # CAPTURE EMAIL INFORMATION AND PROCESS
@@ -205,7 +204,7 @@ def kpfcc_prep(args):
         send_emails_with = []
         for i in range(len(bad_obs_values)):
             if bad_obs_values['metadata.semid'][i] in awarded_programs:
-                send_emails_with.append(ob.inspect_row(bad_obs_hasFields, bad_obs_values, i))
+                send_emails_with.append(kpfcc.inspect_row(bad_obs_hasFields, bad_obs_values, i))
         '''
         this is where code to automatically send emails will go. Not implemented yet.
         '''
@@ -222,7 +221,7 @@ def kpfcc_prep(args):
     past_file = str(config.get('data', 'past_file'))
     if past_source == 'db':
         print(f'Pulling past history information from database')
-        raw_history = hs.pull_OB_histories(semester)
+        raw_history = kpfcc.pull_OB_histories(semester)
         obhist = hs.write_OB_histories_to_csv(raw_history)
         obhist.to_csv(os.path.join(savepath, past_file), index=False)
     else:
@@ -351,9 +350,9 @@ def plot(args):
     else:
         print(f'No semester_planner.h5 found in {semester_directory}/outputs/. No plots will be generated.')
 
-    if os.path.exists(os.path.join(semester_directory, 'outputs', 'night_planner.pkl')):
-        with open(os.path.join(semester_directory, 'outputs', 'night_planner.pkl'), "rb") as f:
-            night_planner = pickle.load(f)
+    night_planner_h5 = os.path.join(semester_directory, 'outputs', 'night_planner.h5')
+    if os.path.exists(night_planner_h5):
+        night_planner = nplan.NightPlanner.from_hdf5(night_planner_h5)
         data_ttp = night_planner.solution
         
         # Get the night start time from allocation file (this is "Minute 0")
@@ -365,7 +364,7 @@ def plot(args):
 
         # build the plots
         script_table_df = pl.get_script_plan(night_planner)
-        ladder_fig = pl.get_ladder(data_ttp)
+        ladder_fig = pl.get_ladder(data_ttp, night_start_time)
         slew_animation_fig = pl.get_slew_animation_plotly(data_ttp, os.path.join(semester_directory, "request.csv"), animationStep=120)
         slew_path_fig = pl.plot_path_2D_interactive(data_ttp, night_start_time=night_start_time)
 

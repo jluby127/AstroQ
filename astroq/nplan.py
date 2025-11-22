@@ -215,8 +215,8 @@ class NightPlanner(object):
         # else:
         #     print(f"Warning: {observe_order_file} was not created by writeStarList")
         #     obs_and_times = pd.DataFrame()  # Create empty DataFrame as fallback
-        io.write_starlist(selected_df, solution.plotly, observation_start_time, solution.extras,
-                            [], str(self.current_day), observers_path)
+        # io.write_starlist(selected_df, solution.plotly, observation_start_time, solution.extras,
+        #                     [], str(self.current_day), observers_path)
         print("The optimal path through the sky for the selected stars is found. Clear skies!")
 
         return 
