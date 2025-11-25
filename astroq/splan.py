@@ -27,6 +27,7 @@ import astroplan as apl
 import astroq.access as ac
 import astroq.history as hs
 import astroq.io as io
+from astroq.prep.kpfcc import Access_KPFCC
 
 # Suppress warnings
 warnings.filterwarnings('ignore')
@@ -330,26 +331,34 @@ class SemesterPlanner(object):
             observability (dict): a dictionary where keys are the star names and values are the indices of the slots where the target is observable
         """
         # Create Access object with parameters from config
-        self.access_obj = ac.Access(
+        # Use KPFCC-specific Access class for Keck Observatory, otherwise use base Access class
+        if 'Keck' in self.observatory or 'keck' in self.observatory.lower():
+            AccessClass = Access_KPFCC
+        else:
+            AccessClass = ac.Access
+        
+        self.access_obj = AccessClass(
             semester_start_date=self.semester_start_date,
             semester_length=self.semester_length,
-            slot_size=self.slot_size,
-            observatory=self.observatory,
+            n_nights_in_semester=self.n_nights_in_semester,
+            today_starting_night=self.today_starting_night,
             current_day=self.current_day,
             all_dates_dict=self.all_dates_dict,
             all_dates_array=self.all_dates_array,
-            n_nights_in_semester=self.n_nights_in_semester,
+            slot_size=self.slot_size,
+            slots_needed_for_exposure_dict=self.slots_needed_for_exposure_dict,
             custom_file=self.custom_file,
             allocation_file=self.allocation_file,
             past_history=self.past_history,
-            today_starting_night=self.today_starting_night,
-            slots_needed_for_exposure_dict=self.slots_needed_for_exposure_dict,
-            run_weather_loss=self.run_weather_loss,
             output_directory=self.output_directory,
-            run_band3=self.run_band3
+            run_weather_loss=self.run_weather_loss,
+            run_band3=self.run_band3,
+            observatory_string=self.observatory,
+            request_frame=self.requests_frame
         )
+
         # Store the full access record array for later use
-        self.access_record = self.access_obj.produce_ultimate_map(self.requests_frame)
+        self.access_record = self.access_obj.produce_ultimate_map()
         observability = self.access_obj.observability(self.requests_frame, access=self.access_record)
 
         return observability
@@ -961,25 +970,32 @@ class SemesterPlanner(object):
                     setattr(instance, attr_name, struct_array.view(np.recarray))
         
         # Recreate access_obj using the loaded parameters
-                instance.access_obj = ac.Access(
-                    semester_start_date=instance.semester_start_date,
-                    semester_length=instance.semester_length,
-                    slot_size=instance.slot_size,
-                    observatory=instance.observatory,
-                    current_day=instance.current_day,
+        # Use KPFCC-specific Access class for Keck Observatory, otherwise use base Access class
+        if 'Keck' in instance.observatory or 'keck' in instance.observatory.lower():
+            AccessClass = Access_KPFCC
+        else:
+            AccessClass = ac.Access
+        
+        instance.access_obj = AccessClass(
+            semester_start_date=instance.semester_start_date,
+            semester_length=instance.semester_length,
+            n_nights_in_semester=instance.n_nights_in_semester,
+            today_starting_night=instance.today_starting_night,
+            current_day=instance.current_day,
             all_dates_dict=instance.all_dates_dict,
             all_dates_array=instance.all_dates_array,
-                    n_nights_in_semester=instance.n_nights_in_semester,
+            slot_size=instance.slot_size,
+            slots_needed_for_exposure_dict=instance.slots_needed_for_exposure_dict,
             custom_file=instance.custom_file,
             allocation_file=instance.allocation_file,
             past_history=instance.past_history,
-                    today_starting_night=instance.today_starting_night,
-            slots_needed_for_exposure_dict=instance.slots_needed_for_exposure_dict,
+            output_directory=instance.output_directory,
             run_weather_loss=instance.run_weather_loss,
-                    output_directory=instance.output_directory,
-            run_band3=instance.run_band3
-                )
-                logs.info("access_obj recreated from HDF5")
+            run_band3=instance.run_band3,
+            observatory_string=instance.observatory,
+            request_frame=instance.requests_frame
+        )
+        logs.info("access_obj recreated from HDF5")
         
         logs.info(f"SemesterPlanner loaded from HDF5: {hdf5_path}")
         return instance
