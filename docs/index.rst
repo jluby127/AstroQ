@@ -11,17 +11,23 @@
 AstroQ: |br| Schedule Astronomical Observations
 =======================================
 Welcome to ``AstroQ``'s documentation! ``AstroQ`` is a Python package
-designed to solve the Traveling Telescope Problem for thousands of targets
+designed to solve an optimal scheduling for thousands of observations,
 subject to a variety of constraints.
 
-Please cite `Lubin et al. (2025)` and the DOI below if you use AstroQ in your observation planning.
+Please cite the following papers if you use AstroQ in your to plan your observations:
+
+- `Lubin et al. (2025) <https://ui.adsabs.harvard.edu/abs/2025arXiv250608195L/abstract>`_
+- `Handley et al. (2024a) <https://ui.adsabs.harvard.edu/abs/2024AJ....167...33H/abstract>`_
+
 
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
+   :includehidden:
 
    getting_started
-   api
+   ob_construction
+   modules
 
 Indices and tables
 ==================
