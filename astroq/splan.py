@@ -27,7 +27,7 @@ import astroplan as apl
 import astroq.access as ac
 import astroq.history as hs
 import astroq.io as io
-from astroq.prep.kpfcc import Access_KPFCC
+from astroq.queue.kpfcc import Access_KPFCC
 
 # Suppress warnings
 warnings.filterwarnings('ignore')

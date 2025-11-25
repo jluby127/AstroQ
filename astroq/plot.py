@@ -933,20 +933,31 @@ def compute_seasonality(semester_planner, starnames, ras, decs):
     # Build or get the twilight allocation file
     twilight_allocation_file = ac.build_twilight_allocation_file(semester_planner)
     
-    # Temporarily override the allocation file path in the access object
-    print(semester_planner)
+    # Temporarily override the allocation file path and request frame in the access object
     original_allocation_file = semester_planner.access_obj.allocation_file
+    original_request_frame = semester_planner.access_obj.request_frame
+    original_targets = semester_planner.access_obj.targets
+    original_ntargets = semester_planner.access_obj.ntargets
+    
     semester_planner.access_obj.allocation_file = twilight_allocation_file
+    semester_planner.access_obj.request_frame = temp_requests_frame
+    # Recompute targets and ntargets for the new request frame
+    coords = SkyCoord(temp_requests_frame.ra * u.deg, temp_requests_frame.dec * u.deg, frame='icrs')
+    semester_planner.access_obj.targets = apl.FixedTarget(name=temp_requests_frame.unique_id, coord=coords)
+    semester_planner.access_obj.ntargets = len(temp_requests_frame)
    
     # Create dummy allocation for if the try statement fails.
     is_alloc = np.ones((len(starnames), semester_planner.semester_length, semester_planner.n_slots_in_night), dtype=bool)
     try:
         # Use Access object to produce the ultimate map with our custom requests frame
-        access_record = semester_planner.access_obj.produce_ultimate_map(temp_requests_frame, running_backup_stars=True)
+        access_record = semester_planner.access_obj.produce_ultimate_map(running_backup_stars=True)
         is_alloc = access_record.is_alloc
     finally:
-        # Restore the original allocation file path
+        # Restore the original allocation file path and request frame
         semester_planner.access_obj.allocation_file = original_allocation_file
+        semester_planner.access_obj.request_frame = original_request_frame
+        semester_planner.access_obj.targets = original_targets
+        semester_planner.access_obj.ntargets = original_ntargets
     
     # Extract is_altaz and is_moon arrays
     is_altaz = access_record.is_altaz

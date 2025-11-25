@@ -21,7 +21,7 @@ import base64
 # Local imports
 import astroq.access as ac
 import astroq.benchmarking as bn
-import astroq.prep.kpfcc as kpfcc
+import astroq.queue.kpfcc as kpfcc
 import astroq.history as hs
 import astroq.io as io
 import astroq.nplan as nplan

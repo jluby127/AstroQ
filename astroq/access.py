@@ -211,7 +211,7 @@ class Access:
                     starid = row['unique_id']
                     # Skip if the star is not in the current requests frame
                     if starid not in starid_to_index:
-                        print(f"Warning: Star {row['starname']} with unique_id '{starid}' in custom times file not found in requests frame, skipping")
+                        #print(f"Warning: Star {row['starname']} with unique_id '{starid}' in custom times file not found in requests frame, skipping")
                         continue
                     mask = (self.slotmidpoints >= row['start']) & (self.slotmidpoints <= row['stop'])
                     star_ind = starid_to_index[starid]
