@@ -419,14 +419,41 @@ class SemesterPlanner(object):
         There is one constraint per program. 
         """
         logs.info("Constraint: Throttling over-requested programs.")
+        merged_df = self.requests_frame[['unique_id', 'program_code']].copy()
         program_frame = pd.read_csv(self.programs_file)
-        program_requests_map = {
-            prog: set(
-                self.requests_frame.loc[self.requests_frame['program_code'] == prog, 'unique_id']
-            )
-            for prog in program_frame['program']
-        }
-
+        
+        # Convert past_history dict to DataFrame and merge
+        past_df = pd.DataFrame([{**{'unique_id': k}, **v._asdict()} for k, v in self.past_history.items()], 
+                               columns=['unique_id', 'name', 'date_last_observed', 'total_n_exposures', 
+                                       'total_n_visits', 'total_n_unique_nights', 'total_open_shutter_time',
+                                       'n_obs_on_nights', 'n_visits_on_nights'])
+        past_df['past_slots_used'] = past_df['total_n_exposures'] * past_df['unique_id'].map(self.slots_needed_for_exposure_dict).fillna(1)
+        merged_df = merged_df.merge(past_df[['unique_id', 'past_slots_used']], on='unique_id', how='left')
+        merged_df['past_slots_used'] = merged_df['past_slots_used'].fillna(0)
+        
+        # Merge with program_frame (program_code from requests matches 'program' from program_frame)
+        merged_df = merged_df.merge(
+            program_frame[['program', 'nights']],
+            left_on='program_code',
+            right_on='program',
+            how='inner'
+        )
+        
+        # Use groupby to calculate past_used_slots per program
+        past_used_slots_by_program = (
+            merged_df.groupby('program')['past_slots_used']
+            .sum()
+            .to_dict()
+        )
+        
+        # Use groupby to create program_requests_map
+        program_requests_map = (
+            merged_df.groupby('program')['unique_id']
+            .apply(set)
+            .to_dict()
+        )
+        
+        # Iterate through programs to build Gurobi constraints
         for program in program_frame['program']:
             program_row = program_frame.loc[program_frame['program'] == program].iloc[0]
             awarded_time_slots = (program_row['nights'] * self.hours_per_night * 60) / self.slot_size
@@ -435,17 +462,11 @@ class SemesterPlanner(object):
             max_slots_allowed_for_scheduling_program = gp.quicksum(
                 self.Yrds[r, d, s] * self.slots_needed_for_exposure_dict[r] # proper accounting of multi-slot exposures?
                 for r, d, s in self.observability_tuples
-                if r in program_requests_map[program]
+                if r in program_requests_map.get(program, set())
             )
 
-            # Count past used slots for this program
-            past_used_slots = 0
-            if hasattr(self, 'past_history') and self.past_history is not None:
-                for r in program_requests_map[program]:
-                    if r in self.past_history:
-                        past_hist = self.past_history[r]
-                        slots_per_exposure = self.slots_needed_for_exposure_dict.get(r, 1)
-                        past_used_slots += past_hist.total_n_exposures * slots_per_exposure
+            # Get past used slots for this program (default to 0 if not found)
+            past_used_slots = past_used_slots_by_program.get(program, 0)
             
             lhs = awarded_time_slots_grace - past_used_slots
             rhs = max_slots_allowed_for_scheduling_program
