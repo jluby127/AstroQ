@@ -30,7 +30,7 @@ DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')
 
 logs = logging.getLogger(__name__)
 
-class Access:
+class Access: # <- turning into an abstract base class. The "naked class" can't do anything by itself
     """
     The Access class encapsulates all the parameters needed for accessibility computation
     and provides an object-oriented interface to the accessibility computation.
@@ -60,10 +60,10 @@ class Access:
             run_weather_loss: Whether to run weather loss simulation
             output_directory: Directory for output files
         """
-        self.semester_start_date = semester_start_date
+        self.semester_start_date = semester_start_date  # every instance of an Access object must have these parameters
         self.semester_length = semester_length
         self.slot_size = slot_size
-        self.observatory = observatory
+        self.observatory = observatory # <- might belong in super-class, but should be astropy object
         self.current_day = current_day
         self.all_dates_dict = all_dates_dict
         self.all_dates_array = all_dates_array
@@ -75,7 +75,8 @@ class Access:
         self.slots_needed_for_exposure_dict = slots_needed_for_exposure_dict
         self.run_weather_loss = run_weather_loss
         self.output_directory = output_directory
-        self.run_band3 = run_band3
+        self.run_band3 = run_band3  # <- will be deprecated
+        # <- add in access = {} to store maps
     
     def produce_ultimate_map(self, rf, running_backup_stars=False):
         """
@@ -88,24 +89,29 @@ class Access:
         Returns:
             access (record array): keys are the map names and values are the 3D boolean maps (targets, nights, slots)
         """
-        # Prepatory work
+        # Prepatory work #  <- do this in __init__
         start_date = Time(self.semester_start_date,format='iso',scale='utc')
         ntargets = len(rf)
         nnights = self.semester_length # total nights in the full semester
         nslots = int((24*60)/self.slot_size) # slots in the night
         slot_size_time = TimeDelta(self.slot_size*u.min)
 
-        # Determine observability
+        # Determine observability # <- should go in an __init__ self.coords, self.targets, are attributes calcuated at __init__
         coords = apy.coordinates.SkyCoord(rf.ra * u.deg, rf.dec * u.deg, frame='icrs')
         targets = apl.FixedTarget(name=rf.unique_id, coord=coords)
-        keck = apl.Observer.at_site(self.observatory)
+        keck = apl.Observer.at_site(self.observatory) # <- chanage to observatory. 
 
-        # Set up time grid for one night, first night of the semester
+        # Set up time grid for one night, first night of the semester, # <- do this at init
         daily_start = Time(start_date, location=keck.location)
         daily_end = daily_start + TimeDelta(1.0, format='jd') # full day from start of first night
         t = Time(np.arange(daily_start.jd, daily_end.jd, slot_size_time.jd), format='jd',location=keck.location)
         t = t[np.argsort(t.sidereal_time('mean'))] # sort by lst
 
+
+        # wrap this code in a method is_altaz(mindec). Point of this new function will be to add
+        # 'is_altaz' key to access dictionary. 
+        
+        
         # Compute base alt/az pattern, shape = (ntargets, nslots)
         coord0 = keck.altaz(t, targets, grid_times_targets=True)
         alt0 = coord0.alt.deg
@@ -134,11 +140,14 @@ class Access:
         idx = np.clip(idx, 0, len(x)-1) # Handle edge cases
         is_altaz = is_altaz0[:,idx]
 
+        
+        # <- wrap in is_future() -> add to access dictionary
+        
         is_future = np.ones((ntargets, nnights, nslots),dtype=bool)
         today_daynumber = self.all_dates_dict[self.current_day]
         is_future[:,:today_daynumber,:] = False
         
-        # Compute moon accessibility
+        # Compute moon accessibility, is_moon(minsep) -> adds is_moon key to access dictionary
         is_moon = np.ones_like(is_altaz, dtype=bool)
         moon = apy.coordinates.get_moon(slotmidpoint[:,0] , keck.location)
         # Reshaping uses broadcasting to achieve a (ntarget, night) array
@@ -150,6 +159,8 @@ class Access:
         min_moon_sep = rf['minimum_moon_separation'].values * u.deg  # Convert to degrees
         is_moon = is_moon & (ang_dist.to(u.deg) > min_moon_sep[:, np.newaxis])[:, :, np.newaxis]
 
+        # is_custom -> adds custom constraints to access dictionary
+        
         is_custom = np.ones((ntargets, nnights, nslots), dtype=bool)
         # Handle case where custom file doesn't exist
         if os.path.exists(self.custom_file):
@@ -177,6 +188,7 @@ class Access:
 
         # TODO add in logic to remove stars that are not observable, currently code is a no-op
 
+        # is_inter() -> adds is_inter key to access dictionary
         # Set to False if internight cadence is violated
         is_inter = np.ones((ntargets, nnights, nslots),dtype=bool)
         for itarget in range(ntargets):
@@ -186,6 +198,7 @@ class Access:
                 inight_stop = min(inight_start + rf.iloc[itarget]['tau_inter'],nnights)
                 is_inter[itarget,inight_start:inight_stop,:] = False
 
+        # is_alloc() -> adds is_alloc key to access dictionary
         allocated_times_frame = pd.read_csv(self.allocation_file)
         allocated_times_frame['start'] = allocated_times_frame['start'].apply(Time)
         allocated_times_frame['stop'] = allocated_times_frame['stop'].apply(Time)
@@ -200,6 +213,8 @@ class Access:
         is_alloc = allocated_mask
         is_alloc = np.ones_like(is_altaz, dtype=bool) & is_alloc[np.newaxis,:,:] # shape = (ntargets, nnights, nslots)
 
+        # is_alloc() -> adds is_alloc key to access dictionary
+
         # run the weather loss simulation
         is_clear = np.ones_like(is_altaz, dtype=bool)
         if self.run_weather_loss:
@@ -209,6 +224,7 @@ class Access:
         else:
             logs.info("Pretending weather is always clear!")
 
+        # is_observable_now() loop over different keys in access dictionary and add is_observable_now array
         is_observable_now = np.logical_and.reduce([
             is_altaz,
             is_future,
@@ -219,6 +235,8 @@ class Access:
             is_clear,
         ])
 
+        # is_observable() must check if is_observable_now is set, if not fail, then run code below to compute is observable
+        
         # the target does not violate any of the observability limits in that specific slot, but
         # it does not mean it can be started at the slot. retroactively grow mask to accomodate multishot exposures.
         # Is observable now,
@@ -245,6 +263,14 @@ class Access:
             'is_observable': is_observable
         }
         access = np.rec.fromarrays(list(access.values()), names=list(access.keys()))
+
+        # ac = astroq.queue.kpfcc.Access(args)
+        # ac.is_altaz()
+        # ac.future()
+        # ...etc... 
+        # ac.is_observable()
+        # ac.produce_ultimate_map()
+        
         return access
 
     def observability(self, requests_frame, access=None):
