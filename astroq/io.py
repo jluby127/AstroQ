@@ -14,6 +14,7 @@ from astropy.time import Time, TimeDelta
 from astropy import units as u
 import numpy as np
 import pandas as pd
+from jinja2 import Template
 
 # Local imports
 import astroq.history as hs
@@ -73,6 +74,108 @@ def serialize_schedule(Yrds, semester_planner):
     build_fullness_report(semester_planner, "Round1")
     return sparse
 
+def compute_program_statistics(semester_planner, schedule_df):
+    """
+    Compute awarded, requested, and scheduled statistics per program.
+    
+    Args:
+        semester_planner (obj): a SemesterPlanner object from splan.py
+        schedule_df (DataFrame): DataFrame containing scheduled observations
+        
+    Returns:
+        dict: Dictionary keyed by program name, with values containing:
+            - awarded_nights, awarded_hours, awarded_slots
+            - past_nights, past_hours, past_slots
+            - requested_nights, requested_hours, requested_slots
+            - scheduled_nights, scheduled_hours, scheduled_slots
+            - fullness1 ((scheduled+past)/requested %)
+            - fullness2 ((scheduled+past)/awarded %)
+    """
+    # Get conversion factors
+    slot_size = semester_planner.slot_size  # in minutes
+    hours_per_night = semester_planner.hours_per_night  # in hours
+    slots_per_hour = 60 / slot_size
+    slots_per_night = hours_per_night * slots_per_hour
+    
+    program_frame = pd.read_csv(semester_planner.programs_file)    
+    program_stats = {}
+    for _, prog_row in program_frame.iterrows():
+        program = prog_row['program']
+        awarded_nights = prog_row['nights']
+        awarded_hours = awarded_nights * hours_per_night
+        awarded_slots = awarded_nights * slots_per_night
+        
+        # Calculate requested slots for this program
+        program_requests = semester_planner.requests_frame[
+            semester_planner.requests_frame['program_code'] == program
+        ]
+        
+        # Map slots_needed from dict and calculate requested slots using vectorized operations
+        program_requests = program_requests.copy()
+        program_requests['slots_needed'] = program_requests['unique_id'].map(
+            semester_planner.slots_needed_for_exposure_dict
+        ).fillna(0)
+        requested_slots = (program_requests['slots_needed'] * 
+                          program_requests['n_intra_max'] * 
+                          program_requests['n_inter_max']).sum()
+        requested_hours = requested_slots / slots_per_hour
+        requested_nights = requested_hours / hours_per_night
+        
+        # Calculate past slots for this program (already observed)
+        past_slots = 0
+        for _, req_row in program_requests.iterrows():
+            star_id = req_row['unique_id']
+            if star_id in semester_planner.past_history:
+                past_hist = semester_planner.past_history[star_id]
+                # Get slots per exposure for this star
+                slots_per_exposure = semester_planner.slots_needed_for_exposure_dict.get(star_id, 1)
+                # Total past slots = number of exposures * slots per exposure
+                past_slots += past_hist.total_n_exposures * slots_per_exposure
+        past_hours = past_slots / slots_per_hour
+        past_nights = past_hours / hours_per_night
+        
+        # Calculate scheduled slots for this program
+        # Merge schedule_df with requests_frame to get program_code for each scheduled star
+        schedule_with_program = schedule_df.merge(
+            semester_planner.requests_frame[['unique_id', 'program_code']],
+            left_on='r',
+            right_on='unique_id',
+            how='inner'
+        )
+        # Filter for current program and map slots_needed, then sum
+        program_scheduled = schedule_with_program[schedule_with_program['program_code'] == program]
+        scheduled_slots = program_scheduled['r'].map(
+            semester_planner.slots_needed_for_exposure_dict
+        ).fillna(1).sum()
+        scheduled_hours = scheduled_slots / slots_per_hour
+        scheduled_nights = scheduled_hours / hours_per_night
+        
+        # Calculate fullness percentages based on (scheduled + past)
+        total_scheduled_and_past_slots = scheduled_slots + past_slots
+        fullnessA = (total_scheduled_and_past_slots * 100.0 / requested_slots) if requested_slots > 0 else 0.0
+        fullnessB = (total_scheduled_and_past_slots * 100.0 / awarded_slots) if awarded_slots > 0 else 0.0
+        fullnessC = (requested_slots * 100.0 / awarded_slots) if awarded_slots > 0 else 0.0
+
+        program_stats[program] = {
+            'awarded_nights': awarded_nights,
+            'awarded_hours': awarded_hours,
+            'awarded_slots': awarded_slots,
+            'past_nights': past_nights,
+            'past_hours': past_hours,
+            'past_slots': past_slots,
+            'requested_nights': requested_nights,
+            'requested_hours': requested_hours,
+            'requested_slots': requested_slots,
+            'scheduled_nights': scheduled_nights,
+            'scheduled_hours': scheduled_hours,
+            'scheduled_slots': scheduled_slots,
+            'fullnessA': fullnessA,
+            'fullnessB': fullnessB,
+            'fullnessC': fullnessC
+        }
+    
+    return program_stats
+
 def build_fullness_report(semester_planner, round_info):
     """
     Determine how full the schedule is: slots available, slots scheduled, and slots required
@@ -131,7 +234,11 @@ def build_fullness_report(semester_planner, round_info):
     percentage_of_available = np.round((total_scheduled_slots * 100) / allocated_slots, 3) if allocated_slots > 0 else 0
     percentage_of_requested = np.round((total_scheduled_slots * 100) / total_slots_requested, 3) if total_slots_requested > 0 else 0
     
-    with open(os.path.join(semester_planner.output_directory, "runReport.txt"), "w") as file:
+    # Compute program statistics
+    program_stats = compute_program_statistics(semester_planner, schedule_df)
+
+    
+    with open(semester_planner.output_directory + "runReport.txt", "w") as file:
         file.write("Stats for " + str(round_info) + "\n")
         file.write("------------------------------------------------------" + "\n")
         file.write("N slots in semester:" + str(total_slots_in_semester) + "\n")
@@ -143,4 +250,226 @@ def build_fullness_report(semester_planner, round_info):
         file.write("N slots requested (total): " + str(total_slots_requested) + "\n")
         file.write("Utilization (% of available slots): " + str(percentage_of_available) + "%" + "\n")
         file.write("Utilization (% of requested slots): " + str(percentage_of_requested) + "%" + "\n")
+        file.write("\n")
+        file.write("Program Statistics:" + "\n")
+        file.write("------------------------------------------------------" + "\n")
+        if program_stats:
+            # Template for program statistics
+            program_template = Template("""{{ program }}
+ -- Awarded {{ "%.2f"|format(stats['awarded_nights']) }} nights = {{ "%.2f"|format(stats['awarded_hours']) }} hours = {{ "%.1f"|format(stats['awarded_slots']) }} slots.
+ -- Requested {{ "%.2f"|format(stats['requested_nights']) }} nights = {{ "%.2f"|format(stats['requested_hours']) }} hours = {{ "%.1f"|format(stats['requested_slots']) }} slots
+ ------ Fullness of requested to awarded: {{ "%.2f"|format(stats['fullnessC']) }}%
+ -- Past {{ "%.2f"|format(stats['past_nights']) }} nights = {{ "%.2f"|format(stats['past_hours']) }} hours = {{ "%.1f"|format(stats['past_slots']) }} slots.
+ -- Scheduled {{ "%.2f"|format(stats['scheduled_nights']) }} nights = {{ "%.2f"|format(stats['scheduled_hours']) }} hours = {{ "%.1f"|format(stats['scheduled_slots']) }} slots
+ ------ Fullness of past/scheduled to requested: {{ "%.2f"|format(stats['fullnessA']) }}%
+ ------ Fullness of past/scheduled to awarded: {{ "%.2f"|format(stats['fullnessB']) }}%
+
+
+""")
+            # Sort by program name for consistent output
+            for program in sorted(program_stats.keys()):
+                stats = program_stats[program]
+                rendered = program_template.render(program=program, stats=stats)
+                file.write(rendered)
+
+        else:
+            file.write("  No program information available" + "\n")
         file.close()
+        
+def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars, current_day,
+                    outputdir, version='nominal'):
+    """
+    Generate the nightly script in the correct format.
+
+    Args:
+        frame (dataframe): the request.csv in dataframe format for just the targets that were selected to be observed tonight
+        solution_frame (dataframe): the solution attribute from the TTP model.plotly object
+        night_start_time (astropy time object): Beginning of observing interval
+        extras (array): starnames of "extra" stars (those not fit into the script)
+        filler_stars (array): star names of the stars added in the bonus round
+        current_day (str): today's date in format YYYY-MM-DD
+        outputdir (str): the directory to save the script file
+        version (str): a tag for thescript (e.g. nominal, slowdown, backups, etc)
+
+    Returns:
+        None
+    """
+    # Cast starname column to strings to ensure proper matching
+    frame['starname'] = frame['starname'].astype(str)
+    
+    # Cast extras star names to strings to ensure proper matching
+    extras['Starname'] = extras['Starname'].astype(str) if isinstance(extras, pd.DataFrame) else [str(star) for star in extras['Starname']]
+    
+    total_exptime = 0
+    if not os.path.isdir(outputdir):
+        os.mkdir(outputdir)
+    script_file = os.path.join(outputdir,'script_{}_{}.txt'.format(current_day, version))
+
+    lines = []
+    for i, item in enumerate(solution_frame['Starname']):
+        filler_flag = solution_frame['Starname'][i] in filler_stars
+        row = frame.loc[frame['unique_id'] == solution_frame['Starname'][i]]
+        row.reset_index(inplace=True)
+        total_exptime += float(row['exptime'].iloc[0])
+
+        start_exposure_hst = str(TimeDelta(solution_frame['Start Exposure'][i]*60,format='sec') + \
+                                                night_start_time)[11:16]
+        first_available_hst = str(TimeDelta(solution_frame['First Available'][i]*60,format='sec')+ \
+                                                night_start_time)[11:16]
+        last_available_hst = str(TimeDelta(solution_frame['Last Available'][i]*60,format='sec') + \
+                                                night_start_time)[11:16]
+
+        lines.append(format_kpf_row(row, start_exposure_hst, first_available_hst,last_available_hst,
+                                    current_day, filler_flag = filler_flag))
+
+    lines.append('')
+    lines.append('X' * 45 + 'EXTRAS' + 'X' * 45)
+    lines.append('')
+
+    for j in range(len(extras['Starname'])):
+        if extras['Starname'][j] in filler_stars:
+            filler_flag = True
+        else:
+            filler_flag = False
+        row = frame.loc[frame['unique_id'] == extras['Starname'][j]]
+        row.reset_index(inplace=True)
+        lines.append(format_kpf_row(row, '24:00', extras['First Available'][j],
+                    extras['Last Available'][j], current_day, filler_flag, True))
+
+    # add buffer lines to end of file
+    lines.append("")
+    lines.append("")
+
+    with open(script_file, 'w') as f:
+        f.write('\n'.join(lines))
+    print("Total Open Shutter Time Scheduled: " + str(np.round((total_exptime/3600),2)) + " hours")
+    return lines
+
+def format_kpf_row(row, obs_time, first_available, last_available, current_day,
+                    filler_flag = False, extra=False):
+    """
+    Format request data in the specific way needed for the script (relates to the Keck "Magiq"
+    software's data ingestion requirements).
+
+    Args:
+        row (dataframe): a single row from the requests sheet dataframe
+        obs_time (str): the timestamp of the night to begin the exposure according to the TTP.
+                        In format HH:MM in HST timezone
+        first_available (str): the timestamp of the night where the star is first accessible.
+                                In format HH:MM in HST timezone.
+        last_available (str): the timestamp of the night where the star is last accessible.
+                                In format HH:MM in HST timezone.
+        filler_flag (boolean): True of the target was added in the bonus round
+        extra (boolean): is this an "extra" target
+
+    Returns:
+        line (str): the properly formatted string to be included in the script file
+    """
+
+    equinox = '2000'
+    # Handle missing pmra/pmdec columns with default values
+    pmra = row.get('pmra', pd.Series([0.0])).iloc[0] if 'pmra' in row else 0.0
+    pmdec = row.get('pmdec', pd.Series([0.0])).iloc[0] if 'pmdec' in row else 0.0
+    updated_ra, updated_dec = pm_correcter(row['ra'].iloc[0], row['dec'].iloc[0],
+                                pmra, pmdec, current_day, equinox=equinox)
+    if updated_dec[0] != "-":
+        updated_dec = "+" + updated_dec
+
+    cpsname = hs.crossmatch_star_name(row['starname'].iloc[0])
+    namestring = ' '*(16-len(cpsname[:16])) + cpsname[:16]
+
+    # Handle missing columns with default values
+    jmag_val = row.get('jmag', [15.0])[0] if 'jmag' in row else 15.0
+    gmag_val = row.get('gmag', [15.0])[0] if 'gmag' in row else 15.0
+    teff_val = row.get('teff', [5000])[0] if 'teff' in row else 5000
+    gaia_id_val = row.get('gaia_id', ['UNKNOWN'])[0] if 'gaia_id' in row else 'UNKNOWN'
+    
+    # Convert to float safely, with fallback to defaults
+    try:
+        jmag_val = float(jmag_val) if jmag_val is not None else 15.0
+    except (ValueError, TypeError):
+        jmag_val = 25.0
+    
+    try:
+        gmag_val = float(gmag_val) if gmag_val is not None else 15.0
+    except (ValueError, TypeError):
+        gmag_val = 25.0
+    
+    try:
+        teff_val = float(teff_val) if teff_val is not None else 5000
+    except (ValueError, TypeError):
+        teff_val = 0.0
+    
+    jmagstring = ('jmag=' + str(np.round(float(jmag_val),1)) + ' '* \
+        (4-len(str(np.round(float(jmag_val),1)))))
+    exposurestring = (' '*(4-len(str(int(row['exptime'].iloc[0])))) + \
+        str(int(row['exptime'].iloc[0])) + '/' + \
+        str(int(row['exptime'].iloc[0])) + ' '* \
+        (4-len(str(int(row['exptime'].iloc[0])))))
+
+    ofstring = ('1of' + str(int(row['n_intra_max'].iloc[0])))
+    scstring = 'sc=' + 'T'
+
+    numstring = str(int(row['n_exp'].iloc[0])) + "x"
+    gmagstring = 'gmag=' + str(np.round(float(gmag_val),1)) + \
+                                                ' '*(4-len(str(np.round(float(gmag_val),1))))
+    teffstr = 'Teff=' + str(int(teff_val)) + \
+                                    ' '*(4-len(str(int(teff_val))))
+
+    gaiastring = str(gaia_id_val) + ' '*(25-len(str(gaia_id_val)))
+    programstring = row['program_code'].iloc[0]
+
+    if filler_flag:
+        # All targets added in round 2 bonus round are lower priority
+        priostring = "p3"
+    else:
+        priostring = "p1"
+
+    if extra == False:
+        timestring2 = str(obs_time)
+    else:
+        # designate a nonsense time
+        timestring2 = "24:00"
+
+    line = (namestring + ' ' + updated_ra + ' ' + updated_dec + ' ' + str(equinox) + ' '
+                + jmagstring + ' ' + exposurestring + ' ' + ofstring + ' ' + scstring +  ' '
+                + numstring + ' '+ gmagstring + ' ' + teffstr + ' ' + gaiastring + ' CC '
+                        + priostring + ' ' + programstring + ' ' + timestring2 +
+                         ' ' + first_available  + ' ' + last_available )
+
+    # Handle missing Observing Notes column
+    observing_notes = row.get('Observing Notes', [''])[0] if 'Observing Notes' in row else ''
+    if observing_notes and not pd.isnull(observing_notes):
+        line += (' ' + str(observing_notes))
+
+    return line
+
+def pm_correcter(ra, dec, pmra, pmdec, current_day, equinox="2000"):
+    """
+    Update a star's coordinates due to proper motion.
+
+    Args:
+        ra (float): RA in degrees
+        dec (float): Dec in degrees
+        pmra (float): proper motion in RA (mas/yr), including cos(Dec)
+        pmdec (float): proper motion in Dec (mas/yr)
+        equinox (str): original epoch (e.g. '2000.0')
+        current_day (str): date to which to propagate (e.g. '2025-04-30')
+
+    Returns:
+        formatted_ra (str), formatted_dec (str): updated coordinates as strings
+    """
+    start_time = Time(f'J{equinox}')
+    current_time = Time(current_day)
+    coord = SkyCoord(
+        ra=ra * u.deg,
+        dec=dec * u.deg,
+        pm_ra_cosdec=pmra * u.mas/u.yr,
+        pm_dec=pmdec * u.mas/u.yr,
+        obstime=start_time
+    )
+    new_coord = coord.apply_space_motion(new_obstime=current_time)
+    formatted_ra = new_coord.ra.to_string(unit=u.hourangle, sep=' ', pad=True, precision=1)
+    formatted_dec = new_coord.dec.to_string(unit=u.deg, sep=' ', pad=True, precision=0)
+
+    return formatted_ra, formatted_dec
