@@ -43,215 +43,272 @@ class Access:
     and provides an object-oriented interface to the accessibility computation.
     """
     
-    def __init__(self, semester_start_date, semester_length, slot_size, observatory, 
-                 current_day, all_dates_dict, all_dates_array, n_nights_in_semester,
-                 custom_file, allocation_file, past_history, today_starting_night, 
-                 slots_needed_for_exposure_dict, run_weather_loss, output_directory, run_band3):
+    def __init__(self, 
+                 semester_start_date, 
+                 semester_length, 
+                 n_nights_in_semester,
+                 today_starting_night,  
+                 current_day, 
+                 all_dates_dict, 
+                 all_dates_array, 
+                 slot_size, 
+                 slots_needed_for_exposure_dict, 
+                 custom_file, 
+                 allocation_file, 
+                 past_history, 
+                 output_directory, 
+                 run_weather_loss, 
+                 run_band3, 
+                 observatory_string, 
+                 request_frame, 
+                 ):
         """
         Initialize the Access object with explicit parameters.
         
         Args:
             semester_start_date: Start date of the semester
             semester_length: Total number of nights in the semester
-            slot_size: Size of each time slot in minutes
-            observatory: Observatory name/location
+            n_nights_in_semester: Number of remaining nights in the semester
+            today_starting_night: Starting night number for today
             current_day: Current day identifier
             all_dates_dict: Dictionary mapping dates to day numbers
             all_dates_array: Array of date strings for the semester
-            n_nights_in_semester: Number of remaining nights in the semester
+            slot_size: Size of each time slot in minutes
+            slots_needed_for_exposure_dict: Dictionary mapping star names to required slots
             custom_file: Path to custom times file
             allocation_file: Path to allocation file
             past_history: Past observation history
-            today_starting_night: Starting night number for today
-            slots_needed_for_exposure_dict: Dictionary mapping star names to required slots
-            run_weather_loss: Whether to run weather loss simulation
             output_directory: Directory for output files
+            run_weather_loss: Whether to run weather loss simulation
+            run_band3: Whether to run band 3 (used for not peforming the is_observble step for the football plot)
+            observatory_string: Observatory name/location string
+            request_frame: DataFrame containing request information
         """
+        # parameters 
         self.semester_start_date = semester_start_date
         self.semester_length = semester_length
         self.slot_size = slot_size
-        self.observatory = observatory
         self.current_day = current_day
         self.all_dates_dict = all_dates_dict
         self.all_dates_array = all_dates_array
         self.n_nights_in_semester = n_nights_in_semester
-        self.custom_file = custom_file
-        self.allocation_file = allocation_file
-        self.past_history = past_history
         self.today_starting_night = today_starting_night
         self.slots_needed_for_exposure_dict = slots_needed_for_exposure_dict
         self.run_weather_loss = run_weather_loss
-        self.output_directory = output_directory
         self.run_band3 = run_band3
-    
-    def produce_ultimate_map(self, rf, running_backup_stars=False):
-        """
-        Combine all maps for a target to produce the final map
 
-        Args:
-            rf (dataframe): the dataframe of request information
-            running_backup_stars (bool): if true, then do not run the extra map of stepping back in time to account for the starting slot fitting into the night
+        # files
+        self.custom_file = custom_file
+        self.allocation_file = allocation_file
+        self.past_history = past_history
+        self.output_directory = output_directory
+        self.request_frame = request_frame
 
-        Returns:
-            access (record array): keys are the map names and values are the 3D boolean maps (targets, nights, slots)
-        """
         # Prepatory work
-        start_date = Time(self.semester_start_date,format='iso',scale='utc')
-        ntargets = len(rf)
-        nnights = self.semester_length # total nights in the full semester
-        nslots = int((24*60)/self.slot_size) # slots in the night
-        slot_size_time = TimeDelta(self.slot_size*u.min)
-
-        # Determine observability
-        coords = apy.coordinates.SkyCoord(rf.ra * u.deg, rf.dec * u.deg, frame='icrs')
-        targets = apl.FixedTarget(name=rf.unique_id, coord=coords)
-        observatory = apl.Observer.at_site(self.observatory)
+        self.start_date = Time(self.semester_start_date,format='iso',scale='utc')
+        self.ntargets = len(self.request_frame)
+        self.nnights = self.semester_length # total nights in the full semester
+        self.nslots = int((24*60)/self.slot_size) # slots in the night
+        self.slot_size_time = TimeDelta(self.slot_size*u.min)
+        self.observatory = apl.Observer.at_site(observatory_string)
+        coords = apy.coordinates.SkyCoord(self.request_frame.ra * u.deg, self.request_frame.dec * u.deg, frame='icrs')
+        self.targets = apl.FixedTarget(name=self.request_frame.unique_id, coord=coords)
 
         # Set up time grid for one night, first night of the semester
-        daily_start = Time(start_date, location=observatory.location)
-        daily_end = daily_start + TimeDelta(1.0, format='jd') # full day from start of first night
-        t = Time(np.arange(daily_start.jd, daily_end.jd, slot_size_time.jd), format='jd',location=observatory.location)
-        t = t[np.argsort(t.sidereal_time('mean'))] # sort by lst
-
-        # Compute base alt/az pattern, shape = (ntargets, nslots)
-        coord0 = observatory.altaz(t, targets, grid_times_targets=True)
-        alt0 = coord0.alt.deg
-        az0 = coord0.az.deg
-        # 2D mask (n targets, n slots))
-        is_altaz0 = np.ones_like(alt0, dtype=bool)        
-        is_altaz0 &= ~((nays_az_low < az0 ) & (az0 < nays_az_high) & (alt0 < nays_alt)) # remove nasymth deck
-        # remove min elevation using per-row minimum_elevation values for all stars
-        min_elevation = rf['minimum_elevation'].values  # Get per-row minimum elevation values
-        fail = alt0 < min_elevation[:, np.newaxis]
-        is_altaz0 &= ~fail
-        # all stars must be between 18 and 85 deg
-        fail = (alt0 < tel_min) | (alt0 > tel_max)
-        is_altaz0 &= ~fail
+        self.daily_start = Time(self.start_date, location=self.observatory.location)
+        self.daily_end = self.daily_start + TimeDelta(1.0, format='jd') # full day from start of first night
+        self.timegrid = Time(np.arange(self.daily_start.jd, self.daily_end.jd, self.slot_size_time.jd), format='jd',location=self.observatory.location)
+        self.timegrid = self.timegrid[np.argsort(self.timegrid.sidereal_time('mean'))] # sort by lst
+    
         # computing slot midpoint for all nights in semester 2D array (slots, nights)
-        slotmidpoint0 = daily_start + (np.arange(nslots) + 0.5) *  self.slot_size * u.min
-        days = np.arange(nnights) * u.day
-        slotmidpoint = (slotmidpoint0[np.newaxis,:] + days[:,np.newaxis])
-        # 3D mask
-        is_altaz = np.empty((ntargets, nnights, nslots),dtype=bool)
+        self.slotmidpoints_oneday = self.daily_start + (np.arange(self.nslots) + 0.5) *  self.slot_size * u.min
+        days = np.arange(self.nnights) * u.day
+        self.slotmidpoints = (self.slotmidpoints_oneday[np.newaxis,:] + days[:,np.newaxis])
+
+    def compute_altaz(self, tel_min):
+        """
+        Compute boolean mask of is_altaz for targets according to a minimum elevation. 
+        May be superceded by a specific compute_altaz method for a specific observatory, see astroq/queue/ modules.
+
+        Args:
+            tel_min (float): the minimum elevation for the telescope
+
+        Returns:
+            is_altaz (array): boolean mask of is_altaz for targets
+        """
+        # Compute base alt/az pattern, shape = (ntargets, nslots)
+        altazes = self.observatory.altaz(self.timegrid, self.targets, grid_times_targets=True)
+        alts = altazes.alt.deg
+        min_elevation = self.request_frame['minimum_elevation'].values  # Get PI-desired minimum elevation values
+        min_elevation = np.maximum(min_elevation, tel_min)  # Ensure minimum elevation is at least tel_min
+        
         # Pre-compute the sidereal times for interpolation
-        x = t.sidereal_time('mean').value
-        x_new = slotmidpoint.sidereal_time('mean').value
+        x = self.timegrid.sidereal_time('mean').value
+        x_new = self.slotmidpoints.sidereal_time('mean').value
         idx = np.searchsorted(x, x_new, side='left')
         idx = np.clip(idx, 0, len(x)-1) # Handle edge cases
-        is_altaz = is_altaz0[:,idx]
 
-        is_future = np.ones((ntargets, nnights, nslots),dtype=bool)
+        is_altaz0 = np.ones_like(alts, dtype=bool)        
+        fail = (alts < tel_min)
+        is_altaz0 &= ~fail
+        # self.is_altaz = np.empty((self.ntargets, self.nnights, self.nslots),dtype=bool)
+        self.is_altaz = is_altaz0[:,idx]
+
+    def compute_future(self):
+        """
+        Compute boolean mask of is_future for all targets according to today's current_day. 
+
+        Args:
+        Returns:
+            is_altaz (array): boolean mask of is_altaz for targets
+        """
+        self.is_future = np.ones((self.ntargets, self.nnights, self.nslots),dtype=bool)
         today_daynumber = self.all_dates_dict[self.current_day]
-        is_future[:,:today_daynumber,:] = False
-        
-        # Compute moon accessibility
-        is_moon = np.ones_like(is_altaz, dtype=bool)
-        moon = apy.coordinates.get_moon(slotmidpoint[:,0] , observatory.location)
+        self.is_future[:,:today_daynumber,:] = False
+    
+    def compute_moon(self):
+        """
+        Compute boolean mask of is_moon for all targets according to the moon's position.
+        """
+        self.is_moon = np.ones_like(self.is_altaz, dtype=bool)
+        moon = apy.coordinates.get_moon(self.slotmidpoints[:,0] , self.observatory.location)
         # Reshaping uses broadcasting to achieve a (ntarget, night) array
         ang_dist = apy.coordinates.angular_separation(
-            targets.ra.reshape(-1,1), targets.dec.reshape(-1,1),
+            self.targets.ra.reshape(-1,1), self.targets.dec.reshape(-1,1),
             moon.ra.reshape(1,-1), moon.dec.reshape(1,-1),
-        ) # (ntargets)
+        )
         # Use per-row minimum_moon_separation values instead of hardcoded 30 degrees
-        min_moon_sep = rf['minimum_moon_separation'].values * u.deg  # Convert to degrees
-        is_moon = is_moon & (ang_dist.to(u.deg) > min_moon_sep[:, np.newaxis])[:, :, np.newaxis]
+        min_moon_sep = self.request_frame['minimum_moon_separation'].values * u.deg  # Convert to degrees
+        self.is_moon = self.is_moon & (ang_dist.to(u.deg) > min_moon_sep[:, np.newaxis])[:, :, np.newaxis]
 
-        is_custom = np.ones((ntargets, nnights, nslots), dtype=bool)
+    def compute_inter(self):
+        """
+        Compute boolean mask of is_inter for all targets according to the internight cadence.
+        """
+        # Set to False if internight cadence is violated
+        self.is_inter = np.ones((self.ntargets, self.nnights, self.nslots),dtype=bool)
+        for itarget in range(self.ntargets):
+            name = self.request_frame.iloc[itarget]['unique_id']
+            if name in self.past_history and self.request_frame.iloc[itarget]['tau_inter'] > 1:
+                inight_start = self.all_dates_dict[self.past_history[name].date_last_observed]
+                inight_stop = min(inight_start + self.request_frame.iloc[itarget]['tau_inter'],self.nnights)
+                self.is_inter[itarget,inight_start:inight_stop,:] = False
+
+    def compute_custom(self):
+        """
+        Compute boolean mask of is_custom for all targets according to the custom times.
+        """
+        self.is_custom = np.ones((self.ntargets, self.nnights, self.nslots), dtype=bool)
         # Handle case where custom file doesn't exist
         if os.path.exists(self.custom_file):
             custom_times_frame = pd.read_csv(self.custom_file)
             # Check if the file has any data rows (not just header)
             if len(custom_times_frame) > 0:
-                starid_to_index = {name: idx for idx, name in enumerate(rf['unique_id'])}
+                starid_to_index = {name: idx for idx, name in enumerate(self.request_frame['unique_id'])}
                 custom_times_frame['start'] = custom_times_frame['start'].apply(Time)
                 custom_times_frame['stop'] = custom_times_frame['stop'].apply(Time)
                 for _, row in custom_times_frame.iterrows():
                     starid = row['unique_id']
                     # Skip if the star is not in the current requests frame
                     if starid not in starid_to_index:
-                        print(f"Warning: Star {row['starname']} with unique_id '{starid}' in custom times file not found in requests frame, skipping")
+                        #print(f"Warning: Star {row['starname']} with unique_id '{starid}' in custom times file not found in requests frame, skipping")
                         continue
-                    mask = (slotmidpoint >= row['start']) & (slotmidpoint <= row['stop'])
+                    mask = (self.slotmidpoints >= row['start']) & (self.slotmidpoints <= row['stop'])
                     star_ind = starid_to_index[starid]
-                    current_map = is_custom[star_ind]
+                    current_map = self.is_custom[star_ind]
                     if np.all(current_map):  # If all ones, first interval: restrict with AND
-                        is_custom[star_ind] = mask
+                        self.is_custom[star_ind] = mask
                     else:  # Otherwise, union with OR
-                        is_custom[star_ind] = current_map | mask
+                        self.is_custom[star_ind] = current_map | mask
         else:
             print(f"Custom times file not found: {self.custom_file}. Using no custom constraints.")
 
-        # TODO add in logic to remove stars that are not observable, currently code is a no-op
-
-        # Set to False if internight cadence is violated
-        is_inter = np.ones((ntargets, nnights, nslots),dtype=bool)
-        for itarget in range(ntargets):
-            name = rf.iloc[itarget]['unique_id']
-            if name in self.past_history and rf.iloc[itarget]['tau_inter'] > 1:
-                inight_start = self.all_dates_dict[self.past_history[name].date_last_observed]
-                inight_stop = min(inight_start + rf.iloc[itarget]['tau_inter'],nnights)
-                is_inter[itarget,inight_start:inight_stop,:] = False
-
+    def compute_allocated(self):
+        """
+        Compute boolean mask of is_allocated for all targets according to the allocated times.
+        """
         allocated_times_frame = pd.read_csv(self.allocation_file)
         allocated_times_frame['start'] = allocated_times_frame['start'].apply(Time)
         allocated_times_frame['stop'] = allocated_times_frame['stop'].apply(Time)
             
         allocated_times_map = []
-        allocated_mask = np.zeros((nnights, nslots), dtype=bool)
+        allocated_mask = np.zeros((self.nnights, self.nslots), dtype=bool)
         for i in range(len(allocated_times_frame)):
             start_time = allocated_times_frame['start'].iloc[i]
             stop_time = allocated_times_frame['stop'].iloc[i]
-            mask = (slotmidpoint >= start_time) & (slotmidpoint <= stop_time)
+            mask = (self.slotmidpoints >= start_time) & (self.slotmidpoints <= stop_time)
             allocated_mask |= mask
-        is_alloc = allocated_mask
-        is_alloc = np.ones_like(is_altaz, dtype=bool) & is_alloc[np.newaxis,:,:] # shape = (ntargets, nnights, nslots)
+        self.is_allocated_mask = allocated_mask
+        self.is_allocated = np.ones_like(self.is_altaz, dtype=bool) & self.is_allocated_mask[np.newaxis,:,:] # shape = (ntargets, nnights, nslots)
 
-        # run the weather loss simulation
-        is_clear = np.ones_like(is_altaz, dtype=bool)
+    def compute_clear(self,weather_loss_file=None):
+        """
+        Compute boolean mask of is_clear for all targets according to the clear times.
+
+        Args:
+            weather_loss_file: Path to file with weather loss statistics information
+        """
+        self.is_clear = np.ones_like(self.is_altaz, dtype=bool)
         if self.run_weather_loss:
-            self.get_loss_stats()
-            is_clear = self.simulate_weather_losses(covariance=0.14)
-            is_clear = np.tile(is_clear[np.newaxis, :, :], (ntargets, 1, 1))
+            if weather_loss_file is None:
+                raise ValueError("weather_loss_file is required when run_weather_loss is True")
+            logs.info("Running weather loss model.")
+            self.get_loss_stats(weather_loss_file)
+            self.is_clear = self.simulate_weather_losses(covariance=0.14)
+            self.is_clear = np.tile(self.is_clear[np.newaxis, :, :], (self.ntargets, 1, 1))
         else:
             logs.info("Pretending weather is always clear!")
+            self.is_clear = np.ones((self.ntargets, self.nnights, self.nslots), dtype=bool)
 
-        is_observable_now = np.logical_and.reduce([
-            is_altaz,
-            is_future,
-            is_moon,
-            is_custom,
-            is_inter,
-            is_alloc,
-            is_clear,
+    def produce_ultimate_map(self, running_backup_stars=False):
+        """
+        Compute boolean mask of is_observable for all targets according to the ultimate map.
+        """
+        self.compute_altaz(33)
+        self.compute_future()
+        self.compute_moon()
+        self.compute_custom()
+        self.compute_inter()
+        self.compute_allocated()
+        self.compute_clear()
+        
+        self.is_observable_now = np.logical_and.reduce([
+            self.is_altaz,
+            self.is_future,
+            self.is_moon,
+            self.is_custom,
+            self.is_inter,
+            self.is_allocated,
+            self.is_clear,
         ])
 
         # the target does not violate any of the observability limits in that specific slot, but
         # it does not mean it can be started at the slot. retroactively grow mask to accomodate multishot exposures.
         # Is observable now,
-        is_observable = is_observable_now.copy()
+        self.is_observable = self.is_observable_now.copy()
         if running_backup_stars == False:
-            for itarget in range(ntargets):
-                e_val = self.slots_needed_for_exposure_dict[rf.iloc[itarget]['unique_id']]
+            for itarget in range(self.ntargets):
+                e_val = self.slots_needed_for_exposure_dict[self.request_frame.iloc[itarget]['unique_id']]
                 if e_val == 1:
                     continue
                 for shift in range(1, e_val):
                     # shifts the is_observable_now array to the left by shift
                     # for is_observable to be true, it must be true for all shifts
-                    is_observable[itarget, :, :-shift] &= is_observable_now[itarget, :, shift:]
+                    self.is_observable[itarget, :, :-shift] &= self.is_observable_now[itarget, :, shift:]
 
         access = {
-            'is_altaz': is_altaz,
-            'is_future': is_future,
-            'is_moon': is_moon,
-            'is_custom':is_custom,
-            'is_inter': is_inter,
-            'is_alloc': is_alloc,
-            'is_clear': is_clear,
-            'is_observable_now': is_observable_now,
-            'is_observable': is_observable
+            'is_altaz': self.is_altaz,
+            'is_future': self.is_future,
+            'is_moon': self.is_moon,
+            'is_custom':self.is_custom,
+            'is_inter': self.is_inter,
+            'is_alloc': self.is_allocated,
+            'is_clear': self.is_clear,
+            'is_observable_now': self.is_observable_now,
+            'is_observable': self.is_observable
         }
-        access = np.rec.fromarrays(list(access.values()), names=list(access.keys()))
-        return access
+        access_record = np.rec.fromarrays(list(access.values()), names=list(access.keys()))
+        return access_record
 
     def observability(self, requests_frame, access=None):
         """
@@ -283,11 +340,11 @@ class Access:
         df = df.query('is_observable').rename(columns=namemap)[namemap.values()]
         return df
 
-    def get_loss_stats(self):
+    def get_loss_stats(self, weather_loss_file):
         """
         Gather the loss probabilities for each night in the semester from the saved historical weather data.
         """
-        historical_weather_data = pd.read_csv(os.path.join(DATADIR,"maunakea_weather_loss_data.csv"))
+        historical_weather_data = pd.read_csv(os.path.join(DATADIR,weather_loss_file))
         loss_stats_this_semester = []
         for i, item in enumerate(self.all_dates_array):
             ind = historical_weather_data.index[historical_weather_data['Date'] == \

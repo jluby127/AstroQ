@@ -6,6 +6,7 @@ New observatories should write their own module to connect to a new "prep <your 
 
 # Standard library imports
 import json
+import logging
 import os
 
 # Third-party imports
@@ -16,6 +17,12 @@ from astropy.coordinates import SkyCoord
 from astropy.time import Time, TimeDelta
 import astropy.units as u
 import astroplan as apl
+import astropy.coordinates as apy
+
+# Local imports
+from astroq.access import Access
+
+logs = logging.getLogger(__name__)
 
 # The OB database has many fields that are not needed for the AstroQ pipeline.
 exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', 'metadata.history',
@@ -1058,3 +1065,144 @@ def pm_correcter(ra, dec, pmra, pmdec, current_day, equinox="2000"):
     formatted_dec = new_coord.dec.to_string(unit=u.deg, sep=' ', pad=True, precision=0)
 
     return formatted_ra, formatted_dec
+
+class Access_KPFCC(Access):
+    """
+    Keck Observatory-specific Access class that inherits from the base Access class.
+    Overrides compute_altaz() and compute_clear() methods with Keck-specific implementations.
+    """
+    
+    def __init__(self, 
+                 semester_start_date, 
+                 semester_length, 
+                 n_nights_in_semester,
+                 today_starting_night,  
+                 current_day, 
+                 all_dates_dict, 
+                 all_dates_array, 
+                 slot_size, 
+                 slots_needed_for_exposure_dict, 
+                 custom_file, 
+                 allocation_file, 
+                 past_history, 
+                 output_directory, 
+                 run_weather_loss, 
+                 run_band3, 
+                 observatory_string, 
+                 request_frame, 
+                 ):
+        """
+        Initialize the Access_KPFCC object with explicit parameters.
+        Calls the parent Access.__init__() to set up base class attributes.
+            
+        Args:
+            semester_start_date: Start date of the semester
+            semester_length: Total number of nights in the semester
+            n_nights_in_semester: Number of remaining nights in the semester
+            today_starting_night: Starting night number for today
+            current_day: Current day identifier
+            all_dates_dict: Dictionary mapping dates to day numbers
+            all_dates_array: Array of date strings for the semester
+            slot_size: Size of each time slot in minutes
+            slots_needed_for_exposure_dict: Dictionary mapping star names to required slots
+            custom_file: Path to custom times file
+            allocation_file: Path to allocation file
+            past_history: Past observation history
+            output_directory: Directory for output files
+            run_weather_loss: Whether to run weather loss simulation
+            run_band3: Whether to run band 3 (used for not peforming the is_observble step for the football plot)
+            observatory_string: Observatory name/location string
+            request_frame: DataFrame containing request information
+        """
+        # Call parent class __init__ to set up base attributes
+        super().__init__(
+                 semester_start_date, 
+                 semester_length, 
+                 n_nights_in_semester,
+                 today_starting_night,  
+                 current_day, 
+                 all_dates_dict, 
+                 all_dates_array, 
+                 slot_size, 
+                 slots_needed_for_exposure_dict, 
+                 custom_file, 
+                 allocation_file, 
+                 past_history, 
+                 output_directory, 
+                 run_weather_loss, 
+                 run_band3, 
+                 observatory_string, 
+                 request_frame)
+        
+        self.weather_loss_file = os.path.join(os.path.join(os.path.dirname(os.path.dirname(__file__)),'data'), "maunakea_weather_loss_data.csv")
+
+        self.use_K1 = True
+        # See here: https://www2.keck.hawaii.edu/inst/common/TelLimits.html
+        if self.use_K1:
+            # K1 Telescope limits 
+            self.nays_az_low = 5.3
+            self.nays_az_high = 146.2
+            self.nays_alt = 33.3
+        else:   
+            # K2 Telescope limits 
+            self.nays_az_low = 185.3
+            self.nays_az_high = 332.8
+            self.nays_alt = 36.8
+        self.tel_min = 18
+        self.tel_max = 85
+
+    def compute_altaz(self, tel_min):
+        """
+        Compute boolean mask of is_altaz for targets according to a minimum elevation. 
+        Specific to Keck Observatory's K1/K2 pointing limits.
+        This method overrides the base class method to include Keck-specific nasmyth deck constraints.
+
+        Args:
+            tel_min (float): the minimum elevation for the telescope (ignored, uses self.tel_min instead)
+        
+        Returns:
+            is_altaz (array): boolean mask of is_altaz for targets
+        """
+        # Compute base alt/az pattern, shape = (ntargets, nslots)
+
+        altazes = self.observatory.altaz(self.timegrid, self.targets, grid_times_targets=True)
+        alts = altazes.alt.deg
+        azes = altazes.az.deg
+        min_elevation = self.request_frame['minimum_elevation'].values  # Get PI-desired minimum elevation values
+        min_elevation = np.maximum(min_elevation, self.tel_min)  # Ensure minimum elevation is at least tel_min
+        
+        # 2D mask (n targets, n slots))
+        is_altaz0 = np.ones_like(alts, dtype=bool)
+        # Remove nasmyth deck - Keck-specific constraint
+        is_altaz0 &= ~((self.nays_az_low < azes ) & (azes < self.nays_az_high) & (alts < self.nays_alt))
+       
+        # Remove min elevation using per-row minimum_elevation values for all stars
+        fail = alts < min_elevation[:, np.newaxis]  # broadcast elevation array
+        is_altaz0 &= ~fail
+        
+        # All stars must be between tel_min and tel_max deg
+        fail = (alts < self.tel_min) | (alts > self.tel_max)
+        is_altaz0 &= ~fail
+
+        # Pre-compute the sidereal times for interpolation
+        x = self.timegrid.sidereal_time('mean').value
+        x_new = self.slotmidpoints.sidereal_time('mean').value
+        idx = np.searchsorted(x, x_new, side='left')
+        idx = np.clip(idx, 0, len(x)-1)  # Handle edge cases
+
+        # Create 3D mask by indexing the 2D pattern
+        self.is_altaz = is_altaz0[:,idx]
+
+    def compute_clear(self):
+        """
+        Compute boolean mask of is_clear for all targets according to the clear times.
+        """
+        self.is_clear = np.ones_like(self.is_altaz, dtype=bool)
+        if self.run_weather_loss:
+            logs.info("Running weather loss model.")
+            self.get_loss_stats(self.weather_loss_file)
+            self.is_clear = self.simulate_weather_losses(covariance=0.14)
+            self.is_clear = np.tile(self.is_clear[np.newaxis, :, :], (self.ntargets, 1, 1))
+        else:
+            logs.info("Pretending weather is always clear!")
+            self.is_clear = np.ones((self.ntargets, self.nnights, self.nslots), dtype=bool)
