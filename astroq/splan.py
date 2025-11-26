@@ -408,6 +408,8 @@ class SemesterPlanner(object):
                                columns=['unique_id', 'name', 'date_last_observed', 'total_n_exposures', 
                                        'total_n_visits', 'total_n_unique_nights', 'total_open_shutter_time',
                                        'n_obs_on_nights', 'n_visits_on_nights'])
+        # Ensure unique_id is string type to match merged_df
+        past_df['unique_id'] = past_df['unique_id'].astype(str)
         past_df['past_slots_used'] = past_df['total_n_exposures'] * past_df['unique_id'].map(self.slots_needed_for_exposure_dict).fillna(1)
         merged_df = merged_df.merge(past_df[['unique_id', 'past_slots_used']], on='unique_id', how='left')
         merged_df['past_slots_used'] = merged_df['past_slots_used'].fillna(0)

@@ -1134,7 +1134,7 @@ class Access_KPFCC(Access):
                  observatory_string, 
                  request_frame)
         
-        self.weather_loss_file = os.path.join(os.path.join(os.path.dirname(os.path.dirname(__file__)),'data'), "maunakea_weather_loss_data.csv")
+        self.weather_loss_file = os.path.join(self.DATADIR, "maunakea_weather_loss_data.csv")
 
         self.use_K1 = True
         # See here: https://www2.keck.hawaii.edu/inst/common/TelLimits.html

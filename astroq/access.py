@@ -125,6 +125,8 @@ class Access:
         days = np.arange(self.nnights) * u.day
         self.slotmidpoints = (self.slotmidpoints_oneday[np.newaxis,:] + days[:,np.newaxis])
 
+        self.DATADIR = DATADIR
+
     def compute_altaz(self, tel_min):
         """
         Compute boolean mask of is_altaz for targets according to a minimum elevation. 
