@@ -22,8 +22,8 @@ import astroq.access as ac
 
 def serialize_schedule(Yrds, semester_planner):
     """
-    Turns the non-square matrix of the solution into a square matrix and starts the human readable
-    solution by filling in the slots where a star's exposre is started.
+    Turns the ragged matrix of the Gurobi solution Yrds into a human readable 
+    solution by filling in the slots where a star's exposure is started.
 
     Args:
         Yrds (array): the Gurobi solution with keys of (unique_id, day, slot) and values 1 or 0.
@@ -39,7 +39,7 @@ def serialize_schedule(Yrds, semester_planner):
     sparse['name'] = sparse['r'].map(
         dict(zip(semester_planner.requests_frame['unique_id'], semester_planner.requests_frame['starname']))
     ).fillna("NO MATCHING NAME")
-    sparse.to_csv(semester_planner.output_directory + "semester_plan.csv", index=False, na_rep="")
+    sparse.to_csv(os.path.join(semester_planner.output_directory, "semester_plan.csv"), index=False, na_rep="")
     semester_planner.future_forecast = "semester_plan.csv"
 
     day, slot = np.mgrid[:semester_planner.semester_length,:semester_planner.n_slots_in_night]
@@ -47,7 +47,7 @@ def serialize_schedule(Yrds, semester_planner):
     dense1 = pd.merge(dense1, sparse, left_on=['d','s'],right_on=['d','s'],how='left')
     dense1['r'] = dense1['r'].fillna('')
     # dense1 has keys for all days and slots, where no star was scheduled to start its observation, the r column is blank
-    dense1.to_csv(semester_planner.output_directory + "serialized_outputs_dense_v1.csv", index=False, na_rep="")
+    dense1.to_csv(os.path.join(semester_planner.output_directory, "serialized_outputs_dense_v1.csv"), index=False, na_rep="")
 
     dense2 = dense1.copy()
     # Use the stored access record from the first run (no need to recompute)
@@ -62,15 +62,13 @@ def serialize_schedule(Yrds, semester_planner):
         if isClear[slot] == 0:
             name_string += "W"
         dense2.loc[slot, 'r'] = name_string + str(dense2.loc[slot, 'r'])
-
         if dense2.loc[slot, 'r'] in list(semester_planner.requests_frame['unique_id']):
             slots_needed = semester_planner.slots_needed_for_exposure_dict[dense2.loc[slot, 'r']]
             if slots_needed > 1:
                 for t in range(1, slots_needed):
                     dense2.loc[slot + t, 'r'] = str(dense2.loc[slot + t, 'r']) + str(dense2.loc[slot, 'r'])
-
     # dense2 has keys for all days and slots, manually fill in the reserved slots for each observation and fill in Past/Twilight/Weather info
-    dense2.to_csv(semester_planner.output_directory + "serialized_outputs_dense_v2.csv", index=False, na_rep="")
+    dense2.to_csv(os.path.join(semester_planner.output_directory, "serialized_outputs_dense_v2.csv"), index=False, na_rep="")
     
     # Generate the fullness report
     build_fullness_report(semester_planner, "Round1")
@@ -189,8 +187,8 @@ def build_fullness_report(semester_planner, round_info):
     Returns:
         None
     """
-    file_path = semester_planner.output_directory + "runReport.txt"
-    print(f"Writing to: {file_path}")
+    file_path = os.path.join(semester_planner.output_directory, "runReport.txt")
+    print(f"Writing runReport.txt to: {file_path}")
     
     # Read the semester plan CSV file
     semester_plan_path = os.path.join(semester_planner.output_directory, "semester_plan.csv")

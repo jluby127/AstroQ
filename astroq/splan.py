@@ -27,6 +27,7 @@ import astroplan as apl
 import astroq.access as ac
 import astroq.history as hs
 import astroq.io as io
+from astroq.queue.kpfcc import Access_KPFCC
 
 # Suppress warnings
 warnings.filterwarnings('ignore')
@@ -82,11 +83,19 @@ class SemesterPlanner(object):
         self.solve_max_gap = config.getfloat('semester', 'max_solve_gap')
         self.max_bonus = config.getfloat('semester', 'maximum_bonus_size')
         self.run_bonus_round = config.getboolean('semester', 'run_bonus_round')
+
+        self.semester_start_date = config.get('global', 'semester_start_day')
+        semester_end_date = config.get('global', 'semester_end_day')
+        start_date = datetime.strptime(self.semester_start_date, '%Y-%m-%d')
+        end_date = datetime.strptime(semester_end_date, '%Y-%m-%d')
+        self.semester_length = int((end_date - start_date).days + 1)
+        self.semester_letter = config.get('global', 'semester')[-1]
+
         self.throttle_grace = config.getfloat('semester', 'throttle_grace')
         self.hours_per_night = config.getfloat('semester', 'hours_per_night')
 
         # Output directory
-        self.output_directory = workdir + "outputs/"
+        self.output_directory = os.path.join(workdir, "outputs")
         check = os.path.isdir(self.output_directory)
         if not check:
             os.makedirs(self.output_directory)
@@ -154,7 +163,6 @@ class SemesterPlanner(object):
         # Compile additional data and metadata 
         self.past_history = hs.process_star_history(self.past_file)
         self.slots_needed_for_exposure_dict = self._build_slots_required_dictionary()
-        self._calculate_semester_info()
         self.all_dates_dict, self.all_dates_array = self._build_date_dictionary()
         self._calculate_slot_info()
         
@@ -210,14 +218,14 @@ class SemesterPlanner(object):
         # Define the Gurobi model
         self.model = gp.Model('Semester_Scheduler')
         # Yrds is technically a 1D matrix indexed by tuples.
-        # But in practice best think of it as a 3D square matrix of requests r, nights d, and slots s, with gaps.
+        # But in practice best think of it as a 3D ragged matrix of requests r, nights d, and slots s, with gaps.
         # Day d / Slot s for request r will be 1 to indicate starting an exposure for that request in that day/slot
         observability_array = list(self.observability.itertuples(index=False, name=None))
         self.Yrds = self.model.addVars(observability_array, vtype = GRB.BINARY, name = 'Requests_Slots')
 
         if len(self.observability_nights) != 0:
             # Wrd is technically a 1D matrix indexed by tuples.
-            # But in practice best think of it as a 2D square matrix of requests r and nights d, with gaps.
+            # But in practice best think of it as a 2D ragged matrix of requests r and nights d, with gaps.
             # Night d for request r will be 1 to indicate at least one exposure is scheduled for this night.
             # Note that Wrd is only valid for requests r which have at least 2 visits requested in the night.
             observability_array_onsky = list(self.observability_nights.itertuples(index=False, name=None))
@@ -255,41 +263,6 @@ class SemesterPlanner(object):
             self.absolute_max_obs_allowed_dict = absolute_max_obs_allowed_dict
             self.past_nights_observed_dict = past_nights_observed_dict
         logs.debug("Initializing complete.")
-
-    def _calculate_semester_info(self):
-        """
-        Compile parameters defining the semester based on the current day.
-
-        Returns:
-            None
-        """
-
-        current_date = datetime.strptime(self.current_day, '%Y-%m-%d')
-        
-        # Determine semester based on date
-        if current_date.month in [8, 9, 10, 11, 12]:
-            semester_letter = 'A'
-            semester_year = current_date.year
-        else:
-            semester_letter = 'B'
-            semester_year = current_date.year - 1
-        
-        # Set semester boundaries
-        if semester_letter == 'A':
-            semester_start_date = f"{semester_year}-08-01"
-            semester_end_date = f"{semester_year + 1}-01-31"
-        else:
-            semester_start_date = f"{semester_year + 1}-02-01"
-            semester_end_date = f"{semester_year + 1}-07-31"
-        
-        # Calculate semester length
-        start_date = datetime.strptime(semester_start_date, '%Y-%m-%d')
-        end_date = datetime.strptime(semester_end_date, '%Y-%m-%d')
-        semester_length = (end_date - start_date).days + 1
-        
-        self.semester_start_date = semester_start_date
-        self.semester_length = semester_length
-        self.semester_letter = semester_letter
 
     def _build_date_dictionary(self):
         """
@@ -367,26 +340,34 @@ class SemesterPlanner(object):
             observability (dict): a dictionary where keys are the star names and values are the indices of the slots where the target is observable
         """
         # Create Access object with parameters from config
-        self.access_obj = ac.Access(
+        # Use KPFCC-specific Access class for Keck Observatory, otherwise use base Access class
+        if 'Keck' in self.observatory or 'keck' in self.observatory.lower():
+            AccessClass = Access_KPFCC
+        else:
+            AccessClass = ac.Access
+        
+        self.access_obj = AccessClass(
             semester_start_date=self.semester_start_date,
             semester_length=self.semester_length,
-            slot_size=self.slot_size,
-            observatory=self.observatory,
+            n_nights_in_semester=self.n_nights_in_semester,
+            today_starting_night=self.today_starting_night,
             current_day=self.current_day,
             all_dates_dict=self.all_dates_dict,
             all_dates_array=self.all_dates_array,
-            n_nights_in_semester=self.n_nights_in_semester,
+            slot_size=self.slot_size,
+            slots_needed_for_exposure_dict=self.slots_needed_for_exposure_dict,
             custom_file=self.custom_file,
             allocation_file=self.allocation_file,
             past_history=self.past_history,
-            today_starting_night=self.today_starting_night,
-            slots_needed_for_exposure_dict=self.slots_needed_for_exposure_dict,
-            run_weather_loss=self.run_weather_loss,
             output_directory=self.output_directory,
-            run_band3=self.run_band3
+            run_weather_loss=self.run_weather_loss,
+            run_band3=self.run_band3,
+            observatory_string=self.observatory,
+            request_frame=self.requests_frame
         )
+
         # Store the full access record array for later use
-        self.access_record = self.access_obj.produce_ultimate_map(self.requests_frame)
+        self.access_record = self.access_obj.produce_ultimate_map()
         observability = self.access_obj.observability(self.requests_frame, access=self.access_record)
 
         return observability
@@ -820,91 +801,107 @@ class SemesterPlanner(object):
         """
         if hdf5_path is None:
             hdf5_path = os.path.join(self.output_directory, 'semester_planner.h5')
-        
         # Remove existing file if it exists
         if os.path.exists(hdf5_path):
             os.remove(hdf5_path)
         
-        # Save DataFrames using pandas HDF5 support
-        dataframes_to_save = {
-            'requests_frame': self.requests_frame,
-            'serialized_schedule': self.serialized_schedule,
-        }
+        # Define serialization mappings
+        # Format: (hdf5_key, attribute_name, data_type, conversion_func)
+        # data_type: 'scalar', 'string', 'array', 'dict_json', 'dataframe', 'structured_array', 'list'
         
-        for key, df in dataframes_to_save.items():
-            if df is not None:
-                df.to_hdf(hdf5_path, key=key, mode='a', format='table')
+        # DataFrames (saved using pandas HDF5 support)
+        dataframe_attrs = [
+            ('requests_frame', 'requests_frame', 'dataframe', None),
+            ('serialized_schedule', 'serialized_schedule', 'dataframe', None),
+        ]
         
-        # Save numpy arrays and other data using h5py
+        # Scalar/string attributes
+        scalar_attrs = [
+            ('current_day', 'current_day', 'string', None),
+            ('semester_start_date', 'semester_start_date', 'string', None),
+            ('semester_length', 'semester_length', 'scalar', None),
+            ('semester_letter', 'semester_letter', 'string', None),
+            ('slot_size', 'slot_size', 'scalar', None),
+            ('n_slots_in_night', 'n_slots_in_night', 'scalar', None),
+            ('n_nights_in_semester', 'n_nights_in_semester', 'scalar', None),
+            ('n_slots_in_semester', 'n_slots_in_semester', 'scalar', None),
+            ('today_starting_slot', 'today_starting_slot', 'scalar', None),
+            ('today_starting_night', 'today_starting_night', 'scalar', None),
+            ('run_band3', 'run_band3', 'scalar', None),
+            ('observatory', 'observatory', 'string', None),
+            ('output_directory', 'output_directory', 'string', None),
+            ('run_weather_loss', 'run_weather_loss', 'scalar', None),
+            ('solve_time_limit', 'solve_time_limit', 'scalar', None),
+            ('gurobi_output', 'gurobi_output', 'scalar', None),
+            ('solve_max_gap', 'solve_max_gap', 'scalar', None),
+            ('max_bonus', 'max_bonus', 'scalar', None),
+            ('run_bonus_round', 'run_bonus_round', 'scalar', None),
+            ('semester_directory', 'semester_directory', 'string', None),
+            ('custom_file', 'custom_file', 'string', None),
+            ('allocation_file', 'allocation_file', 'string', None),
+        ]
+        
+        # Dictionary attributes (saved as JSON)
+        dict_attrs = [
+            ('all_dates_dict_json', 'all_dates_dict', 'dict_json', None),
+            ('slots_needed_for_exposure_dict_json', 'slots_needed_for_exposure_dict', 'dict_json', None),
+            ('past_nights_observed_dict_json', 'past_nights_observed_dict', 'dict_json', None),
+            ('past_history_json', 'past_history', 'past_history_dict', None),
+        ]
+        
+        # Array/list attributes
+        array_attrs = [
+            ('all_dates_array', 'all_dates_array', 'list', None),
+            ('access_record', 'access_record', 'structured_array', None),
+        ]
+        
+        # Save DataFrames first
+        for hdf5_key, attr_name, data_type, _ in dataframe_attrs:
+            df = getattr(self, attr_name)
+            df.to_hdf(hdf5_path, key=hdf5_key, mode='a', format='table')
+        
+        # Save other attributes using h5py
         with h5py.File(hdf5_path, 'a') as f:
-            # Save numpy arrays
-            if hasattr(self, 'access_record') and self.access_record is not None:
-                # access_record is a structured array, save its fields
-                for field_name in self.access_record.dtype.names:
-                    f.create_dataset(f'access_record/{field_name}', 
-                                   data=self.access_record[field_name], 
-                                   compression='gzip')
+            # Save scalar/string attributes
+            for hdf5_key, attr_name, data_type, _ in scalar_attrs:
+                value = getattr(self, attr_name)
+                f.attrs[hdf5_key] = value
             
-            # Save scalar attributes
-            scalars = {
-                'current_day': self.current_day,
-                'semester_start_date': self.semester_start_date,
-                'semester_length': self.semester_length,
-                'semester_letter': self.semester_letter,
-                'slot_size': self.slot_size,
-                'n_slots_in_night': self.n_slots_in_night,
-                'n_nights_in_semester': self.n_nights_in_semester,
-                'n_slots_in_semester': self.n_slots_in_semester,
-                'today_starting_slot': self.today_starting_slot,
-                'today_starting_night': self.today_starting_night,
-                'run_band3': self.run_band3,
-                'observatory': self.observatory,
-                'output_directory': self.output_directory,
-                'run_weather_loss': self.run_weather_loss,
-                'solve_time_limit': self.solve_time_limit,
-                'gurobi_output': self.gurobi_output,
-                'solve_max_gap': self.solve_max_gap,
-                'max_bonus': self.max_bonus,
-                'run_bonus_round': self.run_bonus_round,
-                'semester_directory': self.semester_directory,
-                'custom_file': getattr(self, 'custom_file', None),
-                'allocation_file': getattr(self, 'allocation_file', None),
-            }
+            # Save dictionary attributes
+            for hdf5_key, attr_name, data_type, _ in dict_attrs:
+                if data_type == 'past_history_dict':
+                    # Special handling for past_history (StarHistory namedtuples)
+                    past_history = getattr(self, attr_name)
+                    past_history_serialized = {}
+                    for star_id, star_hist in past_history.items():
+                        past_history_serialized[star_id] = {
+                            'name': star_hist.name,
+                            'date_last_observed': star_hist.date_last_observed,
+                            'total_n_exposures': star_hist.total_n_exposures,
+                            'total_n_visits': star_hist.total_n_visits,
+                            'total_n_unique_nights': star_hist.total_n_unique_nights,
+                            'total_open_shutter_time': star_hist.total_open_shutter_time,
+                            'n_obs_on_nights': star_hist.n_obs_on_nights,
+                            'n_visits_on_nights': star_hist.n_visits_on_nights,
+                        }
+                    f.attrs[hdf5_key] = json.dumps(past_history_serialized)
+                else:
+                    # Regular dictionary
+                    value = getattr(self, attr_name)
+                    f.attrs[hdf5_key] = json.dumps(value)
             
-            for key, value in scalars.items():
-                if value is not None:
-                    f.attrs[key] = value
-            
-            # Save lists
-            if self.all_dates_array is not None:
-                f.create_dataset('all_dates_array', data=np.array(self.all_dates_array, dtype='S'))
-
-            # Save dictionaries as JSON strings
-            dicts_to_save = {
-                'all_dates_dict': getattr(self, 'all_dates_dict', None),
-                'slots_needed_for_exposure_dict': getattr(self, 'slots_needed_for_exposure_dict', None),
-                'past_nights_observed_dict': getattr(self, 'past_nights_observed_dict', None),
-            }
-            
-            for key, value in dicts_to_save.items():
-                if value is not None:
-                    f.attrs[f'{key}_json'] = json.dumps(value)
-            
-            # Save past_history dictionary (convert StarHistory namedtuples to dict)
-            if hasattr(self, 'past_history') and self.past_history is not None:
-                past_history_serialized = {}
-                for star_id, star_hist in self.past_history.items():
-                    past_history_serialized[star_id] = {
-                        'name': star_hist.name if hasattr(star_hist, 'name') else star_id,
-                        'date_last_observed': star_hist.date_last_observed if hasattr(star_hist, 'date_last_observed') else None,
-                        'total_n_exposures': star_hist.total_n_exposures if hasattr(star_hist, 'total_n_exposures') else 0,
-                        'total_n_visits': star_hist.total_n_visits if hasattr(star_hist, 'total_n_visits') else 0,
-                        'total_n_unique_nights': star_hist.total_n_unique_nights if hasattr(star_hist, 'total_n_unique_nights') else 0,
-                        'total_open_shutter_time': star_hist.total_open_shutter_time if hasattr(star_hist, 'total_open_shutter_time') else 0,
-                        'n_obs_on_nights': star_hist.n_obs_on_nights if hasattr(star_hist, 'n_obs_on_nights') else [],
-                        'n_visits_on_nights': star_hist.n_visits_on_nights if hasattr(star_hist, 'n_visits_on_nights') else [],
-                    }
-                f.attrs['past_history_json'] = json.dumps(past_history_serialized)
+            # Save array/list attributes
+            for hdf5_key, attr_name, data_type, _ in array_attrs:
+                if data_type == 'list':
+                    value = getattr(self, attr_name)
+                    f.create_dataset(hdf5_key, data=np.array(value, dtype='S'))
+                elif data_type == 'structured_array':
+                    access_record = getattr(self, attr_name)
+                    # Save each field of the structured array
+                    for field_name in access_record.dtype.names:
+                        f.create_dataset(f'{hdf5_key}/{field_name}', 
+                                       data=access_record[field_name], 
+                                       compression='gzip')
         
         logs.info(f"SemesterPlanner saved to HDF5: {hdf5_path}")
         return hdf5_path
@@ -920,41 +917,106 @@ class SemesterPlanner(object):
         Returns:
             SemesterPlanner: Reconstructed SemesterPlanner object
         """        
+        import json
+        from astroq.history import StarHistory
+        
         # Create a new instance without calling __init__
         instance = cls.__new__(cls)
         
-        # Load DataFrames
-        try:
-            instance.requests_frame = pd.read_hdf(hdf5_path, key='requests_frame')
-        except KeyError:
-            instance.requests_frame = None
+        # Define deserialization mappings (inverse of to_hdf5)
+        # Format: (hdf5_key, attribute_name, data_type, conversion_func)
         
-        try:
-            instance.serialized_schedule = pd.read_hdf(hdf5_path, key='serialized_schedule')
-        except KeyError:
-            instance.serialized_schedule = None
+        # DataFrames (loaded using pandas HDF5 support)
+        dataframe_attrs = [
+            ('requests_frame', 'requests_frame', 'dataframe', None),
+            ('serialized_schedule', 'serialized_schedule', 'dataframe', None),
+        ]
         
-        # Load other data from HDF5
+        # Scalar/string attributes
+        scalar_attrs = [
+            ('current_day', 'current_day', 'string', None),
+            ('semester_start_date', 'semester_start_date', 'string', None),
+            ('semester_length', 'semester_length', 'scalar', None),
+            ('semester_letter', 'semester_letter', 'string', None),
+            ('slot_size', 'slot_size', 'scalar', None),
+            ('n_slots_in_night', 'n_slots_in_night', 'scalar', None),
+            ('n_nights_in_semester', 'n_nights_in_semester', 'scalar', None),
+            ('n_slots_in_semester', 'n_slots_in_semester', 'scalar', None),
+            ('today_starting_slot', 'today_starting_slot', 'scalar', None),
+            ('today_starting_night', 'today_starting_night', 'scalar', None),
+            ('run_band3', 'run_band3', 'scalar', None),
+            ('observatory', 'observatory', 'string', None),
+            ('output_directory', 'output_directory', 'string', None),
+            ('run_weather_loss', 'run_weather_loss', 'scalar', None),
+            ('solve_time_limit', 'solve_time_limit', 'scalar', None),
+            ('gurobi_output', 'gurobi_output', 'scalar', None),
+            ('solve_max_gap', 'solve_max_gap', 'scalar', None),
+            ('max_bonus', 'max_bonus', 'scalar', None),
+            ('run_bonus_round', 'run_bonus_round', 'scalar', None),
+            ('semester_directory', 'semester_directory', 'string', None),
+            ('custom_file', 'custom_file', 'string', None),
+            ('allocation_file', 'allocation_file', 'string', None),
+        ]
+        
+        # Dictionary attributes (loaded from JSON)
+        dict_attrs = [
+            ('all_dates_dict_json', 'all_dates_dict', 'dict_json', None),
+            ('slots_needed_for_exposure_dict_json', 'slots_needed_for_exposure_dict', 'dict_json', None),
+            ('past_nights_observed_dict_json', 'past_nights_observed_dict', 'dict_json', None),
+            ('past_history_json', 'past_history', 'past_history_dict', None),
+        ]
+        
+        # Array/list attributes
+        array_attrs = [
+            ('all_dates_array', 'all_dates_array', 'list', None),
+            ('access_record', 'access_record', 'structured_array', None),
+        ]
+        
+        # Load DataFrames first
+        for hdf5_key, attr_name, data_type, _ in dataframe_attrs:
+            setattr(instance, attr_name, pd.read_hdf(hdf5_path, key=hdf5_key))
+        
+        # Load other attributes from HDF5
         with h5py.File(hdf5_path, 'r') as f:
-            # Load scalar attributes
-            for key in ['current_day', 'semester_start_date', 'semester_length', 'semester_letter',
-                       'slot_size', 'n_slots_in_night', 'n_nights_in_semester', 'n_slots_in_semester',
-                       'today_starting_slot', 'today_starting_night', 'run_band3', 'observatory',
-                       'output_directory', 'run_weather_loss', 'solve_time_limit', 'gurobi_output',
-                       'solve_max_gap', 'max_bonus', 'run_bonus_round', 'semester_directory',
-                       'custom_file', 'allocation_file']:
-                if key in f.attrs:
-                    setattr(instance, key, f.attrs[key])
+            # Load scalar/string attributes
+            for hdf5_key, attr_name, data_type, _ in scalar_attrs:
+                setattr(instance, attr_name, f.attrs[hdf5_key])
             
-            # Load access_record (structured array)
-            if 'access_record' in f:
+            # Load dictionary attributes
+            for hdf5_key, attr_name, data_type, _ in dict_attrs:
+                data = json.loads(f.attrs[hdf5_key])
+                if data_type == 'past_history_dict':
+                    # Special handling for past_history (reconstruct StarHistory namedtuples)
+                    past_history = {}
+                    for star_id, hist_data in data.items():
+                        star_hist = StarHistory(
+                            name=hist_data['name'],
+                            date_last_observed=hist_data['date_last_observed'],
+                            total_n_exposures=hist_data['total_n_exposures'],
+                            total_n_visits=hist_data['total_n_visits'],
+                            total_n_unique_nights=hist_data['total_n_unique_nights'],
+                            total_open_shutter_time=hist_data['total_open_shutter_time'],
+                            n_obs_on_nights=hist_data['n_obs_on_nights'],
+                            n_visits_on_nights=hist_data['n_visits_on_nights']
+                        )
+                        past_history[star_id] = star_hist
+                    setattr(instance, attr_name, past_history)
+                else:
+                    # Regular dictionary
+                    setattr(instance, attr_name, data)
+            
+            # Load array/list attributes
+            for hdf5_key, attr_name, data_type, _ in array_attrs:
+                if data_type == 'list':
+                    data = f[hdf5_key][:]
+                    setattr(instance, attr_name, [d.decode('utf-8') if isinstance(d, bytes) else d for d in data])
+                elif data_type == 'structured_array':
                 # Reconstruct structured array from saved fields
-                field_names = list(f['access_record'].keys())
-                if field_names:
+                    field_names = list(f[hdf5_key].keys())
                     # Load all field data first
                     field_data = {}
                     for field_name in field_names:
-                        field_data[field_name] = f[f'access_record/{field_name}'][:]
+                        field_data[field_name] = f[f'{hdf5_key}/{field_name}'][:]
                     
                     # Determine the number of records (first dimension of first field)
                     first_field = field_data[field_names[0]]
@@ -976,76 +1038,36 @@ class SemesterPlanner(object):
                     for field_name in field_names:
                         struct_array[field_name] = field_data[field_name]
                     
-                    # Convert to recarray so we can use dot notation (e.g., access_record.is_observable)
-                    instance.access_record = struct_array.view(np.recarray)
-                else:
-                    instance.access_record = None
-            else:
-                instance.access_record = None
-            
-            # Load lists
-            if 'all_dates_array' in f:
-                instance.all_dates_array = [d.decode('utf-8') if isinstance(d, bytes) else d 
-                                           for d in f['all_dates_array'][:]]
-            
-            # Load dictionaries from JSON
-            for key in ['all_dates_dict', 'slots_needed_for_exposure_dict', 
-                       'past_nights_observed_dict']:
-                json_key = f'{key}_json'
-                if json_key in f.attrs:
-                    setattr(instance, key, json.loads(f.attrs[json_key]))
-            
-            # Load past_history (reconstruct StarHistory namedtuples from dict)
-            if 'past_history_json' in f.attrs:
-                past_history_data = json.loads(f.attrs['past_history_json'])
-                # Import StarHistory namedtuple
-                from astroq.history import StarHistory
-                instance.past_history = {}
-                for star_id, hist_data in past_history_data.items():
-                    # Create StarHistory namedtuple with all required fields
-                    star_hist = StarHistory(
-                        name=hist_data.get('name', star_id),
-                        date_last_observed=hist_data.get('date_last_observed'),
-                        total_n_exposures=hist_data.get('total_n_exposures', 0),
-                        total_n_visits=hist_data.get('total_n_visits', 0),
-                        total_n_unique_nights=hist_data.get('total_n_unique_nights', 0),
-                        total_open_shutter_time=hist_data.get('total_open_shutter_time', 0),
-                        n_obs_on_nights=hist_data.get('n_obs_on_nights', []),
-                        n_visits_on_nights=hist_data.get('n_visits_on_nights', [])
-                    )
-                    instance.past_history[star_id] = star_hist
-            else:
-                instance.past_history = {}
+                    # Convert to recarray so we can use dot notation
+                    setattr(instance, attr_name, struct_array.view(np.recarray))
         
         # Recreate access_obj using the loaded parameters
-        # Only recreate if we have the necessary attributes and requests_frame
-        if (hasattr(instance, 'requests_frame') and instance.requests_frame is not None and
-            hasattr(instance, 'semester_start_date') and hasattr(instance, 'all_dates_dict')):
-            try:
-                instance.access_obj = ac.Access(
-                    semester_start_date=instance.semester_start_date,
-                    semester_length=instance.semester_length,
-                    slot_size=instance.slot_size,
-                    observatory=instance.observatory,
-                    current_day=instance.current_day,
-                    all_dates_dict=getattr(instance, 'all_dates_dict', {}),
-                    all_dates_array=getattr(instance, 'all_dates_array', []),
-                    n_nights_in_semester=instance.n_nights_in_semester,
-                    custom_file=getattr(instance, 'custom_file', None),
-                    allocation_file=getattr(instance, 'allocation_file', None),
-                    past_history=getattr(instance, 'past_history', {}),
-                    today_starting_night=instance.today_starting_night,
-                    slots_needed_for_exposure_dict=getattr(instance, 'slots_needed_for_exposure_dict', {}),
-                    run_weather_loss=getattr(instance, 'run_weather_loss', False),
-                    output_directory=instance.output_directory,
-                    run_band3=getattr(instance, 'run_band3', False)
-                )
-                logs.info("access_obj recreated from HDF5")
-            except Exception as e:
-                logs.warning(f"Could not recreate access_obj: {e}")
-                instance.access_obj = None
+        # Use KPFCC-specific Access class for Keck Observatory, otherwise use base Access class
+        if 'Keck' in instance.observatory or 'keck' in instance.observatory.lower():
+            AccessClass = Access_KPFCC
         else:
-            instance.access_obj = None
+            AccessClass = ac.Access
+        
+        instance.access_obj = AccessClass(
+            semester_start_date=instance.semester_start_date,
+            semester_length=instance.semester_length,
+            n_nights_in_semester=instance.n_nights_in_semester,
+            today_starting_night=instance.today_starting_night,
+            current_day=instance.current_day,
+            all_dates_dict=instance.all_dates_dict,
+            all_dates_array=instance.all_dates_array,
+            slot_size=instance.slot_size,
+            slots_needed_for_exposure_dict=instance.slots_needed_for_exposure_dict,
+            custom_file=instance.custom_file,
+            allocation_file=instance.allocation_file,
+            past_history=instance.past_history,
+            output_directory=instance.output_directory,
+            run_weather_loss=instance.run_weather_loss,
+            run_band3=instance.run_band3,
+            observatory_string=instance.observatory,
+            request_frame=instance.requests_frame
+        )
+        logs.info("access_obj recreated from HDF5")
         
         logs.info(f"SemesterPlanner loaded from HDF5: {hdf5_path}")
         return instance
