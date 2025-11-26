@@ -3,7 +3,7 @@
 kpfcc
 =====
 
-.. automodule:: astroq.prep.kpfcc
+.. automodule:: astroq.queue.kpfcc
    :members:
    :undoc-members:
    :private-members:

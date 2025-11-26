@@ -18,7 +18,7 @@ from astropy.time import Time, TimeDelta
 import astroq.access as ac
 import astroq.io as io
 from astroq.splan import SemesterPlanner
-import astroq.prep.kpfcc as kpfcc
+import astroq.queue.kpfcc as kpfcc
 
 # TTP imports (assuming TTP is installed separately)
 import ttp.formatting as formatting
