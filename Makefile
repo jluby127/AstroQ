@@ -13,7 +13,7 @@ DATE_DIR = $(SEMESTER_DIR)/$(DATE)
 SEMESTER ?= 2025B
 START_DATE ?= 2025-08-01
 END_DATE ?= 2026-01-31
-BANDS ?= full-band1 #band2 band3 full-band1 full-band2 full-band3
+BANDS ?= band1 band2 band3 full-band1 full-band2 full-band3
 FILLER_PROGRAM ?= 2025B_E473
 
 # Cross-platform sed in-place flag (Darwin uses -i '')
