@@ -91,6 +91,9 @@ class SemesterPlanner(object):
         self.semester_length = int((end_date - start_date).days + 1)
         self.semester_letter = config.get('global', 'semester')[-1]
 
+        self.throttle_grace = config.getfloat('semester', 'throttle_grace')
+        self.hours_per_night = config.getfloat('semester', 'hours_per_night')
+
         # Output directory
         self.output_directory = os.path.join(workdir, "outputs")
         check = os.path.isdir(self.output_directory)
@@ -98,6 +101,12 @@ class SemesterPlanner(object):
             os.makedirs(self.output_directory)
 
         # Set up file paths from data section
+        programs_file_config = str(config.get('data', 'programs_file'))
+        if os.path.isabs(programs_file_config):
+            self.programs_file = programs_file_config
+        else:
+            self.programs_file = os.path.join(self.semester_directory, programs_file_config)
+        
         allocation_file_config = str(config.get('data', 'allocation_file'))
         if os.path.isabs(allocation_file_config):
             self.allocation_file = allocation_file_config
@@ -382,6 +391,68 @@ class SemesterPlanner(object):
         else:
             return round(exposure_time / time_per_slot)
 
+    def constraint_throttle(self):
+        """
+        Not described in Lubin et al. 2025.
+
+        Ensure that no program is scheduled for more time than they bring to the queue, 
+        within a grace amount, decided by the observatory.
+        There is one constraint per program. 
+        """
+        logs.info("Constraint: Throttling over-requested programs.")
+        merged_df = self.requests_frame[['unique_id', 'program_code']].copy()
+        program_frame = pd.read_csv(self.programs_file)
+        
+        # Convert past_history dict to DataFrame and merge
+        past_df = pd.DataFrame([{**{'unique_id': k}, **v._asdict()} for k, v in self.past_history.items()], 
+                               columns=['unique_id', 'name', 'date_last_observed', 'total_n_exposures', 
+                                       'total_n_visits', 'total_n_unique_nights', 'total_open_shutter_time',
+                                       'n_obs_on_nights', 'n_visits_on_nights'])
+        past_df['past_slots_used'] = past_df['total_n_exposures'] * past_df['unique_id'].map(self.slots_needed_for_exposure_dict).fillna(1)
+        merged_df = merged_df.merge(past_df[['unique_id', 'past_slots_used']], on='unique_id', how='left')
+        merged_df['past_slots_used'] = merged_df['past_slots_used'].fillna(0)
+        
+        # Merge with program_frame (program_code from requests matches 'program' from program_frame)
+        merged_df = merged_df.merge(
+            program_frame[['program', 'nights']],
+            left_on='program_code',
+            right_on='program',
+            how='inner'
+        )
+        
+        # Use groupby to calculate past_used_slots per program
+        past_used_slots_by_program = (
+            merged_df.groupby('program')['past_slots_used']
+            .sum()
+            .to_dict()
+        )
+        
+        # Use groupby to create program_requests_map
+        program_requests_map = (
+            merged_df.groupby('program')['unique_id']
+            .apply(set)
+            .to_dict()
+        )
+        
+        # Iterate through programs to build Gurobi constraints
+        for program in program_frame['program']:
+            program_row = program_frame.loc[program_frame['program'] == program].iloc[0]
+            awarded_time_slots = (program_row['nights'] * self.hours_per_night * 60) / self.slot_size
+            awarded_time_slots_grace = int(awarded_time_slots * self.throttle_grace)
+
+            max_slots_allowed_for_scheduling_program = gp.quicksum(
+                self.Yrds[r, d, s] * self.slots_needed_for_exposure_dict[r] # proper accounting of multi-slot exposures?
+                for r, d, s in self.observability_tuples
+                if r in program_requests_map.get(program, set())
+            )
+
+            # Get past used slots for this program (default to 0 if not found)
+            past_used_slots = past_used_slots_by_program.get(program, 0)
+            
+            lhs = awarded_time_slots_grace - past_used_slots
+            rhs = max_slots_allowed_for_scheduling_program
+            self.model.addConstr(lhs >= rhs, f'throttle_program_{program}')
+
     def constraint_reserve_multislot_exposures(self):
         """
         See Constraint 1 in Lubin et al. 2025.
@@ -499,7 +570,7 @@ class SemesterPlanner(object):
         and the sum of the past and future scheduled
         observations of that target.
         """
-        logs.info("Constraint 0: Build theta variable")
+        logs.info("Constraint: Build theta variable")
         for starid in self.schedulable_requests:
             idx = self.requests_frame.index[self.requests_frame['unique_id']==starid][0]
             lhs1 = self.theta[starid]
@@ -684,6 +755,7 @@ class SemesterPlanner(object):
         self.constraint_build_enforce_intranight_cadence()
         self.constraint_set_min_max_visits_per_night()
         self.constraint_build_theta_multivisit()
+        self.constraint_throttle()
         self.set_objective_minimize_theta_time_normalized()
         logs.info(f"Time to build constraints: {np.round(time.time()-t1,3):.3f}")
 

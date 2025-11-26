@@ -422,9 +422,9 @@ def create_checks_dataframes(OBs, exception_fields):
                 presence_df[col_name] = presence_df[col_name] | value_df[col_name].notna()
                 
         # Special case for fixing default ExpMeterThreshold
-        # Using default of 1.6, this is in MegaPhotons/A which gives SNR ~150
-        if 'observation.exp_meter_threshold' in value_df.columns:
-            value_df['observation.exp_meter_threshold'] = 1.6
+        # Using default of 1.616161, this is in MegaPhotons/A which gives SNR ~150 and is a unique value for filter on
+        # if 'observation.exp_meter_threshold' in value_df.columns:
+        #     value_df['observation.exp_meter_threshold'] = 1.616161
 
         # Special case for weather bands based on metadata.semid
         if 'metadata.semid' in value_df.columns:
