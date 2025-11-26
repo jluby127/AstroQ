@@ -79,6 +79,7 @@ column_definitions = {
     'target.pm_dec': {'new_name': 'pmdec', 'type': 'Float64'},
     'target.epoch': {'new_name': 'epoch', 'type': 'Float64'},
     'observation.exp_meter_threshold': {'new_name': 'exp_meter_threshold', 'type': 'Float64'},
+    'active': {'new_name': 'active', 'type': 'boolean'},
 }
 
 def pull_OBs(semester):
@@ -311,6 +312,8 @@ def get_request_sheet(OBs, awarded_programs, savepath):
     bad_obs_count_by_semid, bad_field_histogram = analyze_bad_obs(good_obs, bad_obs_values, bad_obs_hasFields, awarded_programs)
     good_obs.sort_values(by='program_code', inplace=True)
     good_obs.reset_index(inplace=True, drop=True)
+
+    # good_obs['active'] = [True] * len(good_obs)
     
     # Cast starname column to strings to ensure proper matching
     if 'starname' in good_obs.columns:
@@ -405,6 +408,7 @@ def create_checks_dataframes(OBs, exception_fields):
             'schedule.weather_band_2': True,
             'schedule.weather_band_3': False,
             'target.t_eff': -1000.0,
+            'active': True,
         }
         
         # Apply safety valves using a loop

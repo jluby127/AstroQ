@@ -211,6 +211,7 @@ def build_toy_model_from_paper(ns, hours_per_program = 80, plot = False):
     requests_data['weather_band_1'] = [True]*len(requests_data)
     requests_data['weather_band_2'] = [True]*len(requests_data)
     requests_data['weather_band_3'] = [True]*len(requests_data)
+    requests_data['active'] = [True]*len(requests_data)
 
     if plot:
         for i in range(len(all_programs), 0, -1):
