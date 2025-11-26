@@ -139,6 +139,10 @@ class SemesterPlanner(object):
         if not os.path.exists(self.request_file):
             raise FileNotFoundError(f"Requests file not found: {self.request_file}")
         self.requests_frame = pd.read_csv(self.request_file)
+        # splan must only know about the active requests
+        mask = self.requests_frame['active'] == True
+        self.requests_frame = self.requests_frame[mask]
+        self.requests_frame.reset_index(drop=True, inplace=True)
 
         # Data cleaning
         # Fill NaN values with defaults --- for now in early 2025B since we had issues with the webform.
