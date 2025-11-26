@@ -29,28 +29,6 @@ StarHistory = namedtuple('StarHistory', [
     'n_visits_on_nights',
 ])
 
-def pull_OB_histories(semester):
-    """
-    Pull the latest database OBs down to local.
-
-    Args:
-        semester (str) - the semester from which to query OBs, format YYYYL
-        histories (bool) - if True, pull the history of OBs for the semester, if False, pull the latest OBs for the semester
-
-    Returns:
-        data (json) - the OB information in json format
-    """
-    url = "https://www3.keck.hawaii.edu/api/kpfcc/getObservingBlockHistory"
-    params = {}
-    params["semester"] = semester
-    try:
-        data = requests.get(url, params=params, auth=(os.environ['KECK_OB_DATABASE_API_USERNAME'], os.environ['KECK_OB_DATABASE_API_PASSWORD']))
-        data = data.json()
-        return data
-    except:
-        print("ERROR")
-        return
-
 def write_OB_histories_to_csv(histories):
     """
     Prepare dataframe of past history for writing to CSV.
@@ -78,62 +56,6 @@ def write_OB_histories_to_csv(histories):
     df = pd.DataFrame(rows)
     df.sort_values(by='timestamp', inplace=True)
     return df
-
-def write_OB_histories_to_csv_JUMP(requests_frame, jump_file):
-    """
-    Convert a JUMP-style CSV to the OB histories format and prepare dataframe for writing to CSV.
-
-    Args:
-        requests_frame (pandas DataFrame): the requests frame in dataframe format
-        jump_file (str): the path to the JUMP-style CSV file
-
-    Returns:
-        df (pandas DataFrame): the OB histories in dataframe format
-    """
-    # Check if file is empty or doesn't exist
-    if not os.path.exists(jump_file) or os.path.getsize(jump_file) == 0:
-        # Create empty DataFrame with expected columns
-        empty_df = pd.DataFrame(columns=['id', 'target', 'semid', 'timestamp', 'exposure_start_time', 'exposure_time', 'observer'])
-        empty_df.to_csv(output_file, index=False)
-        return empty_df
-    
-    try:
-        # Load the jump file
-        df = pd.read_csv(jump_file)
-    except pd.errors.EmptyDataError:
-        # Create empty DataFrame with expected columns
-        empty_df = pd.DataFrame(columns=['id', 'target', 'semid', 'timestamp', 'exposure_start_time', 'exposure_time', 'observer'])
-        empty_df.to_csv(output_file, index=False)
-        return empty_df
-    
-    # Crossmatch star names
-    df['target'] = df['star_id'].apply(crossmatch_star_name)
-    
-    # Prepare a lookup for id and semid from the requests_frame
-    req = requests_frame
-    # Create lookup dictionary manually to handle duplicate starnames
-    req_lookup = {}
-    for _, row in req.iterrows():
-        starname = row['starname']
-        unique_id = row['unique_id']
-        if unique_id not in req_lookup:
-            req_lookup[unique_id] = {'starname': row['starname'], 'program_code': row['program_code']}
-
-    # Map id and semid using the crossmatched target
-    df['unique_id'] = df['target'].map(lambda name: req_lookup.get(name, {}).get('unique_id', ''))
-    df['semid'] = df['target'].map(lambda name: req_lookup.get(name, {}).get('program_code', ''))
-    
-    # Filter out rows where starname doesn't have a corresponding entry in lookup table
-    df = df[df['id'] != '']
-    
-    # Convert datetime format from space-separated to ISO format with 'T'
-    df['timestamp'] = df['utctime'].str.replace(' ', 'T')
-    df['exposure_start_time'] = df['utctime'].str.replace(' ', 'T')
-    df['observer'] = 'none'
-    
-    # Keep only the required columns
-    out_df = df[['id', 'target', 'semid', 'timestamp', 'exposure_start_time', 'exposure_time', 'observer']]
-    return out_df
 
 def process_star_history(filename):
     """
@@ -214,22 +136,4 @@ def process_star_history(filename):
             n_visits_on_nights=n_visits_on_nights
         )
     return result
-
-def crossmatch_star_name(name):
-    """
-    Convert between canonical and CPS star naming conventions.
-    If given a CPS name, returns the canonical name.
-    If given a canonical name, returns the CPS name.
-
-    Args:
-        name (str): the star name to convert
-
-    Returns:
-        name (str): the converted star name
-    """
-    if name.startswith('KEPLER'):
-        return name.replace("KEPLER", "Kepler")
-    if name.startswith('Kepler'):
-        return name.replace("Kepler", "KEPLER")
-    return name
 

@@ -71,14 +71,25 @@ Required Files
 
 **AstroQ requires six files to run.**
 
-1. ``config.ini`` - Contains configuration information for the AstroQ run. See examples in the examples/ directory.
+1. ``config.ini`` - Contains configuration information for the AstroQ run.
 
-2. ``allocation.csv`` - Contains information about the nights and times when the telescope is available for observation. It must contain appropriate column headers:
+   Example ``/examples/hello_world/2018B/2018-08-05/band1/config_hello_world.ini``:
+
+   .. literalinclude:: ../examples/hello_world/2018B/2018-08-05/band1/config.ini
+      :language: ini
+
+2. ``allocation.csv`` - Contains information about the nights and times when the telescope is available for observation. It must contain appropriate column headers: 
     - ``start``
     - ``end``
     Times are in format "YYYY-MM-DD HH:MM"
 
-3. ``request.csv`` - Contains information about the targets and their observational strategies. It must contain appropriate column headers:
+   Example ``/examples/hello_world/2018B/2018-08-05/band1/allocation.csv``: (first 5 lines):
+
+   .. literalinclude:: ../examples/hello_world/2018B/2018-08-05/band1/allocation.csv
+      :lines: 1-5
+      :language: csv
+
+3. ``request.csv`` - Contains information about the targets and their observational strategies. It must contain appropriate column headers.
     - ``unique_id`` - A unique identifier for the target.
     - ``starname`` - The human-readable name of the target.
     - ``program_code`` - The program code of the target. 
@@ -95,6 +106,12 @@ Required Files
     - ``minimum_moon_separation`` - The minimum separation (degrees) between the target and the moon.
     More columns may be added as needed for your queue (e.g. observational parameters like proper motions, magnitudes, temperatures, etc.) but these are optional record keeping columns.
 
+   Example ``/examples/hello_world/2018B/2018-08-05/band1/request.csv``: (first 5 lines):
+
+   .. literalinclude:: ../examples/hello_world/2018B/2018-08-05/band1/request.csv
+      :lines: 1-5
+      :language: csv
+
 4. ``past.csv`` - Contains information about the past history of observations. While it may be blank, it must contain appropriate column headers:
     - ``id`` - the unique identifier for the target.
     - ``target`` - the human-readable name of the target.
@@ -102,10 +119,22 @@ Required Files
     - ``exposure_start_time`` - the start time of the recorded exposure. 
     - ``exposure_time`` - the recorded duration of the exposure.
 
+   Example ``/examples/hello_world/2018B/2018-08-05/band1/past.csv``: (first 5 lines):
+
+   .. literalinclude:: ../examples/hello_world/2018B/2018-08-05/band1/past.csv
+      :lines: 1-5
+      :language: csv
+
 5. ``programs.csv`` - Contains information the awarded time to each program. Useful for plotting later. While it may be blank, it must contain appropriate column headers:
     - ``program`` - the program code.
     - ``hours`` - the hours of awarded time to the program.
     - ``nights`` - the number of nights awarded to the program.
+
+   Example ``/examples/hello_world/2018B/2018-08-05/band1/programs.csv``: (first 5 lines):
+
+   .. literalinclude:: ../examples/hello_world/2018B/2018-08-05/band1/programs.csv
+      :lines: 1-5
+      :language: csv
 
 6. ``custom.csv`` - Contains information about the specific time windows when targets may be observed. While it may be blank, it must contain appropriate column headers:
     - ``unique_id`` - the unique identifier for the target.
@@ -113,6 +142,12 @@ Required Files
     - ``start`` - the start time of the time window.
     - ``stop`` - the stop time of the time window.
     Times are in format "YYYY-MM-DD HH:MM"
+
+   Example ``/examples/hello_world/2018B/2018-08-05/band1/custom.csv``: (first 5 lines):
+
+   .. literalinclude:: ../examples/hello_world/2018B/2018-08-05/band1/custom.csv
+      :lines: 1-5
+      :language: csv
 
 **The** ``kpfcc`` **subcommand of** ``prep`` **(see below) compiles and prepares all of these necessary files for the KPF-CC program specifically.** Use of this command requires token access to the KPF-CC database. If you are using AstroQ for a different facility, then you must prepare these files through your own means. Feel free to write your own "prep" command to automate the process.
 

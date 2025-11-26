@@ -1,11 +1,12 @@
 """
-Module for processing data from Keck Observatory's custom made Observing Block (OB) database.
+Module for preparing all data specific to from Keck Observatory's custom made Observing Block (OB) database.
 This is specific to the KPF-CC program and the observatory's infrastructure as way to power the prep kpfcc command.
 New observatories should write their own module to connect to a new "prep <your observatory>" command.
 """
 
 # Standard library imports
 import json
+import logging
 import os
 
 # Third-party imports
@@ -13,9 +14,15 @@ import numpy as np
 import pandas as pd
 import requests
 from astropy.coordinates import SkyCoord
-from astropy.time import Time
+from astropy.time import Time, TimeDelta
 import astropy.units as u
 import astroplan as apl
+import astropy.coordinates as apy
+
+# Local imports
+from astroq.access import Access
+
+logs = logging.getLogger(__name__)
 
 # The OB database has many fields that are not needed for the AstroQ pipeline.
 exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', 'metadata.history',
@@ -254,6 +261,28 @@ def format_keck_allocation_info(allocation_file):
     nights_by_program = allocation.groupby('ProjCode')['FractionOfNight'].sum().round(3).to_dict()
 
     return allocation_frame, hours_by_program, nights_by_program
+
+def pull_OB_histories(semester):
+    """
+    Pull the latest database OBs down to local.
+
+    Args:
+        semester (str) - the semester from which to query OBs, format YYYYL
+        histories (bool) - if True, pull the history of OBs for the semester, if False, pull the latest OBs for the semester
+
+    Returns:
+        data (json) - the OB information in json format
+    """
+    url = "https://www3.keck.hawaii.edu/api/kpfcc/getObservingBlockHistory"
+    params = {}
+    params["semester"] = semester
+    try:
+        data = requests.get(url, params=params, auth=(os.environ['KECK_OB_DATABASE_API_USERNAME'], os.environ['KECK_OB_DATABASE_API_PASSWORD']))
+        data = data.json()
+        return data
+    except:
+        print("ERROR")
+        return
 
 def get_request_sheet(OBs, awarded_programs, savepath):
     """
@@ -569,18 +598,13 @@ def recompute_exposure_times(request_frame, slowdown_factor):
     """
     new_exptimes = []
     for i in range(len(request_frame)):
-        # If the exp_meter_threshold is not the default value (indicating PI did not assign a value), 
-        # then compute the nominal exposure time based on desired SNR
-        if request_frame['exp_meter_threshold'][i] != 1.616161:
-            # Using Teff = 5800 and V=10, the KPF ETC predicts time to achieve  SNR=120 @ 604 nm is 307 seconds. We use this as scaling time.
-            # At SNR=120, the corresponding ExpMeterThreshold is 1.0 MegaPhotons/A. 
-            # See this website for more details: https://www2.keck.hawaii.edu/inst/kpf/expmetertermination/
-            t0 = 307.0 
-            nominal_exptime = t0*request_frame['exp_meter_threshold'][i]
-            final_time = min([nominal_exptime*slowdown_factor, request_frame['exptime'][i]])
-            new_exptimes.append(final_time)
-        else:
-            new_exptimes.append(request_frame['exptime'][i])
+        # Using Teff = 5800 and V=10, the KPF ETC predicts time to achieve  SNR=120 @ 604 nm is 307 seconds. We use this as scaling time.
+        # At SNR=120, the corresponding ExpMeterThreshold is 1.0 MegaPhotons/A. 
+        # See this website for more details: https://www2.keck.hawaii.edu/inst/kpf/expmetertermination/
+        t0 = 307.0 
+        nominal_exptime = t0*request_frame['exp_meter_threshold'][i] * 10**(0.4*(request_frame['gmag'][i] - 10.0))
+        final_time = min([nominal_exptime*slowdown_factor, request_frame['exptime'][i]])
+        new_exptimes.append(final_time)
     return new_exptimes
 
 def analyze_bad_obs(trimmed_good, bad_OBs_values, bad_OBs_hasFields, awarded_programs,exception_fields=exception_fields):
@@ -836,3 +860,349 @@ def update_allocation_file(allocation_df, current_date):
         print(f'Updated allocation: {evening_12.iso} to {morning_12.iso}')
     
     return allocation_df
+
+def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars, current_day,
+                    outputdir, version='nominal'):
+    """
+    Generate the nightly script in the format required by the Keck "Magiq" software. 
+    Backwards compatable to pre-KPF-CC observing.
+
+    Args:
+        frame (dataframe): the request_frame of just the targets that were selected to be observed tonight
+        solution_frame (dataframe): the solution attribute from the TTP model.plotly object
+        night_start_time (astropy time object): Beginning of observing interval
+        extras (array): starnames of "extra" stars (those not fit into the script)
+        filler_stars (array): star names of the stars added in the bonus round
+        current_day (str): today's date in format YYYY-MM-DD
+        outputdir (str): the directory to save the script file
+        version (str): a tag for thescript (e.g. nominal, slowdown, backups, etc)
+
+    Returns:
+        lines (str): the script file as a string
+    """
+    # Cast starname column to strings to ensure proper matching
+    frame['starname'] = frame['starname'].astype(str)
+    
+    # Cast extras star names to strings to ensure proper matching
+    if extras is not None and len(extras) > 0:
+        if hasattr(extras, 'astype'):
+            # If extras is a DataFrame
+            extras['Starname'] = extras['Starname'].astype(str)
+        else:
+            # If extras is a list, convert each star name to string
+            extras['Starname'] = [str(star) for star in extras['Starname']]
+    
+    total_exptime = 0
+    if not os.path.isdir(outputdir):
+        os.mkdir(outputdir)
+    script_file = os.path.join(outputdir,'script_{}_{}.txt'.format(current_day, version))
+
+    lines = []
+    for i, item in enumerate(solution_frame['Starname']):
+        filler_flag = solution_frame['Starname'][i] in filler_stars
+        row = frame.loc[frame['unique_id'] == solution_frame['Starname'][i]]
+        row.reset_index(inplace=True)
+        total_exptime += float(row['exptime'].iloc[0])
+
+        start_exposure_hst = str(TimeDelta(solution_frame['Start Exposure'][i]*60,format='sec') + \
+                                                night_start_time)[11:16]
+        first_available_hst = str(TimeDelta(solution_frame['First Available'][i]*60,format='sec')+ \
+                                                night_start_time)[11:16]
+        last_available_hst = str(TimeDelta(solution_frame['Last Available'][i]*60,format='sec') + \
+                                                night_start_time)[11:16]
+
+        lines.append(format_kpf_row(row, start_exposure_hst, first_available_hst,last_available_hst,
+                                    current_day, filler_flag = filler_flag))
+
+    lines.append('')
+    lines.append('X' * 45 + 'EXTRAS' + 'X' * 45)
+    lines.append('')
+
+    for j in range(len(extras['Starname'])):
+        if extras['Starname'][j] in filler_stars:
+            filler_flag = True
+        else:
+            filler_flag = False
+        row = frame.loc[frame['unique_id'] == extras['Starname'][j]]
+        row.reset_index(inplace=True)
+        lines.append(format_kpf_row(row, '24:00', extras['First Available'][j],
+                    extras['Last Available'][j], current_day, filler_flag, True))
+
+    # add buffer lines to end of file
+    lines.append("")
+    lines.append("")
+
+    with open(script_file, 'w') as f:
+        f.write('\n'.join(lines))
+    print("Total Open Shutter Time Scheduled: " + str(np.round((total_exptime/3600),2)) + " hours")
+    return lines
+
+def format_kpf_row(row, obs_time, first_available, last_available, current_day,
+                    filler_flag = False, extra=False):
+    """
+    Format request data in the specific way needed for the script (relates to the Keck "Magiq"
+    software's data ingestion requirements).
+
+    Args:
+        row (dataframe): a single row from the requests sheet dataframe
+        obs_time (str): the timestamp of the night to begin the exposure according to the TTP.
+                        In format HH:MM in HST timezone
+        first_available (str): the timestamp of the night where the star is first accessible.
+                                In format HH:MM in HST timezone.
+        last_available (str): the timestamp of the night where the star is last accessible.
+                                In format HH:MM in HST timezone.
+        filler_flag (boolean): True of the target was added in the bonus round
+        extra (boolean): is this an "extra" target
+
+    Returns:
+        line (str): the properly formatted string to be included in the script file
+    """
+
+    equinox = '2000'
+    # Handle missing pmra/pmdec columns with default values
+    pmra = row.get('pmra', pd.Series([0.0])).iloc[0] if 'pmra' in row else 0.0
+    pmdec = row.get('pmdec', pd.Series([0.0])).iloc[0] if 'pmdec' in row else 0.0
+    updated_ra, updated_dec = pm_correcter(row['ra'].iloc[0], row['dec'].iloc[0],
+                                pmra, pmdec, current_day, equinox=equinox)
+    if updated_dec[0] != "-":
+        updated_dec = "+" + updated_dec
+
+    starname_str = str(row['starname'].iloc[0])
+    namestring = ' '*(16-len(starname_str[:16])) + starname_str[:16]
+
+    # Handle missing columns with default values
+    jmag_val = row.get('jmag', [15.0])[0] if 'jmag' in row else 15.0
+    gmag_val = row.get('gmag', [15.0])[0] if 'gmag' in row else 15.0
+    teff_val = row.get('teff', [5000])[0] if 'teff' in row else 5000
+    gaia_id_val = row.get('gaia_id', ['UNKNOWN'])[0] if 'gaia_id' in row else 'UNKNOWN'
+    
+    # Convert to float safely, with fallback to defaults
+    try:
+        jmag_val = float(jmag_val) if jmag_val is not None else 15.0
+    except (ValueError, TypeError):
+        jmag_val = 25.0
+    
+    try:
+        gmag_val = float(gmag_val) if gmag_val is not None else 15.0
+    except (ValueError, TypeError):
+        gmag_val = 25.0
+    
+    try:
+        teff_val = float(teff_val) if teff_val is not None else 5000
+    except (ValueError, TypeError):
+        teff_val = 0.0
+    
+    jmagstring = ('jmag=' + str(np.round(float(jmag_val),1)) + ' '* \
+        (4-len(str(np.round(float(jmag_val),1)))))
+    exposurestring = (' '*(4-len(str(int(row['exptime'].iloc[0])))) + \
+        str(int(row['exptime'].iloc[0])) + '/' + \
+        str(int(row['exptime'].iloc[0])) + ' '* \
+        (4-len(str(int(row['exptime'].iloc[0])))))
+
+    ofstring = ('1of' + str(int(row['n_intra_max'].iloc[0])))
+    scstring = 'sc=' + 'T'
+
+    numstring = str(int(row['n_exp'].iloc[0])) + "x"
+    gmagstring = 'gmag=' + str(np.round(float(gmag_val),1)) + \
+                                                ' '*(4-len(str(np.round(float(gmag_val),1))))
+    teffstr = 'Teff=' + str(int(teff_val)) + \
+                                    ' '*(4-len(str(int(teff_val))))
+
+    gaiastring = str(gaia_id_val) + ' '*(25-len(str(gaia_id_val)))
+    programstring = row['program_code'].iloc[0]
+
+    if filler_flag:
+        # All targets added in round 2 bonus round are lower priority
+        priostring = "p3"
+    else:
+        priostring = "p1"
+
+    if extra == False:
+        timestring2 = str(obs_time)
+    else:
+        # designate a nonsense time
+        timestring2 = "24:00"
+
+    line = (namestring + ' ' + updated_ra + ' ' + updated_dec + ' ' + str(equinox) + ' '
+                + jmagstring + ' ' + exposurestring + ' ' + ofstring + ' ' + scstring +  ' '
+                + numstring + ' '+ gmagstring + ' ' + teffstr + ' ' + gaiastring + ' CC '
+                        + priostring + ' ' + programstring + ' ' + timestring2 +
+                         ' ' + first_available  + ' ' + last_available )
+
+    # Handle missing Observing Notes column
+    observing_notes = row.get('Observing Notes', [''])[0] if 'Observing Notes' in row else ''
+    if observing_notes and not pd.isnull(observing_notes):
+        line += (' ' + str(observing_notes))
+
+    return line
+
+def pm_correcter(ra, dec, pmra, pmdec, current_day, equinox="2000"):
+    """
+    Update a star's coordinates due to proper motion.
+
+    Args:
+        ra (float): RA in degrees
+        dec (float): Dec in degrees
+        pmra (float): proper motion in RA (mas/yr), including cos(Dec)
+        pmdec (float): proper motion in Dec (mas/yr)
+        equinox (str): original epoch (e.g. '2000.0')
+        current_day (str): date to which to propagate (e.g. '2025-04-30')
+
+    Returns:
+        formatted_ra (str), formatted_dec (str): updated coordinates as strings
+    """
+    start_time = Time(f'J{equinox}')
+    current_time = Time(current_day)
+    coord = SkyCoord(
+        ra=ra * u.deg,
+        dec=dec * u.deg,
+        pm_ra_cosdec=pmra * u.mas/u.yr,
+        pm_dec=pmdec * u.mas/u.yr,
+        obstime=start_time
+    )
+    new_coord = coord.apply_space_motion(new_obstime=current_time)
+    formatted_ra = new_coord.ra.to_string(unit=u.hourangle, sep=' ', pad=True, precision=1)
+    formatted_dec = new_coord.dec.to_string(unit=u.deg, sep=' ', pad=True, precision=0)
+
+    return formatted_ra, formatted_dec
+
+class Access_KPFCC(Access):
+    """
+    Keck Observatory-specific Access class that inherits from the base Access class.
+    Overrides compute_altaz() and compute_clear() methods with Keck-specific implementations.
+    """
+    
+    def __init__(self, 
+                 semester_start_date, 
+                 semester_length, 
+                 n_nights_in_semester,
+                 today_starting_night,  
+                 current_day, 
+                 all_dates_dict, 
+                 all_dates_array, 
+                 slot_size, 
+                 slots_needed_for_exposure_dict, 
+                 custom_file, 
+                 allocation_file, 
+                 past_history, 
+                 output_directory, 
+                 run_weather_loss, 
+                 run_band3, 
+                 observatory_string, 
+                 request_frame, 
+                 ):
+        """
+        Initialize the Access_KPFCC object with explicit parameters.
+        Calls the parent Access.__init__() to set up base class attributes.
+            
+        Args:
+            semester_start_date: Start date of the semester
+            semester_length: Total number of nights in the semester
+            n_nights_in_semester: Number of remaining nights in the semester
+            today_starting_night: Starting night number for today
+            current_day: Current day identifier
+            all_dates_dict: Dictionary mapping dates to day numbers
+            all_dates_array: Array of date strings for the semester
+            slot_size: Size of each time slot in minutes
+            slots_needed_for_exposure_dict: Dictionary mapping star names to required slots
+            custom_file: Path to custom times file
+            allocation_file: Path to allocation file
+            past_history: Past observation history
+            output_directory: Directory for output files
+            run_weather_loss: Whether to run weather loss simulation
+            run_band3: Whether to run band 3 (used for not peforming the is_observble step for the football plot)
+            observatory_string: Observatory name/location string
+            request_frame: DataFrame containing request information
+        """
+        # Call parent class __init__ to set up base attributes
+        super().__init__(
+                 semester_start_date, 
+                 semester_length, 
+                 n_nights_in_semester,
+                 today_starting_night,  
+                 current_day, 
+                 all_dates_dict, 
+                 all_dates_array, 
+                 slot_size, 
+                 slots_needed_for_exposure_dict, 
+                 custom_file, 
+                 allocation_file, 
+                 past_history, 
+                 output_directory, 
+                 run_weather_loss, 
+                 run_band3, 
+                 observatory_string, 
+                 request_frame)
+        
+        self.weather_loss_file = os.path.join(os.path.join(os.path.dirname(os.path.dirname(__file__)),'data'), "maunakea_weather_loss_data.csv")
+
+        self.use_K1 = True
+        # See here: https://www2.keck.hawaii.edu/inst/common/TelLimits.html
+        if self.use_K1:
+            # K1 Telescope limits 
+            self.nays_az_low = 5.3
+            self.nays_az_high = 146.2
+            self.nays_alt = 33.3
+        else:   
+            # K2 Telescope limits 
+            self.nays_az_low = 185.3
+            self.nays_az_high = 332.8
+            self.nays_alt = 36.8
+        self.tel_min = 18
+        self.tel_max = 85
+
+    def compute_altaz(self, tel_min):
+        """
+        Compute boolean mask of is_altaz for targets according to a minimum elevation. 
+        Specific to Keck Observatory's K1/K2 pointing limits.
+        This method overrides the base class method to include Keck-specific nasmyth deck constraints.
+
+        Args:
+            tel_min (float): the minimum elevation for the telescope (ignored, uses self.tel_min instead)
+        
+        Returns:
+            is_altaz (array): boolean mask of is_altaz for targets
+        """
+        # Compute base alt/az pattern, shape = (ntargets, nslots)
+
+        altazes = self.observatory.altaz(self.timegrid, self.targets, grid_times_targets=True)
+        alts = altazes.alt.deg
+        azes = altazes.az.deg
+        min_elevation = self.request_frame['minimum_elevation'].values  # Get PI-desired minimum elevation values
+        min_elevation = np.maximum(min_elevation, self.tel_min)  # Ensure minimum elevation is at least tel_min
+        
+        # 2D mask (n targets, n slots))
+        is_altaz0 = np.ones_like(alts, dtype=bool)
+        # Remove nasmyth deck - Keck-specific constraint
+        is_altaz0 &= ~((self.nays_az_low < azes ) & (azes < self.nays_az_high) & (alts < self.nays_alt))
+       
+        # Remove min elevation using per-row minimum_elevation values for all stars
+        fail = alts < min_elevation[:, np.newaxis]  # broadcast elevation array
+        is_altaz0 &= ~fail
+        
+        # All stars must be between tel_min and tel_max deg
+        fail = (alts < self.tel_min) | (alts > self.tel_max)
+        is_altaz0 &= ~fail
+
+        # Pre-compute the sidereal times for interpolation
+        x = self.timegrid.sidereal_time('mean').value
+        x_new = self.slotmidpoints.sidereal_time('mean').value
+        idx = np.searchsorted(x, x_new, side='left')
+        idx = np.clip(idx, 0, len(x)-1)  # Handle edge cases
+
+        # Create 3D mask by indexing the 2D pattern
+        self.is_altaz = is_altaz0[:,idx]
+
+    def compute_clear(self):
+        """
+        Compute boolean mask of is_clear for all targets according to the clear times.
+        """
+        self.is_clear = np.ones_like(self.is_altaz, dtype=bool)
+        if self.run_weather_loss:
+            logs.info("Running weather loss model.")
+            self.get_loss_stats(self.weather_loss_file)
+            self.is_clear = self.simulate_weather_losses(covariance=0.14)
+            self.is_clear = np.tile(self.is_clear[np.newaxis, :, :], (self.ntargets, 1, 1))
+        else:
+            logs.info("Pretending weather is always clear!")
+            self.is_clear = np.ones((self.ntargets, self.nnights, self.nslots), dtype=bool)

@@ -37,6 +37,8 @@ semester_planner = None
 night_planner = None
 uptree_path = None
 
+desired_order = ["unique_id", "starname", "exptime", "n_exp", 'n_inter_max', 'tau_inter', "n_intra_max", "n_intra_min", "tau_intra", "weather_band_1", "weather_band_2", "weather_band_3"]
+
 def load_data_for_path(semester_code, date, band, uptree_path):
     """
     Load data for a specific semester_code/date/band combination
@@ -53,7 +55,7 @@ def load_data_for_path(semester_code, date, band, uptree_path):
     global data_astroq, data_ttp, semester_planner, night_planner, request_frame_path, night_start_time
     
     # Construct the workdir path based on URL parameters
-    workdir = f"{uptree_path}/{semester_code}/{date}/{band}/outputs/"
+    workdir = os.path.join(uptree_path, semester_code, date, band, "outputs")
     request_frame_path = os.path.join(workdir, 'request_selected.csv')
     
     # Check if the directory exists
@@ -61,7 +63,6 @@ def load_data_for_path(semester_code, date, band, uptree_path):
         return False, f"Directory not found: {workdir}"
     
     semester_planner_h5 = os.path.join(workdir, 'semester_planner.h5')
-    # night_planner_pkl = os.path.join(workdir, 'night_planner.pkl')
     night_planner_h5 = os.path.join(workdir, 'night_planner.h5')
 
     # Load semester planner
@@ -80,7 +81,7 @@ def load_data_for_path(semester_code, date, band, uptree_path):
         data_ttp = night_planner.solution
 
         # Get the night start time from allocation file (this is "Minute 0")
-        night_start_time, _ = get_nightly_times_from_allocation(
+        night_start_time, _ = nplan.get_nightly_times_from_allocation(
             night_planner.allocation_file, 
             night_planner.current_day
         )
@@ -143,7 +144,7 @@ def dynamic_page(semester_code, date, band, page=None, starname=None, program_co
     elif page == "admin":
         return render_admin_page()
     elif page == "nightplan":
-        return render_nightplan_page()
+        return render_nightplan_page(band)
     elif program_code is not None:
         # This is a program route - check if it's a valid program code
         if program_code in data_astroq[0]:
@@ -154,7 +155,7 @@ def dynamic_page(semester_code, date, band, page=None, starname=None, program_co
             if page == "admin":
                 return render_admin_page()
             elif page == "nightplan":
-                return render_nightplan_page()
+                return render_nightplan_page(band)
             else:
                 abort(404, description=f"Page '{page}' not found")
     else:
@@ -169,6 +170,7 @@ def render_admin_page():
     
     # Get request frame table for all stars
     request_df = pl.get_request_frame(semester_planner, all_stars_from_all_programs)
+    request_df = request_df[desired_order]
     request_table_html = pl.dataframe_to_html(request_df)
     
     fig_cof = pl.get_cof(semester_planner, list(data_astroq[1].values()))
@@ -260,7 +262,7 @@ def render_star_page(starname):
     
     return f"Error, star {starname} not found in programs {list(program_names)}"
 
-def render_nightplan_page():
+def render_nightplan_page(band):
     """Render the night plan page"""
     if data_ttp is None:
         return "Error: No night planner data available", 404
@@ -268,7 +270,7 @@ def render_nightplan_page():
     plots = ['script_table', 'slewgif', 'ladder', 'slewpath']
     
     script_table_df = pl.get_script_plan(night_planner)
-    ladder_fig = pl.get_ladder(data_ttp)
+    ladder_fig = pl.get_ladder(data_ttp, night_start_time)
     slew_animation_fig = pl.get_slew_animation_plotly(data_ttp, request_frame_path, animationStep=120)
     slew_path_fig = pl.plot_path_2D_interactive(data_ttp, night_start_time=night_start_time)
     
@@ -283,7 +285,7 @@ def render_nightplan_page():
     figure_html_list = [script_table_html, ladder_html, slew_animation_html, slew_path_html]
 
     return render_template("nightplan.html", starname=None, figure_html_list=figure_html_list, 
-                         semester_planner=semester_planner, night_planner=night_planner)
+                         semester_planner=semester_planner, night_planner=night_planner, band=band)
 
 @app.route("/<semester_code>/<date>/<band>/download_nightplan")
 def download_nightplan(semester_code, date, band):
