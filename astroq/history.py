@@ -54,8 +54,12 @@ def write_OB_histories_to_csv(histories):
                 # "junk": entry.get("junk", ""),
             })
     df = pd.DataFrame(rows)
-    df.sort_values(by='timestamp', inplace=True)
+    if len(df) == 0:
+        return pd.DataFrame(columns=['id', 'target', 'semid', 'timestamp', 'exposure_start_time', 'exposure_time', 'observer'])
+    else:
+        df.sort_values(by='timestamp', inplace=True)
     return df
+    
 
 def process_star_history(filename):
     """
