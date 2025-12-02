@@ -138,10 +138,11 @@ class SemesterPlanner(object):
         
         if not os.path.exists(self.request_file):
             raise FileNotFoundError(f"Requests file not found: {self.request_file}")
-        self.requests_frame = pd.read_csv(self.request_file)
+        self.requests_frame_all = pd.read_csv(self.request_file)
         # splan must only know about the active requests
-        mask = self.requests_frame['active'] == True
-        self.requests_frame = self.requests_frame[mask]
+        mask = self.requests_frame_all['active'] == True
+        logs.warning(f"There are {len(self.requests_frame_all[~mask])} inactive of {len(self.requests_frame_all)} requests.")
+        self.requests_frame = self.requests_frame_all[mask]
         self.requests_frame.reset_index(drop=True, inplace=True)
 
         # Data cleaning
@@ -818,6 +819,7 @@ class SemesterPlanner(object):
         # DataFrames (saved using pandas HDF5 support)
         dataframe_attrs = [
             ('requests_frame', 'requests_frame', 'dataframe', None),
+            ('requests_frame_all', 'requests_frame_all', 'dataframe', None),
             ('serialized_schedule', 'serialized_schedule', 'dataframe', None),
         ]
         
@@ -935,6 +937,7 @@ class SemesterPlanner(object):
         # DataFrames (loaded using pandas HDF5 support)
         dataframe_attrs = [
             ('requests_frame', 'requests_frame', 'dataframe', None),
+            ('requests_frame_all', 'requests_frame_all', 'dataframe', None),
             ('serialized_schedule', 'serialized_schedule', 'dataframe', None),
         ]
         
