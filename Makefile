@@ -43,6 +43,8 @@ all: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/plan-night-complete)
 	@$(MAKE) copy_observe_orders
 	@echo "📝 Combining all band logs..."
 	@$(MAKE) combine_logs
+	@echo "🔍 Checking night plans..."
+	@$(MAKE) check_night_plans
 
 # Final target for each band - depends on plan-night completion
 $(DATE_DIR)/%/plan-night-complete: $(DATE_DIR)/%/plan-night-run
@@ -154,6 +156,12 @@ combine_logs:
 	done
 	@echo "✅ Combined log file created: $(DATE_DIR)/all_band_logs.log"
 
+# Check night plans
+check_night_plans:
+	@echo "🔍 Running check_night_plans.py..."
+	@cd $(shell dirname $(firstword $(MAKEFILE_LIST))) && conda run -n $(CONDA_ENV) python check_night_plans.py -s $(SEMESTER) -d $(DATE) $(HOLDERS_DIR)
+	@echo "✅ Night plans check complete!"
+
 # Launch webapp
 webapp:
 	@echo "🌐 Launching AstroQ webapp..."
@@ -193,4 +201,4 @@ complete: all
 	@echo "🌐 Launching webapp..."
 	@$(MAKE) webapp
 
-.PHONY: all create_dirs clean status copy_observe_orders copy_only webapp complete combine_logs 
+.PHONY: all create_dirs clean status copy_observe_orders copy_only webapp complete combine_logs check_night_plans 

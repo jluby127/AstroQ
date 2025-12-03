@@ -202,18 +202,6 @@ class NightPlanner(object):
             use_star_ids.append(str(plotly_df['Starname'].iloc[i]))
        
         # Convert solution.extras to a DataFrame for consistency
-        print("--------------------------------")
-        print("--------------------------------")
-        print("--------------------------------")
-        print("--------------------------------")
-        print("--------------------------------")
-        print(solution.extras)
-        print("--------------------------------")
-        print("--------------------------------")
-        print("--------------------------------")
-        print("--------------------------------")
-        print("--------------------------------")
-        print("--------------------------------")
         extras_df = pd.DataFrame(solution.extras)
         for j in range(len(extras_df)):
             use_start_exposures.append('24:00')
