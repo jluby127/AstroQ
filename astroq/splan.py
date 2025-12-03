@@ -1046,6 +1046,7 @@ class SemesterPlanner(object):
         # Recreate access_obj using the loaded parameters
         # Use KPFCC-specific Access class for Keck Observatory, otherwise use base Access class
         if 'Keck' in instance.observatory or 'keck' in instance.observatory.lower():
+            from astroq.queue.kpfcc import Access_KPFCC
             AccessClass = Access_KPFCC
         else:
             AccessClass = ac.Access

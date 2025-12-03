@@ -188,12 +188,15 @@ def build_fullness_report(semester_planner, round_info):
         None
     """
     file_path = os.path.join(semester_planner.output_directory, "runReport.txt")
-    print(f"Writing runReport.txt to: {file_path}")
+    # logs.info(f"Writing runReport.txt to: {file_path}")
+
+    print(semester_planner.output_directory)
+    print(file_path)
     
     # Read the semester plan CSV file
     semester_plan_path = os.path.join(semester_planner.output_directory, "semester_plan.csv")
     if not os.path.exists(semester_plan_path):
-        print(f"Warning: semester_plan.csv not found at {semester_plan_path}")
+        # logs.info(f"Warning: semester_plan.csv not found at {semester_plan_path}")
         return
     
     schedule_df = pd.read_csv(semester_plan_path)
@@ -238,7 +241,7 @@ def build_fullness_report(semester_planner, round_info):
     program_stats = compute_program_statistics(semester_planner, schedule_df)
 
     
-    with open(semester_planner.output_directory + "runReport.txt", "w") as file:
+    with open(file_path, "w") as file:
         file.write("Stats for " + str(round_info) + "\n")
         file.write("------------------------------------------------------" + "\n")
         file.write("N slots in semester:" + str(total_slots_in_semester) + "\n")
@@ -342,7 +345,7 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
 
     with open(script_file, 'w') as f:
         f.write('\n'.join(lines))
-    print("Total Open Shutter Time Scheduled: " + str(np.round((total_exptime/3600),2)) + " hours")
+    # logs.info("Total Open Shutter Time Scheduled: " + str(np.round((total_exptime/3600),2)) + " hours")
     return lines
 
 def format_kpf_row(row, obs_time, first_available, last_available, current_day,
