@@ -51,7 +51,7 @@ column_definitions = {
     'target.pm_dec': {'new_name': 'pmdec', 'type': 'Float64'},
     'target.epoch': {'new_name': 'epoch', 'type': 'Float64'},
     'observation.exp_meter_threshold': {'new_name': 'exp_meter_threshold', 'type': 'Float64'},
-    'schedule.ob_inactive': {'new_name': 'active', 'type': 'boolean'},
+    'schedule.ob_inactive': {'new_name': 'inactive', 'type': 'boolean'},
 }
 
 # Required fields for OBs to be considered valid
