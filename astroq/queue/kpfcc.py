@@ -49,7 +49,8 @@ exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', '
                     'target.ra_deg', 'target.dec_deg', 'observation.undefined', 'schedule.num_visits_per_night', 'schedule.undefined',
                     'schedule.custom_time_constraints', #make this an exception field because it is handled elsewhere to make the custom.csv file
                     'schedule.desired_num_visits_per_night', 'schedule.minimum_num_visits_per_night', 'history', # NOTE: this line will be removed 
-                    'schedule.weather_band_1', 'schedule.weather_band_2', 'schedule.weather_band_3'# NOTE: this line will be removed 
+                    'schedule.weather_band_1', 'schedule.weather_band_2', 'schedule.weather_band_3',# NOTE: this line will be removed 
+                    'observation.ob_inactive', 'schedule.ob_inactive', 'target.ob_inactive', 
 ]
 
 # Column definitions: mapping from original names to new names and data types
