@@ -372,22 +372,6 @@ def apply_safety_valves(value_df, presence_df):
                 value_df.loc[mask_2025B_E473, 'schedule.weather_band_2'] = False
             if 'schedule.weather_band_3' in value_df.columns:
                 value_df.loc[mask_2025B_E473, 'schedule.weather_band_3'] = True
-    
-    # # Special case: minimum_num_visits_per_night should use desired_num_visits_per_night if available
-    # if 'schedule.desired_num_visits_per_night' in value_df.columns:
-    #     if 'schedule.minimum_num_visits_per_night' in value_df.columns:
-    #         # Fill NaN values in minimum with corresponding desired values
-    #         value_df['schedule.minimum_num_visits_per_night'] = value_df['schedule.minimum_num_visits_per_night'].fillna(value_df['schedule.desired_num_visits_per_night'])
-    #     else:
-    #         # Use desired values as minimum
-    #         value_df['schedule.minimum_num_visits_per_night'] = value_df['schedule.desired_num_visits_per_night']
-    #     presence_df['schedule.minimum_num_visits_per_night'] = presence_df['schedule.minimum_num_visits_per_night'] | value_df['schedule.minimum_num_visits_per_night'].notna()
-    
-    # # Special case: if schedule.num_nights_per_semester == 1, set schedule.num_internight_cadence to 0
-    # if 'schedule.num_nights_per_semester' in value_df.columns and 'schedule.num_internight_cadence' in value_df.columns:
-    #     mask = value_df['schedule.num_nights_per_semester'] == 1
-    #     value_df.loc[mask, 'schedule.num_internight_cadence'] = 0
-    #     presence_df.loc[mask, 'schedule.num_internight_cadence'] = True
 
     return value_df, presence_df
 
@@ -437,8 +421,6 @@ def create_checks_dataframes(OBs, required_fields):
         for idx in index_labels:
             val = value_df.at[idx, col]
             if not pd.api.types.is_scalar(val) or pd.isna(val):
-            # if pd.isna(value_df.at[idx, col]):
-            # if value_df.at[idx, col] is None or value_df.at[idx, col] == "<NA>":
                 presence_df.at[idx, col] = False
 
     return value_df, presence_df
