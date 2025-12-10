@@ -900,6 +900,172 @@ def get_timepie(semester_planner, all_stars, use_program_colors=False):
     return fig
 
 
+def get_timebar(semester_planner, all_stars, use_program_colors=False, prevent_negative=False):
+    """
+    Create a horizontal bar chart of the time used vs forecasted vs available
+
+    Parameters:
+        semester_planner: the semester planner object
+        all_stars (list): array of StarPlotter objects
+        use_program_colors (bool): If True, use program_color_rgb; if False, use star_color_rgb (default: False)
+        prevent_negative (bool): If True, set Incomplete and Not used categories to zero if they are negative (default: True)
+
+    Returns:
+        fig (plotly figure): a plotly figure showing the time used vs forecasted vs available as a horizontal bar chart
+    """
+    programmatics = pd.read_csv(os.path.join(semester_planner.semester_directory, 'programs.csv'))
+
+    # Accumulate total times across all stars
+    total_past = 0
+    total_future = 0
+    total_incomplete = 0
+    total_requested_hours = 0
+    
+    programs_used = []
+    for starobj in all_stars:
+        total_past += sum(starobj.observations_past.values()) * starobj.exptime + len(starobj.observations_past) * slew_overhead
+        total_future += sum(starobj.observations_future.values()) * starobj.exptime + len(starobj.observations_future) * slew_overhead
+        total_requested_hours += starobj.total_requested_hours
+        programs_used.append(starobj.program)
+    
+    # Convert to hours for better readability
+    total_past_hours = total_past / 3600
+    total_future_hours = total_future / 3600
+    total_incomplete_hours = total_requested_hours - total_past_hours - total_future_hours
+
+    if len(programs_used) > 1:
+        program_rows = programmatics[programmatics['program'].isin(programs_used)]
+        total_allocated_hours = program_rows['hours'].sum()
+        total_allocated_nights = program_rows['nights'].sum()
+    else:
+        program_rows = programmatics[programmatics['program'] == programs_used[0]]
+        total_allocated_hours = program_rows['hours'].sum()
+        total_allocated_nights = program_rows['nights'].sum()
+
+    # Calculate unused hours
+    unused_hours = total_allocated_hours - total_requested_hours
+    
+    # Apply negative value prevention if enabled
+    if prevent_negative:
+        total_incomplete_hours = max(0, total_incomplete_hours)
+        unused_hours = max(0, unused_hours)
+
+    # Create bar chart data
+    # Reverse order so bars appear top to bottom: Requested, Completed, Scheduled, Incomplete, Not used, Sum
+    # Labels include descriptions for clarity
+    labels = [
+        '<b>Sum</b>', 
+        "<b>Unused Time</b><br>(allocation - requested)<br>This is time you are leaving on the table", 
+        '<b>Incomplete Time</b><br>(due to infeasible requests, <br> you should redistribute <br> among other/new requests', 
+        '<b>Future Scheduled Time</b>', 
+        '<b>Past Completed Time</b>', 
+        '<b>Requested Time</b>'
+    ]
+    sum_hours = total_past_hours + total_future_hours + total_incomplete_hours + unused_hours
+    values = [sum_hours, unused_hours, total_incomplete_hours, total_future_hours, total_past_hours, total_requested_hours]
+    colors = ['#000000', '#FF0000', '#F18F01', '#A23B72', '#2E86AB', '#00FF00']  # Black, Red, Orange, Purple, Blue, Green
+    
+    # Create the horizontal bar chart
+    # Calculate percentages based on sum of first 4 categories (excluding Sum and Requested bars)
+    category_sum = total_past_hours + total_future_hours + total_incomplete_hours + unused_hours
+    text_labels = []
+    for i, (label, val) in enumerate(zip(labels, values)):
+        # Extract base label name for comparison (get first word, removing HTML tags)
+        base_label = label.replace('<br>', ' ').replace('<b>', '').replace('</b>', '').split(' ')[0].strip()
+        if base_label == "Sum" or base_label == "Requested":
+            text_labels.append(f'{val:.1f} hrs')
+        else:
+            pct = (val / category_sum * 100) if category_sum > 0 else 0
+            text_labels.append(f'{val:.1f} hrs ({pct:.1f}%)')
+    
+    fig = go.Figure(data=[go.Bar(
+        x=values,
+        y=labels,
+        orientation='h',
+        marker=dict(color=colors),
+        text=text_labels,
+        textposition='auto',
+        hovertemplate='<b>%{y}</b><br>%{x:.2f} hours<br><extra></extra>',
+    )])
+    
+    # Adjust margin if there's a warning to display
+    top_margin = 180 if total_requested_hours > total_allocated_hours else 130
+    
+    fig.update_layout(
+        title_text=f'<b>Total Requested:</b> {total_requested_hours:.1f} hours ≈ {total_requested_hours/hours_per_night:.1f} nights<br><b>Total Allocated:</b> {total_allocated_hours:.1f} hours = {total_allocated_nights:.1f} nights ----> w/ losses = {total_allocated_nights*0.75:.1f} nights <br>Requested time is measured in hours. Allocated time is measured in nights. Conversion is 12 hours per night.<br>All bars include exposure times and standard overheads.',
+        template='plotly_white',
+        showlegend=False,
+        height=600,
+        width=1200,
+        margin=dict(t=top_margin, b=50, l=200, r=50),  # Increased left margin for multi-line labels
+        xaxis=dict(
+            title='Hours',
+            titlefont=dict(size=14),
+            tickfont=dict(size=12)
+        ),
+        yaxis=dict(
+            title='',
+            titlefont=dict(size=14),
+            tickfont=dict(size=11)  # Slightly smaller font for multi-line labels
+        ),
+        # annotations=[
+        #     dict(
+        #         text="Requested time is measured in hours. Allocated time is measured in nights.",
+        #         xref='paper', yref='paper',
+        #         x=0.5, y=1.02,
+        #         showarrow=False,
+        #         font=dict(size=10, color='black'),
+        #         xanchor='center',
+        #         yanchor='bottom'
+        #     ),
+        #     dict(
+        #         text="Conversion is 12 hours per night.",
+        #         xref='paper', yref='paper',
+        #         x=0.5, y=0.99,
+        #         showarrow=False,
+        #         font=dict(size=10, color='black'),
+        #         xanchor='center',
+        #         yanchor='bottom'
+        #     ),
+        #     dict(
+        #         text="All bars include exposure times and standard overheads.",
+        #         xref='paper', yref='paper',
+        #         x=0.5, y=0.96,
+        #         showarrow=False,
+        #         font=dict(size=10, color='black'),
+        #         xanchor='center',
+        #         yanchor='bottom'
+        #     ),
+        # ]
+    )
+    
+    # Add red vertical dashed line at total_allocated_hours
+    fig.add_shape(
+        type="line",
+        x0=total_allocated_hours,
+        x1=total_allocated_hours,
+        y0=-0.5,
+        y1=len(labels) - 0.5,
+        line=dict(color="red", width=2, dash="dash"),
+        xref="x",
+        yref="y"
+    )
+    
+    # Add warning annotation if requested time exceeds allocated time
+    if total_requested_hours > total_allocated_hours*1.1:
+        fig.add_annotation(
+            text='<b>You have requested more time than you are allocated.</b>',
+            xref='paper', yref='paper',
+            x=0.5, y=1.35,
+            showarrow=False,
+            font=dict(size=18, color='red'),
+            xanchor='center',
+            yanchor='middle'
+        )
+    
+    return fig
+
+
 def compute_seasonality(semester_planner, starnames, ras, decs):
     """
     Compute the number of days a RA/Dec point is observable in the semester using Access object
