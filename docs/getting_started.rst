@@ -217,7 +217,7 @@ Let's take a look at the outputs produced:
 
     .. code-block:: bash
     
-        $ ls -ltr examples/hello_world/outputs
+        $ ls -ltr examples/hello_world/2018B/2018-08-05/band1/outputs
         
             -rw-r--r--@ 1 jack  staff    3153 Oct 29 12:15 semester_plan.csv
             -rw-r--r--@ 1 jack  staff  230542 Oct 29 12:15 serialized_outputs_dense_v1.csv
@@ -226,7 +226,7 @@ Let's take a look at the outputs produced:
             -rw-r--r--@ 1 jack  staff     873 Oct 29 12:15 request_selected.csv
             -rw-r--r--@ 1 jack  staff  244512 Oct 29 12:15 semester_planner.h5
       
-- ``semester_plan.csv`` contains the /id/day/slot/name info of the scheduled observations. Grouped by target name. See example:
+- ``semester_plan.csv`` contains the id, day, slot and name of the scheduled observations. sorted by target name. See example:
 
     .. csv-table::
        :header: "r", "d", "s", "name"
