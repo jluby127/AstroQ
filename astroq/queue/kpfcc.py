@@ -556,9 +556,7 @@ def sort_good_bad(OBs, awarded_programs):
     
     # Create column mapping from column_definitions
     new_column_names = {col: col_info['new_name'] for col, col_info in column_definitions.items()}
-    
     trimmed_good = good_OBs_awarded[list(column_definitions.keys())].rename(columns=new_column_names)
-    trimmed_good.columns.values[9] = 'n_intra_max'
 
     # Validate and convert coordinates
     trimmed_good = validate_and_convert_coordinates(trimmed_good)
@@ -583,6 +581,11 @@ def recompute_exposure_times(request_frame, slowdown_factor):
         # See this website for more details: https://www2.keck.hawaii.edu/inst/kpf/expmetertermination/
         t0 = 307.0 
         nominal_exptime = t0*request_frame['exp_meter_threshold'][i] * 10**(0.4*(request_frame['gmag'][i] - 10.0))
+
+        countpersecond = 10**(-0.351*request_frame['gmag'][i] + 8.437)
+        totalcounts_desired = (10**6 * request_frame['exp_meter_threshold'][i]) * (8550-4450)
+        totalcounts = totalcounts_desired / countpersecond
+        nominal_exptime = totalcounts / countpersecond
         final_time = min([nominal_exptime*slowdown_factor, request_frame['exptime'][i]])
         new_exptimes.append(final_time)
     return new_exptimes
