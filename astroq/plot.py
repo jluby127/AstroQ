@@ -943,7 +943,7 @@ def get_timebar(semester_planner, all_stars, use_program_colors=False, prevent_n
         total_allocated_nights = program_rows['nights'].sum()
 
     # Calculate unused hours
-    unused_hours = total_allocated_hours - total_requested_hours
+    unused_hours = total_allocated_hours - total_future_hours - total_past_hours
     
     # Apply negative value prevention if enabled
     if prevent_negative:
@@ -954,25 +954,24 @@ def get_timebar(semester_planner, all_stars, use_program_colors=False, prevent_n
     # Reverse order so bars appear top to bottom: Requested, Completed, Scheduled, Incomplete, Not used, Sum
     # Labels include descriptions for clarity
     labels = [
-        '<b>Sum</b>', 
-        "<b>Unused Time</b><br>(allocation - requested)<br>This is time you are leaving on the table", 
-        '<b>Incomplete Time</b><br>(due to infeasible requests, <br> you should redistribute <br> among other/new requests', 
+        "<b>Unused Time</b><br>(allocation - past - future)<br>If you have positive unused time, <br>consider adding or changing requests", 
+        '<b>Incomplete Time</b><br>(requested - past - future)<br>If you have incomplete time, <br>some of your requests are infeasible <br> consider changing them, <br> i.e. cadence or redistributing', 
         '<b>Future Scheduled Time</b>', 
         '<b>Past Completed Time</b>', 
         '<b>Requested Time</b>'
     ]
     sum_hours = total_past_hours + total_future_hours + total_incomplete_hours + unused_hours
-    values = [sum_hours, unused_hours, total_incomplete_hours, total_future_hours, total_past_hours, total_requested_hours]
-    colors = ['#000000', '#FF0000', '#F18F01', '#A23B72', '#2E86AB', '#00FF00']  # Black, Red, Orange, Purple, Blue, Green
+    values = [unused_hours, total_incomplete_hours, total_future_hours, total_past_hours, total_requested_hours]
+    colors = ['#FF0000', '#F18F01', '#A23B72', '#2E86AB', '#00FF00']  # Red, Orange, Purple, Blue, Green
     
     # Create the horizontal bar chart
-    # Calculate percentages based on sum of first 4 categories (excluding Sum and Requested bars)
+    # Calculate percentages based on sum of first 4 categories (excluding Requested bar)
     category_sum = total_past_hours + total_future_hours + total_incomplete_hours + unused_hours
     text_labels = []
     for i, (label, val) in enumerate(zip(labels, values)):
         # Extract base label name for comparison (get first word, removing HTML tags)
         base_label = label.replace('<br>', ' ').replace('<b>', '').replace('</b>', '').split(' ')[0].strip()
-        if base_label == "Sum" or base_label == "Requested":
+        if base_label == "Requested":
             text_labels.append(f'{val:.1f} hrs')
         else:
             pct = (val / category_sum * 100) if category_sum > 0 else 0
@@ -995,9 +994,10 @@ def get_timebar(semester_planner, all_stars, use_program_colors=False, prevent_n
         title_text=f'<b>Total Requested:</b> {total_requested_hours:.1f} hours ≈ {total_requested_hours/hours_per_night:.1f} nights<br><b>Total Allocated:</b> {total_allocated_hours:.1f} hours = {total_allocated_nights:.1f} nights ----> w/ losses = {total_allocated_nights*0.75:.1f} nights <br>Requested time is measured in hours. Allocated time is measured in nights. Conversion is 12 hours per night.<br>All bars include exposure times and standard overheads.',
         template='plotly_white',
         showlegend=False,
-        height=600,
+        height=710,  # Increased height for more vertical spacing between labels
         width=1200,
-        margin=dict(t=top_margin, b=50, l=200, r=50),  # Increased left margin for multi-line labels
+        margin=dict(t=top_margin, b=50, l=200, r=50),
+        bargap=0.2,
         xaxis=dict(
             title='Hours',
             titlefont=dict(size=14),
@@ -1006,50 +1006,33 @@ def get_timebar(semester_planner, all_stars, use_program_colors=False, prevent_n
         yaxis=dict(
             title='',
             titlefont=dict(size=14),
-            tickfont=dict(size=11)  # Slightly smaller font for multi-line labels
-        ),
-        # annotations=[
-        #     dict(
-        #         text="Requested time is measured in hours. Allocated time is measured in nights.",
-        #         xref='paper', yref='paper',
-        #         x=0.5, y=1.02,
-        #         showarrow=False,
-        #         font=dict(size=10, color='black'),
-        #         xanchor='center',
-        #         yanchor='bottom'
-        #     ),
-        #     dict(
-        #         text="Conversion is 12 hours per night.",
-        #         xref='paper', yref='paper',
-        #         x=0.5, y=0.99,
-        #         showarrow=False,
-        #         font=dict(size=10, color='black'),
-        #         xanchor='center',
-        #         yanchor='bottom'
-        #     ),
-        #     dict(
-        #         text="All bars include exposure times and standard overheads.",
-        #         xref='paper', yref='paper',
-        #         x=0.5, y=0.96,
-        #         showarrow=False,
-        #         font=dict(size=10, color='black'),
-        #         xanchor='center',
-        #         yanchor='bottom'
-        #     ),
-        # ]
+            tickfont=dict(size=11)  
+        )
     )
     
-    # Add red vertical dashed line at total_allocated_hours
+    # Add black vertical dashed line at total_allocated_hours
     fig.add_shape(
         type="line",
         x0=total_allocated_hours,
         x1=total_allocated_hours,
         y0=-0.5,
         y1=len(labels) - 0.5,
-        line=dict(color="red", width=2, dash="dash"),
+        line=dict(color="black", width=2, dash="dash"),
         xref="x",
         yref="y"
     )
+    
+    # Add invisible scatter trace for hover text on the allocated time line
+    # Use the same categorical labels as the bar chart to avoid numeric y-axis ticks
+    fig.add_trace(go.Scatter(
+        x=[total_allocated_hours] * len(labels),
+        y=labels,  # Use categorical labels instead of numeric positions
+        mode='markers',
+        marker=dict(size=20, opacity=0),  # Invisible but hoverable markers
+        hovertemplate=f'<b>Allocated Time</b><br>{total_allocated_hours:.2f} hours<br>This line represents the total allocated time for your program<extra></extra>',
+        hoverlabel=dict(bgcolor='black', font_color='white'),
+        showlegend=False
+    ))
     
     # Add warning annotation if requested time exceeds allocated time
     if total_requested_hours > total_allocated_hours*1.1:
