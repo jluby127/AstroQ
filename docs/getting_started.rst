@@ -384,6 +384,13 @@ Now we can launch the webapp to view the schedule. This will launch on a local s
     
         $ astroq webapp -up examples/hello_world/
 
+Scrolling down a bit, you should see the "Cumulative Observation Function (COF)" plot which describes the completion rate of each program as a function of time:
+
+    .. image:: plots/hello_cof.png
+        :width: 100%
+        :align: center
+        :alt: Webapp screenshot
+
 Scrolling down a bit, you should see the "birdseye" plot of the schedule look something like this:
 
     .. image:: plots/hello_birdseye.png
@@ -391,11 +398,64 @@ Scrolling down a bit, you should see the "birdseye" plot of the schedule look so
         :align: center
         :alt: Webapp screenshot
 
-        
-The Hello World Example is an easy model to solve. Try something a bit more complex by running our benchmark test:
+Notice that two program perform poorly, U001 and U006. This is entirely explainable and stems from the fact that the requests in these programs are infeasible. For example, let's investigate U006's target, WASP-107. First displaying all the slots that are available for observations this semester:
+
+    .. image:: plots/U006_birdseye_1.png
+        :width: 100%
+        :align: center
+        :alt: Webapp screenshot
+
+This shows there is lots of available time to schedule the target. So why isn't it getting scheduled more? Turning on some of the individual constraint maps reveals the problem. First we turn on the is_altaz, which blocks out the times that are not available for scheduling this target due to the natural seasonality of the star and the pointing limits of the telescope:
+
+    .. image:: plots/U006_birdseye_2.png
+        :width: 100%
+        :align: center
+        :alt: Webapp screenshot
+
+Immediately we see that the vast majority of our allocated time is not ammenable to observing this target. But what about those last two days, why isn't the target scheduled then? We can further turn on the is_moon, which blocks out the times that are not available for scheduling this target due to the moon's position in the sky and we see that this is the cause of conflict:
+
+    .. image:: plots/U006_birdseye_3.png
+        :width: 100%
+        :align: center
+        :alt: Webapp screenshot
+
+Now we can feel confident that AstroQ is scheduling this target as often as is feasible. The request itself is infeasible, thus the low completion rate. U001's HIP1532 target is amenable to observations all semester, but it has a custom map that severly restricts when it can be observed, hence a low completion rate. These tools allow us the really dive into any target and understand why it is or is not being scheduled.
+
+Looking at some additional plots, we track the on-sky cadence vs the requested cadence. We don't want to violate the PI's desired minimum cadence so all dots on this plot should be above the dashed line, which, is confirmed:
+
+    .. image:: plots/hello_tau.png
+        :width: 100%
+        :align: center
+        :alt: Webapp screenshot
+
+Lastly, we look at the distribution of the targets across the sky. Against the grayscale heatmap, we can get a sense for how many nights in the semester a given location on the sky is observable, imagining we had the telescope all night every night. Here we can quickly see that WASP-107 is in a dark region of the sky, meaning it is not amenable to many observations in the semester. Couple that with the fact that we don't actually have all night every night to observe, this target is severely limited in its observability and hence has the low completion, which we walked through above. This grayscale map captures the intricate pointing limits of the K1 telescope easily. 
+
+    .. image:: plots/hello_football.png
+        :width: 100%
+        :align: center
+        :alt: Webapp screenshot
+
+Next we can investigate the plan for tonight. After the the slew path in minimized through the TTP solver, we have a suite of plots availabe to us for insight. First we look at the "ladder" plot. The observations are ordered in time from top to bottom. Green bars indicate the spans of time when the target is observable (above pointing limits), and the red bars indicate the times when we are set to observe the target. We can easily see the plan for the night, and see how tight or loose the windows are to observe a particular target.
+
+    .. image:: plots/hello_ladder.png
+        :width: 100%
+        :align: center
+        :alt: Webapp screenshot
+
+Then we have the slew path animation (screenshot below). This is a polar plot of the telescope's slew path with an orange line showing the path of the telescope over the night as the defined optimal path. The red regions are below/above telescope pointing limits and are unique to K1 telescope. The slider at the bottom allows us to select a time in the night and see where we are and where we are going next.
+
+    .. image:: plots/hello_slew.png
+        :width: 100%
+        :align: center
+        :alt: Webapp screenshot
+
+The Hello World Example is an easy model to solve. It only has 10 requests, with a total of 282 observations to schedule across and entire 6 month semester...a human could do this easily. In terms of model size, it is only 4598 rows by 8285 columns with 65656 nonzeros. 
+
+Try something a bit more complex by running our benchmark test. This is a realistic semester model scheduling 200 requests with programs of different observational strategies inspired by real observing programs. This model is 56009 rows by 329369 columns with 3820641 nonzeros, significantly bigger and not human-solvable.
 
     .. code-block:: bash
     
         $ astroq bench -cf examples/bench/config_benchmark.ini -ns 12 
 
 The inputs and expected outputs are well defined in our paper, compare your computer's performance to ours! See `Lubin et al. 2025 <https://ui.adsabs.harvard.edu/abs/2025arXiv250608195L/abstract>`_.       
+
