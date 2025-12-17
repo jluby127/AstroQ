@@ -137,7 +137,12 @@ class SemesterPlanner(object):
         
         if not os.path.exists(self.request_file):
             raise FileNotFoundError(f"Requests file not found: {self.request_file}")
-        self.requests_frame = pd.read_csv(self.request_file)
+        self.requests_frame_all = pd.read_csv(self.request_file)
+        # splan must only know about the active requests
+        mask = self.requests_frame_all['inactive'] == False
+        logs.warning(f"There are {len(self.requests_frame_all[~mask])} inactive of {len(self.requests_frame_all)} requests.")
+        self.requests_frame = self.requests_frame_all[mask]
+        self.requests_frame.reset_index(drop=True, inplace=True)
 
         # Data cleaning
         # Fill NaN values with defaults --- for now in early 2025B since we had issues with the webform.
@@ -184,10 +189,13 @@ class SemesterPlanner(object):
         self.all_requests = list(self.requests_frame['unique_id'])
         self.schedulable_requests =  list(self.joiner['unique_id'].unique())
         self.single_visit_requests = [item for item in self.schedulable_requests if item not in self.multi_visit_requests]
+        warncount = 0
         for starid in list(self.requests_frame['unique_id']):
             if starid not in self.schedulable_requests:
                 starname = self.requests_frame[self.requests_frame['unique_id']==starid]['starname'].values[0]
                 logs.warning("Target " + starname + " with unique id " + starid +  " has no valid day/slot pairs and therefore is effectively removed from the model.")
+                warncount += 1
+        logs.warning("There are " + str(warncount) + " targets out of " + str(len(list(self.requests_frame['unique_id']))) + " that have no valid day/slot pairs and therefore are effectively removed from the model.")
 
         # Get each request's full list of valid d/s pairs
         self.all_valid_ds_for_request = self.joiner.groupby(['unique_id'])[['d', 's']].agg(list)
@@ -245,8 +253,9 @@ class SemesterPlanner(object):
                 past_nights_observed = 0
 
             # Safety valve for if the target is over-observed for any reason
-            if past_nights_observed > self.requests_frame['n_inter_max'][idx] + \
-                        int(self.requests_frame['n_inter_max'][idx]*self.max_bonus):
+            # if past_nights_observed > self.requests_frame['n_inter_max'][idx] + \
+            #             int(self.requests_frame['n_inter_max'][idx]*self.max_bonus):
+            if past_nights_observed > self.requests_frame['n_inter_max'][idx]:
                 desired_max_obs = past_nights_observed
             else:
                 desired_max_obs = (self.requests_frame['n_inter_max'][idx] - past_nights_observed)
@@ -255,6 +264,7 @@ class SemesterPlanner(object):
                 # second safety valve
                 if past_nights_observed > absolute_max_obs:
                     absolute_max_obs = past_nights_observed
+            
             past_nights_observed_dict[name] = past_nights_observed
             desired_max_obs_allowed_dict[name] = desired_max_obs
             absolute_max_obs_allowed_dict[name] = absolute_max_obs
@@ -814,6 +824,7 @@ class SemesterPlanner(object):
         # DataFrames (saved using pandas HDF5 support)
         dataframe_attrs = [
             ('requests_frame', 'requests_frame', 'dataframe', None),
+            ('requests_frame_all', 'requests_frame_all', 'dataframe', None),
             ('serialized_schedule', 'serialized_schedule', 'dataframe', None),
         ]
         
@@ -931,6 +942,7 @@ class SemesterPlanner(object):
         # DataFrames (loaded using pandas HDF5 support)
         dataframe_attrs = [
             ('requests_frame', 'requests_frame', 'dataframe', None),
+            ('requests_frame_all', 'requests_frame_all', 'dataframe', None),
             ('serialized_schedule', 'serialized_schedule', 'dataframe', None),
         ]
         
