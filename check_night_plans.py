@@ -217,9 +217,12 @@ def main():
     output_file = holders_dir / "quicklook_status.txt"
     
     with open(output_file, 'w') as f:
-        f.write("=" * 200 + "\n")
-        f.write(f"{'Band':<15} {'Exists':<8} {'Stars Req':<12} {'Stars Sched':<12} {'Time in Night (min)':<15} {'Time Exposing (min)':<12} {'Time Slewing (min)':<12} {'Time Idle (min)':<12} {'Open Shutter (hrs)':<15} {'Status':<20}\n")
-        f.write("=" * 200 + "\n")
+        f.write("=" * 145 + "\n")
+        # Multi-line header for better alignment
+        f.write(f"{'':<15} {'':<8} {'N':<12} {'N':<12} {'Time in':<15} {'Time':<12} {'Time':<12} {'Time':<12} {'Open':<15} {'':<20}\n")
+        f.write(f"{'':<15} {'':<8} {'Stars':<12} {'Stars':<12} {'Night':<15} {'Exposing':<12} {'Slewing':<12} {'Idle':<12} {'Shutter':<15} {'':<20}\n")
+        f.write(f"{'Band':<15} {'Exists':<8} {'Requested':<12} {'Scheduled':<12} {'(min)':<15} {'(min)':<12} {'(min)':<12} {'(min)':<12} {'(hrs)':<15} {'Status':<20}\n")
+        f.write("=" * 145 + "\n")
         
         for band, exists, star_count, log_stats, error in results:
             status = "OK" if exists else f"ERROR: {error}"
@@ -234,11 +237,12 @@ def main():
                 idle = f"{log_stats.get('idle_min', 'N/A'):.1f}" if 'idle_min' in log_stats else "N/A"
                 shutter = f"{log_stats.get('shutter_hours', 'N/A'):.2f}" if 'shutter_hours' in log_stats else "N/A"
                 
-                # Check if idle time exceeds 45 minutes and add warning to status
+                # Check if idle time exceeds threshold # of minutes and add warning to status
+                warn_idle = 60
                 if exists and 'idle_min' in log_stats:
                     idle_min = log_stats.get('idle_min')
-                    if idle_min > 45:
-                        status = f"WARNING: Idle > 45min"
+                    if idle_min > warn_idle:
+                        status = f"WARNING: Idle > {warn_idle}min"
             else:
                 requested = "N/A"
                 scheduled = "N/A"
