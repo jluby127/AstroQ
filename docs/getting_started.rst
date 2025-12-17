@@ -28,19 +28,11 @@ Follow these steps to install and set up Gurobi:
         
     This command will download a file called ``gurobi.lic`` to your machine.
     
-    5. **Define the GRB_LICENSE_FILE environment variable** by adding the following to your ``.zshrc`` file:
+    5. **Define the GRB_LICENSE_FILE environment variable** by adding the following to your ``shell profile`` file:
         .. code-block:: bash
 
             export GRB_LICENSE_FILE=/path/to/gurobi.lic
             
-    6. **Optionally define some additional environment variables** while you're at it:
-    
-        .. code-block:: bash
-
-            export KPFCC_JUMP_USERNAME=your_username
-            export KPFCC_JUMP_PASSWORD=your_pass
-            export KPFCC_SAVE_PATH=path/to/AstrQ/results
-
 
 Installing AstroQ
 ------------------
@@ -71,18 +63,118 @@ Run ``pytest`` from your terminal to execute a suite of tests verifying that the
 
         $ pytest -v
 
-This may take a few minutes on the first run. The desired result is that all tests pass successfully.
-        
-Temporary note: you can also run ``coverage`` to see how much code the tests touch:
+This may take a few minutes on the first run. The desired result is that all tests pass successfully. However, if you do not have token access to the KPF-CC database, then the ``test_prep`` will fail. 
+                
 
-    .. code-block:: bash
-
-        $ coverage run -m pytest
-        
-
-Example Usage
+Required Files
 +++++++++++++
 
+AstroQ requires six files to run. All example file paths are relative the astroq project directory.
+
+1. ``config.ini`` - Contains configuration information for the AstroQ run.
+
+   Example: 
+   :file:`examples/hello_world/2018B/2018-08-05/band1/config.ini`
+
+2. ``allocation.csv`` - Contains information about the nights and times when the telescope is available for observation. It must contain appropriate column headers:
+
+    - ``start``
+    - ``end``
+    
+   Times are in format "YYYY-MM-DDTHH:MM"
+
+   Example: ``examples/hello_world/2018B/2018-08-05/band1/allocation.csv``: (first 5 rows shown):
+
+   .. csv-table::
+      :header: "start", "stop"
+      :widths: auto
+      
+      2018-08-05T10:27, 2018-08-05T15:07
+      2018-08-05T05:47, 2018-08-05T10:27
+      2018-08-06T06:30, 2018-08-06T08:33
+      2018-08-06T05:46, 2018-08-06T06:30
+
+3. ``request.csv`` - Contains information about the targets and their observational strategies. It must contain appropriate column headers.
+    - ``unique_id`` - A unique identifier for the target.
+    - ``starname`` - The human-readable name of the target.
+    - ``program_code`` - The program code of the target. 
+    - ``ra`` - The right ascension of the target.
+    - ``dec`` - The declination of the target.
+    - ``exptime`` - The exposure time of the target.
+    - ``n_exp`` - The number of exposures of the target.
+    - ``n_intra_max`` - The desired number of visits within a night.
+    - ``n_intra_min`` - The acceptable number of visits within a night.
+    - ``tau_intra`` - The minimum time (hours) between visits of the target within a night.
+    - ``n_inter_max`` - The maximum number of unique nights to observe the target.
+    - ``tau_inter`` - The minimum time (days) between unique night observations of the target.
+    - ``minimum_elevation`` - The minimum elevation (degrees) of the target.
+    - ``minimum_moon_separation`` - The minimum separation (degrees) between the target and the moon.
+    More columns may be added as needed for your queue (e.g. observational parameters like proper motions, magnitudes, temperatures, etc.) but these are optional record keeping columns.
+
+   Example ``examples/hello_world/2018B/2018-08-05/band1/request.csv``:
+
+   .. csv-table::
+      :file: ../examples/hello_world/2018B/2018-08-05/band1/request.csv
+      :header-rows: 1
+      :widths: auto
+
+4. ``past.csv`` - Contains information about the past history of observations. While it may be blank, it must contain appropriate column headers:
+    - ``id`` - the unique identifier for the target.
+    - ``target`` - the human-readable name of the target.
+    - ``semid`` - the program code of the target.
+    - ``exposure_start_time`` - the start time of the recorded exposure. 
+    - ``exposure_time`` - the recorded duration of the exposure.
+
+   Example ``examples/hello_world/2018B/2018-08-05/band1/past.csv``:
+
+   .. csv-table::
+      :file: ../examples/hello_world/2018B/2018-08-05/band1/past.csv
+      :header-rows: 1
+      :widths: auto
+
+5. ``programs.csv`` - Contains information the awarded time to each program. Useful for plotting later. While it may be blank, it must contain appropriate column headers:
+    - ``program`` - the program code.
+    - ``hours`` - the hours of awarded time to the program.
+    - ``nights`` - the number of nights awarded to the program.
+
+   Example ``examples/hello_world/2018B/2018-08-05/band1/programs.csv``:
+
+   .. csv-table::
+      :file: ../examples/hello_world/2018B/2018-08-05/band1/programs.csv
+      :header-rows: 1
+      :widths: auto
+
+6. ``custom.csv`` - Contains information about the specific time windows when targets may be observed. While it may be blank, it must contain appropriate column headers:
+    - ``unique_id`` - the unique identifier for the target.
+    - ``starname`` - the human-readable name of the target.
+    - ``start`` - the start time of the time window.
+    - ``stop`` - the stop time of the time window.
+    Times are in format "YYYY-MM-DD HH:MM"
+
+   Example ``examples/hello_world/2018B/2018-08-05/band1/custom.csv``:
+
+   .. csv-table::
+      :file: ../examples/hello_world/2018B/2018-08-05/band1/custom.csv
+      :header-rows: 1
+      :widths: auto
+
+**The** ``kpfcc`` **subcommand of** ``prep`` **(see below) compiles and prepares all of these necessary files for the KPF-CC program specifically.** Use of this command requires token access to the KPF-CC database. If you are using AstroQ for a different facility, then you must prepare these files through your own means. Feel free to write your own "prep" command to automate the process.
+
+It is strongly recommended that you create the following folder structure for your AstroQ project:
+    <upstream path>/<semester>/<date>/<band>/
+
+    - <upstream path> is the path to the top-level directory of your AstroQ project.
+    - <semester> is the semester ID of your project (e.g. 2025B).
+    - <date> is the date you are generating the schedule (e.g. 2025-08-01).
+    - <band> is the weather band number (use band1 if you not interested in multiple bands).
+
+    For example, if your upstream path is ``/Desktop/``, your semester is ``2025B``, your date is ``2025-08-01``, and your band is ``1``, then your folder structure should be:
+    /Desktop/2025B/2025-08-01/band1/
+
+    In this folder structure, you should place (or automate the creation of) the necessary files above to run AstroQ. We recommend a new folder for every run, so as to create a history of schedules. You may further create additional weather bands within the date level. Each band should get its own copy of all files.
+
+Command Line Interface
++++++++++++++
 Test your installation further by running some of the commands below. We will use ``AstroQ``'s command line interface to mock up a toy observing schedule. After performing the steps in the :ref:`installation` section, you should have access to the ``astroq`` binary at the command line. If not, ensure that you have run ``pip install -e .`` in the top-level directory of the repository.
 
 Let's see which subcommands are available using ``astroq --help``:
@@ -90,7 +182,7 @@ Let's see which subcommands are available using ``astroq --help``:
     .. code-block:: bash
     
     
-        $ usage: astroq [-h] [-V] {bench,plot,schedule,kpfcc,ttp,comp,simsemester} ...
+        $ usage: astroq [-h] [-V] {bench,plot,kpfcc_prep,webapp,plan-semester,plan-night,compare} ...
 
             AstroQ: Optimized observation scheduling
 
@@ -99,96 +191,271 @@ Let's see which subcommands are available using ``astroq --help``:
             -V, --version         Print version number and exit.
 
             subcommands:
-                {bench,plot,schedule,kpfcc,ttp,comp,simsemester}
+            {bench,plot,prep,webapp,plan-semester,plan-night,compare}
                 
 
-Run the following commands to build a request set, schedule a set of observations,
-plot the results, and render summary plots in an HTML web app.
+The AstroQ command-line interface provides the following subcommands:
 
-    .. code-block:: bash
-    
-        $ astroq kpfcc prep -cf examples/hello_world/config_hello_world.ini
-        $ astroq kpfcc build -cf examples/hello_world/config_hello_world.ini
-        $ astroq schedule -cf examples/hello_world/config_hello_world.ini -rf examples/hello_world/outputs/2024-08-02/request_set.json
-        $ astroq ttp -cf examples/bench/config_benchmark.ini
-        $ astroq plot -cf examples/hello_world/config_hello_world.ini
-        $ astroq kpfcc webapp -cf examples/hello_world/config_hello_world.ini
+* ``bench`` - Runs the benchmark test. Here you can compare your computer's performance with the AstroQ benchmark from our paper, Lubin et al. 2025.
+* ``prep`` - Compile and prepare all necessary files. For the KPFCC program, there is an additional subcommand ``kpfcc``. Note that if you are building a queue for a different facility, you will have to build your own subcommand.
+* ``webapp`` - Launch web app to view interactive plots for a given solution of AstroQ.
+* ``plan-semester`` - Solve for the optimal semester-long schedule, determining what stars to observe on what nights. This is the heart of AstroQ.
+* ``plan-night`` - Solve for the optimal slew path using the TTP package.
+* ``compare`` - Compare two AstroQ solutions.
 
-    
 **Below are more detailed explanations of these commands and their outputs.**
 
-To create your mock observing schedule, first run ``kpfcc build``:
+Hello World Example
++++++++++++++
+To create your mock observing schedule, let's run the hello world example. Here we have supplied the necessary files. We will create a schedule for the first night when we have the telescope, 2024-08-02, as specified in the config file. Navigate to your AstroQ/ directory and then run:
 
     .. code-block:: bash
     
-        $ astroq kpfcc build -cf examples/hello_world/config_hello_world.ini
+        $ astroq plan-semester -cf examples/hello_world/config_hello_world.ini
         
 Let's take a look at the outputs produced:
 
     .. code-block:: bash
     
-        $ ls -ltr examples/hello_world/outputs/2024-08-02
+        $ ls -ltr examples/hello_world/2018B/2018-08-05/band1/outputs
         
-        -rw-r--r--@ 1 staff       0 May 11 08:54 runReport.txt
-        -rw-r--r--  1 staff   35685 May 11 08:54 weather_loss_visualization.png
-        -rw-r--r--@ 1 staff    4904 May 11 08:54 Weather_Simulation_Results.csv
-        -rw-r--r--  1 staff  729964 May 11 08:54 request_set.json
+            -rw-r--r--@ 1 jack  staff    3153 Oct 29 12:15 semester_plan.csv
+            -rw-r--r--@ 1 jack  staff  230542 Oct 29 12:15 serialized_outputs_dense_v1.csv
+            -rw-r--r--@ 1 jack  staff  253640 Oct 29 12:15 serialized_outputs_dense_v2.csv
+            -rw-r--r--@ 1 jack  staff     346 Oct 29 12:15 runReport.txt
+            -rw-r--r--@ 1 jack  staff     873 Oct 29 12:15 request_selected.csv
+            -rw-r--r--@ 1 jack  staff  244512 Oct 29 12:15 semester_planner.h5
       
-- ``request_set.json`` contains the PI-provided target observation criteria used to generate the observing schedule
-- ``Weather_Simulation_Results.csv`` contains the results of a simulation to estimate the number of nights lost due to poor weather.
-- ``weather_loss_visualization.png`` provides a visual display of the information in ``Weather_Simulation_Results.csv``. Here is an example of what it might look like:
+- ``semester_plan.csv`` contains the id, day, slot and name of the scheduled observations. sorted by target name. See example:
 
-    .. image:: plots/weather_loss_visualization.png
-- `runReport.txt`: <DESCRIPTION HERE>
-        
-Next, use ``request_set.json`` to generate an observing schedule:
+    .. csv-table::
+       :header: "r", "d", "s", "name"
+       :widths: auto
+    
+       e1, 4, 62, HIP1532
+       e1, 5, 66, HIP1532
+       e1, 8, 65, HIP1532
+       e1, 12, 61, HIP1532
+       e1, 13, 82, HIP1532
+       e1, 61, 77, HIP1532
+       e1, 63, 76, HIP1532
+       e1, 64, 77, HIP1532
+       e1, 86, 67, HIP1532
+       e1, 87, 67, HIP1532
+       e2, 4, 36, TOI-1670
+       e2, 5, 35, TOI-1670
+       e2, 8, 41, TOI-1670
+
+- ``serialized_outputs_dense_v1.csv`` contains the same information, but now all slots, even those not scheduled to have an observation are included, and it is ordered by time. See example:
+
+    .. csv-table::
+       :header: "d", "s", "r", "name"
+       :widths: auto
+
+       0, 0, , 
+       0, 1, , 
+       0, 2, , 
+       0, 3, , 
+       0, 4, , 
+       0, 5, , 
+       0, 6, , 
+       0, 7, , 
+       0, 8, , 
+       0, 9, , 
+       0, 10, , 
+       0, 11, , 
+       0, 12, , 
+       0, 13, , 
+       0, 14, , 
+       ..., ..., ..., ...
+       4, 62, e2, HIP1532
+       4, 63, , 
+
+- ``serialized_outputs_dense_v2.csv`` is identical to ``serialized_outputs_dense_v1.csv``, but now slots that cannot be filled for all stars (like sky brightness or telescope allocation, are denoted with an "X"). See example:
+
+    .. csv-table::
+       :header: "d", "s", "r", "name"
+       :widths: auto
+
+       0, 0, X, 
+       0, 1, X, 
+       0, 2, X, 
+       0, 3, X, 
+       0, 4, X, 
+       0, 5, X, 
+       0, 6, X, 
+       0, 7, X, 
+       0, 8, X, 
+       0, 9, X, 
+       0, 10, X, 
+       0, 11, X, 
+       0, 12, X, 
+       ..., ..., ..., ...
+       4, 62, e2, HIP1532
+       4, 63, , 
+    
+- ``runReport.txt``: contains some basic statistics about the fullness of the schedule. See example (note, this schedule is not supposed to be a good one!):
+    
+    ::
+
+        Stats for Round1
+        ------------------------------------------------------
+        N slots in semester:26496
+        N available slots:2874
+        N starting slots scheduled: 183
+        N reserved slots: 26
+        N total slots scheduled: 209
+        N slots left empty: 2665
+        N slots requested (total): 807
+        Utilization (% of available slots): 7.272%
+        Utilization (% of requested slots): 25.898%
+
+- ``request_selected.csv``: contains a copy of the request.csv file but only for the targets that were selected to be observed.:
+
+- ``semester_planner.h5``: is a serialized and compressed version of the splan object used for scheduling. This will be used later in the webapp/plotting routines and serves as a record of the schedule inputs/outputs.
+
+Now that we have the stars to be observed each night of the semester, let's determine the optimal ordering of the stars selected for tonight, mimizing slew times, to generate a night plan:
 
     .. code-block:: bash
     
-        $ astroq schedule -cf examples/hello_world/config_hello_world.ini -rf examples/hello_world/outputs/2024-08-02/request_set.json
+        $ astroq plan-night -cf examples/hello_world/config_hello_world.ini 
         
 
-Here are the new files in ``examples/hello_world/outputs/2024-08-01``:
+Here are the new files in ``examples/hello_world/outputs/``:
 
     .. code-block:: bash
         
-        -rw-r--r--  1  staff   32652 May 11 09:23 raw_combined_semester_schedule_Round1.txt
-        -rw-r--r--  1  staff   31447 May 11 09:23 raw_combined_semester_schedule_available.txt
-        -rw-r--r--  1  staff   32652 May 11 09:23 raw_combined_semester_schedule_Round2.txt
-        -rw-r--r--  1  staff       0 May 11 09:23 Round2_Requests.txt
-        -rw-r--r--  1  staff  206459 May 11 09:23 serialized_outputs_dense.csv
+        -rw-r--r--@ 1 jack  staff     447 Oct 29 13:36 ttp_prepared.csv
+        -rw-r--r--@ 1 jack  staff     433 Oct 29 13:36 TTPstatistics.txt
+        -rw-r--r--@ 1 jack  staff     158 Oct 29 13:36 ObserveOrder_2018-08-05.txt
+        -rw-r--r--@ 1 jack  staff    1157 Oct 29 13:36 script_2018-08-05_nominal.txt
+        -rw-r--r--@ 1 jack  staff   16080 Oct 29 13:36 night_planner.h5
 
-- ``raw_combined_semester_schedule_Round1.txt``, ``raw_combined_semester_schedule_Round2.txt``, and ``raw_combined_semester_schedule_available.txt`` give visual representations of the scheduling output. In these files, each line represents one night of the semester and each column represents a single *10-minute* slot. Slots populated with any combination of an ``X``, ``*``, or ``W`` are unavailable for observation, indicating respectively that the telescope is allocated to another group, the sky is not sufficiently dark, or that the weather simulation has predicted that slot will be weathered out. Slots allocated to a specific target are populated with that target's name. Here are a few example rows from ``raw_combined_semester_schedule_Round2.txt``:
+- ``ttp_prepared.csv`` is the input to the TTP solver. It contains the target information in the format required by the TTP solver. See example and the TTP repository for more info:
 
-    .. image:: plots/schedule_Round2_screenshot.png
+    .. csv-table::
+       :header: "Starname", "RA", "Dec", "Exposure Time", "Exposures Per Visit", "Visits In Night", "Intra_Night_Cadence", "Priority", "First Available", "Last Available"
+       :widths: auto
 
-    - Each night begins and ends with an interval of un-allocated bright time, corresponding to twilight.
-    - ``Line 70`` shows a first-half-only night, during which three observations of `Kepler-10` are scheduled.
-    - No time is allocated to our program on the night corresponding to ``Line 71``.
-    - The night of ``Line 79`` is entirely weathered out.
-    
-- ``Round2_Requests.txt``: <EXPLANATION HERE>
-- ``serialized_outputs_dense.csv`` presents the information in the ``raw_combined`` files (which one specifically?) in a machine-readable format. There is one row for every slot of every night in the semester, and six columns:
+       e1, 4.77317661843625, -9.964852409, 360, 2, 1, 0, 10, 2018-08-05 10:20, 2018-08-05 15:00
+       e2, 259.0173367, 72.16115935, 1200, 1, 1, 0, 10, 2018-08-05 05:50, 2018-08-05 08:50
+       e7, 285.679422455377, 50.2413060048164, 50, 1, 4, 1, 10, 2018-08-05 05:50, 2018-08-05 12:20
+       e9, 348.320729001503, 57.1683566176719, 60, 3, 1, 0, 10, 2018-08-05 08:40, 2018-08-05 15:00
 
-    - ``d``: The day of the semester, beginning at 0
-    - ``s``: The slot of a given night, beginning at 0
-    - ``r``: The target requested during a given slot (empty if none)
-    - ``isNight``: Whether it is night (1 if yes, 0 if no)
-    - ``isAlloc``: Whether the telescope is allocated to your program (1 if yes, 0 if no)
-    - ``isClear``: Whether the weather is conducive to observing (0 if yes, 1 if no)
-    
-    .. image:: plots/outputs_dense_screenshot.png
-    
-    - The image above shows 11 slots during night 21 of the semester. `HAT-P-11` is scheduled during slots 53-XX (update with dense version that shows all filled slots), followed by `219134` in slots 62-XX. The sky is dark, the telescope is allocated to our program, and the weather is good during all of these slots.      
+- ``TTPstatistics.txt`` contains some basic statistics about the TTP solution. See example:
 
+    ::
 
+        Stats for TTP Solution
+        ------------------------------------
+            Model ran for 0.05 seconds
+            Observations Requested: 7
+            Observations Scheduled: 7
+        Maximum Observations Bound: 1
+        ------------------------------------
+        Observing Duration (min): 560.00
+        Time Spent Exposing (min): 40.57
+            Time Spent Idle (min): 510.51
+        Time Spent Slewing (min): 8.92
+        Minimum Slew Bound (min): 4.17
+        ------------------------------------
 
-- Now run the plotting code
+- ``ObserveOrder_2018-08-05.txt`` the timestamps at which each star is set to be observed. See example:
+
+    .. csv-table::
+       :header: "unique_id", "Target", "StartExposure"
+       :widths: auto
+
+       e2, TOI-1670, 05:47
+       e7, Kepler-10, 06:07
+       e7, Kepler-10, 07:07
+       e7, Kepler-10, 08:47
+       e9, 219134, 08:49
+       e1, HIP1532, 11:41
+       e7, Kepler-10, 11:59
+
+- ``script_2018-08-05_nominal.txt`` is a backwards compatible file in the style of the old HIRES queue night plans.
+
+- ``night_planner.h5``: a serialized and compressed version of the night planner object use to schedule. This will be used later in the webapp/plotting routines.
+
+Now we can launch the webapp to view the schedule. This will launch on a local server at http://localhost:50001. When it launches, append "/2018B/2018-08-05/band1/admin" to the URL to view the admin page. Check out and familiarize yourself with the various figures and reports.
 
     .. code-block:: bash
     
-        $ astroq plot -cf examples/hello_world/config_hello_world.ini 
+        $ astroq webapp -up examples/hello_world/
 
-        
-        
-        
+Scrolling down a bit, you should see the "Cumulative Observation Function (COF)" plot which describes the completion rate of each program as a function of time:
+
+    .. image:: plots/hello_cof.png
+        :width: 100%
+        :align: center
+        :alt: Webapp screenshot
+
+Scrolling down a bit, you should see the "birdseye" plot of the schedule look something like this:
+
+    .. image:: plots/hello_birdseye.png
+        :width: 100%
+        :align: center
+        :alt: Webapp screenshot
+
+Notice that two program perform poorly, U001 and U006. This is entirely explainable and stems from the fact that the requests in these programs are infeasible. For example, let's investigate U006's target, WASP-107. First displaying all the slots that are available for observations this semester:
+
+    .. image:: plots/U006_birdseye_1.png
+        :width: 100%
+        :align: center
+        :alt: Webapp screenshot
+
+This shows there is lots of available time to schedule the target. So why isn't it getting scheduled more? Turning on some of the individual constraint maps reveals the problem. First we turn on the is_altaz, which blocks out the times that are not available for scheduling this target due to the natural seasonality of the star and the pointing limits of the telescope:
+
+    .. image:: plots/U006_birdseye_2.png
+        :width: 100%
+        :align: center
+        :alt: Webapp screenshot
+
+Immediately we see that the vast majority of our allocated time is not ammenable to observing this target. But what about those last two days, why isn't the target scheduled then? We can further turn on the is_moon, which blocks out the times that are not available for scheduling this target due to the moon's position in the sky and we see that this is the cause of conflict:
+
+    .. image:: plots/U006_birdseye_3.png
+        :width: 100%
+        :align: center
+        :alt: Webapp screenshot
+
+Now we can feel confident that AstroQ is scheduling this target as often as is feasible. The request itself is infeasible, thus the low completion rate. U001's HIP1532 target is amenable to observations all semester, but it has a custom map that severly restricts when it can be observed, hence a low completion rate. These tools allow us the really dive into any target and understand why it is or is not being scheduled.
+
+Looking at some additional plots, we track the on-sky cadence vs the requested cadence. We don't want to violate the PI's desired minimum cadence so all dots on this plot should be above the dashed line, which, is confirmed:
+
+    .. image:: plots/hello_tau.png
+        :width: 100%
+        :align: center
+        :alt: Webapp screenshot
+
+Lastly, we look at the distribution of the targets across the sky. Against the grayscale heatmap, we can get a sense for how many nights in the semester a given location on the sky is observable, imagining we had the telescope all night every night. Here we can quickly see that WASP-107 is in a dark region of the sky, meaning it is not amenable to many observations in the semester. Couple that with the fact that we don't actually have all night every night to observe, this target is severely limited in its observability and hence has the low completion, which we walked through above. This grayscale map captures the intricate pointing limits of the K1 telescope easily. 
+
+    .. image:: plots/hello_football.png
+        :width: 100%
+        :align: center
+        :alt: Webapp screenshot
+
+Next we can investigate the plan for tonight. After the the slew path in minimized through the TTP solver, we have a suite of plots availabe to us for insight. First we look at the "ladder" plot. The observations are ordered in time from top to bottom. Green bars indicate the spans of time when the target is observable (above pointing limits), and the red bars indicate the times when we are set to observe the target. We can easily see the plan for the night, and see how tight or loose the windows are to observe a particular target.
+
+    .. image:: plots/hello_ladder.png
+        :width: 100%
+        :align: center
+        :alt: Webapp screenshot
+
+Then we have the slew path animation (screenshot below). This is a polar plot of the telescope's slew path with an orange line showing the path of the telescope over the night as the defined optimal path. The red regions are below/above telescope pointing limits and are unique to K1 telescope. The slider at the bottom allows us to select a time in the night and see where we are and where we are going next.
+
+    .. image:: plots/hello_slew.png
+        :width: 100%
+        :align: center
+        :alt: Webapp screenshot
+
+The Hello World Example is an easy model to solve. It only has 10 requests, with a total of 282 observations to schedule across and entire 6 month semester...a human could do this easily. In terms of model size, it is only 4598 rows by 8285 columns with 65656 nonzeros. 
+
+Try something a bit more complex by running our benchmark test. This is a realistic semester model scheduling 200 requests with programs of different observational strategies inspired by real observing programs. This model is 56009 rows by 329369 columns with 3820641 nonzeros, significantly bigger and not human-solvable.
+
+    .. code-block:: bash
+    
+        $ astroq bench -cf examples/bench/config_benchmark.ini -ns 12 
+
+The inputs and expected outputs are well defined in our paper, compare your computer's performance to ours! See `Lubin et al. 2025 <https://ui.adsabs.harvard.edu/abs/2025arXiv250608195L/abstract>`_.       
+

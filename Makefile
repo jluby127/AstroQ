@@ -16,6 +16,13 @@ END_DATE ?= 2026-01-31
 BANDS ?= band1 band2 band3 full-band1 full-band2 full-band3
 FILLER_PROGRAM ?= 2025B_E473
 
+# Cross-platform sed in-place flag (Darwin uses -i '')
+UNAME_S := $(shell uname)
+SED_I_FLAG :=
+ifeq ($(UNAME_S),Darwin)
+  SED_I_FLAG := ''
+endif
+
 # Date validation and override
 DATE ?= $(shell date +%Y-%m-%d)
 ifdef date
@@ -36,6 +43,8 @@ all: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/plan-night-complete)
 	@$(MAKE) copy_observe_orders
 	@echo "📝 Combining all band logs..."
 	@$(MAKE) combine_logs
+	@echo "🔍 Checking night plans..."
+	@$(MAKE) check_night_plans
 
 # Final target for each band - depends on plan-night completion
 $(DATE_DIR)/%/plan-night-complete: $(DATE_DIR)/%/plan-night-run
@@ -45,13 +54,13 @@ $(DATE_DIR)/%/plan-night-complete: $(DATE_DIR)/%/plan-night-run
 # Run plan-night command
 $(DATE_DIR)/%/plan-night-run: $(DATE_DIR)/%/plan-semester-run
 	@echo "🌙 Running plan-night for band $(notdir $(@D))..."
-	@cd $(@D) && conda run -n $(CONDA_ENV) astroq kpfcc plan-night -cf config.ini 2>&1 | tee -a astroq.log
+	@cd $(@D) && conda run -n $(CONDA_ENV) astroq plan-night -cf config.ini 2>&1 | tee -a astroq.log
 	@touch $@
 
 # Run plan-semester command (unified for all bands)
 $(DATE_DIR)/%/plan-semester-run: $(DATE_DIR)/%/prep-run
 	@echo "📅 Running plan-semester for band $(notdir $(@D))..."
-	@cd $(@D) && conda run -n $(CONDA_ENV) astroq kpfcc plan-semester -cf config.ini 2>&1 | tee -a astroq.log
+	@cd $(@D) && conda run -n $(CONDA_ENV) astroq plan-semester -cf config.ini 2>&1 | tee -a astroq.log
 	@touch $@
 
 # Unified prep command for all bands
@@ -61,10 +70,10 @@ $(DATE_DIR)/%/prep-run: $(DATE_DIR)/%/config.ini
 	IS_FULL_BAND=$$(echo $(notdir $(@D)) | grep -q '^full-' && echo "true" || echo "false"); \
 	if [ "$$IS_FULL_BAND" = "true" ]; then \
 		echo "📅 Running prep for full-band $$BAND_NUM..." && \
-		cd $(@D) && conda run -n $(CONDA_ENV) astroq kpfcc prep -cf config.ini -fillers $(FILLER_PROGRAM) -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
+		cd $(@D) && conda run -n $(CONDA_ENV) astroq prep kpfcc -cf config.ini -fillers $(FILLER_PROGRAM) -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
 	else \
 		echo "📊 Running prep for band $$BAND_NUM..." && \
-		cd $(@D) && conda run -n $(CONDA_ENV) astroq kpfcc prep -cf config.ini -fillers $(FILLER_PROGRAM) -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
+		cd $(@D) && conda run -n $(CONDA_ENV) astroq prep kpfcc -cf config.ini -fillers $(FILLER_PROGRAM) -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
 	fi
 	@touch $@
 
@@ -73,17 +82,17 @@ $(DATE_DIR)/%/config.ini: create_dirs
 	@echo "📋 Copying config template for band $(notdir $(@D))..."
 	@mkdir -p $(@D)
 	@cp config_template.ini $@
-	# @echo "📝 Updating placeholders for band $(notdir $(@D))..."
-	# @sed -i "s|CURRENT_DATE_PLACEHOLDER|$(DATE)|g" $@
-	# @sed -i "s|START_DATE_PLACEHOLDER|$(START_DATE)|g" $@
-	# @sed -i "s|END_DATE_PLACEHOLDER|$(END_DATE)|g" $@
-	# @sed -i "s|SEMESTER_PLACEHOLDER|$(SEMESTER)|g" $@
-	# @sed -i "s|WORKDIR_PLACEHOLDER|$(@D)|g" $@
-	@sed -i '' "s|CURRENT_DATE_PLACEHOLDER|$(DATE)|g" $@
-	@sed -i '' "s|START_DATE_PLACEHOLDER|$(START_DATE)|g" $@
-	@sed -i '' "s|END_DATE_PLACEHOLDER|$(END_DATE)|g" $@
-	@sed -i '' "s|SEMESTER_PLACEHOLDER|$(SEMESTER)|g" $@
-	@sed -i '' "s|WORKDIR_PLACEHOLDER|$(@D)|g" $@
+	@sed -i $(SED_I_FLAG) "s|CURRENT_DATE_PLACEHOLDER|$(DATE)|g" $@
+	@sed -i $(SED_I_FLAG) "s|START_DATE_PLACEHOLDER|$(START_DATE)|g" $@
+	@sed -i $(SED_I_FLAG) "s|END_DATE_PLACEHOLDER|$(END_DATE)|g" $@
+	@sed -i $(SED_I_FLAG) "s|SEMESTER_PLACEHOLDER|$(SEMESTER)|g" $@
+	@sed -i $(SED_I_FLAG) "s|WORKDIR_PLACEHOLDER|$(@D)|g" $@
+	# If this is band3 or full-band3, tighten the max_solve_gap for semester solver
+	@BAND_NAME=$(notdir $(@D)); \
+	if [ "$$BAND_NAME" = "band3" ] || [ "$$BAND_NAME" = "full-band3" ]; then \
+		echo "⚙️  Detected $$BAND_NAME: setting [semester] max_solve_gap = 0.005"; \
+		sed -i $(SED_I_FLAG) -e '/^\[semester\]/,/^\[/{s/^max_solve_gap.*/max_solve_gap = 0.005/;}' $@; \
+	fi
 	@echo "✅ Config file created and updated for band $(notdir $(@D))"
 
 # Validate date format
@@ -147,6 +156,12 @@ combine_logs:
 	done
 	@echo "✅ Combined log file created: $(DATE_DIR)/all_band_logs.log"
 
+# Check night plans
+check_night_plans:
+	@echo "🔍 Running check_night_plans.py..."
+	@cd $(shell dirname $(firstword $(MAKEFILE_LIST))) && conda run -n $(CONDA_ENV) python check_night_plans.py -s $(SEMESTER) -d $(DATE) $(HOLDERS_DIR)
+	@echo "✅ Night plans check complete!"
+
 # Launch webapp
 webapp:
 	@echo "🌐 Launching AstroQ webapp..."
@@ -186,4 +201,4 @@ complete: all
 	@echo "🌐 Launching webapp..."
 	@$(MAKE) webapp
 
-.PHONY: all create_dirs clean status copy_observe_orders copy_only webapp complete combine_logs 
+.PHONY: all create_dirs clean status copy_observe_orders copy_only webapp complete combine_logs check_night_plans 
