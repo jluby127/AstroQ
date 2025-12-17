@@ -213,57 +213,69 @@ def main():
         exists, star_count, log_stats, error = check_night_plan(holders_dir, band, output_dir)
         results.append((band, exists, star_count, log_stats, error))
     
-    # Print results
-    print("=" * 200)
-    print(f"{'Band':<15} {'Exists':<8} {'Stars Req':<12} {'Stars Sched':<12} {'Time in Night (min)':<15} {'Time Exposing (min)':<12} {'Time Slewing (min)':<12} {'Time Idle (min)':<12} {'Open Shutter (hrs)':<15} {'Status':<20}")
-    print("=" * 200)
+    # Write results to file
+    output_file = holders_dir / "quicklook_status.txt"
     
-    for band, exists, star_count, log_stats, error in results:
-        status = "✅ OK" if exists else f"❌ {error}"
+    with open(output_file, 'w') as f:
+        f.write("=" * 200 + "\n")
+        f.write(f"{'Band':<15} {'Exists':<8} {'Stars Req':<12} {'Stars Sched':<12} {'Time in Night (min)':<15} {'Time Exposing (min)':<12} {'Time Slewing (min)':<12} {'Time Idle (min)':<12} {'Open Shutter (hrs)':<15} {'Status':<20}\n")
+        f.write("=" * 200 + "\n")
         
-        # Format log statistics
-        if log_stats:
-            requested = log_stats.get('requested', 'N/A')
-            scheduled = log_stats.get('scheduled', 'N/A')
-            duration = f"{log_stats.get('duration_min', 'N/A'):.1f}" if 'duration_min' in log_stats else "N/A"
-            exposing = f"{log_stats.get('exposing_min', 'N/A'):.1f}" if 'exposing_min' in log_stats else "N/A"
-            slew = f"{log_stats.get('slew_min', 'N/A'):.1f}" if 'slew_min' in log_stats else "N/A"
-            idle = f"{log_stats.get('idle_min', 'N/A'):.1f}" if 'idle_min' in log_stats else "N/A"
-            shutter = f"{log_stats.get('shutter_hours', 'N/A'):.2f}" if 'shutter_hours' in log_stats else "N/A"
+        for band, exists, star_count, log_stats, error in results:
+            status = "OK" if exists else f"ERROR: {error}"
             
-            # Check if idle time exceeds 45 minutes and add warning to status
-            if exists and 'idle_min' in log_stats:
-                idle_min = log_stats.get('idle_min')
-                if idle_min > 45:
-                    status = f"⚠️  WARNING: Idle > 45min"
-        else:
-            requested = "N/A"
-            scheduled = "N/A"
-            duration = "N/A"
-            exposing = "N/A"
-            slew = "N/A"
-            idle = "N/A"
-            shutter = "N/A"
+            # Format log statistics
+            if log_stats:
+                requested = log_stats.get('requested', 'N/A')
+                scheduled = log_stats.get('scheduled', 'N/A')
+                duration = f"{log_stats.get('duration_min', 'N/A'):.1f}" if 'duration_min' in log_stats else "N/A"
+                exposing = f"{log_stats.get('exposing_min', 'N/A'):.1f}" if 'exposing_min' in log_stats else "N/A"
+                slew = f"{log_stats.get('slew_min', 'N/A'):.1f}" if 'slew_min' in log_stats else "N/A"
+                idle = f"{log_stats.get('idle_min', 'N/A'):.1f}" if 'idle_min' in log_stats else "N/A"
+                shutter = f"{log_stats.get('shutter_hours', 'N/A'):.2f}" if 'shutter_hours' in log_stats else "N/A"
+                
+                # Check if idle time exceeds 45 minutes and add warning to status
+                if exists and 'idle_min' in log_stats:
+                    idle_min = log_stats.get('idle_min')
+                    if idle_min > 45:
+                        status = f"WARNING: Idle > 45min"
+            else:
+                requested = "N/A"
+                scheduled = "N/A"
+                duration = "N/A"
+                exposing = "N/A"
+                slew = "N/A"
+                idle = "N/A"
+                shutter = "N/A"
+            
+            f.write(f"{band:<15} {str(exists):<8} {str(requested):<12} {str(scheduled):<12} {duration:<15} {exposing:<12} {slew:<12} {idle:<12} {shutter:<15} {status:<20}\n")
         
-        print(f"{band:<15} {str(exists):<8} {str(requested):<12} {str(scheduled):<12} {duration:<15} {exposing:<12} {slew:<12} {idle:<12} {shutter:<15} {status:<20}")
+        f.write("=" * 200 + "\n")
+        
+        # Summary
+        total_bands = len(results)
+        successful = sum(1 for _, exists, _, _, _ in results if exists)
+        failed = total_bands - successful
+        
+        f.write(f"\nSummary:\n")
+        f.write(f"   Total bands: {total_bands}\n")
+        f.write(f"   Successful: {successful}\n")
+        f.write(f"   Failed: {failed}\n")
+        
+        if failed > 0:
+            f.write(f"\nWarning: {failed} band(s) have issues\n")
+        else:
+            f.write(f"\nAll bands checked successfully!\n")
     
-    print("=" * 200)
+    print(f"✅ Results written to: {output_file}")
     
-    # Summary
+    # Exit with appropriate status code
     total_bands = len(results)
     successful = sum(1 for _, exists, _, _, _ in results if exists)
     failed = total_bands - successful
-    
-    print(f"\n📊 Summary:")
-    print(f"   Total bands: {total_bands}")
-    print(f"   ✅ Successful: {successful}")
-    print(f"   ❌ Failed: {failed}")
-    
     if failed > 0:
-        print(f"\n⚠️  Warning: {failed} band(s) have issues")
         sys.exit(1)
     else:
-        print(f"\n✅ All bands checked successfully!")
         sys.exit(0)
 
 

@@ -20,6 +20,7 @@ examples/hello_world/2018B/2018-08-05/band1/*
 !examples/hello_world/2018B/2018-08-05/band1/request.csv
 !examples/hello_world/2018B/2018-08-05/band1/past.csv
 !examples/hello_world/2018B/2018-08-05/band1/custom.csv
+!examples/hello_world/2018B/2018-08-05/band1/programs.csv
 !examples/hello_world/prepped/observatory_schedule.csv
 !examples/hello_world/prepped/jump_past_history.csv
 !examples/hello_world/prepped/request.csv
@@ -31,6 +32,7 @@ examples/bench/*
 !examples/bench/allocation.csv
 !examples/bench/past.csv
 !examples/bench/custom.csv
+!examples/bench/programs.csv
 
 # In general, ignore files in the data/ folder, with exception
 data/*
