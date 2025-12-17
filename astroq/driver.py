@@ -364,14 +364,14 @@ def plot(args):
 
         # build the plots
         script_table_df = pl.get_script_plan(night_planner)
-        timepie_fig = pl.get_timepie(semester_planner, all_stars_from_all_programs, use_program_colors=False)
+        timebar_fig = pl.get_timebar(semester_planner, all_stars_from_all_programs, use_program_colors=False)
         ladder_fig = pl.get_ladder(data_ttp, night_start_time)
         slew_animation_fig = pl.get_slew_animation_plotly(data_ttp, os.path.join(semester_directory, "request.csv"), animationStep=120)
         slew_path_fig = pl.plot_path_2D_interactive(data_ttp, night_start_time=night_start_time)
 
         # write the html versions 
         script_table_html = pl.dataframe_to_html(script_table_df)
-        timepie_html = pio.to_html(timepie_fig, full_html=True, include_plotlyjs='cdn')
+        timebar_html = pio.to_html(timebar_fig, full_html=True, include_plotlyjs='cdn')
         ladder_html = pio.to_html(ladder_fig, full_html=True, include_plotlyjs='cdn')
         slew_path_html = pio.to_html(slew_path_fig, full_html=True, include_plotlyjs='cdn')
         slew_animation_html = pio.to_html(slew_animation_fig, full_html=True, include_plotlyjs='cdn')
@@ -379,8 +379,8 @@ def plot(args):
         # write out the html files 
         with open(os.path.join(saveout, "script_table.html"), "w") as f:
             f.write(script_table_html)
-        with open(os.path.join(saveout, "timepie_plot.html"), "w") as f:
-            f.write(timepie_html)
+        with open(os.path.join(saveout, "timebar_plot.html"), "w") as f:
+            f.write(timebar_html)
         with open(os.path.join(saveout, "ladder_plot.html"), "w") as f:
             f.write(ladder_html)
         with open(os.path.join(saveout, "slew_animation_plot.html"), "w") as f:

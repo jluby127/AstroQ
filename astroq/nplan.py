@@ -201,6 +201,7 @@ class NightPlanner(object):
             use_starnames.append(selected_df[selected_df['unique_id'] == plotly_df['Starname'].iloc[i]]['starname'].iloc[0])
             use_star_ids.append(str(plotly_df['Starname'].iloc[i]))
        
+        # Convert solution.extras to a DataFrame for consistency
         extras_df = pd.DataFrame(solution.extras)
         for j in range(len(extras_df)):
             use_start_exposures.append('24:00')

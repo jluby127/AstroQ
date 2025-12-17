@@ -738,17 +738,18 @@ def get_tau_inter_line(semester_planner, all_stars, use_program_colors=False):
     )
     return fig
 
-def get_timepie(semester_planner, all_stars, use_program_colors=False):
+def get_timebar(semester_planner, all_stars, use_program_colors=False, prevent_negative=False):
     """
-    Create an pie chart of the time used vs forecasted vs available
+    Create a horizontal bar chart of the time used vs forecasted vs available
 
     Parameters:
         semester_planner: the semester planner object
         all_stars (list): array of StarPlotter objects
         use_program_colors (bool): If True, use program_color_rgb; if False, use star_color_rgb (default: False)
+        prevent_negative (bool): If True, set Incomplete and Not used categories to zero if they are negative (default: True)
 
     Returns:
-        fig (plotly figure): a plotly figure showing the time used vs forecasted vs available
+        fig (plotly figure): a plotly figure showing the time used vs forecasted vs available as a horizontal bar chart
     """
     programmatics = pd.read_csv(os.path.join(semester_planner.semester_directory, 'programs.csv'))
 
@@ -779,163 +780,99 @@ def get_timepie(semester_planner, all_stars, use_program_colors=False):
         total_allocated_hours = program_rows['hours'].sum()
         total_allocated_nights = program_rows['nights'].sum()
 
-    # Create pie chart data
-    labels = ['Completed', 'Scheduled', 'Incomplete', "Unused"]
-    values = [total_past_hours, total_future_hours, total_incomplete_hours, total_allocated_hours-total_requested_hours]
-    colors = ['#2E86AB', '#A23B72', '#F18F01', '#000000']  # Blue, Purple, Orange, Black
+    # Calculate unused hours
+    unused_hours = total_allocated_hours - total_future_hours - total_past_hours
     
-    # Create the pie chart positioned on the left side
-    fig = go.Figure(data=[go.Pie(
-        labels=labels,
-        values=values,
-        marker=dict(colors=colors),
-        textinfo='label+percent+value',
-        texttemplate='%{label}<br>%{value:.1f} hrs<br>(%{percent})',
-        hovertemplate='<b>%{label}</b><br>%{value:.2f} hours<br>%{percent}<extra></extra>',
-        domain=dict(x=[0, 0.5], y=[0, 1])  # Position pie chart on left half of plot
+    # Apply negative value prevention if enabled
+    if prevent_negative:
+        total_incomplete_hours = max(0, total_incomplete_hours)
+        unused_hours = max(0, unused_hours)
+
+    # Create bar chart data
+    # Reverse order so bars appear top to bottom: Requested, Completed, Scheduled, Incomplete, Not used, Sum
+    # Labels include descriptions for clarity
+    labels = [
+        "<b>Unused Time</b><br>(allocation - past - future)<br>If you have positive unused time, <br>consider adding or changing requests", 
+        '<b>Incomplete Time</b><br>(requested - past - future)<br>If you have incomplete time, <br>some of your requests are infeasible <br> consider changing them, <br> i.e. cadence or redistributing', 
+        '<b>Future Scheduled Time</b>', 
+        '<b>Past Completed Time</b>', 
+        '<b>Requested Time</b>'
+    ]
+    sum_hours = total_past_hours + total_future_hours + total_incomplete_hours + unused_hours
+    values = [unused_hours, total_incomplete_hours, total_future_hours, total_past_hours, total_requested_hours]
+    colors = ['#FF0000', '#F18F01', '#A23B72', '#2E86AB', '#00FF00']  # Red, Orange, Purple, Blue, Green
+    
+    # Create the horizontal bar chart
+    # Calculate percentages based on total allocated hours for all bars
+    text_labels = []
+    for i, (label, val) in enumerate(zip(labels, values)):
+        # Calculate percentage relative to total allocated hours
+        pct = (val / total_allocated_hours * 100) if total_allocated_hours > 0 else 0
+        text_labels.append(f'{val:.1f} hrs ({pct:.1f}%)')
+    
+    fig = go.Figure(data=[go.Bar(
+        x=values,
+        y=labels,
+        orientation='h',
+        marker=dict(color=colors),
+        text=text_labels,
+        textposition='auto',
+        hovertemplate='<b>%{y}</b><br>%{x:.2f} hours<br><extra></extra>',
     )])
     
     # Adjust margin if there's a warning to display
-    top_margin = 150 if total_requested_hours > total_allocated_hours else 100
+    top_margin = 180 if total_requested_hours > total_allocated_hours else 130
     
     fig.update_layout(
-        title_text=f'<b>Total Requested:</b> {total_requested_hours:.1f} hours ≈ {total_requested_hours/hours_per_night:.1f} nights<br><b>Total Allocated:</b> {total_allocated_hours:.1f} hours = {total_allocated_nights:.1f} nights ----> w/ losses = {total_allocated_nights*0.75:.1f} nights',
+        title_text=f'<b>Total Requested:</b> {total_requested_hours:.1f} hours ≈ {total_requested_hours/hours_per_night:.1f} nights<br><b>Total Allocated:</b> {total_allocated_hours:.1f} hours = {total_allocated_nights:.1f} nights ----> w/ losses = {total_allocated_nights*0.75:.1f} nights <br>Requested time is measured in hours. Allocated time is measured in nights. Conversion is 12 hours per night.<br>All bars include exposure times and standard overheads.',
         template='plotly_white',
         showlegend=False,
-        height=600,
-        width=1200,  # Wider to make room for text
-        margin=dict(t=top_margin, b=50, l=50, r=50)
+        height=710,  # Increased height for more vertical spacing between labels
+        width=1200,
+        margin=dict(t=top_margin, b=50, l=200, r=50),
+        bargap=0.2,
+        xaxis=dict(
+            title='Hours',
+            titlefont=dict(size=14),
+            tickfont=dict(size=12)
+        ),
+        yaxis=dict(
+            title='',
+            titlefont=dict(size=14),
+            tickfont=dict(size=11)  
+        )
     )
     
-    # Add multiple annotations using update_layout
-    fig.update_layout(
-        annotations=[
-            dict(
-                text="Requested time is measured in hours. Allocated time is measured in nights.",
-                xref='paper', yref='paper',
-                x=0.55, y=0.99,
-                showarrow=False,
-                font=dict(size=11, color='black'),
-                xanchor='left',
-                yanchor='middle'
-            ),
-            dict(
-                text="Conversion is 12 hours per night.",
-                xref='paper', yref='paper',
-                x=0.55, y=0.96,
-                showarrow=False,
-                font=dict(size=11, color='black'),
-                xanchor='left',
-                yanchor='middle'
-            ),
-            dict(
-                text="All slices include exposure times and standard overheads.",
-                xref='paper', yref='paper',
-                x=0.55, y=0.8,
-                showarrow=False,
-                font=dict(size=11, color='black'),
-                xanchor='left',
-                yanchor='middle'
-            ),
-            dict(
-                text="<b>Completed:</b>",
-                xref='paper', yref='paper',
-                x=0.55, y=0.75,
-                showarrow=False,
-                font=dict(size=11, color='black'),
-                xanchor='left',
-                yanchor='middle'
-            ),
-            dict(
-                text="The sum time of the observations already obtained.",
-                xref='paper', yref='paper',
-                x=0.55, y=0.72,
-                showarrow=False,
-                font=dict(size=11, color='black'),
-                xanchor='left',
-                yanchor='middle'
-            ),
-            dict(
-                text="<b>Scheduled:</b>",
-                xref='paper', yref='paper',
-                x=0.55, y=0.65,
-                showarrow=False,
-                font=dict(size=11, color='black'),
-                xanchor='left',
-                yanchor='middle'
-            ),
-            dict(
-                text="The sum time of the forecasted observations.<br>",
-                xref='paper', yref='paper',
-                x=0.55, y=0.62,
-                showarrow=False,
-                font=dict(size=11, color='black'),
-                xanchor='left',
-                yanchor='middle'
-            ),
-            dict(
-                text="<b>Incomplete:</b>",
-                xref='paper', yref='paper',
-                x=0.55, y=0.55,
-                showarrow=False,
-                font=dict(size=11, color='black'),
-                xanchor='left',
-                yanchor='middle'
-            ),
-            dict(
-                text="The sum time of infeasible observations.<br>",
-                xref='paper', yref='paper',
-                x=0.55, y=0.52,
-                showarrow=False,
-                font=dict(size=11, color='black'),
-                xanchor='left',
-                yanchor='middle'
-            ),
-            dict(
-                text="This is time that can be redistributed to other or new targets so as to maximize your award.<br>",
-                xref='paper', yref='paper',
-                x=0.55, y=0.49,
-                showarrow=False,
-                font=dict(size=11, color='black'),
-                xanchor='left',
-                yanchor='middle'
-            ),
-            dict(
-                text="<b>Unused:</b>",
-                xref='paper', yref='paper',
-                x=0.55, y=0.42,
-                showarrow=False,
-                font=dict(size=11, color='black'),
-                xanchor='left',
-                yanchor='middle'
-            ),
-            dict(
-                text="The difference between the total allocated time and the total requested time.",
-                xref='paper', yref='paper',
-                x=0.55, y=0.39,
-                showarrow=False,
-                font=dict(size=11, color='black'),
-                xanchor='left',
-                yanchor='middle'
-            ),
-            dict(
-                text="This is time you are leaving on the table. Consider adding requests!<br>",
-                xref='paper', yref='paper',
-                x=0.55, y=0.36,
-                showarrow=False,
-                font=dict(size=11, color='black'),
-                xanchor='left',
-                yanchor='middle'
-            ),
-        ]
+    # Add black vertical dashed line at total_allocated_hours
+    fig.add_shape(
+        type="line",
+        x0=total_allocated_hours,
+        x1=total_allocated_hours,
+        y0=-0.5,
+        y1=len(labels) - 0.5,
+        line=dict(color="black", width=2, dash="dash"),
+        xref="x",
+        yref="y"
     )
+    
+    # Add invisible scatter trace for hover text on the allocated time line
+    # Use the same categorical labels as the bar chart to avoid numeric y-axis ticks
+    fig.add_trace(go.Scatter(
+        x=[total_allocated_hours] * len(labels),
+        y=labels,  # Use categorical labels instead of numeric positions
+        mode='markers',
+        marker=dict(size=20, opacity=0),  # Invisible but hoverable markers
+        hovertemplate=f'<b>Allocated Time</b><br>{total_allocated_hours:.2f} hours<br>This line represents the total allocated time for your program<extra></extra>',
+        hoverlabel=dict(bgcolor='black', font_color='white'),
+        showlegend=False
+    ))
     
     # Add warning annotation if requested time exceeds allocated time
     if total_requested_hours > total_allocated_hours*1.1:
         fig.add_annotation(
             text='<b>You have requested more time than you are allocated.</b>',
             xref='paper', yref='paper',
-            x=0.5, y=1.05,
+            x=0.5, y=1.35,
             showarrow=False,
             font=dict(size=18, color='red'),
             xanchor='center',

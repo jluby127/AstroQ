@@ -27,7 +27,6 @@ import astroplan as apl
 import astroq.access as ac
 import astroq.history as hs
 import astroq.io as io
-from astroq.queue.kpfcc import Access_KPFCC
 
 # Suppress warnings
 warnings.filterwarnings('ignore')
@@ -352,6 +351,7 @@ class SemesterPlanner(object):
         # Create Access object with parameters from config
         # Use KPFCC-specific Access class for Keck Observatory, otherwise use base Access class
         if 'Keck' in self.observatory or 'keck' in self.observatory.lower():
+            from astroq.queue.kpfcc import Access_KPFCC
             AccessClass = Access_KPFCC
         else:
             AccessClass = ac.Access
@@ -1058,6 +1058,7 @@ class SemesterPlanner(object):
         # Recreate access_obj using the loaded parameters
         # Use KPFCC-specific Access class for Keck Observatory, otherwise use base Access class
         if 'Keck' in instance.observatory or 'keck' in instance.observatory.lower():
+            from astroq.queue.kpfcc import Access_KPFCC
             AccessClass = Access_KPFCC
         else:
             AccessClass = ac.Access

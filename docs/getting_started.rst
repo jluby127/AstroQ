@@ -69,25 +69,30 @@ This may take a few minutes on the first run. The desired result is that all tes
 Required Files
 +++++++++++++
 
-**AstroQ requires six files to run.**
+AstroQ requires six files to run. All example file paths are relative the astroq project directory.
 
 1. ``config.ini`` - Contains configuration information for the AstroQ run.
 
-   Example ``/examples/hello_world/2018B/2018-08-05/band1/config_hello_world.ini``:
+   Example: 
+   :file:`examples/hello_world/2018B/2018-08-05/band1/config.ini`
 
-   .. literalinclude:: ../examples/hello_world/2018B/2018-08-05/band1/config.ini
-      :language: ini
+2. ``allocation.csv`` - Contains information about the nights and times when the telescope is available for observation. It must contain appropriate column headers:
 
-2. ``allocation.csv`` - Contains information about the nights and times when the telescope is available for observation. It must contain appropriate column headers: 
     - ``start``
     - ``end``
-    Times are in format "YYYY-MM-DD HH:MM"
+    
+   Times are in format "YYYY-MM-DDTHH:MM"
 
-   Example ``/examples/hello_world/2018B/2018-08-05/band1/allocation.csv``: (first 5 lines):
+   Example: ``examples/hello_world/2018B/2018-08-05/band1/allocation.csv``: (first 5 rows shown):
 
-   .. literalinclude:: ../examples/hello_world/2018B/2018-08-05/band1/allocation.csv
-      :lines: 1-5
-      :language: csv
+   .. csv-table::
+      :header: "start", "stop"
+      :widths: auto
+      
+      2018-08-05T10:27, 2018-08-05T15:07
+      2018-08-05T05:47, 2018-08-05T10:27
+      2018-08-06T06:30, 2018-08-06T08:33
+      2018-08-06T05:46, 2018-08-06T06:30
 
 3. ``request.csv`` - Contains information about the targets and their observational strategies. It must contain appropriate column headers.
     - ``unique_id`` - A unique identifier for the target.
@@ -106,11 +111,12 @@ Required Files
     - ``minimum_moon_separation`` - The minimum separation (degrees) between the target and the moon.
     More columns may be added as needed for your queue (e.g. observational parameters like proper motions, magnitudes, temperatures, etc.) but these are optional record keeping columns.
 
-   Example ``/examples/hello_world/2018B/2018-08-05/band1/request.csv``: (first 5 lines):
+   Example ``examples/hello_world/2018B/2018-08-05/band1/request.csv``:
 
-   .. literalinclude:: ../examples/hello_world/2018B/2018-08-05/band1/request.csv
-      :lines: 1-5
-      :language: csv
+   .. csv-table::
+      :file: ../examples/hello_world/2018B/2018-08-05/band1/request.csv
+      :header-rows: 1
+      :widths: auto
 
 4. ``past.csv`` - Contains information about the past history of observations. While it may be blank, it must contain appropriate column headers:
     - ``id`` - the unique identifier for the target.
@@ -119,22 +125,24 @@ Required Files
     - ``exposure_start_time`` - the start time of the recorded exposure. 
     - ``exposure_time`` - the recorded duration of the exposure.
 
-   Example ``/examples/hello_world/2018B/2018-08-05/band1/past.csv``: (first 5 lines):
+   Example ``examples/hello_world/2018B/2018-08-05/band1/past.csv``:
 
-   .. literalinclude:: ../examples/hello_world/2018B/2018-08-05/band1/past.csv
-      :lines: 1-5
-      :language: csv
+   .. csv-table::
+      :file: ../examples/hello_world/2018B/2018-08-05/band1/past.csv
+      :header-rows: 1
+      :widths: auto
 
 5. ``programs.csv`` - Contains information the awarded time to each program. Useful for plotting later. While it may be blank, it must contain appropriate column headers:
     - ``program`` - the program code.
     - ``hours`` - the hours of awarded time to the program.
     - ``nights`` - the number of nights awarded to the program.
 
-   Example ``/examples/hello_world/2018B/2018-08-05/band1/programs.csv``: (first 5 lines):
+   Example ``examples/hello_world/2018B/2018-08-05/band1/programs.csv``:
 
-   .. literalinclude:: ../examples/hello_world/2018B/2018-08-05/band1/programs.csv
-      :lines: 1-5
-      :language: csv
+   .. csv-table::
+      :file: ../examples/hello_world/2018B/2018-08-05/band1/programs.csv
+      :header-rows: 1
+      :widths: auto
 
 6. ``custom.csv`` - Contains information about the specific time windows when targets may be observed. While it may be blank, it must contain appropriate column headers:
     - ``unique_id`` - the unique identifier for the target.
@@ -143,11 +151,12 @@ Required Files
     - ``stop`` - the stop time of the time window.
     Times are in format "YYYY-MM-DD HH:MM"
 
-   Example ``/examples/hello_world/2018B/2018-08-05/band1/custom.csv``: (first 5 lines):
+   Example ``examples/hello_world/2018B/2018-08-05/band1/custom.csv``:
 
-   .. literalinclude:: ../examples/hello_world/2018B/2018-08-05/band1/custom.csv
-      :lines: 1-5
-      :language: csv
+   .. csv-table::
+      :file: ../examples/hello_world/2018B/2018-08-05/band1/custom.csv
+      :header-rows: 1
+      :widths: auto
 
 **The** ``kpfcc`` **subcommand of** ``prep`` **(see below) compiles and prepares all of these necessary files for the KPF-CC program specifically.** Use of this command requires token access to the KPF-CC database. If you are using AstroQ for a different facility, then you must prepare these files through your own means. Feel free to write your own "prep" command to automate the process.
 
@@ -208,7 +217,7 @@ Let's take a look at the outputs produced:
 
     .. code-block:: bash
     
-        $ ls -ltr examples/hello_world/outputs
+        $ ls -ltr examples/hello_world/2018B/2018-08-05/band1/outputs
         
             -rw-r--r--@ 1 jack  staff    3153 Oct 29 12:15 semester_plan.csv
             -rw-r--r--@ 1 jack  staff  230542 Oct 29 12:15 serialized_outputs_dense_v1.csv
@@ -217,70 +226,73 @@ Let's take a look at the outputs produced:
             -rw-r--r--@ 1 jack  staff     873 Oct 29 12:15 request_selected.csv
             -rw-r--r--@ 1 jack  staff  244512 Oct 29 12:15 semester_planner.h5
       
-- ``semester_plan.csv`` contains the /id/day/slot/name info of the scheduled observations. Grouped by target name. See example:
+- ``semester_plan.csv`` contains the id, day, slot and name of the scheduled observations. sorted by target name. See example:
 
-    .. code-block:: csv
+    .. csv-table::
+       :header: "r", "d", "s", "name"
+       :widths: auto
     
-        r,d,s,name
-        e1,4,62,HIP1532
-        e1,5,66,HIP1532
-        e1,8,65,HIP1532
-        e1,12,61,HIP1532
-        e1,13,82,HIP1532
-        e1,61,77,HIP1532
-        e1,63,76,HIP1532
-        e1,64,77,HIP1532
-        e1,86,67,HIP1532
-        e1,87,67,HIP1532
-        e2,4,36,TOI-1670
-        e2,5,35,TOI-1670
-        e2,8,41,TOI-1670
+       e1, 4, 62, HIP1532
+       e1, 5, 66, HIP1532
+       e1, 8, 65, HIP1532
+       e1, 12, 61, HIP1532
+       e1, 13, 82, HIP1532
+       e1, 61, 77, HIP1532
+       e1, 63, 76, HIP1532
+       e1, 64, 77, HIP1532
+       e1, 86, 67, HIP1532
+       e1, 87, 67, HIP1532
+       e2, 4, 36, TOI-1670
+       e2, 5, 35, TOI-1670
+       e2, 8, 41, TOI-1670
 
 - ``serialized_outputs_dense_v1.csv`` contains the same information, but now all slots, even those not scheduled to have an observation are included, and it is ordered by time. See example:
 
-    .. code-block:: csv
+    .. csv-table::
+       :header: "d", "s", "r", "name"
+       :widths: auto
 
-        d,s,r,name
-        0,0,,
-        0,1,,
-        0,2,,
-        0,3,,
-        0,4,,
-        0,5,,
-        0,6,,
-        0,7,,
-        0,8,,
-        0,9,,
-        0,10,,
-        0,11,,
-        0,12,,
-        0,13,,
-        0,14,,
-        ...
-        4,62,e2,HIP1532
-        4,63,,
+       0, 0, , 
+       0, 1, , 
+       0, 2, , 
+       0, 3, , 
+       0, 4, , 
+       0, 5, , 
+       0, 6, , 
+       0, 7, , 
+       0, 8, , 
+       0, 9, , 
+       0, 10, , 
+       0, 11, , 
+       0, 12, , 
+       0, 13, , 
+       0, 14, , 
+       ..., ..., ..., ...
+       4, 62, e2, HIP1532
+       4, 63, , 
 
 - ``serialized_outputs_dense_v2.csv`` is identical to ``serialized_outputs_dense_v1.csv``, but now slots that cannot be filled for all stars (like sky brightness or telescope allocation, are denoted with an "X"). See example:
 
-    ::
+    .. csv-table::
+       :header: "d", "s", "r", "name"
+       :widths: auto
 
-        d,s,r,name
-        0,0,X,
-        0,1,X,
-        0,2,X,
-        0,3,X,
-        0,4,X,
-        0,5,X,
-        0,6,X,
-        0,7,X,
-        0,8,X,
-        0,9,X,
-        0,10,X,
-        0,11,X,
-        0,12,X,
-        ...
-        4,62,e2,HIP1532
-        4,63,,
+       0, 0, X, 
+       0, 1, X, 
+       0, 2, X, 
+       0, 3, X, 
+       0, 4, X, 
+       0, 5, X, 
+       0, 6, X, 
+       0, 7, X, 
+       0, 8, X, 
+       0, 9, X, 
+       0, 10, X, 
+       0, 11, X, 
+       0, 12, X, 
+       ..., ..., ..., ...
+       4, 62, e2, HIP1532
+       4, 63, , 
     
 - ``runReport.txt``: contains some basic statistics about the fullness of the schedule. See example (note, this schedule is not supposed to be a good one!):
     
@@ -320,13 +332,15 @@ Here are the new files in ``examples/hello_world/outputs/``:
         -rw-r--r--@ 1 jack  staff   16080 Oct 29 13:36 night_planner.h5
 
 - ``ttp_prepared.csv`` is the input to the TTP solver. It contains the target information in the format required by the TTP solver. See example and the TTP repository for more info:
-    .. code-block:: txt
 
-        Starname,RA,Dec,Exposure Time,Exposures Per Visit,Visits In Night,Intra_Night_Cadence,Priority,First Available,Last Available
-        e1,4.77317661843625,-9.964852409,360,2,1,0,10,2018-08-05 10:20,2018-08-05 15:00
-        e2,259.0173367,72.16115935,1200,1,1,0,10,2018-08-05 05:50,2018-08-05 08:50
-        e7,285.679422455377,50.2413060048164,50,1,4,1,10,2018-08-05 05:50,2018-08-05 12:20
-        e9,348.320729001503,57.1683566176719,60,3,1,0,10,2018-08-05 08:40,2018-08-05 15:00
+    .. csv-table::
+       :header: "Starname", "RA", "Dec", "Exposure Time", "Exposures Per Visit", "Visits In Night", "Intra_Night_Cadence", "Priority", "First Available", "Last Available"
+       :widths: auto
+
+       e1, 4.77317661843625, -9.964852409, 360, 2, 1, 0, 10, 2018-08-05 10:20, 2018-08-05 15:00
+       e2, 259.0173367, 72.16115935, 1200, 1, 1, 0, 10, 2018-08-05 05:50, 2018-08-05 08:50
+       e7, 285.679422455377, 50.2413060048164, 50, 1, 4, 1, 10, 2018-08-05 05:50, 2018-08-05 12:20
+       e9, 348.320729001503, 57.1683566176719, 60, 3, 1, 0, 10, 2018-08-05 08:40, 2018-08-05 15:00
 
 - ``TTPstatistics.txt`` contains some basic statistics about the TTP solution. See example:
 
@@ -348,16 +362,17 @@ Here are the new files in ``examples/hello_world/outputs/``:
 
 - ``ObserveOrder_2018-08-05.txt`` the timestamps at which each star is set to be observed. See example:
 
-    ::
+    .. csv-table::
+       :header: "unique_id", "Target", "StartExposure"
+       :widths: auto
 
-        unique_id,Target,StartExposure
-        e2,TOI-1670,05:47
-        e7,Kepler-10,06:07
-        e7,Kepler-10,07:07
-        e7,Kepler-10,08:47
-        e9,219134,08:49
-        e1,HIP1532,11:41
-        e7,Kepler-10,11:59
+       e2, TOI-1670, 05:47
+       e7, Kepler-10, 06:07
+       e7, Kepler-10, 07:07
+       e7, Kepler-10, 08:47
+       e9, 219134, 08:49
+       e1, HIP1532, 11:41
+       e7, Kepler-10, 11:59
 
 - ``script_2018-08-05_nominal.txt`` is a backwards compatible file in the style of the old HIRES queue night plans.
 
@@ -369,6 +384,13 @@ Now we can launch the webapp to view the schedule. This will launch on a local s
     
         $ astroq webapp -up examples/hello_world/
 
+Scrolling down a bit, you should see the "Cumulative Observation Function (COF)" plot which describes the completion rate of each program as a function of time:
+
+    .. image:: plots/hello_cof.png
+        :width: 100%
+        :align: center
+        :alt: Webapp screenshot
+
 Scrolling down a bit, you should see the "birdseye" plot of the schedule look something like this:
 
     .. image:: plots/hello_birdseye.png
@@ -376,11 +398,64 @@ Scrolling down a bit, you should see the "birdseye" plot of the schedule look so
         :align: center
         :alt: Webapp screenshot
 
-        
-The Hello World Example is an easy model to solve. Try something a bit more complex by running our benchmark test:
+Notice that two program perform poorly, U001 and U006. This is entirely explainable and stems from the fact that the requests in these programs are infeasible. For example, let's investigate U006's target, WASP-107. First displaying all the slots that are available for observations this semester:
+
+    .. image:: plots/U006_birdseye_1.png
+        :width: 100%
+        :align: center
+        :alt: Webapp screenshot
+
+This shows there is lots of available time to schedule the target. So why isn't it getting scheduled more? Turning on some of the individual constraint maps reveals the problem. First we turn on the is_altaz, which blocks out the times that are not available for scheduling this target due to the natural seasonality of the star and the pointing limits of the telescope:
+
+    .. image:: plots/U006_birdseye_2.png
+        :width: 100%
+        :align: center
+        :alt: Webapp screenshot
+
+Immediately we see that the vast majority of our allocated time is not ammenable to observing this target. But what about those last two days, why isn't the target scheduled then? We can further turn on the is_moon, which blocks out the times that are not available for scheduling this target due to the moon's position in the sky and we see that this is the cause of conflict:
+
+    .. image:: plots/U006_birdseye_3.png
+        :width: 100%
+        :align: center
+        :alt: Webapp screenshot
+
+Now we can feel confident that AstroQ is scheduling this target as often as is feasible. The request itself is infeasible, thus the low completion rate. U001's HIP1532 target is amenable to observations all semester, but it has a custom map that severly restricts when it can be observed, hence a low completion rate. These tools allow us the really dive into any target and understand why it is or is not being scheduled.
+
+Looking at some additional plots, we track the on-sky cadence vs the requested cadence. We don't want to violate the PI's desired minimum cadence so all dots on this plot should be above the dashed line, which, is confirmed:
+
+    .. image:: plots/hello_tau.png
+        :width: 100%
+        :align: center
+        :alt: Webapp screenshot
+
+Lastly, we look at the distribution of the targets across the sky. Against the grayscale heatmap, we can get a sense for how many nights in the semester a given location on the sky is observable, imagining we had the telescope all night every night. Here we can quickly see that WASP-107 is in a dark region of the sky, meaning it is not amenable to many observations in the semester. Couple that with the fact that we don't actually have all night every night to observe, this target is severely limited in its observability and hence has the low completion, which we walked through above. This grayscale map captures the intricate pointing limits of the K1 telescope easily. 
+
+    .. image:: plots/hello_football.png
+        :width: 100%
+        :align: center
+        :alt: Webapp screenshot
+
+Next we can investigate the plan for tonight. After the the slew path in minimized through the TTP solver, we have a suite of plots availabe to us for insight. First we look at the "ladder" plot. The observations are ordered in time from top to bottom. Green bars indicate the spans of time when the target is observable (above pointing limits), and the red bars indicate the times when we are set to observe the target. We can easily see the plan for the night, and see how tight or loose the windows are to observe a particular target.
+
+    .. image:: plots/hello_ladder.png
+        :width: 100%
+        :align: center
+        :alt: Webapp screenshot
+
+Then we have the slew path animation (screenshot below). This is a polar plot of the telescope's slew path with an orange line showing the path of the telescope over the night as the defined optimal path. The red regions are below/above telescope pointing limits and are unique to K1 telescope. The slider at the bottom allows us to select a time in the night and see where we are and where we are going next.
+
+    .. image:: plots/hello_slew.png
+        :width: 100%
+        :align: center
+        :alt: Webapp screenshot
+
+The Hello World Example is an easy model to solve. It only has 10 requests, with a total of 282 observations to schedule across and entire 6 month semester...a human could do this easily. In terms of model size, it is only 4598 rows by 8285 columns with 65656 nonzeros. 
+
+Try something a bit more complex by running our benchmark test. This is a realistic semester model scheduling 200 requests with programs of different observational strategies inspired by real observing programs. This model is 56009 rows by 329369 columns with 3820641 nonzeros, significantly bigger and not human-solvable.
 
     .. code-block:: bash
     
         $ astroq bench -cf examples/bench/config_benchmark.ini -ns 12 
 
 The inputs and expected outputs are well defined in our paper, compare your computer's performance to ours! See `Lubin et al. 2025 <https://ui.adsabs.harvard.edu/abs/2025arXiv250608195L/abstract>`_.       
+
