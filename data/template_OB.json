@@ -1,59 +1,50 @@
 [
   {
-    "calibration": {
-      "CalSource": "EtalonFiber",
-      "nExp": 1,
-      "TriggerCaHK": true,
-      "TriggerGreen": true,
-      "TriggerRed": true,
-      "CalND1": "OD 0.1",
-      "CalND2": "OD 0.1",
-      "OpenScienceShutter": true,
-      "OpenSkyShutter": true,
-      "TakeSimulCal": true,
-      "ExpMeterMode": "off",
-      "ExpMeterExpTime": 1,
-      "ExpMeterBin": 1,
-      "ExpMeterThreshold": 50000
-    },
+    "calibration": {},
     "schedule": {
       "SchedulingMode": "Cadence",
       "DesiredVisitsPerNight": 1,
       "MinVisitsPerNight": 1,
       "NightsPerSemester": 20,
-      "interNightCadenceMin": 2,
+      "interNightCadenceMin": 3,
       "intraNightCadenceMin": 0,
       "MinimumElevation": "30",
       "MinimumMoonSeparation": "30",
-      "WeatherBand": "7",
-      "AccessibilityMap": "0",
-      "total_observations_requested": 20,
-      "total_time_for_target": 16800,
-      "total_time_for_target_hours": 4.67
+      "weather_band_1": true,
+      "weather_band_2": true,
+      "weather_band_3": false,
+      "comment": "single star, no binary",
+      "custom_time_constraints": [
+        {
+          "end_datetime": "2025-06-19T12:30",
+          "start_datetime": "2025-05-19T12:30"
+        },
+        {
+          "end_datetime": "2025-02-08T18:00",
+          "start_datetime": "2025-02-04T06:15"
+        }
+      ]
     },
     "target": {
-      "TargetName": "TOI-1432",
-      "GaiaID": "DR3_1949538745753745408",
-      "twoMASSID": "J21573638+3619177",
-      "tic_id": "256783784",
-      "Parallax": 10.3837,
-      "RadialVelocity": 3.4,
-      "Gmag": 9.930989,
-      "Jmag": 8.811,
-      "Teff": 5590,
-      "RA": "21:57:36.3755110272",
-      "DEC": "+36:19:17.735155104",
-      "ra_deg": 329.4015646293,
-      "dec_deg": 36.321593099,
+      "TargetName": "HD 191939",
+      "GaiaID": "DR3_2248126315275354496",
+      "twoMASSID": "J20080574+6651019",
+      "tic_id": "269701147",
+      "Parallax": 18.6967,
+      "RadialVelocity": -9.266,
+      "Gmag": 8.782845,
+      "Jmag": 7.597,
+      "RA": "20:08:05.7551464176",
+      "DEC": "+66:51:02.076637068",
       "Equinox": "J2000",
-      "PMRA": 42.546,
-      "PMDEC": -43.924,
+      "PMRA": 150.194,
+      "PMDEC": -63.988,
       "Epoch": 2000
     },
     "observation": {
-      "Object": "TOI-1432",
+      "Object": "HD 191939",
       "nExp": 1,
-      "ExpTime": 600,
+      "ExpTime": 1,
       "TriggerCaHK": true,
       "TriggerGreen": true,
       "TriggerRed": true,
@@ -68,17 +59,14 @@
       "GuideHere": true
     },
     "metadata": {
-      "ObserverID": 4504,
-      "ObserverName": "Jack Lubin",
-      "Semid": "2021B_U043",
-      "Semester": "2021B",
+      "ObserverID": 1234,
+      "ObserverName": "Star E. Sky",
+      "Semid": "2001B_U043",
+      "Semester": "2001B",
       "Progid": "U043",
-      "history": [],
-      "Tags": [
-        "imported from legacy targets"
-      ],
+      "Tags": [],
       "ob_feasible": true,
-      "Submitter": "Jack Lubin",
+      "Submitter": "Star E. Sky",
       "submitted": true,
       "details": "Passed all infeasibility checks",
       "status": "SUCCESS",

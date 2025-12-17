@@ -69,7 +69,7 @@
 <body>
 
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-        <h1>Night Plan</h1>
+        <h1>Night Plan - {{ band|upper }}</h1>
         {% if semester_planner and night_planner %}
         <a href="{{ url_for('download_nightplan', 
                            semester_code=request.view_args.semester_code, 
