@@ -37,7 +37,7 @@ semester_planner = None
 night_planner = None
 uptree_path = None
 
-desired_order = ["unique_id", "starname", "exptime", "n_exp", 'n_inter_max', 'tau_inter', "n_intra_max", "n_intra_min", "tau_intra", "weather_band_1", "weather_band_2", "weather_band_3"]
+desired_order = ["active","unique_id", "starname", "exptime", "n_exp", 'n_inter_max', 'tau_inter', "n_intra_max", "n_intra_min", "tau_intra", "weather_band_1", "weather_band_2", "weather_band_3"]
 
 def load_data_for_path(semester_code, date, band, uptree_path):
     """
@@ -202,6 +202,7 @@ def render_program_page(semester_code, date, band, program_code):
     
     # Get request frame table for this program's stars
     request_df = pl.get_request_frame(semester_planner, program_stars)
+    request_df = request_df[desired_order]
     request_table_html = pl.dataframe_to_html(request_df)
     
     # Create overview figures for this program
@@ -243,6 +244,7 @@ def render_star_page(starname):
             if object_compare_starname == compare_starname:
                 # Get request frame table for this specific star
                 request_df = pl.get_request_frame(semester_planner, [star_obj])
+                request_df = request_df[desired_order]
                 request_table_html = pl.dataframe_to_html(request_df)
 
                 fig_cof = pl.get_cof(semester_planner, [data_astroq[0][program][star_ind]])

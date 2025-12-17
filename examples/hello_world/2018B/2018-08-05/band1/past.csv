@@ -1,7 +1,7 @@
-,id,target,semid,timestamp,exposure_start_time,exposure_time,observer,comment
-0,10,51Pegasi,U010,2018-08-05T05:49:15,2018-08-05T05:44:15,180,JackL,Hello World simulated observation
-1,2,TOI-1670,U002,2018-08-05T20:33:28,2018-08-05T20:28:28,150,JackL,Hello World simulated observation
-2,2,TOI-1670,U002,2018-08-05T20:33:28,2018-08-05T20:31:03,150,JackL,Hello World simulated observation
-3,8,55Cnc,U008,2018-08-05T01:25:13,2018-08-05T01:20:13,120,JackL,Hello World simulated observation
-4,8,55Cnc,U008,2018-08-05T01:25:13,2018-08-05T01:22:18,120,JackL,Hello World simulated observation
-5,6,WASP-107,U006,2018-08-05T06:05:09,2018-08-05T06:00:09,180,JackL,Hello World simulated observation
+id,target,semid,timestamp,exposure_start_time,exposure_time,observer,comment
+e10,51Pegasi,U010,2018-08-02T05:49:15,2018-08-02T05:44:15,180,JackL,Hello World simulated observation
+e2,TOI-1670,U002,2018-08-02T20:33:28,2018-08-02T20:28:28,150,JackL,Hello World simulated observation
+e2,TOI-1670,U002,2018-08-03T20:33:28,2018-08-03T20:31:03,150,JackL,Hello World simulated observation
+e8,55Cnc,U008,2018-08-02T01:25:13,2018-08-02T01:20:13,120,JackL,Hello World simulated observation
+e8,55Cnc,U008,2018-08-03T01:25:13,2018-08-03T01:22:18,120,JackL,Hello World simulated observation
+e6,WASP-107,U006,2018-08-25T06:05:09,2018-08-02T06:00:09,180,JackL,Hello World simulated observation

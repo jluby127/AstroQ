@@ -83,6 +83,7 @@ class StarPlotter(object):
         """
         # Access row data directly instead of filtering the entire DataFrame (PERFORMANCE OPTIMIZATION)
         self.starname = row['starname']
+        self.active = row['active']
         self.ra = float(row['ra'])
         self.dec = float(row['dec'])
         self.program = str(row['program_code'])
@@ -98,6 +99,7 @@ class StarPlotter(object):
         self.total_requested_seconds = self.n_exp*self.n_intra_max*self.n_inter_max*self.exptime + readout_overhead*(self.n_exp-1) + slew_overhead*self.n_intra_max*self.n_inter_max
         self.total_requested_hours = self.total_requested_seconds / 3600
         self.total_requested_nights = self.total_requested_hours / hours_per_night   
+
 
     def get_past(self, past):
         """
@@ -197,8 +199,8 @@ def process_stars(semester_planner):
     forecast_df['r'] = forecast_df['r'].astype(str)  # Convert to string once
 
     # Previously, there was a unique call to star names, every row of the request frame will be unique already when we switch to "id"
-    starnames = semester_planner.requests_frame['starname'].unique()
-    programs = semester_planner.requests_frame['program_code'].unique()
+    starnames = semester_planner.requests_frame_all['starname'].unique()
+    programs = semester_planner.requests_frame_all['program_code'].unique()
 
     # Make colors consistent for all stars in each program
     colors = sns.color_palette("deep", len(programs))
@@ -207,7 +209,7 @@ def process_stars(semester_planner):
 
     all_stars = []
     i = 0 
-    for i, row in semester_planner.requests_frame.iterrows():
+    for i, row in semester_planner.requests_frame_all.iterrows():
         # Create a StarPlotter object for each request, fill and compute relavant information
         newstar = StarPlotter(row['unique_id'])
         newstar.get_map(semester_planner, forecast_df)
@@ -220,14 +222,31 @@ def process_stars(semester_planner):
 
         # Create COF arrays for each request
         combined_set = set(list(newstar.observations_past.keys()) + list(newstar.observations_future.keys()))
-        newstar.dates_observe = [newstar.observations_past[date] if date in newstar.observations_past.keys() else (newstar.n_intra_max*newstar.n_exp if date in combined_set else 0) for date in semester_planner.all_dates_array]
-        # don't assume that all future observations forecast for getting all desired n_intra_max
-        # for b in range(len(newstar.dates_observe)):
-        #     if semester_planner.all_dates_array[b] in list(newstar.observations_future.keys()):
-        #         index = list(newstar.observations_future.keys()).index(semester_planner.all_dates_array[b])
-        #         newstar.dates_observe[b] *= list(newstar.observations_future.values())[index]
+        # For inactive stars, only include past observations; for active stars, include both past and future
+        if newstar.active:
+            newstar.dates_observe = [newstar.observations_past[date] if date in newstar.observations_past.keys() else (newstar.n_intra_max*newstar.n_exp if date in combined_set else 0) for date in semester_planner.all_dates_array]
+        else:
+            # For inactive stars, only show past observations
+            newstar.dates_observe = [newstar.observations_past[date] if date in newstar.observations_past.keys() else 0 for date in semester_planner.all_dates_array]
+        
         newstar.cume_observe = np.cumsum(newstar.dates_observe)
-        newstar.cume_observe_pct = np.round((np.cumsum(newstar.dates_observe)/newstar.total_observations_requested)*100.,3)
+        if newstar.active == False:
+            newstar.total_observations_requested = np.max(newstar.cume_observe)
+            newstar.total_requested_seconds =newstar.total_observations_requested*newstar.exptime + slew_overhead*newstar.total_observations_requested
+            newstar.total_requested_hours = newstar.total_requested_seconds / 3600
+            newstar.total_requested_nights = newstar.total_requested_hours / hours_per_night   
+
+        
+        # Handle division by zero for inactive stars (total_observations_requested = 0)
+        if newstar.total_observations_requested > 0:
+            newstar.cume_observe_pct = np.round((np.cumsum(newstar.dates_observe)/newstar.total_observations_requested)*100.,3)
+        else:
+            # For inactive stars, show percentage based on total past observations if any exist
+            total_past_obs = sum(newstar.observations_past.values()) if newstar.observations_past else 0
+            if total_past_obs > 0:
+                newstar.cume_observe_pct = np.round((np.cumsum(newstar.dates_observe)/total_past_obs)*100.,3)
+            else:
+                newstar.cume_observe_pct = np.zeros(len(semester_planner.all_dates_array))
 
         # Create consistent colors across programs, and random colors for each star within programs
         newstar.program_color_rgb = program_colors_rgb_vals[newstar.program]
@@ -239,10 +258,18 @@ def process_stars(semester_planner):
         newstar.draw_lines = False
         newstar.maps_names = ['is_alloc', 'is_custom', 'is_altaz', 'is_moon', 'is_inter', 'is_future', 'is_clear', 'is_observable_now']
         # Find the target index for this star in the access record
-        target_idx = np.where(semester_planner.requests_frame['unique_id'] == newstar.unique_id)[0][0]
-        # Extract the 2D slice for this specific target from each 3D map
-        newstar.maps = {name: access[name][target_idx] for name in newstar.maps_names}
-        newstar.allow_mapview = True
+        # For inactive targets, they won't be in requests_frame, so create zero maps
+        try:
+            target_idx = np.where(semester_planner.requests_frame['unique_id'] == newstar.unique_id)[0][0]
+            # Extract the 2D slice for this specific target from each 3D map
+            newstar.maps = {name: access[name][target_idx] for name in newstar.maps_names}
+            newstar.allow_mapview = True
+        except (IndexError, KeyError):
+            # Target is inactive (not in access record) - create zero maps with appropriate shape
+            n_nights = semester_planner.semester_length
+            n_slots = int((24 * 60) / semester_planner.slot_size)
+            newstar.maps = {name: np.zeros((n_nights, n_slots), dtype=bool) for name in newstar.maps_names}
+            newstar.allow_mapview = False
 
         all_stars.append(newstar)
         i += 1
@@ -268,7 +295,16 @@ def process_stars(semester_planner):
         stars_stacked = np.vstack(cume_observe)
         summed_cumulative = np.sum(stars_stacked, axis=0)
         max_value = np.sum([all_stars[k].total_observations_requested for k in prog_indices])
-        programmatic_star.cume_observe_pct = summed_cumulative / max_value * 100
+        # Handle division by zero for programs with only inactive stars
+        if max_value > 0:
+            programmatic_star.cume_observe_pct = summed_cumulative / max_value * 100
+        else:
+            # For inactive-only programs, use total past observations as denominator
+            total_past_obs = sum(sum(all_stars[k].observations_past.values()) if all_stars[k].observations_past else 0 for k in prog_indices)
+            if total_past_obs > 0:
+                programmatic_star.cume_observe_pct = summed_cumulative / total_past_obs * 100
+            else:
+                programmatic_star.cume_observe_pct = np.zeros(len(semester_planner.all_dates_array))
 
         # Compute sum of starmaps
         super_map = np.zeros(np.shape(all_stars[prog_indices[0]].starmap))
@@ -325,7 +361,16 @@ def get_cof(semester_planner, all_stars):
     cume_observe = np.sum([star.cume_observe for star in all_stars], axis=0)
     max_value = sum(star.total_observations_requested for star in all_stars)
     
-    cume_observe_pct = (cume_observe / max_value) * 100
+    # Handle division by zero: if all stars are inactive, use total past observations as denominator
+    if max_value > 0:
+        cume_observe_pct = (cume_observe / max_value) * 100
+    else:
+        # For inactive-only programs, calculate total past observations
+        total_past_obs = sum(sum(star.observations_past.values()) if star.observations_past else 0 for star in all_stars)
+        if total_past_obs > 0:
+            cume_observe_pct = (cume_observe / total_past_obs) * 100
+        else:
+            cume_observe_pct = np.zeros(len(semester_planner.all_dates_array))
     
     # Add the Total trace first (so it appears below other traces)
     fig.add_trace(go.Scatter(
@@ -1171,8 +1216,8 @@ def get_request_frame(semester_planner, all_stars):
     starids = [star.unique_id for star in all_stars]
     
     # Filter the request frame to only include the specified stars
-    filtered_frame = semester_planner.requests_frame[
-        semester_planner.requests_frame['unique_id'].isin(starids)
+    filtered_frame = semester_planner.requests_frame_all[
+        semester_planner.requests_frame_all['unique_id'].isin(starids)
     ].copy()
     
     return filtered_frame

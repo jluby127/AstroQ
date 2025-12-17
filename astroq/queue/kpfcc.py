@@ -24,34 +24,6 @@ from astroq.access import Access
 
 logs = logging.getLogger(__name__)
 
-# The OB database has many fields that are not needed for the AstroQ pipeline.
-exception_fields = ['_id', 'del_flag', 'metadata.comment', 'metadata.details', 'metadata.history',
-                    'metadata.instruments', 'metadata.is_approved', 'metadata.last_modification',
-                    'metadata.ob_feasible', 'metadata.observer_name', 'metadata.state', 'metadata.status',
-                    'metadata.submitted', 'metadata.submitter', 'metadata.tags', 'observation.auto_exp_meter',
-                    'observation.auto_nd_filters', 'observation.cal_n_d_1', 'observation.cal_n_d_2',
-                    'observation.exp_meter_exp_time', 'observation.exp_meter_mode', 'observation.guide_here',
-                    'observation.take_simulcal', 'observation.exp_meter_bin', #'observation.object',
-                    'observation.trigger_ca_h_k', 'observation.trigger_green', 'observation.trigger_red',
-                    'schedule.accessibility_map', 'schedule.days_observable', 'schedule.fast_read_mode_requested',
-                    'schedule.num_visits_per_night',
-                    'schedule.rise_semester_day', 'schedule.scheduling_mode', 'schedule.sets_semester_day',
-                    'schedule.total_observations_requested', 'schedule.total_time_for_target',
-                    'schedule.total_time_for_target_hours', 'target.isNew', 'target.parallax', 'target.equinox', 'target.systemic_velocity',
-                    'target.tic_id', 'target.two_mass_id', 'schedule.weather_band', 'target.catalog_comment',
-                    'calibration.cal_n_d_1', 'calibration.cal_n_d_2', 'calibration.cal_source', 'calibration.exp_meter_bin',
-                    'calibration.exp_meter_exp_time', 'calibration.exp_meter_mode', 'calibration.exp_meter_threshold',
-                    'calibration.exposure_time', 'calibration.intensity_monitor', 'calibration.num_exposures', 'calibration.object',
-                    'calibration.open_science_shutter', 'calibration.open_sky_shutter', 'calibration.take_simulcal',
-                    'calibration.trigger_ca_h_k', 'calibration.trigger_green', 'calibration.trigger_red',
-                    'calibration.wide_flat_pos', 'observation.block_sky', 'observation.nod_e', 'observation.nod_n',
-                    'schedule.isNew', 'observation.isNew', 'schedule.comment', 'target.d_ra', 'target.d_dec', 'target.undefined',
-                    'target.ra_deg', 'target.dec_deg', 'observation.undefined', 'schedule.num_visits_per_night', 'schedule.undefined',
-                    'schedule.custom_time_constraints', #make this an exception field because it is handled elsewhere to make the custom.csv file
-                    'schedule.desired_num_visits_per_night', 'schedule.minimum_num_visits_per_night', 'history', # NOTE: this line will be removed 
-                    'schedule.weather_band_1', 'schedule.weather_band_2', 'schedule.weather_band_3'# NOTE: this line will be removed 
-]
-
 # Column definitions: mapping from original names to new names and data types
 column_definitions = {
     '_id': {'new_name': 'unique_id', 'type': 'string'},
@@ -79,7 +51,12 @@ column_definitions = {
     'target.pm_dec': {'new_name': 'pmdec', 'type': 'Float64'},
     'target.epoch': {'new_name': 'epoch', 'type': 'Float64'},
     'observation.exp_meter_threshold': {'new_name': 'exp_meter_threshold', 'type': 'Float64'},
+    'schedule.ob_inactive': {'new_name': 'inactive', 'type': 'boolean'},
 }
+
+# Required fields for OBs to be considered valid
+# All fields listed here must be present in the OB for it to pass validation
+required_fields = list(column_definitions.keys())
 
 def pull_OBs(semester):
     """
@@ -311,6 +288,8 @@ def get_request_sheet(OBs, awarded_programs, savepath):
     bad_obs_count_by_semid, bad_field_histogram = analyze_bad_obs(good_obs, bad_obs_values, bad_obs_hasFields, awarded_programs)
     good_obs.sort_values(by='program_code', inplace=True)
     good_obs.reset_index(inplace=True, drop=True)
+
+    # good_obs['active'] = [True] * len(good_obs)
     
     # Cast starname column to strings to ensure proper matching
     if 'starname' in good_obs.columns:
@@ -340,13 +319,69 @@ def flatten(d, parent_key='', sep='.'):
             items[new_key] = v
     return items
 
-def create_checks_dataframes(OBs, exception_fields):
+def apply_safety_valves(value_df, presence_df):
+    """
+    Apply safety valve defaults to fill in missing or empty values for certain fields.
+    This function modifies value_df and presence_df in place.
+
+    Args:
+        value_df (pandas DataFrame): DataFrame with OB values
+        presence_df (pandas DataFrame): DataFrame indicating field presence
+
+    Returns:
+        value_df (pandas DataFrame): Modified DataFrame with safety valve defaults applied
+        presence_df (pandas DataFrame): Modified DataFrame with presence updated
+    """
+    # Define default values for safety valves
+    safety_valve_defaults = {
+        'target.gaia_id': 'NoGaiaName',
+        'target.t_eff': -1000.0,
+        'observation.exp_meter_threshold': -1.0,
+        'schedule.num_intranight_cadence': 0,
+        'schedule.minimum_elevation': 33,
+        'schedule.minimum_moon_separation': 33,
+        'schedule.weather_band_1': True,
+        'schedule.weather_band_2': True,
+        'schedule.weather_band_3': False,
+        'schedule.ob_inactive': False,
+    }
+    
+    # Apply safety valves using a loop
+    for col_name, default_value in safety_valve_defaults.items():
+        if col_name not in value_df.columns:
+            # Column doesn't exist, create it with default value
+            value_df[col_name] = default_value
+            presence_df[col_name] = True
+        else:
+            # Column exists, fill NaN values with default
+            value_df[col_name] = value_df[col_name].fillna(default_value)
+            # Also handle empty strings for string columns
+            if isinstance(default_value, str):
+                value_df[col_name] = value_df[col_name].replace('', default_value)
+            presence_df[col_name] = presence_df[col_name] | value_df[col_name].notna()
+            
+    # Special case for weather bands based on metadata.semid
+    if 'metadata.semid' in value_df.columns:
+        # Check for 2025B_E473 semid and set opposite weather band values
+        mask_2025B_E473 = value_df['metadata.semid'] == '2025B_E473'
+        if mask_2025B_E473.any():
+            # Set weather bands to opposite values for 2025B_E473
+            if 'schedule.weather_band_1' in value_df.columns:
+                value_df.loc[mask_2025B_E473, 'schedule.weather_band_1'] = False
+            if 'schedule.weather_band_2' in value_df.columns:
+                value_df.loc[mask_2025B_E473, 'schedule.weather_band_2'] = False
+            if 'schedule.weather_band_3' in value_df.columns:
+                value_df.loc[mask_2025B_E473, 'schedule.weather_band_3'] = True
+
+    return value_df, presence_df
+
+def create_checks_dataframes(OBs, required_fields):
     """
     Create the dataframes to determine the good and bad OBs.
 
     Args:
         OBs (json): the OB information in json format
-        exception_fields (list): a list of the exception fields
+        required_fields (list): a list of the required fields that must be present
 
     Returns:
         value_df (pandas DataFrame): a DataFrame with the values of the OBs
@@ -386,96 +421,9 @@ def create_checks_dataframes(OBs, exception_fields):
         for idx in index_labels:
             val = value_df.at[idx, col]
             if not pd.api.types.is_scalar(val) or pd.isna(val):
-            # if pd.isna(value_df.at[idx, col]):
-            # if value_df.at[idx, col] is None or value_df.at[idx, col] == "<NA>":
                 presence_df.at[idx, col] = False
 
-    run_safety_valves = True
-    if run_safety_valves:
-        # Define default values for safety valves
-        safety_valve_defaults = {
-            'schedule.num_intranight_cadence': 0,
-            'schedule.desired_num_visits_per_night': 1,
-            'schedule.minimum_num_visits_per_night': 0,  # Will be overridden by special logic below
-            'target.gaia_id': 'NoGaiaName',
-            'observation.exp_meter_threshold': -1.0,
-            'schedule.minimum_elevation': 33,
-            'schedule.minimum_moon_separation': 33,
-            'schedule.weather_band_1': True,
-            'schedule.weather_band_2': True,
-            'schedule.weather_band_3': False,
-            'target.t_eff': -1000.0,
-        }
-        
-        # Apply safety valves using a loop
-        for col_name, default_value in safety_valve_defaults.items():
-            if col_name not in value_df.columns:
-                # Column doesn't exist, create it with default value
-                value_df[col_name] = default_value
-                presence_df[col_name] = True
-            else:
-                # Column exists, fill NaN values with default
-                value_df[col_name] = value_df[col_name].fillna(default_value)
-                # Also handle empty strings for string columns
-                if isinstance(default_value, str):
-                    value_df[col_name] = value_df[col_name].replace('', default_value)
-                presence_df[col_name] = presence_df[col_name] | value_df[col_name].notna()
-                
-        # Special case for fixing default ExpMeterThreshold
-        # Using default of 1.616161, this is in MegaPhotons/A which gives SNR ~150 and is a unique value for filter on
-        # if 'observation.exp_meter_threshold' in value_df.columns:
-        #     value_df['observation.exp_meter_threshold'] = 1.616161
-
-        # Special case for weather bands based on metadata.semid
-        if 'metadata.semid' in value_df.columns:
-            # Check for 2025B_E473 semid and set opposite weather band values
-            mask_2025B_E473 = value_df['metadata.semid'] == '2025B_E473'
-            if mask_2025B_E473.any():
-                # Set weather bands to opposite values for 2025B_E473
-                if 'schedule.weather_band_1' in value_df.columns:
-                    value_df.loc[mask_2025B_E473, 'schedule.weather_band_1'] = False
-                if 'schedule.weather_band_2' in value_df.columns:
-                    value_df.loc[mask_2025B_E473, 'schedule.weather_band_2'] = False
-                if 'schedule.weather_band_3' in value_df.columns:
-                    value_df.loc[mask_2025B_E473, 'schedule.weather_band_3'] = True
-        
-        # Special case: minimum_num_visits_per_night should use desired_num_visits_per_night if available
-        if 'schedule.desired_num_visits_per_night' in value_df.columns:
-            if 'schedule.minimum_num_visits_per_night' in value_df.columns:
-                # Fill NaN values in minimum with corresponding desired values
-                value_df['schedule.minimum_num_visits_per_night'] = value_df['schedule.minimum_num_visits_per_night'].fillna(value_df['schedule.desired_num_visits_per_night'])
-            else:
-                # Use desired values as minimum
-                value_df['schedule.minimum_num_visits_per_night'] = value_df['schedule.desired_num_visits_per_night']
-            presence_df['schedule.minimum_num_visits_per_night'] = presence_df['schedule.minimum_num_visits_per_night'] | value_df['schedule.minimum_num_visits_per_night'].notna()
-        
-        # Special case: if schedule.num_nights_per_semester == 1, set schedule.num_internight_cadence to 0
-        if 'schedule.num_nights_per_semester' in value_df.columns and 'schedule.num_internight_cadence' in value_df.columns:
-            mask = value_df['schedule.num_nights_per_semester'] == 1
-            value_df.loc[mask, 'schedule.num_internight_cadence'] = 0
-            presence_df.loc[mask, 'schedule.num_internight_cadence'] = True
-
-
-    # Create masks considering the exception fields
-    def row_is_good(row):
-        # Ignore the exception fields in the presence check
-        return all(
-            row.get(col, False) if col not in exception_fields else True
-            for col in row.index
-        )
-
-    # Apply the good/bad row determination
-    all_true_mask = presence_df.apply(row_is_good, axis=1)
-    some_false_mask = ~all_true_mask
-
-    # Apply masks to both dataframes
-    complete_value_df = value_df[all_true_mask]
-    incomplete_value_df = value_df[some_false_mask]
-
-    complete_presence_df = presence_df[all_true_mask]
-    incomplete_presence_df = presence_df[some_false_mask]
-
-    return value_df, presence_df, all_true_mask
+    return value_df, presence_df
 
 def cast_columns(df):
     """
@@ -502,47 +450,19 @@ def cast_columns(df):
                 raise ValueError(f"Unsupported dtype: {dtype}. Only 'Int64', 'Float64', 'string', and 'boolean' are allowed.")
     return df
 
-def sort_good_bad(OBs, awarded_programs):
+def validate_and_convert_coordinates(df):
     """
-    Sort the OBs into good and bad buckets.
-    
+    Validate and convert RA/Dec coordinates from string format (hourangle/deg) to degrees.
+    Removes rows with invalid coordinates and prints warnings for removed targets.
+
     Args:
-        OBs (json): the OB information in json format
-        awarded_programs (list): a list of the awarded programs
+        df (pandas DataFrame): DataFrame with 'ra' and 'dec' columns as strings in hourangle/deg format
 
     Returns:
-        trimmed_good (pandas DataFrame): a DataFrame with the good OBs
-        bad_OBs_values (pandas DataFrame): a DataFrame with the values of the bad OBs fields
-        bad_OBs_hasFields (pandas DataFrame): a DataFrame with the indication of fields existing or not for the bad OBs
+        df (pandas DataFrame): DataFrame with valid coordinates converted to degrees, invalid rows removed
     """
-
-    OB_values, OB_hasFields, pass_OBs_mask = create_checks_dataframes(OBs, exception_fields)
-
-    bad_OBs_values = OB_values[~pass_OBs_mask]
-    bad_OBs_values.reset_index(inplace=True, drop='True')
-    bad_OBs_hasFields = OB_hasFields[~pass_OBs_mask]
-    bad_OBs_hasFields.reset_index(inplace=True, drop='True')
-
-    if 'metadata.semid' in bad_OBs_values.columns:
-        mask = bad_OBs_values['metadata.semid'].isin(awarded_programs)
-        bad_OBs_values = bad_OBs_values[mask].reset_index(drop=True)
-        bad_OBs_hasFields = bad_OBs_hasFields[mask].reset_index(drop=True)
-
-    good_OB_values = OB_values[pass_OBs_mask]
-    good_OB_values.reset_index(inplace=True, drop='True')
-    good_OBs = cast_columns(good_OB_values)
-
-    good_OBs_awarded = good_OBs[good_OBs['metadata.semid'].isin(awarded_programs)]
-    good_OBs_awarded.reset_index(inplace=True, drop='True')
-    
-    # Create column mapping from column_definitions
-    new_column_names = {col: col_info['new_name'] for col, col_info in column_definitions.items()}
-    
-    trimmed_good = good_OBs_awarded[list(column_definitions.keys())].rename(columns=new_column_names)
-    trimmed_good.columns.values[9] = 'n_intra_max'
-
-    ra_list = trimmed_good['ra'].astype(str).tolist()
-    dec_list = trimmed_good['dec'].astype(str).tolist()
+    ra_list = df['ra'].astype(str).tolist()
+    dec_list = df['dec'].astype(str).tolist()
     
     # Try to create SkyCoord and handle invalid coordinates
     valid_indices = []
@@ -554,9 +474,9 @@ def sort_good_bad(OBs, awarded_programs):
             test_coord = SkyCoord(ra=ra, dec=dec, unit=(u.hourangle, u.deg))
             valid_indices.append(i)
         except Exception as e:
-            # Get the target info for reporting
-            target_id = trimmed_good.iloc[i].get('_id', 'Unknown ID')
-            target_name = trimmed_good.iloc[i].get('target.target_name', 'Unknown Name')
+            # Get the target info for reporting (using renamed column names)
+            target_id = df.iloc[i].get('unique_id', 'Unknown ID')
+            target_name = df.iloc[i].get('starname', 'Unknown Name')
             invalid_targets.append({
                 'id': target_id,
                 'starname': target_name,
@@ -573,15 +493,73 @@ def sort_good_bad(OBs, awarded_programs):
             print(f"    Error: {target['error']}")
     
     # Filter to only valid coordinates
-    if len(valid_indices) < len(trimmed_good):
-        trimmed_good = trimmed_good.iloc[valid_indices].reset_index(drop=True)
+    if len(valid_indices) < len(df):
+        df = df.iloc[valid_indices].reset_index(drop=True)
         ra_list = [ra_list[i] for i in valid_indices]
         dec_list = [dec_list[i] for i in valid_indices]
     
     # Now create SkyCoord with only valid coordinates
     coords = SkyCoord(ra=ra_list, dec=dec_list, unit=(u.hourangle, u.deg))
-    trimmed_good['ra'] = coords.ra.deg
-    trimmed_good['dec'] = coords.dec.deg
+    df['ra'] = coords.ra.deg
+    df['dec'] = coords.dec.deg
+    
+    return df
+
+def sort_good_bad(OBs, awarded_programs):
+    """
+    Sort the OBs into good and bad buckets.
+    
+    Args:
+        OBs (json): the OB information in json format
+        awarded_programs (list): a list of the awarded programs
+
+    Returns:
+        trimmed_good (pandas DataFrame): a DataFrame with the good OBs
+        bad_OBs_values (pandas DataFrame): a DataFrame with the values of the bad OBs fields
+        bad_OBs_hasFields (pandas DataFrame): a DataFrame with the indication of fields existing or not for the bad OBs
+    """
+
+    # Create the dataframes
+    OB_values, OB_hasFields = create_checks_dataframes(OBs, required_fields)
+    
+    # Apply safety valves
+    run_safety_valves = True
+    if run_safety_valves:
+        OB_values, OB_hasFields = apply_safety_valves(OB_values, OB_hasFields)
+    
+    # Create masks considering only the required fields
+    def row_is_good(row):
+        # Check that all required fields are present
+        # If a required field is missing from the dataframe, row.get returns False (default)
+        return all(
+            row.get(col, False) for col in required_fields
+        )
+    
+    # Apply the good/bad row determination
+    pass_OBs_mask = OB_hasFields.apply(row_is_good, axis=1)
+
+    bad_OBs_values = OB_values[~pass_OBs_mask]
+    bad_OBs_values.reset_index(inplace=True, drop='True')
+    bad_OBs_hasFields = OB_hasFields[~pass_OBs_mask]
+    bad_OBs_hasFields.reset_index(inplace=True, drop='True')
+
+    mask = bad_OBs_values['metadata.semid'].isin(awarded_programs)
+    bad_OBs_values = bad_OBs_values[mask].reset_index(drop=True)
+    bad_OBs_hasFields = bad_OBs_hasFields[mask].reset_index(drop=True)
+
+    good_OB_values = OB_values[pass_OBs_mask]
+    good_OB_values.reset_index(inplace=True, drop='True')
+    good_OBs = cast_columns(good_OB_values)
+
+    good_OBs_awarded = good_OBs[good_OBs['metadata.semid'].isin(awarded_programs)]
+    good_OBs_awarded.reset_index(inplace=True, drop='True')
+    
+    # Create column mapping from column_definitions
+    new_column_names = {col: col_info['new_name'] for col, col_info in column_definitions.items()}
+    trimmed_good = good_OBs_awarded[list(column_definitions.keys())].rename(columns=new_column_names)
+
+    # Validate and convert coordinates
+    trimmed_good = validate_and_convert_coordinates(trimmed_good)
 
     return trimmed_good, bad_OBs_values, bad_OBs_hasFields
 
@@ -603,11 +581,16 @@ def recompute_exposure_times(request_frame, slowdown_factor):
         # See this website for more details: https://www2.keck.hawaii.edu/inst/kpf/expmetertermination/
         t0 = 307.0 
         nominal_exptime = t0*request_frame['exp_meter_threshold'][i] * 10**(0.4*(request_frame['gmag'][i] - 10.0))
+
+        countpersecond = 10**(-0.351*request_frame['gmag'][i] + 8.437)
+        totalcounts_desired = (10**6 * request_frame['exp_meter_threshold'][i]) * (8550-4450)
+        totalcounts = totalcounts_desired / countpersecond
+        nominal_exptime = totalcounts / countpersecond
         final_time = min([nominal_exptime*slowdown_factor, request_frame['exptime'][i]])
         new_exptimes.append(final_time)
     return new_exptimes
 
-def analyze_bad_obs(trimmed_good, bad_OBs_values, bad_OBs_hasFields, awarded_programs,exception_fields=exception_fields):
+def analyze_bad_obs(trimmed_good, bad_OBs_values, bad_OBs_hasFields, awarded_programs, required_fields=required_fields):
     """
     Analyze the bad OBs and produce a count of bad OBs by semester and a histogram of bad OBs by field.
 
@@ -616,7 +599,7 @@ def analyze_bad_obs(trimmed_good, bad_OBs_values, bad_OBs_hasFields, awarded_pro
         bad_OBs_values (pandas DataFrame): the values of the fields in the bad OBs 
         bad_OBs_hasFields (pandas DataFrame): the existence of the fields in the bad OBs
         awarded_programs (list): a list of the awarded programs
-        exception_fields (list): a list of the exception fields
+        required_fields (list): a list of the required fields
 
     Returns:
         - bad_obs_count_by_semid: dict {metadata.semid: count of bad OBs}
@@ -633,11 +616,11 @@ def analyze_bad_obs(trimmed_good, bad_OBs_values, bad_OBs_hasFields, awarded_pro
             if semid not in bad_obs_count_by_semid:
                 bad_obs_count_by_semid[semid] = 0
 
-    # 2. Histogram of missing fields (reasons for bad OBs)
-    bad_field_histogram = {col: 0 for col in bad_OBs_hasFields.columns if col not in exception_fields}
+    # 2. Histogram of missing fields (reasons for bad OBs) - only check required fields
+    bad_field_histogram = {col: 0 for col in required_fields if col in bad_OBs_hasFields.columns}
     for idx, row in bad_OBs_hasFields.iterrows():
         for col in bad_field_histogram:
-            if not bool(row.get(col, True)):
+            if not bool(row.get(col, False)):
                 bad_field_histogram[col] += 1
 
     return bad_obs_count_by_semid, bad_field_histogram
@@ -676,7 +659,7 @@ def plot_bad_obs_histograms(bad_obs_count_by_semid, bad_field_histogram):
     plt.tight_layout()
     plt.show()
 
-def inspect_row(df_exists, df_values, row_num, exception_fields=exception_fields):
+def inspect_row(df_exists, df_values, row_num, required_fields=required_fields):
     """
     Inspect and print a summary of a specific row's key existence and requirement status.
 
@@ -684,7 +667,7 @@ def inspect_row(df_exists, df_values, row_num, exception_fields=exception_fields
         df_exists (pandas DataFrame): the existence of the fields in the OBs
         df_values (pandas DataFrame): the values of the fields in the OBs
         row_num (int): the row number to inspect
-        exception_fields (list): a list of the exception fields
+        required_fields (list): a list of the required fields
 
     Returns:
         email_body (str): the email body for the inspection
@@ -700,11 +683,11 @@ def inspect_row(df_exists, df_values, row_num, exception_fields=exception_fields
     lines.append(f"{'Missing But Required Fields':<40}")
     lines.append("-" * 40)
 
-    for col in df_exists.columns:
-        exists = bool(row_exists[col])
-        is_required = col not in exception_fields
-        if is_required and not exists:
-            lines.append(f"{col:<40}")
+    for col in required_fields:
+        if col in df_exists.columns:
+            exists = bool(row_exists[col])
+            if not exists:
+                lines.append(f"{col:<40}")
 
     email_body = email_template.format(
     semid=row_values['metadata.semid'],

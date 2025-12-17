@@ -1,1 +1,1 @@
-unique_id,program_code,starname,ra,dec,exptime,n_exp,n_inter_max,tau_inter,n_intra_max,n_intra_min,tau_intra,minimum_elevation,minimum_moon_separation,weather_band_1,weather_band_2,weather_band_3,gaia_id,teff,jmag,gmag,pmra,pmdec,epoch,exp_meter_threshold
+unique_id,program_code,starname,ra,dec,exptime,n_exp,n_inter_max,tau_inter,n_intra_max,n_intra_min,tau_intra,minimum_elevation,minimum_moon_separation,weather_band_1,weather_band_2,weather_band_3,gaia_id,teff,jmag,gmag,pmra,pmdec,epoch,exp_meter_threshold,active
