@@ -1,5 +1,44 @@
-# Examples folder
+# In general, ignore files in the examples/ folder, since we don't want to track the outputs of various runs
 examples/*
+!examples/hello_world/
+examples/hello_world/*
+# Allow deeper hello_world directories so whitelist files work
+!examples/hello_world/prepped/
+examples/hello_world/prepped/*
+!examples/hello_world/2018B/
+examples/hello_world/2018B/*
+!examples/hello_world/2018B/2018-08-05/
+examples/hello_world/2018B/2018-08-05/*
+!examples/hello_world/2018B/2018-08-05/band1/
+examples/hello_world/2018B/2018-08-05/band1/*
+# But we do want to track the important input files. Whitelist them here.
+# Hello World files 
+!examples/hello_world/config_hello_world.ini
+!examples/hello_world/config_hello_world_bonus_weather.ini
+!examples/hello_world/config_hello_world_prep.ini
+!examples/hello_world/2018B/2018-08-05/band1/allocation.csv
+!examples/hello_world/2018B/2018-08-05/band1/request.csv
+!examples/hello_world/2018B/2018-08-05/band1/past.csv
+!examples/hello_world/2018B/2018-08-05/band1/custom.csv
+!examples/hello_world/2018B/2018-08-05/band1/programs.csv
+!examples/hello_world/prepped/observatory_schedule.csv
+!examples/hello_world/prepped/jump_past_history.csv
+!examples/hello_world/prepped/request.csv
+!examples/hello_world/prepped/fillers.csv
+# Benchmark files 
+!examples/bench/
+examples/bench/*
+!examples/bench/config_benchmark.ini
+!examples/bench/allocation.csv
+!examples/bench/past.csv
+!examples/bench/custom.csv
+!examples/bench/programs.csv
+
+# In general, ignore files in the data/ folder, with exception
+data/*
+!data/maunakea_weather_loss_data.csv
+!data/template_OB.json
+!data/template_OB_annotated.json
 
 # Byte-compiled / optimized / DLL files
 .DS_Store
@@ -122,7 +161,4 @@ venv.bak/
 # PDM
 __pypackages__/
 pdm.lock
-examples/bench/inputs/
-examples/bench/outputs/
-examples/hello_world/inputs/
-examples/hello_world/outputs/
+
