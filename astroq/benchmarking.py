@@ -1,8 +1,7 @@
 """
-Module for preparing the benchmark tests
+Module for preparing the benchmark test as used in Lubin et al. 2025. 
 """
 
-# Third-party imports
 import matplotlib.pyplot as pt
 import numpy as np
 import pandas as pd
@@ -14,6 +13,13 @@ def getDec(maxDec=90, minDec=-20):
     '''
     Randomly draw a declination from cosine i distribution between two values.
     The default min/max declination values are chosen based on favorable viewing from Hawaii.
+
+    Args:
+        maxDec (float): the maximum declination (degrees) to draw from
+        minDec (float): the minimum declination (degrees) to draw from
+
+    Returns:
+        dec (float): the randomly drawn declination
     '''
     mincosdec = np.cos((90+maxDec)*(np.pi/180.))
     maxcosdec = np.cos((90+minDec)*(np.pi/180.))
@@ -23,8 +29,15 @@ def getDec(maxDec=90, minDec=-20):
 
 def stars_in_program(program, total_hours):
     '''
-    Determine how many stars should be in a program based on that program's observing strategy and
-    it's awarded time.
+    Determine how many stars should be in a program based on that program's observing strategy
+    and its awarded time.
+
+    Args:
+        program (list): a list containing the strategy of all stars in the program [tau_inter, t_exp [seconds], n_inter_max, n_intra_max]
+        total_hours (float): the total number of hours to allocate to the program. 
+
+    Returns:
+        n_stars (int): the number of stars to allocate to the program
     '''
     e = program[1]
     n = program[2]
@@ -35,18 +48,25 @@ def stars_in_program(program, total_hours):
 
 def build_toy_model_from_paper(ns, hours_per_program = 80, plot = False):
     """
-    Generate a synthetic request set based on the paper's toy model.
-    Returns a pandas DataFrame with the request information.
+    Generate the nominal set of requests used for performance testing in Lubin et al. 2025.
+
+    Args:
+        ns (int): the number of slots needed to complete each of the single shot observations in program 6. In the paper we start with 12, and work down to increase complexity.
+        hours_per_program (float): the total number of hours to allocate to each program. In the paper, this is 80 hours.
+        plot (bool): True to create a simple plot of the requests' locations on the sky.
+
+    Returns:
+        requests_data (pandas DataFrame): a DataFrame with the request information, equivalent to the requests.csv file.
     """
     # Define programs with their characteristics
     # [tau_inter, t_exp [seconds], n_inter_max, n_intra_max]
-    program1 = [1, 300, 40, 1]  # APF-50
-    program2 = [3, 600, 20, 1]  # TKS
+    program1 = [1, 300, 40, 1]    # APF-50
+    program2 = [3, 600, 20, 1]    # TKS
     program3 = [10, 1200, 10, 1]  # bi-weekly
-    program4 = [1, 300, 8, 5]  # Intra
-    program5 = [1, 300, 40, 1]  # Constrained
+    program4 = [1, 300, 8, 5]     # Multi-visit
+    program5 = [1, 300, 40, 1]    # RA Constrained
     dynamic_exptime = ns*300
-    program6 = [0, dynamic_exptime, 1, 1]  # Singles
+    program6 = [0, dynamic_exptime, 1, 1]  # Single shots
     all_programs = [program1, program2, program3, program4, program5, program6]
 
     # Calculate number of stars per program
@@ -191,6 +211,7 @@ def build_toy_model_from_paper(ns, hours_per_program = 80, plot = False):
     requests_data['weather_band_1'] = [True]*len(requests_data)
     requests_data['weather_band_2'] = [True]*len(requests_data)
     requests_data['weather_band_3'] = [True]*len(requests_data)
+    requests_data['inactive'] = [False]*len(requests_data)
 
     if plot:
         for i in range(len(all_programs), 0, -1):

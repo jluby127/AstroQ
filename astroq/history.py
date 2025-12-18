@@ -1,9 +1,6 @@
 """
-Module for processing the inputs and outputs of the autoscheduler to/from various sources.
-Designed to be only run as a function call from the generateScript.py script.
-
-Example usage:
-    import processing_functions as pf
+Module for processing the past history of observations from OB database or user inputted file. 
+Used to populate the past.csv file for the optimization.
 """
 
 # Standard library imports
@@ -32,31 +29,15 @@ StarHistory = namedtuple('StarHistory', [
     'n_visits_on_nights',
 ])
 
-def pull_OB_histories(semester):
-    """
-    Pull the latest database OBs down to local.
-
-    Args:
-        semester (str) - the semester from which to query OBs, format YYYYL
-        histories (bool) - if True, pull the history of OBs for the semester, if False, pull the latest OBs for the semester
-
-    Returns:
-        data (json) - the OB information in json format
-    """
-    url = "https://www3.keck.hawaii.edu/api/kpfcc/getObservingBlockHistory"
-    params = {}
-    params["semester"] = semester
-    try:
-        data = requests.get(url, params=params, auth=(os.environ['KECK_OB_DATABASE_API_USERNAME'], os.environ['KECK_OB_DATABASE_API_PASSWORD']))
-        data = data.json()
-        return data
-    except:
-        print("ERROR")
-        return
-
 def write_OB_histories_to_csv(histories):
     """
-    Write the OB histories to a CSV file.
+    Prepare dataframe of past history for writing to CSV.
+
+    Args:
+        histories (json): the OB histories in json format
+
+    Returns:
+        df (pandas DataFrame): the OB histories in dataframe format
     """
     rows = []
     for entry in histories["history"]:
@@ -73,65 +54,24 @@ def write_OB_histories_to_csv(histories):
                 # "junk": entry.get("junk", ""),
             })
     df = pd.DataFrame(rows)
-    df.sort_values(by='timestamp', inplace=True)
+    if len(df) == 0:
+        return pd.DataFrame(columns=['id', 'target', 'semid', 'timestamp', 'exposure_start_time', 'exposure_time', 'observer'])
+    else:
+        df.sort_values(by='timestamp', inplace=True)
     return df
-
-def write_OB_histories_to_csv_JUMP(requests_frame, jump_file):
-    """
-    Convert a JUMP-style CSV to the OB histories format and write to CSV.
-    """
-    # Check if file is empty or doesn't exist
-    if not os.path.exists(jump_file) or os.path.getsize(jump_file) == 0:
-        # Create empty DataFrame with expected columns
-        empty_df = pd.DataFrame(columns=['id', 'target', 'semid', 'timestamp', 'exposure_start_time', 'exposure_time', 'observer'])
-        empty_df.to_csv(output_file, index=False)
-        return empty_df
     
-    try:
-        # Load the jump file
-        df = pd.read_csv(jump_file)
-    except pd.errors.EmptyDataError:
-        # Create empty DataFrame with expected columns
-        empty_df = pd.DataFrame(columns=['id', 'target', 'semid', 'timestamp', 'exposure_start_time', 'exposure_time', 'observer'])
-        empty_df.to_csv(output_file, index=False)
-        return empty_df
-    
-    # Crossmatch star names
-    df['target'] = df['star_id'].apply(crossmatch_star_name)
-    
-    # Prepare a lookup for id and semid from the requests_frame
-    req = requests_frame
-    # Create lookup dictionary manually to handle duplicate starnames
-    req_lookup = {}
-    for _, row in req.iterrows():
-        starname = row['starname']
-        unique_id = row['unique_id']
-        if unique_id not in req_lookup:
-            req_lookup[unique_id] = {'starname': row['starname'], 'program_code': row['program_code']}
-
-    # Map id and semid using the crossmatched target
-    df['unique_id'] = df['target'].map(lambda name: req_lookup.get(name, {}).get('unique_id', ''))
-    df['semid'] = df['target'].map(lambda name: req_lookup.get(name, {}).get('program_code', ''))
-    
-    # Filter out rows where starname doesn't have a corresponding entry in lookup table
-    df = df[df['id'] != '']
-    
-    # Convert datetime format from space-separated to ISO format with 'T'
-    df['timestamp'] = df['utctime'].str.replace(' ', 'T')
-    df['exposure_start_time'] = df['utctime'].str.replace(' ', 'T')
-    df['observer'] = 'none'
-    
-    # Keep only the required columns
-    out_df = df[['id', 'target', 'semid', 'timestamp', 'exposure_start_time', 'exposure_time', 'observer']]
-    return out_df
 
 def process_star_history(filename):
     """
-    Given a CSV file (output of write_OB_histories_to_csv), return a dict:
-      keys are 'id', values are objects with attributes:
-      date_last_observed, total_n_exposures, total_n_visits, total_n_unique_nights, total_open_shutter_time
-    Each key is for one target (star).
+    Process the past.csv file to return a dict of star histories.
+
+    Args:
+        filename (str): the path to the past.csv file
+
+    Returns:
+        result (dict): a dictionary of star histories where keys are 'id', values are objects with attributes: date_last_observed, total_n_exposures, total_n_visits, total_n_unique_nights, total_open_shutter_time
     """
+
     # Check if file is empty or doesn't exist
     if not os.path.exists(filename) or os.path.getsize(filename) == 0:
         # Create empty DataFrame with expected columns
@@ -200,16 +140,4 @@ def process_star_history(filename):
             n_visits_on_nights=n_visits_on_nights
         )
     return result
-
-def crossmatch_star_name(name):
-    """
-    Convert between canonical and CPS star naming conventions.
-    If given a CPS name, returns the canonical name.
-    If given a canonical name, returns the CPS name.
-    """
-    if name.startswith('KEPLER'):
-        return name.replace("KEPLER", "Kepler")
-    if name.startswith('Kepler'):
-        return name.replace("Kepler", "KEPLER")
-    return name
 
