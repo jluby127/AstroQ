@@ -83,7 +83,7 @@ class StarPlotter(object):
         """
         # Access row data directly instead of filtering the entire DataFrame (PERFORMANCE OPTIMIZATION)
         self.starname = row['starname']
-        self.active = row['active']
+        self.active = row['inactive']
         self.ra = float(row['ra'])
         self.dec = float(row['dec'])
         self.program = str(row['program_code'])
