@@ -311,6 +311,14 @@ def process_stars(semester_planner):
         for m in range(len(prog_indices)):
             super_map += all_stars[prog_indices[m]].starmap
         programmatic_star.starmap = super_map
+    
+        # Aggregate observations_past for the program
+        combined_past = {}
+        for k in prog_indices:
+            for date, count in all_stars[k].observations_past.items():
+                combined_past[date] = combined_past.get(date, 0) + count
+        programmatic_star.observations_past = combined_past
+
         programmatic_star.total_observations_requested = np.sum([all_stars[k].total_observations_requested for k in prog_indices])
         programmatic_star.draw_lines = False
         programmatic_star.allow_mapview = False
