@@ -453,14 +453,20 @@ class SemesterPlanner(object):
             awarded_time_slots_grace = int(awarded_time_slots * self.throttle_grace)
 
             max_slots_allowed_for_scheduling_program = gp.quicksum(
-                self.Yrds[r, d, s] * self.slots_needed_for_exposure_dict[r] # proper accounting of multi-slot exposures?
+                self.Yrds[r, d, s] * self.slots_needed_for_exposure_dict[r]
                 for r, d, s in self.observability_tuples
                 if r in program_requests_map.get(program, set())
             )
 
             # Get past used slots for this program (default to 0 if not found)
             past_used_slots = past_used_slots_by_program.get(program, 0)
-            
+
+            # Graceful failure. If a program has already been over-observed, we don't want the model to be infeasible.
+            if awarded_time_slots_grace < past_used_slots:
+                logs.warning(f"Program {program} has already been over-observed. Setting award equal to past used.")
+                logs.warning(f"Therefore, Program {program}, will not be scheduled for any additional observations.")
+                awarded_time_slots_grace = past_used_slots
+
             lhs = awarded_time_slots_grace - past_used_slots
             rhs = max_slots_allowed_for_scheduling_program
             self.model.addConstr(lhs >= rhs, f'throttle_program_{program}')
