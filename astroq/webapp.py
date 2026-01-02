@@ -37,7 +37,7 @@ semester_planner = None
 night_planner = None
 uptree_path = None
 
-desired_order = ["active","unique_id", "starname", "exptime", "n_exp", 'n_inter_max', 'tau_inter', "n_intra_max", "n_intra_min", "tau_intra", "weather_band_1", "weather_band_2", "weather_band_3"]
+desired_order = ["inactive","unique_id", "starname", "exptime", "n_exp", 'n_inter_max', 'tau_inter', "n_intra_max", "n_intra_min", "tau_intra", "weather_band_1", "weather_band_2", "weather_band_3"]
 
 def load_data_for_path(semester_code, date, band, uptree_path):
     """
