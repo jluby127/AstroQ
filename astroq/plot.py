@@ -83,7 +83,7 @@ class StarPlotter(object):
         """
         # Access row data directly instead of filtering the entire DataFrame (PERFORMANCE OPTIMIZATION)
         self.starname = row['starname']
-        self.active = row['inactive']
+        self.inactive = row['inactive']
         self.ra = float(row['ra'])
         self.dec = float(row['dec'])
         self.program = str(row['program_code'])
@@ -223,20 +223,19 @@ def process_stars(semester_planner):
         # Create COF arrays for each request
         combined_set = set(list(newstar.observations_past.keys()) + list(newstar.observations_future.keys()))
         # For inactive stars, only include past observations; for active stars, include both past and future
-        if newstar.active:
+        if newstar.inactive == False:
             newstar.dates_observe = [newstar.observations_past[date] if date in newstar.observations_past.keys() else (newstar.n_intra_max*newstar.n_exp if date in combined_set else 0) for date in semester_planner.all_dates_array]
         else:
             # For inactive stars, only show past observations
             newstar.dates_observe = [newstar.observations_past[date] if date in newstar.observations_past.keys() else 0 for date in semester_planner.all_dates_array]
         
         newstar.cume_observe = np.cumsum(newstar.dates_observe)
-        if newstar.active == False:
+        if newstar.inactive:
             newstar.total_observations_requested = np.max(newstar.cume_observe)
             newstar.total_requested_seconds =newstar.total_observations_requested*newstar.exptime + slew_overhead*newstar.total_observations_requested
             newstar.total_requested_hours = newstar.total_requested_seconds / 3600
             newstar.total_requested_nights = newstar.total_requested_hours / hours_per_night   
 
-        
         # Handle division by zero for inactive stars (total_observations_requested = 0)
         if newstar.total_observations_requested > 0:
             newstar.cume_observe_pct = np.round((np.cumsum(newstar.dates_observe)/newstar.total_observations_requested)*100.,3)
@@ -295,6 +294,7 @@ def process_stars(semester_planner):
         stars_stacked = np.vstack(cume_observe)
         summed_cumulative = np.sum(stars_stacked, axis=0)
         max_value = np.sum([all_stars[k].total_observations_requested for k in prog_indices])
+
         # Handle division by zero for programs with only inactive stars
         if max_value > 0:
             programmatic_star.cume_observe_pct = summed_cumulative / max_value * 100
