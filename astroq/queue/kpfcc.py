@@ -338,6 +338,12 @@ def apply_safety_valves(value_df, presence_df):
         'target.t_eff': -1000.0,
         'observation.exp_meter_threshold': -1.0,
         'schedule.num_intranight_cadence': 0,
+        'schedule.num_intranight_cadence': 0,
+        'schedule.num_inter_cadence': 0,
+        'schedule.n_inter_max': 0,
+        'schedule.n_intra_max': 1,
+        'schedule.n_inter_min': 1,
+        'schedule.n_exp': 1,
         'schedule.minimum_elevation': 33,
         'schedule.minimum_moon_separation': 33,
         'schedule.weather_band_1': True,
@@ -416,11 +422,14 @@ def create_checks_dataframes(OBs, required_fields):
     value_df.index = index_labels
     presence_df.index = index_labels
 
-    # Catch values that exist, but are None or "<NA>"
+    # Catch values that exist, but are None, "<NA>", or blank
     for col in columns:
         for idx in index_labels:
             val = value_df.at[idx, col]
             if not pd.api.types.is_scalar(val) or pd.isna(val):
+                presence_df.at[idx, col] = False
+            elif isinstance(val, str) and val.strip() == "":
+                # Catch empty strings or whitespace-only strings
                 presence_df.at[idx, col] = False
 
     return value_df, presence_df
