@@ -86,9 +86,9 @@ def load_data_for_path(semester_code, date, band, uptree_path):
             night_planner.current_day
         )
     except Exception as e:
-        print(f"Error loading night planner: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"No night planner found")
+        # import traceback
+        # traceback.print_exc()
         night_planner = None
         data_ttp = None
     
@@ -178,14 +178,16 @@ def render_admin_page():
     fig_football = pl.get_football(semester_planner, all_stars_from_all_programs, use_program_colors=True)
     fig_tau_inter_line = pl.get_tau_inter_line(semester_planner, all_stars_from_all_programs, use_program_colors=True)
     fig_timebar = pl.get_timebar(semester_planner, all_stars_from_all_programs, use_program_colors=True)
+    fig_timebar_by_program = pl.get_timebar_by_program(semester_planner, data_astroq[0])
 
     fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
     fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
     fig_football_html = pio.to_html(fig_football, full_html=True, include_plotlyjs='cdn')
     fig_tau_inter_line_html = pio.to_html(fig_tau_inter_line, full_html=True, include_plotlyjs='cdn')
     fig_timebar_html = pio.to_html(fig_timebar, full_html=True, include_plotlyjs='cdn')
+    fig_timebar_by_program_html = pio.to_html(fig_timebar_by_program, full_html=True, include_plotlyjs='cdn')
 
-    figures_html = [fig_timebar_html, fig_cof_html, fig_birdseye_html, fig_tau_inter_line_html, fig_football_html]
+    figures_html = [fig_timebar_html, fig_timebar_by_program_html, fig_cof_html, fig_birdseye_html, fig_tau_inter_line_html, fig_football_html]
 
     return render_template("admin.html", tables_html=[request_table_html], figures_html=figures_html)
 

@@ -890,6 +890,253 @@ def get_timebar(semester_planner, all_stars, use_program_colors=False, prevent_n
     return fig
 
 
+def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=False):
+    """
+    Create a horizontal bar chart showing time breakdown for each program individually
+    
+    Each program displays 5 bars: Unused, Incomplete, Future Scheduled, Past Completed, and Requested.
+    A dashed horizontal line above each program's bars represents their total allocated time.
+    Only the program name is shown as a label, centered on each program's group of 5 bars.
+    All bars use the same scale for easy comparison across programs.
+
+    Parameters:
+        semester_planner: the semester planner object
+        programs_dict (dict): dictionary mapping program codes to lists of StarPlotter objects (e.g., data_astroq[0])
+        prevent_negative (bool): If True, set Incomplete and Not used categories to zero if they are negative (default: False)
+
+    Returns:
+        fig (plotly figure): a plotly figure showing time breakdown per program as horizontal bars
+    """
+    programmatics = pd.read_csv(os.path.join(semester_planner.semester_directory, 'programs.csv'))
+    
+    # Get all programs from programs.csv
+    all_programs_in_csv = set(programmatics['program'].unique())
+    programs_with_requests = set(programs_dict.keys())
+    
+    # Find programs in CSV that don't have any requests
+    programs_without_requests = all_programs_in_csv - programs_with_requests
+    
+    # Combine all programs: those with requests and those without
+    all_program_codes = sorted(list(programs_with_requests) + list(programs_without_requests))
+    
+    # Store data for each program
+    program_data = {}
+    max_x_value = 0  # Track maximum x value for consistent scaling
+    
+    # Process programs with requests
+    for program_code in sorted(programs_with_requests):
+        program_stars = programs_dict[program_code]
+        
+        # Calculate times for this program (same logic as get_timebar)
+        total_past = 0
+        total_future = 0
+        total_requested_hours = 0
+        
+        for starobj in program_stars:
+            total_past += sum(starobj.observations_past.values()) * starobj.exptime + len(starobj.observations_past) * slew_overhead
+            total_future += sum(starobj.observations_future.values()) * starobj.exptime + len(starobj.observations_future) * slew_overhead
+            total_requested_hours += starobj.total_requested_hours
+        
+        # Convert to hours
+        total_past_hours = total_past / 3600
+        total_future_hours = total_future / 3600
+        total_incomplete_hours = total_requested_hours - total_past_hours - total_future_hours
+        
+        # Get allocated hours for this program
+        program_row = programmatics[programmatics['program'] == program_code]
+        if len(program_row) > 0:
+            total_allocated_hours = program_row['hours'].sum()
+        else:
+            total_allocated_hours = 0
+        
+        # Calculate unused hours
+        unused_hours = total_allocated_hours - total_future_hours - total_past_hours
+        
+        # Apply negative value prevention if enabled
+        if prevent_negative:
+            total_incomplete_hours = max(0, total_incomplete_hours)
+            unused_hours = max(0, unused_hours)
+        
+        program_data[program_code] = {
+            'unused': unused_hours,
+            'incomplete': total_incomplete_hours,
+            'future': total_future_hours,
+            'past': total_past_hours,
+            'requested': total_requested_hours,
+            'allocated': total_allocated_hours
+        }
+        
+        # Update max value for scaling
+        max_x_value = max(max_x_value, total_requested_hours, total_allocated_hours, 
+                         unused_hours, total_incomplete_hours, total_future_hours, total_past_hours)
+    
+    # Process programs without requests (all bars = 0, but show allocated time)
+    for program_code in sorted(programs_without_requests):
+        # Get allocated hours for this program from programs.csv
+        program_row = programmatics[programmatics['program'] == program_code]
+        if len(program_row) > 0:
+            total_allocated_hours = program_row['hours'].sum()
+        else:
+            total_allocated_hours = 0
+        
+        # All values are zero for programs with no requests
+        program_data[program_code] = {
+            'unused': total_allocated_hours,  # All allocated time is unused
+            'incomplete': 0,
+            'future': 0,
+            'past': 0,
+            'requested': 0,
+            'allocated': total_allocated_hours
+        }
+        
+        # Update max value for scaling
+        max_x_value = max(max_x_value, total_allocated_hours)
+    
+    # Create labels and values for all programs
+    # Each program will have: allocated line spacer, then 5 bars, then spacer
+    labels = []
+    values = []
+    colors = []
+    category_colors = ['#00FF00', '#2E86AB', '#A23B72', '#F18F01', '#FF0000']  # Green, Blue, Purple, Orange, Red
+    # Order: Requested, Past, Future, Incomplete, Unused (top to bottom in plot)
+    
+    # Track positions for allocated lines, program name labels, and divider positions
+    allocated_line_positions = {}  # Position index for allocated line
+    program_name_positions = {}  # Position index for program name (middle bar)
+    divider_positions = []  # Position indices for divider lines between groups
+    
+    for program_code in all_program_codes:
+        data = program_data[program_code]
+        
+        # Position for allocated line (transparent spacer above bars)
+        allocated_line_positions[program_code] = len(labels)
+        labels.append(f"__alloc_line_{program_code}__")  # Hidden label for positioning
+        values.append(0)
+        colors.append('rgba(0,0,0,0)')
+        
+        # Add 5 bars for this program
+        # Order from top to bottom: Unused (red), Incomplete (orange), Future Scheduled (purple), Past Completed (blue), Requested (green)
+        # Use numeric prefixes to ensure bars appear in correct order (Plotly may sort labels alphabetically)
+        program_values = [data['unused'], data['incomplete'], data['future'], data['past'], data['requested']]
+        # Colors in display order: Red, Orange, Purple, Blue, Green
+        display_colors = ['#FF0000', '#F18F01', '#A23B72', '#2E86AB', '#00FF00']
+        
+        # Add bars in the exact order we want them to appear (top to bottom, reversed)
+        for order_idx in range(5):
+            cat_color = display_colors[order_idx]
+            if order_idx == 2:  # Middle bar (Future Scheduled) - show program name here
+                # Use numeric prefix to maintain order, program name will be shown via y-axis config
+                labels.append(f"2_{program_code}")
+                program_name_positions[program_code] = len(labels) - 1
+            else:
+                # Use numeric prefix to ensure bars appear in correct order
+                labels.append(f"{order_idx}_{program_code}")
+            values.append(program_values[order_idx])
+            colors.append(cat_color)
+        
+        # Add spacer after each program's bars (for divider line)
+        divider_positions.append(len(labels))
+        labels.append(f"__{program_code}_spacer__")
+        values.append(0)
+        colors.append('rgba(0,0,0,0)')
+    
+    # No text on bars themselves
+    text_labels = [""] * len(labels)
+    
+    fig = go.Figure(data=[go.Bar(
+        x=values,
+        y=labels,
+        orientation='h',
+        marker=dict(color=colors),
+        text=text_labels,
+        textposition='auto',
+        hovertemplate='<b>%{y}</b><br>%{x:.2f} hours<br><extra></extra>',
+    )])
+    
+    # Add dashed vertical lines for each program's allocated time
+    for program_code in all_program_codes:
+        allocated = program_data[program_code]['allocated']
+        allocated_pos = allocated_line_positions[program_code]
+        
+        # Get top and bottom bar labels (the 5 bars are at indices allocated_pos+1 to allocated_pos+5)
+        top_bar_label = labels[allocated_pos + 1]  # First bar (Unused - top)
+        bottom_bar_label = labels[allocated_pos + 5]  # Last bar (Requested - bottom)
+        
+        # Add vertical dashed line at allocated time, spanning the height of the 5 bars
+        fig.add_shape(
+            type="line",
+            x0=allocated,
+            x1=allocated,
+            y0=top_bar_label,
+            y1=bottom_bar_label,
+            line=dict(color="black", width=2, dash="dash"),
+            xref="x",
+            yref="y"
+        )
+        
+        # Add invisible scatter for hover on allocated line (positioned at middle bar)
+        middle_bar_label = labels[allocated_pos + 3]  # Middle bar (Future Scheduled)
+        fig.add_trace(go.Scatter(
+            x=[allocated],
+            y=[middle_bar_label],
+            mode='markers',
+            marker=dict(size=15, opacity=0),
+            hovertemplate=f'<b>{program_code} Allocated Time</b><br>{allocated:.2f} hours<br>Total allocated time for this program<extra></extra>',
+            hoverlabel=dict(bgcolor='black', font_color='white'),
+            showlegend=False
+        ))
+    
+    # Add divider lines between program groups (except after the last program)
+    max_x = max_x_value * 1.1
+    for i, div_pos in enumerate(divider_positions[:-1]):  # Exclude last divider
+        div_label = labels[div_pos]
+        # Add divider line using the spacer label position
+        fig.add_shape(
+            type="line",
+            x0=0,
+            x1=max_x,
+            y0=div_label,
+            y1=div_label,
+            line=dict(color="gray", width=1, dash="dot"),
+            xref="x",
+            yref="y",
+            layer="below"
+        )
+    
+    # Configure y-axis to only show program name labels (hide empty labels and allocated line labels)
+    program_name_indices = [program_name_positions[prog] for prog in all_program_codes]
+    
+    # Calculate height based on number of programs
+    height = max(400, len(all_program_codes) * 140 + 150)
+    
+    fig.update_layout(
+        title_text='<b>Time Breakdown by Program</b><br>Each program shows 5 bars (top to bottom): Unused (red), Incomplete (orange), Future Scheduled (purple), Past Completed (blue), Requested (green)<br>Dashed line above each program represents total allocated time. All bars use the same scale for comparison.',
+        template='plotly_white',
+        showlegend=False,
+        height=height,
+        width=1200,
+        margin=dict(t=150, b=50, l=250, r=50),
+        bargap=0.15,
+        xaxis=dict(
+            title='Hours',
+            titlefont=dict(size=14),
+            tickfont=dict(size=12),
+            range=[0, max_x_value * 1.1]  # Consistent scale with 10% padding
+        ),
+        yaxis=dict(
+            title='',
+            titlefont=dict(size=14),
+            tickfont=dict(size=12),
+            # Only show program name labels (middle bars), hide all other labels
+            tickmode='array',
+            tickvals=program_name_indices,
+            ticktext=[f"<b>{all_program_codes[i]}</b>" for i in range(len(all_program_codes))]  # Clean program names
+        )
+        )
+    
+    return fig
+
+
 def compute_seasonality(semester_planner, starnames, ras, decs):
     """
     Compute the number of days a RA/Dec point is observable in the semester using Access object
