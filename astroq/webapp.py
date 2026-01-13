@@ -189,7 +189,7 @@ def render_admin_page():
     fig_tau_inter_line = pl.get_tau_inter_line(semester_planner, all_stars_from_all_programs, use_program_colors=True)
     fig_timebar = pl.get_timebar(semester_planner, all_stars_from_all_programs, use_program_colors=True)
     fig_timebar_by_program = pl.get_timebar_by_program(semester_planner, data_astroq[0])
-    fig_rawobs = pl.get_rawobs2(semester_planner, all_stars_from_all_programs, use_program_colors=True)
+    fig_rawobs = pl.get_rawobs(semester_planner, all_stars_from_all_programs, use_program_colors=True)
 
     fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
     fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
@@ -225,7 +225,7 @@ def render_program_page(semester_code, date, band, program_code):
     fig_tau_inter_line = pl.get_tau_inter_line(semester_planner, program_stars)
     fig_football = pl.get_football(semester_planner, program_stars)
     fig_timebar = pl.get_timebar(semester_planner, program_stars, use_program_colors=True)
-    fig_rawobs = pl.get_rawobs2(semester_planner, program_stars)
+    fig_rawobs = pl.get_rawobs(semester_planner, program_stars)
 
     fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
     fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
@@ -268,7 +268,7 @@ def render_star_page(starname):
                 fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], [star_obj])
                 fig_tau_inter_line = pl.get_tau_inter_line(semester_planner, [star_obj])
                 fig_football = pl.get_football(semester_planner, [star_obj])
-                fig_rawobs = pl.get_rawobs2(semester_planner, [star_obj])
+                fig_rawobs = pl.get_rawobs(semester_planner, [star_obj])
 
                 fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
                 fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
