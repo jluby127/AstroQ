@@ -297,8 +297,9 @@ def plan_night(args):
     cf = args.config_file
     print(f'plan_night function: config_file is {cf}')
     night_planner = nplan.NightPlanner(cf)
-    night_planner.run_ttp()
-    night_planner.to_hdf5()
+    did_run = night_planner.run_ttp()
+    if did_run:
+        night_planner.to_hdf5()
     return
 
 def plot(args):

@@ -73,13 +73,14 @@ def extract_log_statistics(log_path):
     return stats if stats else None
 
 
-def check_night_plan(base_path, band, output_path=None):
+def check_night_plan(base_path, band, output_path=None, date=None):
     """Check if night_plan.csv exists and count the number of stars.
     
     Args:
         base_path: Base directory path for CSV files (should include semester/date)
         band: Band name (e.g., 'band1', 'band2', etc.)
         output_path: Base directory path for log files (CC_OUTPUT_PATH/semester/date)
+        date: Date string in YYYY-MM-DD format for checking allocation.csv
     
     Returns:
         tuple: (exists: bool, star_count: int, log_stats: dict, error_message: str)
@@ -104,6 +105,47 @@ def check_night_plan(base_path, band, output_path=None):
     
     # Check if night_plan.csv exists
     if not csv_path.exists():
+        # Before reporting error, check if date is in allocation.csv
+        if date:
+            # Look for allocation.csv in the band directory or parent directory
+            allocation_paths = [
+                band_path / "allocation.csv",
+                base_path / "allocation.csv",
+                band_path.parent / "allocation.csv",
+            ]
+            
+            date_in_allocation = False
+            for alloc_path in allocation_paths:
+                if alloc_path.exists():
+                    try:
+                        alloc_df = pd.read_csv(alloc_path)
+                        # Check if 'start' column exists (as used in nplan.py)
+                        if 'start' in alloc_df.columns:
+                            # Extract date part from start column (format: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS)
+                            date_str = str(date)
+                            # Check if date matches any start date (compare first 10 chars for YYYY-MM-DD)
+                            alloc_df['start_date'] = alloc_df['start'].astype(str).str[:10]
+                            if date_str in alloc_df['start_date'].values:
+                                date_in_allocation = True
+                                break
+                        # Also check for other common date column names
+                        for col in alloc_df.columns:
+                            if col.lower() in ['date', 'night']:
+                                date_str = str(date)
+                                if date_str in alloc_df[col].astype(str).values:
+                                    date_in_allocation = True
+                                    break
+                        if date_in_allocation:
+                            break
+                    except Exception as e:
+                        # If we can't read the file, continue checking other paths
+                        continue
+            
+            # If date is not in allocation.csv, this is expected - no CC time tonight
+            if not date_in_allocation:
+                return False, 0, None, "No CC Time Tonight"
+        
+        # If we can't check allocation or date is in allocation but file still missing, report error
         return False, 0, None, f"night_plan.csv does not exist"
     
     # Try to read and count stars
@@ -210,7 +252,7 @@ def main():
     
     # Check each band
     for band in bands:
-        exists, star_count, log_stats, error = check_night_plan(holders_dir, band, output_dir)
+        exists, star_count, log_stats, error = check_night_plan(holders_dir, band, output_dir, date)
         results.append((band, exists, star_count, log_stats, error))
     
     # Write results to file
@@ -224,8 +266,15 @@ def main():
         f.write(f"{'Band':<15} {'Exists':<8} {'Requested':<12} {'Scheduled':<12} {'(min)':<15} {'(min)':<12} {'(min)':<12} {'(min)':<12} {'(hrs)':<15} {'Status':<20}\n")
         f.write("=" * 145 + "\n")
         
+        # First pass: determine status for each band and collect for summary
+        band_statuses = []
         for band, exists, star_count, log_stats, error in results:
-            status = "OK" if exists else f"ERROR: {error}"
+            if exists:
+                status = "OK"
+            elif error == "No CC Time Tonight":
+                status = "N/A"
+            else:
+                status = f"ERROR: {error}"
             
             # Format log statistics
             if log_stats:
@@ -252,24 +301,31 @@ def main():
                 idle = "N/A"
                 shutter = "N/A"
             
+            # Store status for summary calculation
+            band_statuses.append((exists, status))
             f.write(f"{band:<15} {str(exists):<8} {str(requested):<12} {str(scheduled):<12} {duration:<15} {exposing:<12} {slew:<12} {idle:<12} {shutter:<15} {status:<20}\n")
         
         f.write("=" * 200 + "\n")
         
-        # Summary
+        # Summary - count based on final status strings
         total_bands = len(results)
-        successful = sum(1 for _, exists, _, _, _ in results if exists)
-        failed = total_bands - successful
+        # Successful: bands that exist (regardless of warnings)
+        successful = sum(1 for exists, status in band_statuses if exists)
+        # Failures: only actual errors (status starting with "ERROR:")
+        failures = sum(1 for exists, status in band_statuses if status.startswith("ERROR:"))
+        # N/A: bands with "N/A" status (no CC time tonight)
+        na_count = sum(1 for exists, status in band_statuses if status == "N/A")
+        # Warnings: warnings that aren't "N/A" (e.g., "WARNING: Idle > 60min")
+        warnings = sum(1 for exists, status in band_statuses if status.startswith("WARNING:"))
         
         f.write(f"\nSummary:\n")
-        f.write(f"   Total bands: {total_bands}\n")
         f.write(f"   Successful: {successful}\n")
-        f.write(f"   Failed: {failed}\n")
-        
-        if failed > 0:
-            f.write(f"\nWarning: {failed} band(s) have issues\n")
-        else:
-            f.write(f"\nAll bands checked successfully!\n")
+        f.write(f"   Failures: {failures}\n")
+        f.write(f"   N/A: {na_count}\n")
+        f.write(f"-------------------\n")
+        f.write(f"   Total bands: {total_bands}\n")
+        f.write(f"   Warnings: {warnings}\n")
+
     
     print(f"✅ Results written to: {output_file}")
     

@@ -122,8 +122,8 @@ class NightPlanner(object):
             total_time = np.round((observation_stop_time.jd-observation_start_time.jd)*24,3)
             print("Time in Night for Observations: " + str(total_time) + " hours.")
         except ValueError as e:
-            print(f"No allocation times found for date {self.current_day}. Not running TTP. No night_planner.pkl file will be created.")
-            return
+            print(f"No allocation times found for date {self.current_day}. Not running TTP. No night_planner.h5 file will be created.")
+            return False
 
         # Use only request_selected.csv as the source of scheduled targets
         selected_path = os.path.join(self.output_directory, 'request_selected.csv')
@@ -214,7 +214,7 @@ class NightPlanner(object):
                             [], str(self.current_day), observers_path)
         print("The optimal path through the sky for the selected stars is found. Clear skies!")
 
-        return 
+        return True
 
     def get_first_last_indices(self, selected_df):
         """
