@@ -52,6 +52,11 @@
             Select a star to view its plots
         {% endif %}
     </h1>
+    {% if timestamp %}
+    <p style="color: #666; font-size: 0.9em; margin-top: -0.5rem; margin-bottom: 1rem;">
+        Data generated: {{ timestamp }}
+    </p>
+    {% endif %}
     
     {% if tables_html %}
         <div class="table-container">
