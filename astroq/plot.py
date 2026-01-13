@@ -351,16 +351,21 @@ def get_cof(semester_planner, all_stars):
 
     fig = go.Figure()
     fig.update_layout(plot_bgcolor=gray, paper_bgcolor=clear) #autosize=True,margin=dict(l=40, r=40, t=40, b=40),
+    
+    # Convert calendar dates to night indices (0, 1, 2, ...)
+    night_indices = np.arange(len(semester_planner.all_dates_array))
+    
     burn_line = np.linspace(0, 100, len(semester_planner.all_dates_array))
     burn_line = np.round(burn_line, 2)
 
     fig.add_trace(go.Scatter(
-        x=semester_planner.all_dates_array,
+        x=night_indices,
         y=burn_line,
         mode='lines',
         line=dict(color='black', width=2, dash='dash'),
         name="Even Burn Rate",
-        hovertemplate= 'Date: %{x}' + '<br>% Complete: %{y}'
+        hovertemplate= 'Night: %{x}' + '<br>Date: ' + '%{customdata}' + '<br>% Complete: %{y}',
+        customdata=semester_planner.all_dates_array
     ))
 
     lines = []
@@ -382,31 +387,40 @@ def get_cof(semester_planner, all_stars):
     
     # Add the Total trace first (so it appears below other traces)
     fig.add_trace(go.Scatter(
-        x=semester_planner.all_dates_array,
+        x=night_indices,
         y=cume_observe_pct,
         mode='lines',
         line=dict(color=all_stars[0].program_color_rgb, width=2),
         name="Total",
-        hovertemplate= 'Date: %{x}' + '<br>% Complete: %{y}' + '<br># Obs Requested: ' + \
-            str(max_value) + '<br>'
+        hovertemplate= 'Night: %{x}' + '<br>Date: ' + '%{customdata}' + '<br>% Complete: %{y}' + '<br># Obs Requested: ' + \
+            str(max_value) + '<br>',
+        customdata=semester_planner.all_dates_array
     ))
     
     # Then add individual star traces (so they appear above the Total trace)
     for i in range(len(all_stars)):
         fig.add_trace(go.Scatter(
-            x=semester_planner.all_dates_array,
+            x=night_indices,
             y=all_stars[i].cume_observe_pct,
             mode='lines',
             line=dict(color=all_stars[i].star_color_rgb, width=2),
             name=all_stars[i].starname,
-            hovertemplate= 'Date: %{x}' + '<br>% Complete: %{y}' + '<br># Obs Requested: ' + \
-                str(all_stars[i].total_observations_requested) + '<br>'
+            hovertemplate= 'Night: %{x}' + '<br>Date: ' + '%{customdata}' + '<br>% Complete: %{y}' + '<br># Obs Requested: ' + \
+                str(all_stars[i].total_observations_requested) + '<br>',
+            customdata=semester_planner.all_dates_array
         ))
         lines.append(str(all_stars[i].starname) + "," + str(np.round(all_stars[i].cume_observe_pct[-1],2)))
 
+    # Find the night index for "today" (current_day)
+    try:
+        today_night_index = semester_planner.all_dates_array.index(semester_planner.current_day)
+    except (ValueError, AttributeError):
+        # Fallback to today_starting_night if available, otherwise use 0
+        today_night_index = getattr(semester_planner, 'today_starting_night', 0) - 1
+    
     fig.add_vrect(
-            x0=semester_planner.current_day,
-            x1=semester_planner.current_day,
+            x0=today_night_index,
+            x1=today_night_index,
             annotation_text="Today",
             line_dash="dash",
             fillcolor=None,
@@ -415,6 +429,28 @@ def get_cof(semester_planner, all_stars):
             annotation_position="bottom left"
         )
     
+    # X-axis: ticks every 23 days, plus the last day (matching birdseye)
+    x_tick_step = 23
+    x_tickvals = list(range(0, semester_planner.semester_length, x_tick_step))
+    if (semester_planner.semester_length - 1) not in x_tickvals:
+        x_tickvals.append(semester_planner.semester_length - 1)
+    x_ticktext = [str(val + 1) for val in x_tickvals]  # Night indices (1-indexed for display, matching birdseye)
+    
+    # Create calendar date labels for secondary x-axis (top axis)
+    # Format dates as "Feb<br>01" (month and day on separate lines)
+    from datetime import datetime
+    x_ticktext_dates = []
+    for day_idx in x_tickvals:
+        if day_idx < len(semester_planner.all_dates_array):
+            date_str = semester_planner.all_dates_array[day_idx]
+            # Parse date and format as "Feb<br>01" using HTML break tag
+            date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+            month = date_obj.strftime('%b')
+            day = date_obj.strftime('%d')
+            x_ticktext_dates.append(f'{month}<br>{day}')
+        else:
+            x_ticktext_dates.append('')
+    
     # Calculate legend height based on number of traces
     num_traces = len(all_stars) + 2  # +2 for "Even Burn Rate" and "Total"
     legend_height = min(300, max(150, num_traces * 25))  # Between 150-300px, 25px per trace
@@ -422,7 +458,7 @@ def get_cof(semester_planner, all_stars):
     fig.update_layout(
         width=1400,
         height=1000,
-        xaxis_title="Calendar Date",
+        xaxis_title="Night in Semester",
         yaxis_title="Request % Complete",
         showlegend=True,
         legend=dict(
@@ -447,8 +483,26 @@ def get_cof(semester_planner, all_stars):
         xaxis=dict(
             title_font=dict(size=labelsize),
             tickfont=dict(size=labelsize-4),
+            tickvals=x_tickvals,
+            ticktext=x_ticktext,
+            tickmode='array',
             showgrid=False,
-            zeroline=False
+            zeroline=False,
+            anchor='y',
+            side='bottom',
+            range=[0, semester_planner.semester_length - 1],  # Explicitly set range
+        ),
+        xaxis2=dict(
+            title='',
+            tickvals=x_tickvals,
+            ticktext=x_ticktext_dates,
+            tickmode='array',
+            showgrid=False,
+            side='top',
+            overlaying='x',
+            tickfont=dict(size=labelsize - 6),
+            showticklabels=True,
+            range=[0, semester_planner.semester_length - 1],  # Match primary x-axis range
         ),
         yaxis=dict(
             title_font=dict(size=labelsize),
@@ -456,8 +510,29 @@ def get_cof(semester_planner, all_stars):
             showgrid=False,
             zeroline=False
         ),
-        margin=dict(b=200, t=50)  # Bottom margin for legend below, minimal top margin
+        margin=dict(b=200, t=100)  # Bottom margin for legend below, top margin for date labels
     )
+    
+    # Add an invisible trace AFTER layout to force the secondary x-axis to appear
+    # This trace must be associated with xaxis='x2' to make the secondary axis visible
+    fig.add_trace(go.Scatter(
+        x=[0, len(semester_planner.all_dates_array) - 1],
+        y=[100, 100],  # Position at top of y-axis range
+        mode='markers',
+        marker=dict(size=0.01, opacity=0),
+        showlegend=False,
+        hoverinfo='skip',
+        xaxis='x2',
+        name='',  # Empty name to prevent legend entry
+    ))
+    
+    # Explicitly hide any trace with xaxis='x2' or empty name from the legend
+    for trace in fig.data:
+        if hasattr(trace, 'xaxis') and str(trace.xaxis) == 'x2':
+            trace.update(showlegend=False)
+        if hasattr(trace, 'name') and (trace.name == '' or trace.name is None):
+            trace.update(showlegend=False)
+    
     return fig
 
 def get_birdseye(semester_planner, availablity, all_stars):
@@ -629,6 +704,7 @@ def get_birdseye(semester_planner, availablity, all_stars):
             showgrid=False,
             anchor='y',
             side='bottom',
+            range=[0, semester_planner.semester_length - 1],  # Explicitly set range
         ),
         yaxis=dict(
             title_font=dict(size=labelsize),
@@ -669,6 +745,7 @@ def get_birdseye(semester_planner, availablity, all_stars):
             overlaying='x',
             tickfont=dict(size=labelsize - 6),
             showticklabels=True,
+            range=[0, semester_planner.semester_length - 1],  # Match primary x-axis range
         ),
         margin=dict(b=200, t=100)  # Bottom margin for legend below, top margin for date labels
     )
