@@ -297,7 +297,7 @@ def process_stars(semester_planner):
 
         # Handle division by zero for programs with only inactive stars
         if max_value > 0:
-            programmatic_star.cume_observe_pct = summed_cumulative / max_value * 100
+            programmatic_star.cume_observe_pct = np.round(summed_cumulative / max_value * 100, 2)
         else:
             # For inactive-only programs, use total past observations as denominator
             total_past_obs = sum(sum(all_stars[k].observations_past.values()) if all_stars[k].observations_past else 0 for k in prog_indices)
@@ -358,14 +358,28 @@ def get_cof(semester_planner, all_stars):
     burn_line = np.linspace(0, 100, len(semester_planner.all_dates_array))
     burn_line = np.round(burn_line, 2)
 
+    # Add "Even Burn Rate" line as a shape so it's always visible and can't be toggled
+    # Use add_shape to create a line that spans the entire plot
+    fig.add_shape(
+        type="line",
+        x0=night_indices[0],
+        y0=burn_line[0],
+        x1=night_indices[-1],
+        y1=burn_line[-1],
+        line=dict(color='black', width=2, dash='dash'),
+        layer='below',  # Draw below traces so it doesn't obscure data
+    )
+    
+    # Add an invisible trace just for the legend entry (so users know what the line represents)
+    # This trace will be visible in legend but clicking it won't hide the actual line
     fig.add_trace(go.Scatter(
-        x=night_indices,
-        y=burn_line,
+        x=[None],  # No actual data points
+        y=[None],
         mode='lines',
         line=dict(color='black', width=2, dash='dash'),
         name="Even Burn Rate",
-        hovertemplate= 'Night: %{x}' + '<br>Date: ' + '%{customdata}' + '<br>% Complete: %{y}',
-        customdata=semester_planner.all_dates_array
+        showlegend=True,
+        hoverinfo='skip',  # Don't show hover for this dummy trace
     ))
 
     lines = []
