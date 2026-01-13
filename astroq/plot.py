@@ -848,7 +848,7 @@ def get_tau_inter_line(semester_planner, all_stars, use_program_colors=False):
     ))
 
     fig.update_layout(
-        width=1200,
+        width=1400,
         height=800,
         xaxis_title="Requested Minimum Inter-Night Cadence",
         yaxis_title="On Sky Inter-Night Cadence",
@@ -880,130 +880,7 @@ def get_tau_inter_line(semester_planner, all_stars, use_program_colors=False):
     )
     return fig
 
-def get_rawobs(semester_planner, all_stars):
-    '''
-    Produce a plotly figure showing raw observation counts for each star as a horizontal bar chart.
-    Each bar represents total observations requested, split into past (blue) and forecasted (purple) observations.
-    
-    Args:
-        semester_planner (obj): a SemesterPlanner object from splan.py
-        all_stars (array): an array of StarPlotter objects
-    
-    Returns:
-        fig (plotly figure): a plotly figure showing observation counts per star
-    '''
-    
-    fig = go.Figure()
-    fig.update_layout(plot_bgcolor=clear, paper_bgcolor=clear)
-    
-    # Prepare data for each star
-    starnames = []
-    total_requested = []
-    past_obs = []
-    future_obs = []
-    past_pct = []
-    future_pct = []
-    
-    for star in all_stars:
-        starnames.append(star.starname)
-        total = star.total_observations_requested
-        
-        # Sum past observations
-        past_total = sum(star.observations_past.values()) if star.observations_past else 0
-        
-        # Sum future observations
-        future_total = sum(star.observations_future.values()) if star.observations_future else 0
-        
-        total_requested.append(total)
-        past_obs.append(past_total)
-        future_obs.append(future_total)
-        
-        # Calculate percentages
-        if total > 0:
-            past_pct.append((past_total / total) * 100)
-            future_pct.append((future_total / total) * 100)
-        else:
-            past_pct.append(0)
-            future_pct.append(0)
-    
-    # Use numeric y-axis positions for panning to work properly
-    y_positions = list(range(len(starnames)))
-    
-    # Create horizontal stacked bar chart
-    # First bar: past observations (blue - matching timebar "Past Completed" color)
-    fig.add_trace(go.Bar(
-        y=y_positions,
-        x=past_pct,
-        name='Past Observations',
-        orientation='h',
-        marker=dict(color='#2E86AB'),  # Blue from timebar plot
-        hovertemplate='<b>%{customdata[2]}</b><br>Past: %{x:.1f}%<br>Count: %{customdata[0]}<br>Requested: %{customdata[1]}<extra></extra>',
-        customdata=list(zip(past_obs, total_requested, starnames)),
-    ))
-    
-    # Second bar: future observations (purple - matching timebar "Future Scheduled" color)
-    fig.add_trace(go.Bar(
-        y=y_positions,
-        x=future_pct,
-        name='Forecasted Observations',
-        orientation='h',
-        marker=dict(color='#A23B72'),  # Purple from timebar plot
-        hovertemplate='<b>%{customdata[2]}</b><br>Forecasted: %{x:.1f}%<br>Count: %{customdata[0]}<br>Requested: %{customdata[1]}<extra></extra>',
-        customdata=list(zip(future_obs, total_requested, starnames)),
-    ))
-    
-    fig.update_layout(
-        width=1400,
-        height=600,  # Fixed height with scrollbar
-        barmode='stack',  # Stack the bars
-        showlegend=True,
-        legend=dict(
-            orientation="h",
-            x=0.5,
-            y=1.1,  # Move legend further down to avoid x-axis label
-            xanchor="center",
-            yanchor="top",
-            font=dict(size=labelsize-18),  # Smaller legend text
-        ),
-        xaxis=dict(
-            title="Percentage of Requested Observations",
-            title_font=dict(size=labelsize-2),  # Smaller x-axis title
-            tickfont=dict(size=labelsize-6),  # Smaller x-axis tick labels
-            showgrid=True,
-            gridcolor='lightgray',
-            range=[0, 100],  # Percentage range
-            fixedrange=True,  # Fix x-axis to prevent horizontal panning
-        ),
-        yaxis=dict(
-            title="Star Name",
-            title_font=dict(size=labelsize-2),  # Smaller y-axis title
-            tickfont=dict(size=labelsize-20),  # Smaller y-axis tick labels
-            showgrid=False,
-            fixedrange=False,  # Allow panning/zooming (acts like scrolling)
-            autorange=False,  # Disable auto-range so we can set initial range
-            tickmode='array',
-            tickvals=y_positions,
-            ticktext=starnames,
-        ),
-        margin=dict(b=120, t=50),  # Increase bottom margin to accommodate legend and x-axis label
-        # Enable drag mode for panning (scrolling effect)
-        dragmode='pan',
-    )
-    
-    # Set initial y-axis range to show first ~20 stars
-    # User can pan down to see more stars
-    num_stars = len(starnames)
-    if num_stars > 20:
-        # Show first 20 stars initially (top stars), user can pan down to see more
-        # Y-axis: 0 is at top, so show from 0 to 19.5
-        fig.update_layout(yaxis_range=[19.5, -0.5])
-    else:
-        # Show all stars if 20 or fewer
-        fig.update_layout(yaxis_range=[num_stars - 0.5, -0.5])
-    
-    return fig
-
-def get_rawobs2(semester_planner, all_stars, use_program_colors=False):
+def get_rawobs(semester_planner, all_stars, use_program_colors=False):
     '''
     Produce a plotly figure showing a scatter plot of observation counts for each star.
     X-axis: total requested observations
@@ -1250,7 +1127,7 @@ def get_timebar(semester_planner, all_stars, use_program_colors=False, prevent_n
         template='plotly_white',
         showlegend=False,
         height=710,  # Increased height for more vertical spacing between labels
-        width=1200,
+        width=1400,
         margin=dict(t=top_margin, b=50, l=200, r=50),
         bargap=0.2,
         xaxis=dict(
@@ -1772,10 +1649,10 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
             color = group['color'].tolist()  # Use individual star colors
 
             if len(all_stars)==1:
-                size=20
+                size=20 
                 marker='star'
             else:
-                size=6
+                size=10
                 marker='star'
             fig.add_trace(go.Scattergeo(
                 lon=group['ra'] - 180,
@@ -1810,8 +1687,8 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
         template='none',
-        width=1000,
-        height=600,
+        width=1400,
+        height=800,
         xaxis=dict(showgrid=False, visible=True),
         yaxis=dict(showgrid=False, visible=True),
         annotations=[
