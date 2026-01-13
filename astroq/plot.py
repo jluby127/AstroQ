@@ -989,6 +989,138 @@ def get_rawobs(semester_planner, all_stars):
     
     return fig
 
+def get_rawobs2(semester_planner, all_stars, use_program_colors=False):
+    '''
+    Produce a plotly figure showing a scatter plot of observation counts for each star.
+    X-axis: total requested observations
+    Y-axis: sum of past and scheduled observations
+    Each point represents one StarPlotter object.
+    
+    Args:
+        semester_planner (obj): a SemesterPlanner object from splan.py
+        all_stars (array): an array of StarPlotter objects
+        use_program_colors (bool): If True, use program_color_rgb; if False, use star_color_rgb (default: False)
+    
+    Returns:
+        fig (plotly figure): a plotly figure showing observation counts as a scatter plot
+    '''
+    
+    fig = go.Figure()
+    fig.update_layout(plot_bgcolor=clear, paper_bgcolor=clear)
+    
+    # Prepare data for each star
+    starnames = []
+    total_requested = []
+    past_obs = []
+    future_obs = []
+    total_completed = []  # past + scheduled
+    pct_complete = []
+    star_colors = []
+    
+    for star in all_stars:
+        starnames.append(star.starname)
+        total = star.total_observations_requested
+        
+        # Sum past observations
+        past_total = sum(star.observations_past.values()) if star.observations_past else 0
+        
+        # Sum future observations
+        future_total = sum(star.observations_future.values()) if star.observations_future else 0
+        
+        total_completed_val = past_total + future_total
+        
+        total_requested.append(total)
+        past_obs.append(past_total)
+        future_obs.append(future_total)
+        total_completed.append(total_completed_val)
+        
+        # Choose color based on flag
+        if use_program_colors:
+            star_colors.append(star.program_color_rgb)
+        else:
+            star_colors.append(star.star_color_rgb)
+        
+        # Calculate percentage complete
+        if total > 0:
+            pct_complete.append((total_completed_val / total) * 100)
+        else:
+            pct_complete.append(0)
+    
+    # Create one trace per star so they can be toggled on/off in legend
+    for i, star in enumerate(all_stars):
+        fig.add_trace(go.Scatter(
+            x=[total_requested[i]],
+            y=[total_completed[i]],
+            mode='markers',
+            marker=dict(
+                size=10,
+                color=star_colors[i],  # Use each star's individual color
+                opacity=0.7,
+            ),
+            name=starnames[i],  # Star name for legend (allows toggling)
+            text=[starnames[i]],  # Star name for hover
+            hovertemplate='<b>%{text}</b><br>' +
+                          'Total Requested: %{x}<br>' +
+                          'Past: %{customdata[0]}<br>' +
+                          'Scheduled: %{customdata[1]}<br>' +
+                          'Total (Past + Scheduled): %{y}<br>' +
+                          '% Complete: %{customdata[2]:.1f}%<extra></extra>',
+            customdata=[[past_obs[i], future_obs[i], pct_complete[i]]],
+        ))
+    
+    # Add diagonal line for reference (y = x, representing 100% complete)
+    # For log scale, we need to use log values
+    min_val = min(min(total_requested) if total_requested else 1, min(total_completed) if total_completed else 1)
+    max_val = max(max(total_requested) if total_requested else 1, max(total_completed) if total_completed else 1)
+    # Ensure min_val is at least 1 for log scale
+    if min_val < 1:
+        min_val = 1
+    fig.add_trace(go.Scatter(
+        x=[min_val, max_val],
+        y=[min_val, max_val],
+        mode='lines',
+        line=dict(color='gray', width=1, dash='dash'),
+        name='100% Complete',
+        showlegend=False,  # Hide reference line from legend
+        hovertemplate='100% Complete Reference Line<extra></extra>',
+    ))
+    
+    fig.update_layout(
+        width=1400,
+        height=800,
+        xaxis_title="Total Requested Observations",
+        yaxis_title="Total Observations (Past + Scheduled)",
+        template='plotly_white',
+        showlegend=True,  # Show legend so stars can be toggled on/off
+        xaxis=dict(
+            type="log",  # Log scale for x-axis
+            title_font=dict(size=labelsize),
+            tickfont=dict(size=labelsize-4),
+            showgrid=True,
+            gridcolor='lightgray',
+            minor=dict(
+                showgrid=False,  # Hide minor grid lines
+                ticks="",  # Hide minor tick marks
+            ),
+            dtick=1,  # Major ticks at powers of 10
+        ),
+        yaxis=dict(
+            type="log",  # Log scale for y-axis
+            title_font=dict(size=labelsize),
+            tickfont=dict(size=labelsize-4),
+            showgrid=True,
+            gridcolor='lightgray',
+            minor=dict(
+                showgrid=False,  # Hide minor grid lines
+                ticks="",  # Hide minor tick marks
+            ),
+            dtick=1,  # Major ticks at powers of 10
+        ),
+        margin=dict(b=100, t=50),
+    )
+    
+    return fig
+
 def get_timebar(semester_planner, all_stars, use_program_colors=False, prevent_negative=False):
     """
     Create a horizontal bar chart of the time used vs forecasted vs available
