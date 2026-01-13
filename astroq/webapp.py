@@ -36,6 +36,7 @@ data_ttp = None
 semester_planner = None
 night_planner = None
 uptree_path = None
+semester_planner_timestamp = None
 
 desired_order = ["inactive","unique_id", "starname", "exptime", "n_exp", 'n_inter_max', 'tau_inter', "n_intra_max", "n_intra_min", "tau_intra", "weather_band_1", "weather_band_2", "weather_band_3"]
 
@@ -66,12 +67,21 @@ def load_data_for_path(semester_code, date, band, uptree_path):
     night_planner_h5 = os.path.join(workdir, 'night_planner.h5')
 
     # Load semester planner
+    global semester_planner_timestamp
     try:
         semester_planner = SemesterPlanner.from_hdf5(semester_planner_h5)
         data_astroq = pl.process_stars(semester_planner)
+        # Get file modification time
+        if os.path.exists(semester_planner_h5):
+            from datetime import datetime
+            mtime = os.path.getmtime(semester_planner_h5)
+            semester_planner_timestamp = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
+        else:
+            semester_planner_timestamp = None
     except Exception as e:
         semester_planner = None
         data_astroq = None
+        semester_planner_timestamp = None
         return False, f"Error loading semester planner: {str(e)}"
     
     # Load night planner (optional)
@@ -86,9 +96,9 @@ def load_data_for_path(semester_code, date, band, uptree_path):
             night_planner.current_day
         )
     except Exception as e:
-        print(f"Error loading night planner: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"No night planner found")
+        # import traceback
+        # traceback.print_exc()
         night_planner = None
         data_ttp = None
     
@@ -178,16 +188,20 @@ def render_admin_page():
     fig_football = pl.get_football(semester_planner, all_stars_from_all_programs, use_program_colors=True)
     fig_tau_inter_line = pl.get_tau_inter_line(semester_planner, all_stars_from_all_programs, use_program_colors=True)
     fig_timebar = pl.get_timebar(semester_planner, all_stars_from_all_programs, use_program_colors=True)
+    fig_timebar_by_program = pl.get_timebar_by_program(semester_planner, data_astroq[0])
+    fig_rawobs = pl.get_rawobs(semester_planner, all_stars_from_all_programs, use_program_colors=True)
 
     fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
     fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
     fig_football_html = pio.to_html(fig_football, full_html=True, include_plotlyjs='cdn')
     fig_tau_inter_line_html = pio.to_html(fig_tau_inter_line, full_html=True, include_plotlyjs='cdn')
     fig_timebar_html = pio.to_html(fig_timebar, full_html=True, include_plotlyjs='cdn')
+    fig_timebar_by_program_html = pio.to_html(fig_timebar_by_program, full_html=True, include_plotlyjs='cdn')
+    fig_rawobs_html = pio.to_html(fig_rawobs, full_html=True, include_plotlyjs='cdn')
 
-    figures_html = [fig_timebar_html, fig_cof_html, fig_birdseye_html, fig_tau_inter_line_html, fig_football_html]
+    figures_html = [fig_timebar_html, fig_timebar_by_program_html, fig_cof_html, fig_birdseye_html, fig_rawobs_html, fig_tau_inter_line_html, fig_football_html]
 
-    return render_template("admin.html", tables_html=[request_table_html], figures_html=figures_html)
+    return render_template("admin.html", tables_html=[request_table_html], figures_html=figures_html, timestamp=semester_planner_timestamp)
 
 def render_program_page(semester_code, date, band, program_code):
     """Render the program overview page for a specific program"""
@@ -211,20 +225,23 @@ def render_program_page(semester_code, date, band, program_code):
     fig_tau_inter_line = pl.get_tau_inter_line(semester_planner, program_stars)
     fig_football = pl.get_football(semester_planner, program_stars)
     fig_timebar = pl.get_timebar(semester_planner, program_stars, use_program_colors=True)
+    fig_rawobs = pl.get_rawobs(semester_planner, program_stars)
 
     fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
     fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
     fig_tau_inter_line_html = pio.to_html(fig_tau_inter_line, full_html=True, include_plotlyjs='cdn')
     fig_football_html = pio.to_html(fig_football, full_html=True, include_plotlyjs='cdn')
     fig_timebar_html = pio.to_html(fig_timebar, full_html=True, include_plotlyjs='cdn')
+    fig_rawobs_html = pio.to_html(fig_rawobs, full_html=True, include_plotlyjs='cdn')
 
-    figures_html = [fig_timebar_html, fig_cof_html, fig_birdseye_html, fig_tau_inter_line_html, fig_football_html]
+    figures_html = [fig_timebar_html, fig_cof_html, fig_birdseye_html, fig_rawobs_html, fig_tau_inter_line_html, fig_football_html]
     
     return render_template("semesterplan.html", 
                          programname=program_code, 
                          tables_html=[request_table_html], 
                          figures_html=figures_html, 
-                         programs=[program_code])
+                         programs=[program_code],
+                         timestamp=semester_planner_timestamp)
 
 def render_star_page(starname):
     """Render a specific star page"""
@@ -251,16 +268,18 @@ def render_star_page(starname):
                 fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], [star_obj])
                 fig_tau_inter_line = pl.get_tau_inter_line(semester_planner, [star_obj])
                 fig_football = pl.get_football(semester_planner, [star_obj])
+                fig_rawobs = pl.get_rawobs(semester_planner, [star_obj])
 
                 fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
                 fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
                 fig_tau_inter_line_html = pio.to_html(fig_tau_inter_line, full_html=True, include_plotlyjs='cdn')
                 fig_football_html = pio.to_html(fig_football, full_html=True, include_plotlyjs='cdn')
+                fig_rawobs_html = pio.to_html(fig_rawobs, full_html=True, include_plotlyjs='cdn')
 
                 tables_html = [request_table_html]
-                figures_html = [fig_cof_html, fig_birdseye_html, fig_tau_inter_line_html, fig_football_html]
+                figures_html = [fig_cof_html, fig_birdseye_html, fig_rawobs_html, fig_tau_inter_line_html, fig_football_html]
 
-                return render_template("star.html", starname=true_starname, tables_html=tables_html, figures_html=figures_html)
+                return render_template("star.html", starname=true_starname, tables_html=tables_html, figures_html=figures_html, timestamp=semester_planner_timestamp)
     
     return f"Error, star {starname} not found in programs {list(program_names)}"
 
