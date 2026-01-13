@@ -193,7 +193,7 @@ class SemesterPlanner(object):
         for starid in list(self.requests_frame['unique_id']):
             if starid not in self.schedulable_requests:
                 starname = self.requests_frame[self.requests_frame['unique_id']==starid]['starname'].values[0]
-                logs.warning("Target " + starname + " with unique id " + starid +  " has no valid day/slot pairs and therefore is effectively removed from the model.")
+                #logs.warning("Target " + starname + " with unique id " + starid +  " has no valid day/slot pairs and therefore is effectively removed from the model.")
                 warncount += 1
         logs.warning("There are " + str(warncount) + " targets out of " + str(len(list(self.requests_frame['unique_id']))) + " that have no valid day/slot pairs and therefore are effectively removed from the model.")
 
@@ -750,13 +750,11 @@ class SemesterPlanner(object):
         self.build_model_round1()
         self.optimize_model()
         self.serialize_results_csv()
-        logs.info("Round 1 complete.")
         if self.run_bonus_round:
             self.round_info = 'Round2'
             self.build_model_round2()
             self.optimize_model()
             self.serialize_results_csv()
-            logs.info("Round 2 complete.")
         logs.info("Scheduling complete, clear skies!")
 
     def build_model_round1(self):
@@ -1087,9 +1085,7 @@ class SemesterPlanner(object):
             run_band3=instance.run_band3,
             observatory_string=instance.observatory,
             request_frame=instance.requests_frame
-        )
-        logs.info("access_obj recreated from HDF5")
-        
+        )        
         logs.info(f"SemesterPlanner loaded from HDF5: {hdf5_path}")
         return instance
 
