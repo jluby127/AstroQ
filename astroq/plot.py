@@ -1082,22 +1082,47 @@ def get_rawobs2(semester_planner, all_stars, use_program_colors=False):
             customdata=[[past_obs[i], future_obs[i], pct_complete[i]]],
         ))
     
-    # Add diagonal line for reference (y = x, representing 100% complete)
+    # Add diagonal lines for reference (y = x for 100% complete, y = 0.5x for 50% complete)
     # For log scale, we need to use log values
     min_val = min(min(total_requested) if total_requested else 1, min(total_completed) if total_completed else 1)
     max_val = max(max(total_requested) if total_requested else 1, max(total_completed) if total_completed else 1)
     # Ensure min_val is at least 1 for log scale
     if min_val < 1:
         min_val = 1
+    
+    # Add 100% complete reference line (y = x) - solid black line
     fig.add_trace(go.Scatter(
         x=[min_val, max_val],
         y=[min_val, max_val],
         mode='lines',
-        line=dict(color='gray', width=1, dash='dash'),
+        line=dict(color='black', width=1, dash='solid'),
         name='100% Complete',
         showlegend=False,  # Hide reference line from legend
         hovertemplate='100% Complete Reference Line<extra></extra>',
     ))
+    
+    # Add 50% complete reference line (y = 0.5x)
+    fig.add_trace(go.Scatter(
+        x=[min_val, max_val],
+        y=[min_val * 0.5, max_val * 0.5],
+        mode='lines',
+        line=dict(color='gray', width=1, dash='dash'),
+        name='50% Complete',
+        showlegend=False,  # Hide reference line from legend
+        hovertemplate='50% Complete Reference Line<extra></extra>',
+    ))
+    
+    # Add annotation at the top explaining the reference lines
+    fig.add_annotation(
+        x=0.5,  # Center horizontally
+        y=1.02,  # Just above the plot
+        xref='paper',
+        yref='paper',
+        text="solid = 1:1<br>dashed = 1:2",
+        showarrow=False,
+        font=dict(size=labelsize-8, color='black'),
+        align='center',
+    )
     
     fig.update_layout(
         width=1400,
