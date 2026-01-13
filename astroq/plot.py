@@ -376,7 +376,7 @@ def get_cof(semester_planner, all_stars):
     
     # Handle division by zero: if all stars are inactive, use total past observations as denominator
     if max_value > 0:
-        cume_observe_pct = (cume_observe / max_value) * 100
+        cume_observe_pct = np.round((cume_observe / max_value) * 100, 2)
     else:
         # For inactive-only programs, calculate total past observations
         total_past_obs = sum(sum(star.observations_past.values()) if star.observations_past else 0 for star in all_stars)
@@ -417,7 +417,7 @@ def get_cof(semester_planner, all_stars):
     except (ValueError, AttributeError):
         # Fallback to today_starting_night if available, otherwise use 0
         today_night_index = getattr(semester_planner, 'today_starting_night', 0) - 1
-    
+
     fig.add_vrect(
             x0=today_night_index,
             x1=today_night_index,
@@ -941,29 +941,29 @@ def get_rawobs(semester_planner, all_stars):
     fig.update_layout(
         width=1400,
         height=600,  # Fixed height with scrollbar
-        yaxis_title="Star Name",
         barmode='stack',  # Stack the bars
         showlegend=True,
         legend=dict(
             orientation="h",
             x=0.5,
-            y=-0.1,
+            y=1.1,  # Move legend further down to avoid x-axis label
             xanchor="center",
             yanchor="top",
-            font=dict(size=labelsize-18),
+            font=dict(size=labelsize-18),  # Smaller legend text
         ),
         xaxis=dict(
             title="Percentage of Requested Observations",
-            title_font=dict(size=labelsize),
-            tickfont=dict(size=labelsize-4),
+            title_font=dict(size=labelsize-2),  # Smaller x-axis title
+            tickfont=dict(size=labelsize-6),  # Smaller x-axis tick labels
             showgrid=True,
             gridcolor='lightgray',
             range=[0, 100],  # Percentage range
             fixedrange=True,  # Fix x-axis to prevent horizontal panning
         ),
         yaxis=dict(
-            title_font=dict(size=labelsize),
-            tickfont=dict(size=labelsize-4),
+            title="Star Name",
+            title_font=dict(size=labelsize-2),  # Smaller y-axis title
+            tickfont=dict(size=labelsize-20),  # Smaller y-axis tick labels
             showgrid=False,
             fixedrange=False,  # Allow panning/zooming (acts like scrolling)
             autorange=False,  # Disable auto-range so we can set initial range
@@ -971,7 +971,7 @@ def get_rawobs(semester_planner, all_stars):
             tickvals=y_positions,
             ticktext=starnames,
         ),
-        margin=dict(b=100, t=50),
+        margin=dict(b=120, t=50),  # Increase bottom margin to accommodate legend and x-axis label
         # Enable drag mode for panning (scrolling effect)
         dragmode='pan',
     )
@@ -1344,7 +1344,7 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
         height=max(600, num_rows * 250),
         width=1400,
         margin=dict(t=150, b=50, l=50, r=50)
-    )
+        )
     
     return fig
 
