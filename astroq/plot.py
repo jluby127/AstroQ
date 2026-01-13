@@ -569,6 +569,21 @@ def get_birdseye(semester_planner, availablity, all_stars):
     if (semester_planner.semester_length - 1) not in x_tickvals:
         x_tickvals.append(semester_planner.semester_length - 1)
     x_ticktext = [str(val + 1) for val in x_tickvals]
+    
+    # Create calendar date labels for secondary x-axis (top axis)
+    # Format dates as "Jan<br>15" or "Aug<br>12" (month and day on separate lines)
+    from datetime import datetime
+    x_ticktext_dates = []
+    for day_idx in x_tickvals:
+        if day_idx < len(semester_planner.all_dates_array):
+            date_str = semester_planner.all_dates_array[day_idx]
+            # Parse date and format as "Jan<br>15" or "Aug<br>12" using HTML break tag
+            date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+            month = date_obj.strftime('%b')
+            day = date_obj.strftime('%d')
+            x_ticktext_dates.append(f'{month}<br>{day}')
+        else:
+            x_ticktext_dates.append('')
 
     # Y-axis: ticks every 2 hours, using slot_size
     n_slots = int(24 * 60 // semester_planner.slot_size)
@@ -585,6 +600,21 @@ def get_birdseye(semester_planner, availablity, all_stars):
     num_traces = len(all_stars) + (1 if len(all_stars) > 1 or all_stars[0].allow_mapview == False else len([m for m in all_stars[0].maps_names if m != 'is_observable_now']))
     legend_height = min(300, max(150, num_traces * 25))  # Between 150-300px, 25px per trace
     
+    # Add an invisible trace to force the secondary x-axis to appear
+    # This trace must be associated with xaxis='x2' to make the secondary axis visible
+    n_slots = int(24 * 60 // semester_planner.slot_size)
+    fig.add_trace(go.Scatter(
+        x=[0, len(semester_planner.all_dates_array) - 1],
+        y=[n_slots + 1, n_slots + 1],  # Position just above visible area
+        mode='markers',
+        marker=dict(size=0.01, opacity=0),
+        showlegend=False,
+        legendgroup=None,
+        hoverinfo='skip',
+        xaxis='x2',
+        name='',  # Empty name to prevent legend entry
+    ))
+    
     fig.update_layout(
         width=1400,
         height=1000,
@@ -597,6 +627,8 @@ def get_birdseye(semester_planner, availablity, all_stars):
             ticktext=x_ticktext,
             tickmode='array',
             showgrid=False,
+            anchor='y',
+            side='bottom',
         ),
         yaxis=dict(
             title_font=dict(size=labelsize),
@@ -627,7 +659,18 @@ def get_birdseye(semester_planner, availablity, all_stars):
             tracegroupgap=5,  # Gap between trace groups
             traceorder="normal"  # Keep order as traces were added
         ),
-        margin=dict(b=200, t=50)  # Bottom margin for legend below, minimal top margin
+        xaxis2=dict(
+            title='',
+            tickvals=x_tickvals,
+            ticktext=x_ticktext_dates,
+            tickmode='array',
+            showgrid=False,
+            side='top',
+            overlaying='x',
+            tickfont=dict(size=labelsize - 6),
+            showticklabels=True,
+        ),
+        margin=dict(b=200, t=100)  # Bottom margin for legend below, top margin for date labels
     )
     return fig
 
@@ -892,11 +935,11 @@ def get_timebar(semester_planner, all_stars, use_program_colors=False, prevent_n
 
 def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=False):
     """
-    Create a horizontal bar chart showing time breakdown for each program individually
+    Create a grid of horizontal bar charts showing time breakdown for each program individually
     
     Each program displays 5 bars: Unused, Incomplete, Future Scheduled, Past Completed, and Requested.
-    A dashed horizontal line above each program's bars represents their total allocated time.
-    Only the program name is shown as a label, centered on each program's group of 5 bars.
+    A dashed vertical line represents their total allocated time.
+    Programs are arranged in a grid with 3 columns.
     All bars use the same scale for easy comparison across programs.
 
     Parameters:
@@ -905,7 +948,7 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
         prevent_negative (bool): If True, set Incomplete and Not used categories to zero if they are negative (default: False)
 
     Returns:
-        fig (plotly figure): a plotly figure showing time breakdown per program as horizontal bars
+        fig (plotly figure): a plotly figure showing time breakdown per program as a grid of horizontal bar charts
     """
     programmatics = pd.read_csv(os.path.join(semester_planner.semester_directory, 'programs.csv'))
     
@@ -992,147 +1035,116 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
         # Update max value for scaling
         max_x_value = max(max_x_value, total_allocated_hours)
     
-    # Create labels and values for all programs
-    # Each program will have: allocated line spacer, then 5 bars, then spacer
-    labels = []
-    values = []
-    colors = []
-    category_colors = ['#00FF00', '#2E86AB', '#A23B72', '#F18F01', '#FF0000']  # Green, Blue, Purple, Orange, Red
-    # Order: Requested, Past, Future, Incomplete, Unused (top to bottom in plot)
+    # Calculate grid dimensions: 3 columns, as many rows as needed
+    num_programs = len(all_program_codes)
+    num_cols = 3
+    num_rows = (num_programs + num_cols - 1) // num_cols  # Ceiling division
     
-    # Track positions for allocated lines, program name labels, and divider positions
-    allocated_line_positions = {}  # Position index for allocated line
-    program_name_positions = {}  # Position index for program name (middle bar)
-    divider_positions = []  # Position indices for divider lines between groups
+    # Create subplots grid
+    fig = make_subplots(
+        rows=num_rows,
+        cols=num_cols,
+        subplot_titles=[f"<b>{prog}</b>" for prog in all_program_codes],
+        horizontal_spacing=0.15,
+        vertical_spacing=0.12
+    )
     
-    for program_code in all_program_codes:
+    # Colors in display order: Red, Orange, Purple, Blue, Green
+    display_colors = ['#FF0000', '#F18F01', '#A23B72', '#2E86AB', '#00FF00']
+    category_names = ['Unused', 'Incomplete', 'Future Scheduled', 'Past Completed', 'Requested']
+    
+    # Add bars for each program in its own subplot
+    for idx, program_code in enumerate(all_program_codes):
         data = program_data[program_code]
         
-        # Position for allocated line (transparent spacer above bars)
-        allocated_line_positions[program_code] = len(labels)
-        labels.append(f"__alloc_line_{program_code}__")  # Hidden label for positioning
-        values.append(0)
-        colors.append('rgba(0,0,0,0)')
+        # Calculate row and column position (1-indexed)
+        row = (idx // num_cols) + 1
+        col = (idx % num_cols) + 1
         
-        # Add 5 bars for this program
-        # Order from top to bottom: Unused (red), Incomplete (orange), Future Scheduled (purple), Past Completed (blue), Requested (green)
-        # Use numeric prefixes to ensure bars appear in correct order (Plotly may sort labels alphabetically)
+        # Prepare bar data for this program
         program_values = [data['unused'], data['incomplete'], data['future'], data['past'], data['requested']]
-        # Colors in display order: Red, Orange, Purple, Blue, Green
-        display_colors = ['#FF0000', '#F18F01', '#A23B72', '#2E86AB', '#00FF00']
         
-        # Add bars in the exact order we want them to appear (top to bottom, reversed)
-        for order_idx in range(5):
-            cat_color = display_colors[order_idx]
-            if order_idx == 2:  # Middle bar (Future Scheduled) - show program name here
-                # Use numeric prefix to maintain order, program name will be shown via y-axis config
-                labels.append(f"2_{program_code}")
-                program_name_positions[program_code] = len(labels) - 1
-            else:
-                # Use numeric prefix to ensure bars appear in correct order
-                labels.append(f"{order_idx}_{program_code}")
-            values.append(program_values[order_idx])
-            colors.append(cat_color)
+        # Add bars to this subplot
+        fig.add_trace(
+            go.Bar(
+                x=program_values,
+                y=category_names,
+                orientation='h',
+                marker=dict(color=display_colors),
+                text=[f'{v:.1f}' if v > 0 else '' for v in program_values],
+                textposition='auto',
+                hovertemplate=f'<b>{program_code}</b><br>%{{y}}<br>%{{x:.2f}} hours<extra></extra>',
+                showlegend=False
+            ),
+            row=row,
+            col=col
+        )
         
-        # Add spacer after each program's bars (for divider line)
-        divider_positions.append(len(labels))
-        labels.append(f"__{program_code}_spacer__")
-        values.append(0)
-        colors.append('rgba(0,0,0,0)')
-    
-    # No text on bars themselves
-    text_labels = [""] * len(labels)
-    
-    fig = go.Figure(data=[go.Bar(
-        x=values,
-        y=labels,
-        orientation='h',
-        marker=dict(color=colors),
-        text=text_labels,
-        textposition='auto',
-        hovertemplate='<b>%{y}</b><br>%{x:.2f} hours<br><extra></extra>',
-    )])
-    
-    # Add dashed vertical lines for each program's allocated time
-    for program_code in all_program_codes:
-        allocated = program_data[program_code]['allocated']
-        allocated_pos = allocated_line_positions[program_code]
+        # Add vertical dashed line for allocated time
+        allocated = data['allocated']
+        # For subplots, determine the correct axis reference
+        # In make_subplots, axes are numbered: x, x2, x3, ... and y, y2, y3, ...
+        if idx == 0:
+            xref, yref = "x", "y"
+        else:
+            xref, yref = f"x{idx+1}", f"y{idx+1}"
         
-        # Get top and bottom bar labels (the 5 bars are at indices allocated_pos+1 to allocated_pos+5)
-        top_bar_label = labels[allocated_pos + 1]  # First bar (Unused - top)
-        bottom_bar_label = labels[allocated_pos + 5]  # Last bar (Requested - bottom)
-        
-        # Add vertical dashed line at allocated time, spanning the height of the 5 bars
         fig.add_shape(
             type="line",
             x0=allocated,
             x1=allocated,
-            y0=top_bar_label,
-            y1=bottom_bar_label,
+            y0=-0.5,
+            y1=4.5,
             line=dict(color="black", width=2, dash="dash"),
-            xref="x",
-            yref="y"
+            xref=xref,
+            yref=yref
         )
         
-        # Add invisible scatter for hover on allocated line (positioned at middle bar)
-        middle_bar_label = labels[allocated_pos + 3]  # Middle bar (Future Scheduled)
-        fig.add_trace(go.Scatter(
-            x=[allocated],
-            y=[middle_bar_label],
-            mode='markers',
-            marker=dict(size=15, opacity=0),
-            hovertemplate=f'<b>{program_code} Allocated Time</b><br>{allocated:.2f} hours<br>Total allocated time for this program<extra></extra>',
-            hoverlabel=dict(bgcolor='black', font_color='white'),
-            showlegend=False
-        ))
-    
-    # Add divider lines between program groups (except after the last program)
-    max_x = max_x_value * 1.1
-    for i, div_pos in enumerate(divider_positions[:-1]):  # Exclude last divider
-        div_label = labels[div_pos]
-        # Add divider line using the spacer label position
-        fig.add_shape(
-            type="line",
-            x0=0,
-            x1=max_x,
-            y0=div_label,
-            y1=div_label,
-            line=dict(color="gray", width=1, dash="dot"),
-            xref="x",
-            yref="y",
-            layer="below"
+        # Add invisible scatter for hover on allocated line
+        fig.add_trace(
+            go.Scatter(
+                x=[allocated],
+                y=[category_names[2]],  # Middle bar (Future Scheduled)
+                mode='markers',
+                marker=dict(size=15, opacity=0),
+                hovertemplate=f'<b>{program_code} Allocated Time</b><br>{allocated:.2f} hours<br>Total allocated time for this program<extra></extra>',
+                hoverlabel=dict(bgcolor='black', font_color='white'),
+                showlegend=False
+            ),
+            row=row,
+            col=col
+        )
+        
+        # Update x-axis for this subplot (scaled to this program's data)
+        # Calculate max value for this program
+        program_max = max(data['unused'], data['incomplete'], data['future'], 
+                         data['past'], data['requested'], data['allocated'])
+        program_max = max(program_max, 1.0)  # Ensure at least 1.0 to avoid empty scale
+        
+        fig.update_xaxes(
+            title='Hours',
+            range=[0, program_max * 1.1],
+            row=row,
+            col=col
+        )
+        
+        # Update y-axis for this subplot (no labels)
+        fig.update_yaxes(
+            title='',
+            showticklabels=False,
+            row=row,
+            col=col
         )
     
-    # Configure y-axis to only show program name labels (hide empty labels and allocated line labels)
-    program_name_indices = [program_name_positions[prog] for prog in all_program_codes]
-    
-    # Calculate height based on number of programs
-    height = max(400, len(all_program_codes) * 140 + 150)
-    
+    # Update overall layout
     fig.update_layout(
-        title_text='<b>Time Breakdown by Program</b><br>Each program shows 5 bars (top to bottom): Unused (red), Incomplete (orange), Future Scheduled (purple), Past Completed (blue), Requested (green)<br>Dashed line above each program represents total allocated time. All bars use the same scale for comparison.',
+        title_text="<b>Time Breakdown by Program</b><br>Each program shows 5 bars (top to bottom): Requested (green), Past Completed (blue), Future Scheduled (purple), Incomplete (orange), Unused (red)<br>Dashed vertical line represents total allocated time. Note each grid is on its own scaling.",
         template='plotly_white',
         showlegend=False,
-        height=height,
-        width=1200,
-        margin=dict(t=150, b=50, l=250, r=50),
-        bargap=0.15,
-        xaxis=dict(
-            title='Hours',
-            titlefont=dict(size=14),
-            tickfont=dict(size=12),
-            range=[0, max_x_value * 1.1]  # Consistent scale with 10% padding
-        ),
-        yaxis=dict(
-            title='',
-            titlefont=dict(size=14),
-            tickfont=dict(size=12),
-            # Only show program name labels (middle bars), hide all other labels
-            tickmode='array',
-            tickvals=program_name_indices,
-            ticktext=[f"<b>{all_program_codes[i]}</b>" for i in range(len(all_program_codes))]  # Clean program names
-        )
-        )
+        height=max(600, num_rows * 250),
+        width=1400,
+        margin=dict(t=150, b=50, l=50, r=50)
+    )
     
     return fig
 

@@ -36,6 +36,7 @@ data_ttp = None
 semester_planner = None
 night_planner = None
 uptree_path = None
+semester_planner_timestamp = None
 
 desired_order = ["inactive","unique_id", "starname", "exptime", "n_exp", 'n_inter_max', 'tau_inter', "n_intra_max", "n_intra_min", "tau_intra", "weather_band_1", "weather_band_2", "weather_band_3"]
 
@@ -66,12 +67,21 @@ def load_data_for_path(semester_code, date, band, uptree_path):
     night_planner_h5 = os.path.join(workdir, 'night_planner.h5')
 
     # Load semester planner
+    global semester_planner_timestamp
     try:
         semester_planner = SemesterPlanner.from_hdf5(semester_planner_h5)
         data_astroq = pl.process_stars(semester_planner)
+        # Get file modification time
+        if os.path.exists(semester_planner_h5):
+            from datetime import datetime
+            mtime = os.path.getmtime(semester_planner_h5)
+            semester_planner_timestamp = datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
+        else:
+            semester_planner_timestamp = None
     except Exception as e:
         semester_planner = None
         data_astroq = None
+        semester_planner_timestamp = None
         return False, f"Error loading semester planner: {str(e)}"
     
     # Load night planner (optional)
@@ -189,7 +199,7 @@ def render_admin_page():
 
     figures_html = [fig_timebar_html, fig_timebar_by_program_html, fig_cof_html, fig_birdseye_html, fig_tau_inter_line_html, fig_football_html]
 
-    return render_template("admin.html", tables_html=[request_table_html], figures_html=figures_html)
+    return render_template("admin.html", tables_html=[request_table_html], figures_html=figures_html, timestamp=semester_planner_timestamp)
 
 def render_program_page(semester_code, date, band, program_code):
     """Render the program overview page for a specific program"""
@@ -226,7 +236,8 @@ def render_program_page(semester_code, date, band, program_code):
                          programname=program_code, 
                          tables_html=[request_table_html], 
                          figures_html=figures_html, 
-                         programs=[program_code])
+                         programs=[program_code],
+                         timestamp=semester_planner_timestamp)
 
 def render_star_page(starname):
     """Render a specific star page"""
@@ -262,7 +273,7 @@ def render_star_page(starname):
                 tables_html = [request_table_html]
                 figures_html = [fig_cof_html, fig_birdseye_html, fig_tau_inter_line_html, fig_football_html]
 
-                return render_template("star.html", starname=true_starname, tables_html=tables_html, figures_html=figures_html)
+                return render_template("star.html", starname=true_starname, tables_html=tables_html, figures_html=figures_html, timestamp=semester_planner_timestamp)
     
     return f"Error, star {starname} not found in programs {list(program_names)}"
 
