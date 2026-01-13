@@ -93,6 +93,12 @@ $(DATE_DIR)/%/config.ini: create_dirs
 		echo "⚙️  Detected $$BAND_NAME: setting [semester] max_solve_gap = 0.005"; \
 		sed -i $(SED_I_FLAG) -e '/^\[semester\]/,/^\[/{s/^max_solve_gap.*/max_solve_gap = 0.005/;}' $@; \
 	fi
+	# If this is a full band (full-band1, full-band2, full-band3), set max_solve_time for night solver
+	@BAND_NAME=$(notdir $(@D)); \
+	if echo "$$BAND_NAME" | grep -q "^full-band"; then \
+		echo "⚙️  Detected $$BAND_NAME: setting [night] max_solve_time = 300"; \
+		sed -i $(SED_I_FLAG) -e '/^\[night\]/,/^\[/{s/^max_solve_time.*/max_solve_time = 300/;}' $@; \
+	fi
 	@echo "✅ Config file created and updated for band $(notdir $(@D))"
 
 # Validate date format
