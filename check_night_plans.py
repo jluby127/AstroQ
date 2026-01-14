@@ -272,7 +272,7 @@ def main():
             if exists:
                 status = "OK"
             elif error == "No CC Time Tonight":
-                status = "N/A"
+                status = "N/A: No CC Time Tonight"
             else:
                 status = f"ERROR: {error}"
             
@@ -314,7 +314,7 @@ def main():
         # Failures: only actual errors (status starting with "ERROR:")
         failures = sum(1 for exists, status in band_statuses if status.startswith("ERROR:"))
         # N/A: bands with "N/A" status (no CC time tonight)
-        na_count = sum(1 for exists, status in band_statuses if status == "N/A")
+        na_count = sum(1 for exists, status in band_statuses if status == "N/A: No CC Time Tonight")
         # Warnings: warnings that aren't "N/A" (e.g., "WARNING: Idle > 60min")
         warnings = sum(1 for exists, status in band_statuses if status.startswith("WARNING:"))
         
