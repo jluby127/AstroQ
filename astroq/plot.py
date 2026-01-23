@@ -297,7 +297,7 @@ def process_stars(semester_planner):
 
         # Handle division by zero for programs with only inactive stars
         if max_value > 0:
-            programmatic_star.cume_observe_pct = summed_cumulative / max_value * 100
+            programmatic_star.cume_observe_pct = np.round(summed_cumulative / max_value * 100, 2)
         else:
             # For inactive-only programs, use total past observations as denominator
             total_past_obs = sum(sum(all_stars[k].observations_past.values()) if all_stars[k].observations_past else 0 for k in prog_indices)
@@ -351,16 +351,35 @@ def get_cof(semester_planner, all_stars):
 
     fig = go.Figure()
     fig.update_layout(plot_bgcolor=gray, paper_bgcolor=clear) #autosize=True,margin=dict(l=40, r=40, t=40, b=40),
+    
+    # Convert calendar dates to night indices (0, 1, 2, ...)
+    night_indices = np.arange(len(semester_planner.all_dates_array))
+    
     burn_line = np.linspace(0, 100, len(semester_planner.all_dates_array))
     burn_line = np.round(burn_line, 2)
 
+    # Add "Even Burn Rate" line as a shape so it's always visible and can't be toggled
+    # Use add_shape to create a line that spans the entire plot
+    fig.add_shape(
+        type="line",
+        x0=night_indices[0],
+        y0=burn_line[0],
+        x1=night_indices[-1],
+        y1=burn_line[-1],
+        line=dict(color='black', width=2, dash='dash'),
+        layer='below',  # Draw below traces so it doesn't obscure data
+    )
+    
+    # Add an invisible trace just for the legend entry (so users know what the line represents)
+    # This trace will be visible in legend but clicking it won't hide the actual line
     fig.add_trace(go.Scatter(
-        x=semester_planner.all_dates_array,
-        y=burn_line,
+        x=[None],  # No actual data points
+        y=[None],
         mode='lines',
         line=dict(color='black', width=2, dash='dash'),
         name="Even Burn Rate",
-        hovertemplate= 'Date: %{x}' + '<br>% Complete: %{y}'
+        showlegend=True,
+        hoverinfo='skip',  # Don't show hover for this dummy trace
     ))
 
     lines = []
@@ -371,7 +390,7 @@ def get_cof(semester_planner, all_stars):
     
     # Handle division by zero: if all stars are inactive, use total past observations as denominator
     if max_value > 0:
-        cume_observe_pct = (cume_observe / max_value) * 100
+        cume_observe_pct = np.round((cume_observe / max_value) * 100, 2)
     else:
         # For inactive-only programs, calculate total past observations
         total_past_obs = sum(sum(star.observations_past.values()) if star.observations_past else 0 for star in all_stars)
@@ -382,31 +401,40 @@ def get_cof(semester_planner, all_stars):
     
     # Add the Total trace first (so it appears below other traces)
     fig.add_trace(go.Scatter(
-        x=semester_planner.all_dates_array,
+        x=night_indices,
         y=cume_observe_pct,
         mode='lines',
         line=dict(color=all_stars[0].program_color_rgb, width=2),
         name="Total",
-        hovertemplate= 'Date: %{x}' + '<br>% Complete: %{y}' + '<br># Obs Requested: ' + \
-            str(max_value) + '<br>'
+        hovertemplate= 'Night: %{x}' + '<br>Date: ' + '%{customdata}' + '<br>% Complete: %{y}' + '<br># Obs Requested: ' + \
+            str(max_value) + '<br>',
+        customdata=semester_planner.all_dates_array
     ))
     
     # Then add individual star traces (so they appear above the Total trace)
     for i in range(len(all_stars)):
         fig.add_trace(go.Scatter(
-            x=semester_planner.all_dates_array,
+            x=night_indices,
             y=all_stars[i].cume_observe_pct,
             mode='lines',
             line=dict(color=all_stars[i].star_color_rgb, width=2),
             name=all_stars[i].starname,
-            hovertemplate= 'Date: %{x}' + '<br>% Complete: %{y}' + '<br># Obs Requested: ' + \
-                str(all_stars[i].total_observations_requested) + '<br>'
+            hovertemplate= 'Night: %{x}' + '<br>Date: ' + '%{customdata}' + '<br>% Complete: %{y}' + '<br># Obs Requested: ' + \
+                str(all_stars[i].total_observations_requested) + '<br>',
+            customdata=semester_planner.all_dates_array
         ))
         lines.append(str(all_stars[i].starname) + "," + str(np.round(all_stars[i].cume_observe_pct[-1],2)))
 
+    # Find the night index for "today" (current_day)
+    try:
+        today_night_index = semester_planner.all_dates_array.index(semester_planner.current_day)
+    except (ValueError, AttributeError):
+        # Fallback to today_starting_night if available, otherwise use 0
+        today_night_index = getattr(semester_planner, 'today_starting_night', 0) - 1
+
     fig.add_vrect(
-            x0=semester_planner.current_day,
-            x1=semester_planner.current_day,
+            x0=today_night_index,
+            x1=today_night_index,
             annotation_text="Today",
             line_dash="dash",
             fillcolor=None,
@@ -415,6 +443,28 @@ def get_cof(semester_planner, all_stars):
             annotation_position="bottom left"
         )
     
+    # X-axis: ticks every 23 days, plus the last day (matching birdseye)
+    x_tick_step = 23
+    x_tickvals = list(range(0, semester_planner.semester_length, x_tick_step))
+    if (semester_planner.semester_length - 1) not in x_tickvals:
+        x_tickvals.append(semester_planner.semester_length - 1)
+    x_ticktext = [str(val + 1) for val in x_tickvals]  # Night indices (1-indexed for display, matching birdseye)
+    
+    # Create calendar date labels for secondary x-axis (top axis)
+    # Format dates as "Feb<br>01" (month and day on separate lines)
+    from datetime import datetime
+    x_ticktext_dates = []
+    for day_idx in x_tickvals:
+        if day_idx < len(semester_planner.all_dates_array):
+            date_str = semester_planner.all_dates_array[day_idx]
+            # Parse date and format as "Feb<br>01" using HTML break tag
+            date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+            month = date_obj.strftime('%b')
+            day = date_obj.strftime('%d')
+            x_ticktext_dates.append(f'{month}<br>{day}')
+        else:
+            x_ticktext_dates.append('')
+    
     # Calculate legend height based on number of traces
     num_traces = len(all_stars) + 2  # +2 for "Even Burn Rate" and "Total"
     legend_height = min(300, max(150, num_traces * 25))  # Between 150-300px, 25px per trace
@@ -422,7 +472,7 @@ def get_cof(semester_planner, all_stars):
     fig.update_layout(
         width=1400,
         height=1000,
-        xaxis_title="Calendar Date",
+        xaxis_title="Night in Semester",
         yaxis_title="Request % Complete",
         showlegend=True,
         legend=dict(
@@ -447,8 +497,26 @@ def get_cof(semester_planner, all_stars):
         xaxis=dict(
             title_font=dict(size=labelsize),
             tickfont=dict(size=labelsize-4),
+            tickvals=x_tickvals,
+            ticktext=x_ticktext,
+            tickmode='array',
             showgrid=False,
-            zeroline=False
+            zeroline=False,
+            anchor='y',
+            side='bottom',
+            range=[0, semester_planner.semester_length - 1],  # Explicitly set range
+        ),
+        xaxis2=dict(
+            title='',
+            tickvals=x_tickvals,
+            ticktext=x_ticktext_dates,
+            tickmode='array',
+            showgrid=False,
+            side='top',
+            overlaying='x',
+            tickfont=dict(size=labelsize - 6),
+            showticklabels=True,
+            range=[0, semester_planner.semester_length - 1],  # Match primary x-axis range
         ),
         yaxis=dict(
             title_font=dict(size=labelsize),
@@ -456,8 +524,29 @@ def get_cof(semester_planner, all_stars):
             showgrid=False,
             zeroline=False
         ),
-        margin=dict(b=200, t=50)  # Bottom margin for legend below, minimal top margin
+        margin=dict(b=200, t=100)  # Bottom margin for legend below, top margin for date labels
     )
+    
+    # Add an invisible trace AFTER layout to force the secondary x-axis to appear
+    # This trace must be associated with xaxis='x2' to make the secondary axis visible
+    fig.add_trace(go.Scatter(
+        x=[0, len(semester_planner.all_dates_array) - 1],
+        y=[100, 100],  # Position at top of y-axis range
+        mode='markers',
+        marker=dict(size=0.01, opacity=0),
+        showlegend=False,
+        hoverinfo='skip',
+        xaxis='x2',
+        name='',  # Empty name to prevent legend entry
+    ))
+    
+    # Explicitly hide any trace with xaxis='x2' or empty name from the legend
+    for trace in fig.data:
+        if hasattr(trace, 'xaxis') and str(trace.xaxis) == 'x2':
+            trace.update(showlegend=False)
+        if hasattr(trace, 'name') and (trace.name == '' or trace.name is None):
+            trace.update(showlegend=False)
+    
     return fig
 
 def get_birdseye(semester_planner, availablity, all_stars):
@@ -569,6 +658,21 @@ def get_birdseye(semester_planner, availablity, all_stars):
     if (semester_planner.semester_length - 1) not in x_tickvals:
         x_tickvals.append(semester_planner.semester_length - 1)
     x_ticktext = [str(val + 1) for val in x_tickvals]
+    
+    # Create calendar date labels for secondary x-axis (top axis)
+    # Format dates as "Jan<br>15" or "Aug<br>12" (month and day on separate lines)
+    from datetime import datetime
+    x_ticktext_dates = []
+    for day_idx in x_tickvals:
+        if day_idx < len(semester_planner.all_dates_array):
+            date_str = semester_planner.all_dates_array[day_idx]
+            # Parse date and format as "Jan<br>15" or "Aug<br>12" using HTML break tag
+            date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+            month = date_obj.strftime('%b')
+            day = date_obj.strftime('%d')
+            x_ticktext_dates.append(f'{month}<br>{day}')
+        else:
+            x_ticktext_dates.append('')
 
     # Y-axis: ticks every 2 hours, using slot_size
     n_slots = int(24 * 60 // semester_planner.slot_size)
@@ -585,6 +689,21 @@ def get_birdseye(semester_planner, availablity, all_stars):
     num_traces = len(all_stars) + (1 if len(all_stars) > 1 or all_stars[0].allow_mapview == False else len([m for m in all_stars[0].maps_names if m != 'is_observable_now']))
     legend_height = min(300, max(150, num_traces * 25))  # Between 150-300px, 25px per trace
     
+    # Add an invisible trace to force the secondary x-axis to appear
+    # This trace must be associated with xaxis='x2' to make the secondary axis visible
+    n_slots = int(24 * 60 // semester_planner.slot_size)
+    fig.add_trace(go.Scatter(
+        x=[0, len(semester_planner.all_dates_array) - 1],
+        y=[n_slots + 1, n_slots + 1],  # Position just above visible area
+        mode='markers',
+        marker=dict(size=0.01, opacity=0),
+        showlegend=False,
+        legendgroup=None,
+        hoverinfo='skip',
+        xaxis='x2',
+        name='',  # Empty name to prevent legend entry
+    ))
+    
     fig.update_layout(
         width=1400,
         height=1000,
@@ -597,6 +716,9 @@ def get_birdseye(semester_planner, availablity, all_stars):
             ticktext=x_ticktext,
             tickmode='array',
             showgrid=False,
+            anchor='y',
+            side='bottom',
+            range=[0, semester_planner.semester_length - 1],  # Explicitly set range
         ),
         yaxis=dict(
             title_font=dict(size=labelsize),
@@ -627,7 +749,19 @@ def get_birdseye(semester_planner, availablity, all_stars):
             tracegroupgap=5,  # Gap between trace groups
             traceorder="normal"  # Keep order as traces were added
         ),
-        margin=dict(b=200, t=50)  # Bottom margin for legend below, minimal top margin
+        xaxis2=dict(
+            title='',
+            tickvals=x_tickvals,
+            ticktext=x_ticktext_dates,
+            tickmode='array',
+            showgrid=False,
+            side='top',
+            overlaying='x',
+            tickfont=dict(size=labelsize - 6),
+            showticklabels=True,
+            range=[0, semester_planner.semester_length - 1],  # Match primary x-axis range
+        ),
+        margin=dict(b=200, t=100)  # Bottom margin for legend below, top margin for date labels
     )
     return fig
 
@@ -714,7 +848,7 @@ def get_tau_inter_line(semester_planner, all_stars, use_program_colors=False):
     ))
 
     fig.update_layout(
-        width=1200,
+        width=1400,
         height=800,
         xaxis_title="Requested Minimum Inter-Night Cadence",
         yaxis_title="On Sky Inter-Night Cadence",
@@ -744,6 +878,163 @@ def get_tau_inter_line(semester_planner, all_stars, use_program_colors=False):
             range=[np.log10(0.5), np.log10(180)]  # Set range from 0.5 to 180 in log scale
         )
     )
+    return fig
+
+def get_rawobs(semester_planner, all_stars, use_program_colors=False):
+    '''
+    Produce a plotly figure showing a scatter plot of observation counts for each star.
+    X-axis: total requested observations
+    Y-axis: sum of past and scheduled observations
+    Each point represents one StarPlotter object.
+    
+    Args:
+        semester_planner (obj): a SemesterPlanner object from splan.py
+        all_stars (array): an array of StarPlotter objects
+        use_program_colors (bool): If True, use program_color_rgb; if False, use star_color_rgb (default: False)
+    
+    Returns:
+        fig (plotly figure): a plotly figure showing observation counts as a scatter plot
+    '''
+    
+    fig = go.Figure()
+    fig.update_layout(plot_bgcolor=clear, paper_bgcolor=clear)
+    
+    # Prepare data for each star
+    starnames = []
+    total_requested = []
+    past_obs = []
+    future_obs = []
+    total_completed = []  # past + scheduled
+    pct_complete = []
+    star_colors = []
+    
+    for star in all_stars:
+        starnames.append(star.starname)
+        total = star.total_observations_requested
+        
+        # Sum past observations
+        past_total = sum(star.observations_past.values()) if star.observations_past else 0
+        
+        # Sum future observations
+        future_total = sum(star.observations_future.values()) if star.observations_future else 0
+        
+        total_completed_val = past_total + future_total
+        
+        total_requested.append(total)
+        past_obs.append(past_total)
+        future_obs.append(future_total)
+        total_completed.append(total_completed_val)
+        
+        # Choose color based on flag
+        if use_program_colors:
+            star_colors.append(star.program_color_rgb)
+        else:
+            star_colors.append(star.star_color_rgb)
+        
+        # Calculate percentage complete
+        if total > 0:
+            pct_complete.append((total_completed_val / total) * 100)
+        else:
+            pct_complete.append(0)
+    
+    # Create one trace per star so they can be toggled on/off in legend
+    for i, star in enumerate(all_stars):
+        fig.add_trace(go.Scatter(
+            x=[total_requested[i]],
+            y=[total_completed[i]],
+            mode='markers',
+            marker=dict(
+                size=10,
+                color=star_colors[i],  # Use each star's individual color
+                opacity=0.7,
+            ),
+            name=starnames[i],  # Star name for legend (allows toggling)
+            text=[starnames[i]],  # Star name for hover
+            hovertemplate='<b>%{text}</b><br>' +
+                          'Total Requested: %{x}<br>' +
+                          'Past: %{customdata[0]}<br>' +
+                          'Scheduled: %{customdata[1]}<br>' +
+                          'Total (Past + Scheduled): %{y}<br>' +
+                          '% Complete: %{customdata[2]:.1f}%<extra></extra>',
+            customdata=[[past_obs[i], future_obs[i], pct_complete[i]]],
+        ))
+    
+    # Add diagonal lines for reference (y = x for 100% complete, y = 0.5x for 50% complete)
+    # For log scale, we need to use log values
+    min_val = min(min(total_requested) if total_requested else 1, min(total_completed) if total_completed else 1)
+    max_val = max(max(total_requested) if total_requested else 1, max(total_completed) if total_completed else 1)
+    # Ensure min_val is at least 1 for log scale
+    if min_val < 1:
+        min_val = 1
+    
+    # Add 100% complete reference line (y = x) - solid black line
+    fig.add_trace(go.Scatter(
+        x=[min_val, max_val],
+        y=[min_val, max_val],
+        mode='lines',
+        line=dict(color='black', width=1, dash='solid'),
+        name='100% Complete',
+        showlegend=False,  # Hide reference line from legend
+        hovertemplate='100% Complete Reference Line<extra></extra>',
+    ))
+    
+    # Add 50% complete reference line (y = 0.5x)
+    fig.add_trace(go.Scatter(
+        x=[min_val, max_val],
+        y=[min_val * 0.5, max_val * 0.5],
+        mode='lines',
+        line=dict(color='gray', width=1, dash='dash'),
+        name='50% Complete',
+        showlegend=False,  # Hide reference line from legend
+        hovertemplate='50% Complete Reference Line<extra></extra>',
+    ))
+    
+    # Add annotation at the top explaining the reference lines
+    fig.add_annotation(
+        x=0.5,  # Center horizontally
+        y=1.02,  # Just above the plot
+        xref='paper',
+        yref='paper',
+        text="solid = 1:1<br>dashed = 1:2",
+        showarrow=False,
+        font=dict(size=labelsize-8, color='black'),
+        align='center',
+    )
+    
+    fig.update_layout(
+        width=1400,
+        height=800,
+        xaxis_title="Total Requested Observations",
+        yaxis_title="Total Observations (Past + Scheduled)",
+        template='plotly_white',
+        showlegend=True,  # Show legend so stars can be toggled on/off
+        xaxis=dict(
+            type="log",  # Log scale for x-axis
+            title_font=dict(size=labelsize),
+            tickfont=dict(size=labelsize-4),
+            showgrid=True,
+            gridcolor='lightgray',
+            minor=dict(
+                showgrid=False,  # Hide minor grid lines
+                ticks="",  # Hide minor tick marks
+            ),
+            dtick=1,  # Major ticks at powers of 10
+        ),
+        yaxis=dict(
+            type="log",  # Log scale for y-axis
+            title_font=dict(size=labelsize),
+            tickfont=dict(size=labelsize-4),
+            showgrid=True,
+            gridcolor='lightgray',
+            minor=dict(
+                showgrid=False,  # Hide minor grid lines
+                ticks="",  # Hide minor tick marks
+            ),
+            dtick=1,  # Major ticks at powers of 10
+        ),
+        margin=dict(b=100, t=50),
+    )
+    
     return fig
 
 def get_timebar(semester_planner, all_stars, use_program_colors=False, prevent_negative=False):
@@ -836,7 +1127,7 @@ def get_timebar(semester_planner, all_stars, use_program_colors=False, prevent_n
         template='plotly_white',
         showlegend=False,
         height=710,  # Increased height for more vertical spacing between labels
-        width=1200,
+        width=1400,
         margin=dict(t=top_margin, b=50, l=200, r=50),
         bargap=0.2,
         xaxis=dict(
@@ -885,6 +1176,222 @@ def get_timebar(semester_planner, all_stars, use_program_colors=False, prevent_n
             font=dict(size=18, color='red'),
             xanchor='center',
             yanchor='middle'
+        )
+    
+    return fig
+
+
+def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=False):
+    """
+    Create a grid of horizontal bar charts showing time breakdown for each program individually
+    
+    Each program displays 5 bars: Unused, Incomplete, Future Scheduled, Past Completed, and Requested.
+    A dashed vertical line represents their total allocated time.
+    Programs are arranged in a grid with 3 columns.
+    All bars use the same scale for easy comparison across programs.
+
+    Parameters:
+        semester_planner: the semester planner object
+        programs_dict (dict): dictionary mapping program codes to lists of StarPlotter objects (e.g., data_astroq[0])
+        prevent_negative (bool): If True, set Incomplete and Not used categories to zero if they are negative (default: False)
+
+    Returns:
+        fig (plotly figure): a plotly figure showing time breakdown per program as a grid of horizontal bar charts
+    """
+    programmatics = pd.read_csv(os.path.join(semester_planner.semester_directory, 'programs.csv'))
+    
+    # Get all programs from programs.csv
+    all_programs_in_csv = set(programmatics['program'].unique())
+    programs_with_requests = set(programs_dict.keys())
+    
+    # Find programs in CSV that don't have any requests
+    programs_without_requests = all_programs_in_csv - programs_with_requests
+    
+    # Combine all programs: those with requests and those without
+    all_program_codes = sorted(list(programs_with_requests) + list(programs_without_requests))
+    
+    # Store data for each program
+    program_data = {}
+    max_x_value = 0  # Track maximum x value for consistent scaling
+    
+    # Process programs with requests
+    for program_code in sorted(programs_with_requests):
+        program_stars = programs_dict[program_code]
+        
+        # Calculate times for this program (same logic as get_timebar)
+        total_past = 0
+        total_future = 0
+        total_requested_hours = 0
+        
+        for starobj in program_stars:
+            total_past += sum(starobj.observations_past.values()) * starobj.exptime + len(starobj.observations_past) * slew_overhead
+            total_future += sum(starobj.observations_future.values()) * starobj.exptime + len(starobj.observations_future) * slew_overhead
+            total_requested_hours += starobj.total_requested_hours
+        
+        # Convert to hours
+        total_past_hours = total_past / 3600
+        total_future_hours = total_future / 3600
+        total_incomplete_hours = total_requested_hours - total_past_hours - total_future_hours
+        
+        # Get allocated hours for this program
+        program_row = programmatics[programmatics['program'] == program_code]
+        if len(program_row) > 0:
+            total_allocated_hours = program_row['hours'].sum()
+        else:
+            total_allocated_hours = 0
+        
+        # Calculate unused hours
+        unused_hours = total_allocated_hours - total_future_hours - total_past_hours
+        
+        # Apply negative value prevention if enabled
+        if prevent_negative:
+            total_incomplete_hours = max(0, total_incomplete_hours)
+            unused_hours = max(0, unused_hours)
+        
+        program_data[program_code] = {
+            'unused': unused_hours,
+            'incomplete': total_incomplete_hours,
+            'future': total_future_hours,
+            'past': total_past_hours,
+            'requested': total_requested_hours,
+            'allocated': total_allocated_hours
+        }
+        
+        # Update max value for scaling
+        max_x_value = max(max_x_value, total_requested_hours, total_allocated_hours, 
+                         unused_hours, total_incomplete_hours, total_future_hours, total_past_hours)
+    
+    # Process programs without requests (all bars = 0, but show allocated time)
+    for program_code in sorted(programs_without_requests):
+        # Get allocated hours for this program from programs.csv
+        program_row = programmatics[programmatics['program'] == program_code]
+        if len(program_row) > 0:
+            total_allocated_hours = program_row['hours'].sum()
+        else:
+            total_allocated_hours = 0
+        
+        # All values are zero for programs with no requests
+        program_data[program_code] = {
+            'unused': total_allocated_hours,  # All allocated time is unused
+            'incomplete': 0,
+            'future': 0,
+            'past': 0,
+            'requested': 0,
+            'allocated': total_allocated_hours
+        }
+        
+        # Update max value for scaling
+        max_x_value = max(max_x_value, total_allocated_hours)
+    
+    # Calculate grid dimensions: 3 columns, as many rows as needed
+    num_programs = len(all_program_codes)
+    num_cols = 3
+    num_rows = (num_programs + num_cols - 1) // num_cols  # Ceiling division
+    
+    # Create subplots grid
+    fig = make_subplots(
+        rows=num_rows,
+        cols=num_cols,
+        subplot_titles=[f"<b>{prog}</b>" for prog in all_program_codes],
+        horizontal_spacing=0.15,
+        vertical_spacing=0.12
+    )
+    
+    # Colors in display order: Red, Orange, Purple, Blue, Green
+    display_colors = ['#FF0000', '#F18F01', '#A23B72', '#2E86AB', '#00FF00']
+    category_names = ['Unused', 'Incomplete', 'Future Scheduled', 'Past Completed', 'Requested']
+    
+    # Add bars for each program in its own subplot
+    for idx, program_code in enumerate(all_program_codes):
+        data = program_data[program_code]
+        
+        # Calculate row and column position (1-indexed)
+        row = (idx // num_cols) + 1
+        col = (idx % num_cols) + 1
+        
+        # Prepare bar data for this program
+        program_values = [data['unused'], data['incomplete'], data['future'], data['past'], data['requested']]
+        
+        # Add bars to this subplot
+        fig.add_trace(
+            go.Bar(
+                x=program_values,
+                y=category_names,
+                orientation='h',
+                marker=dict(color=display_colors),
+                text=[f'{v:.1f}' if v > 0 else '' for v in program_values],
+                textposition='auto',
+                hovertemplate=f'<b>{program_code}</b><br>%{{y}}<br>%{{x:.2f}} hours<extra></extra>',
+                showlegend=False
+            ),
+            row=row,
+            col=col
+        )
+        
+        # Add vertical dashed line for allocated time
+        allocated = data['allocated']
+        # For subplots, determine the correct axis reference
+        # In make_subplots, axes are numbered: x, x2, x3, ... and y, y2, y3, ...
+        if idx == 0:
+            xref, yref = "x", "y"
+        else:
+            xref, yref = f"x{idx+1}", f"y{idx+1}"
+        
+        fig.add_shape(
+            type="line",
+            x0=allocated,
+            x1=allocated,
+            y0=-0.5,
+            y1=4.5,
+            line=dict(color="black", width=2, dash="dash"),
+            xref=xref,
+            yref=yref
+        )
+        
+        # Add invisible scatter for hover on allocated line
+        fig.add_trace(
+            go.Scatter(
+                x=[allocated],
+                y=[category_names[2]],  # Middle bar (Future Scheduled)
+                mode='markers',
+                marker=dict(size=15, opacity=0),
+                hovertemplate=f'<b>{program_code} Allocated Time</b><br>{allocated:.2f} hours<br>Total allocated time for this program<extra></extra>',
+                hoverlabel=dict(bgcolor='black', font_color='white'),
+                showlegend=False
+            ),
+            row=row,
+            col=col
+        )
+        
+        # Update x-axis for this subplot (scaled to this program's data)
+        # Calculate max value for this program
+        program_max = max(data['unused'], data['incomplete'], data['future'], 
+                         data['past'], data['requested'], data['allocated'])
+        program_max = max(program_max, 1.0)  # Ensure at least 1.0 to avoid empty scale
+        
+        fig.update_xaxes(
+            title='Hours',
+            range=[0, program_max * 1.1],
+            row=row,
+            col=col
+        )
+        
+        # Update y-axis for this subplot (no labels)
+        fig.update_yaxes(
+            title='',
+            showticklabels=False,
+            row=row,
+            col=col
+        )
+    
+    # Update overall layout
+    fig.update_layout(
+        title_text="<b>Time Breakdown by Program</b><br>Each program shows 5 bars (top to bottom): Requested (green), Past Completed (blue), Future Scheduled (purple), Incomplete (orange), Unused (red)<br>Dashed vertical line represents total allocated time. Note each grid is on its own scaling.",
+        template='plotly_white',
+        showlegend=False,
+        height=max(600, num_rows * 250),
+        width=1400,
+        margin=dict(t=150, b=50, l=50, r=50)
         )
     
     return fig
@@ -1142,10 +1649,10 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
             color = group['color'].tolist()  # Use individual star colors
 
             if len(all_stars)==1:
-                size=20
+                size=20 
                 marker='star'
             else:
-                size=6
+                size=10
                 marker='star'
             fig.add_trace(go.Scattergeo(
                 lon=group['ra'] - 180,
@@ -1180,8 +1687,8 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
         paper_bgcolor='rgba(0,0,0,0)',
         plot_bgcolor='rgba(0,0,0,0)',
         template='none',
-        width=1000,
-        height=600,
+        width=1400,
+        height=800,
         xaxis=dict(showgrid=False, visible=True),
         yaxis=dict(showgrid=False, visible=True),
         annotations=[
