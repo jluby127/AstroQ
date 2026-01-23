@@ -1060,8 +1060,8 @@ def get_timebar(semester_planner, all_stars, use_program_colors=False, prevent_n
     
     programs_used = []
     for starobj in all_stars:
-        total_past += sum(starobj.observations_past.values()) * starobj.exptime + len(starobj.observations_past) * slew_overhead
-        total_future += sum(starobj.observations_future.values()) * starobj.exptime + len(starobj.observations_future) * slew_overhead
+        total_past += sum(starobj.observations_past.values()) * starobj.exptime + readout_overhead*(starobj.n_exp - 1)*len(starobj.observations_past) + slew_overhead*len(starobj.observations_past)
+        total_future += sum(starobj.observations_future.values()) * starobj.exptime + readout_overhead*(starobj.n_exp - 1)*len(starobj.observations_past) + len(starobj.observations_future) * slew_overhead
         total_requested_hours += starobj.total_requested_hours
         programs_used.append(starobj.program)
     
