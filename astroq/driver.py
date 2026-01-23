@@ -114,7 +114,8 @@ def kpfcc_prep(args):
     # pull the allocation 
     if allo_source == 'db':
         print(f'Pulling allocation information from database')
-        allocation_frame, hours_by_program, nights_by_program = kpfcc.pull_allocation_info(start_date, n_days, 'KPF-CC')
+        conversion_ratio = config.getfloat('semester', 'hours_per_night')
+        allocation_frame, hours_by_program, nights_by_program = kpfcc.pull_allocation_info(start_date, n_days, 'KPF-CC', conversion_ratio)
         awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())] 
         programmatics = pd.DataFrame({'program': awarded_programs, 'hours': list(hours_by_program.values()), 'nights': list(nights_by_program.values())})
         programmatics.to_csv(os.path.join(savepath, 'programs.csv'), index=False)
