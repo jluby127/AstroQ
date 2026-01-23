@@ -174,7 +174,7 @@ def pull_allocation_info(start_date, numdays, instrument):
     params["date"] = start_date
     params["numdays"] = numdays
     params["instrument"] = instrument 
-    url = "https://www3.keck.hawaii.edu/api/getSchedule/"
+    url = "https://www3.keck.hawaii.edu/api/schedule/getSchedule"
     try:
         data = requests.get(url, params=params)
         data_json = json.loads(data.text)
