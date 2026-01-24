@@ -94,9 +94,8 @@ class StarPlotter(object):
         self.tau_intra = int(row['tau_intra'])
         self.n_inter_max = int(row['n_inter_max'])
         self.tau_inter = int(row['tau_inter'])
-        self.expected_nobs_per_night = self.n_exp * self.n_intra_max
-        self.total_observations_requested = self.expected_nobs_per_night * self.n_inter_max
-        self.total_requested_seconds = self.n_exp*self.n_intra_max*self.n_inter_max*self.exptime + readout_overhead*(self.n_exp-1) + slew_overhead*self.n_intra_max*self.n_inter_max
+        self.total_observations_requested = self.n_exp * self.n_intra_max * self.n_inter_max
+        self.total_requested_seconds = self.total_observations_requested*self.exptime + readout_overhead*(self.n_exp-1)* self.n_inter_max + slew_overhead*self.n_intra_max*self.n_inter_max
         self.total_requested_hours = self.total_requested_seconds / 3600
         self.total_requested_nights = self.total_requested_hours / hours_per_night   
 
@@ -136,9 +135,8 @@ class StarPlotter(object):
         for d, group in star_rows.groupby('d'):
             # d may be int or str; ensure it's int for indexing
             date = all_dates_array[int(d)]
-            n_slots = len(group)
-            # Optionally, normalize by slots_per_visit or n_intra_max as before
-            observations_future[date] = n_slots*self.n_exp
+            n_slots = len(group) # this is the number of starting slots in given to this target in this night
+            observations_future[date] = n_slots*self.n_exp # multiply by nexp here and not later in timebar, so that COF has right values.
         self.observations_future = observations_future
 
     def get_map(self, semester_planner, forecast_df):
@@ -1060,8 +1058,8 @@ def get_timebar(semester_planner, all_stars, use_program_colors=False, prevent_n
     
     programs_used = []
     for starobj in all_stars:
-        total_past += sum(starobj.observations_past.values()) * starobj.exptime + len(starobj.observations_past) * slew_overhead
-        total_future += sum(starobj.observations_future.values()) * starobj.exptime + len(starobj.observations_future) * slew_overhead
+        total_past += (sum(starobj.observations_past.values()) * starobj.exptime) + (len(starobj.observations_past) * readout_overhead) + (len(starobj.observations_past) * slew_overhead)
+        total_future += (sum(starobj.observations_future.values()) * starobj.exptime) + (len(starobj.observations_future) * readout_overhead * (starobj.n_exp-1)) + (len(starobj.observations_future) * slew_overhead * starobj.n_intra_max)
         total_requested_hours += starobj.total_requested_hours
         programs_used.append(starobj.program)
     
@@ -1154,6 +1152,19 @@ def get_timebar(semester_planner, all_stars, use_program_colors=False, prevent_n
         yref="y"
     )
     
+    # Add gray vertical dashed line at total_allocated_hours * throttle_grace
+    grace_factor = semester_planner.throttle_grace
+    fig.add_shape(
+        type="line",
+        x0=total_allocated_hours * grace_factor,
+        x1=total_allocated_hours * grace_factor,
+        y0=-0.5,
+        y1=len(labels) - 0.5,
+        line=dict(color="gray", width=2, dash="dash"),
+        xref="x",
+        yref="y"
+        )
+
     # Add invisible scatter trace for hover text on the allocated time line
     # Use the same categorical labels as the bar chart to avoid numeric y-axis ticks
     fig.add_trace(go.Scatter(
@@ -1224,8 +1235,8 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
         total_requested_hours = 0
         
         for starobj in program_stars:
-            total_past += sum(starobj.observations_past.values()) * starobj.exptime + len(starobj.observations_past) * slew_overhead
-            total_future += sum(starobj.observations_future.values()) * starobj.exptime + len(starobj.observations_future) * slew_overhead
+            total_past += (sum(starobj.observations_past.values()) * starobj.exptime) + (len(starobj.observations_past) * readout_overhead) + (len(starobj.observations_past) * slew_overhead)
+            total_future += (sum(starobj.observations_future.values()) * starobj.exptime) + (len(starobj.observations_future) * readout_overhead * (starobj.n_exp-1)) + (len(starobj.observations_future) * slew_overhead * starobj.n_intra_max)
             total_requested_hours += starobj.total_requested_hours
         
         # Convert to hours
@@ -1348,6 +1359,19 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
             yref=yref
         )
         
+        # Add gray vertical dashed line at allocated * throttle_grace
+        grace_factor = semester_planner.throttle_grace
+        fig.add_shape(
+            type="line",
+            x0=allocated * grace_factor,
+            x1=allocated * grace_factor,
+            y0=-0.5,
+            y1=4.5,
+            line=dict(color="gray", width=2, dash="dash"),
+            xref=xref,
+            yref=yref
+        )
+        
         # Add invisible scatter for hover on allocated line
         fig.add_trace(
             go.Scatter(
@@ -1364,9 +1388,10 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
         )
         
         # Update x-axis for this subplot (scaled to this program's data)
-        # Calculate max value for this program
+        # Include allocated*grace so the gray grace line is visible when it exceeds the bars
         program_max = max(data['unused'], data['incomplete'], data['future'], 
-                         data['past'], data['requested'], data['allocated'])
+                         data['past'], data['requested'], data['allocated'],
+                         allocated * grace_factor)
         program_max = max(program_max, 1.0)  # Ensure at least 1.0 to avoid empty scale
         
         fig.update_xaxes(
