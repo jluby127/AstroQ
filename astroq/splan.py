@@ -856,6 +856,8 @@ class SemesterPlanner(object):
             ('semester_directory', 'semester_directory', 'string', None),
             ('custom_file', 'custom_file', 'string', None),
             ('allocation_file', 'allocation_file', 'string', None),
+            ('throttle_grace', 'throttle_grace', 'scalar', None),
+            ('hours_per_night', 'hours_per_night', 'scalar', None),
         ]
         
         # Dictionary attributes (saved as JSON)
@@ -920,6 +922,7 @@ class SemesterPlanner(object):
                                        data=access_record[field_name], 
                                        compression='gzip')
         
+
         logs.info(f"SemesterPlanner saved to HDF5: {hdf5_path}")
         return hdf5_path
 
@@ -999,6 +1002,9 @@ class SemesterPlanner(object):
             # Load scalar/string attributes
             for hdf5_key, attr_name, data_type, _ in scalar_attrs:
                 setattr(instance, attr_name, f.attrs[hdf5_key])
+            # Optional: backwards compat for HDF5 files saved before these were stored
+            instance.throttle_grace = float(f.attrs.get('throttle_grace', 1.25))
+            instance.hours_per_night = float(f.attrs.get('hours_per_night', 12.0))
             
             # Load dictionary attributes
             for hdf5_key, attr_name, data_type, _ in dict_attrs:
