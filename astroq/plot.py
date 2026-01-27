@@ -214,8 +214,16 @@ def process_stars(semester_planner):
         newstar.get_stats(row, semester_planner.slot_size)
         if newstar.unique_id in list(semester_planner.past_history.keys()):
             newstar.observations_past = semester_planner.past_history[newstar.unique_id].n_visits_on_nights
+            newstar.observations_past_exposures = semester_planner.past_history[newstar.unique_id].n_obs_on_nights
+
+            if newstar.starname == 'HD219134':
+                print('--------------------------------')
+                print(semester_planner.past_history[newstar.unique_id])
+                print(newstar.observations_past)
+                print('--------------------------------')
         else:
             newstar.observations_past = {}
+            newstar.observations_past_exposures = {}
         newstar.get_future(forecast_df, semester_planner.all_dates_array)
 
         # Create COF arrays for each request
@@ -223,11 +231,14 @@ def process_stars(semester_planner):
         # For inactive stars, only include past observations; for active stars, include both past and future
         if newstar.inactive == False:
             newstar.dates_observe = [newstar.observations_past[date] if date in newstar.observations_past.keys() else (newstar.n_intra_max*newstar.n_exp if date in combined_set else 0) for date in semester_planner.all_dates_array]
+            newstar.dates_observe_time = [newstar.observations_past_exposures[date]*newstar.exptime + readout_overhead*(newstar.observations_past[date]-1) + slew_overhead*(newstar.observations_past[date]-1) if date in newstar.observations_past_exposures.keys() else (newstar.n_intra_max*newstar.n_exp*newstar.exptime + readout_overhead*(newstar.n_exp-1) + slew_overhead*(newstar.n_intra_max-1) if date in combined_set else 0) for date in semester_planner.all_dates_array]
         else:
             # For inactive stars, only show past observations
             newstar.dates_observe = [newstar.observations_past[date] if date in newstar.observations_past.keys() else 0 for date in semester_planner.all_dates_array]
-        
+            newstar.dates_observe_time = [newstar.observations_past_exposures[date]*newstar.exptime + readout_overhead*(newstar.observations_past[date]-1) + slew_overhead*(newstar.observations_past[date]-1) if date in newstar.observations_past_exposures.keys() else 0 for date in semester_planner.all_dates_array]
+
         newstar.cume_observe = np.cumsum(newstar.dates_observe)
+        newstar.cume_observe_time = np.cumsum(newstar.dates_observe_time)
         if newstar.inactive:
             newstar.total_observations_requested = np.max(newstar.cume_observe)
             newstar.total_requested_seconds =newstar.total_observations_requested*newstar.exptime + slew_overhead*newstar.total_observations_requested
@@ -274,6 +285,8 @@ def process_stars(semester_planner):
     # Now create StarPlotter objects for each program, as it were one star.
     # These will not have all the attributes, but we only need these for the admin COF plot
     # These StarPlotter objects cannot be used to create a birdseye plot, they don't have all attributes
+    programmatics = pd.read_csv(os.path.join(semester_planner.semester_directory, 'programs.csv'))
+
     unique_programs = sorted(set(star.program for star in all_stars))
     programs_as_stars = {}
     for i in range(len(unique_programs)):
@@ -292,6 +305,14 @@ def process_stars(semester_planner):
         stars_stacked = np.vstack(cume_observe)
         summed_cumulative = np.sum(stars_stacked, axis=0)
         max_value = np.sum([all_stars[k].total_observations_requested for k in prog_indices])
+        programmatic_star.cume_observe_pct = np.round(summed_cumulative / max_value * 100, 2)
+
+        # Compute the cumulative observe time for all stars in the given program
+        cume_observe_time = [all_stars[k].cume_observe_time for k in prog_indices]
+        stars_stacked_time = np.vstack(cume_observe_time)
+        summed_cumulative_time = np.sum(stars_stacked_time, axis=0)
+        max_value_time = programmatics[programmatics['program'] == unique_programs[i]]['hours'].iloc[0]
+        programmatic_star.cume_observe_time_pct = np.round(summed_cumulative_time / max_value_time * 100, 2)
 
         # Handle division by zero for programs with only inactive stars
         if max_value > 0:
@@ -335,13 +356,14 @@ def process_stars(semester_planner):
 
     return program_dict, programs_as_stars, nulltime
 
-def get_cof(semester_planner, all_stars):
+def get_cof(semester_planner, all_stars, use_time=False):
     '''
     Produce a plotly figure showing the Cumulative Observability Function (COF) for a selection of stars
 
     Args:
         semester_planner (obj): a SemesterPlanner object from splan.py
         all_stars (array): a array of StarPlotter objects
+        use_time (bool): if True, use the cumulative observe time percentage instead of the cumulative observe percentage
 
     Returns:
         fig (plotly figure): a plotly figure showing the COF for a selection of stars
@@ -379,36 +401,38 @@ def get_cof(semester_planner, all_stars):
         showlegend=True,
         hoverinfo='skip',  # Don't show hover for this dummy trace
     ))
-
     lines = []
-    cume_observe = np.zeros(len(semester_planner.all_dates_array))
-    max_value = 0
-    cume_observe = np.sum([star.cume_observe for star in all_stars], axis=0)
-    max_value = sum(star.total_observations_requested for star in all_stars)
-    
-    # Handle division by zero: if all stars are inactive, use total past observations as denominator
-    if max_value > 0:
-        cume_observe_pct = np.round((cume_observe / max_value) * 100, 2)
-    else:
-        # For inactive-only programs, calculate total past observations
-        total_past_obs = sum(sum(star.observations_past.values()) if star.observations_past else 0 for star in all_stars)
-        if total_past_obs > 0:
-            cume_observe_pct = (cume_observe / total_past_obs) * 100
+    if use_time == False:
+        cume_observe = np.zeros(len(semester_planner.all_dates_array))
+        max_value = 0
+        cume_observe = np.sum([star.cume_observe for star in all_stars], axis=0)
+        max_value = sum(star.total_observations_requested for star in all_stars)
+        # Handle division by zero: if all stars are inactive, use total past observations as denominator
+        if max_value > 0:
+            cume_observe_pct = np.round((cume_observe / max_value) * 100, 2)
         else:
-            cume_observe_pct = np.zeros(len(semester_planner.all_dates_array))
+            # For inactive-only programs, calculate total past observations
+            total_past_obs = sum(sum(star.observations_past.values()) if star.observations_past else 0 for star in all_stars)
+            if total_past_obs > 0:
+                cume_observe_pct = (cume_observe / total_past_obs) * 100
+            else:
+                cume_observe_pct = np.zeros(len(semester_planner.all_dates_array))
+
+        # Add the Total trace first (so it appears below other traces)
+        fig.add_trace(go.Scatter(
+            x=night_indices,
+            y=cume_observe_pct,
+            mode='lines',
+            line=dict(color=all_stars[0].program_color_rgb, width=2),
+            name="Total",
+            hovertemplate= 'Night: %{x}' + '<br>Date: ' + '%{customdata}' + '<br>% Complete: %{y}' + '<br># Obs Requested: ' + \
+                str(max_value) + '<br>',
+            customdata=semester_planner.all_dates_array
+        ))
     
-    # Add the Total trace first (so it appears below other traces)
-    fig.add_trace(go.Scatter(
-        x=night_indices,
-        y=cume_observe_pct,
-        mode='lines',
-        line=dict(color=all_stars[0].program_color_rgb, width=2),
-        name="Total",
-        hovertemplate= 'Night: %{x}' + '<br>Date: ' + '%{customdata}' + '<br>% Complete: %{y}' + '<br># Obs Requested: ' + \
-            str(max_value) + '<br>',
-        customdata=semester_planner.all_dates_array
-    ))
-    
+    # else:
+    #     cume_observe_pct = star.cume_observe_time_pct
+        
     # Then add individual star traces (so they appear above the Total trace)
     for i in range(len(all_stars)):
         fig.add_trace(go.Scatter(

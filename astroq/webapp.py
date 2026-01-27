@@ -183,7 +183,9 @@ def render_admin_page():
     request_df = request_df[desired_order]
     request_table_html = pl.dataframe_to_html(request_df)
     
-    fig_cof = pl.get_cof(semester_planner, list(data_astroq[1].values()))
+    # fig_cof = pl.get_cof(semester_planner, list(data_astroq[1].values()))
+    fig_cof = pl.get_cof(semester_planner, list(data_astroq[1].values()), use_time=True)
+
     fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], list(data_astroq[1].values()))
     fig_football = pl.get_football(semester_planner, all_stars_from_all_programs, use_program_colors=True)
     fig_tau_inter_line = pl.get_tau_inter_line(semester_planner, all_stars_from_all_programs, use_program_colors=True)
