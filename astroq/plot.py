@@ -1152,6 +1152,19 @@ def get_timebar(semester_planner, all_stars, use_program_colors=False, prevent_n
         yref="y"
     )
     
+    # Add gray vertical dashed line for weather loss factor
+    weather_loss_factor = 0.2
+    fig.add_shape(
+        type="line",
+        x0=total_allocated_hours - total_allocated_hours * weather_loss_factor,
+        x1=total_allocated_hours - total_allocated_hours * weather_loss_factor,
+        y0=-0.5,
+        y1=len(labels) - 0.5,
+        line=dict(color="gray", width=2, dash="dash"),
+        xref="x",
+        yref="y"
+    )
+    
     # Add gray vertical dashed line at total_allocated_hours * throttle_grace
     grace_factor = semester_planner.throttle_grace
     fig.add_shape(
@@ -1174,6 +1187,30 @@ def get_timebar(semester_planner, all_stars, use_program_colors=False, prevent_n
         marker=dict(size=20, opacity=0),  # Invisible but hoverable markers
         hovertemplate=f'<b>Allocated Time</b><br>{total_allocated_hours:.2f} hours<br>This line represents the total allocated time for your program<extra></extra>',
         hoverlabel=dict(bgcolor='black', font_color='white'),
+        showlegend=False
+    ))
+    
+    # Add invisible scatter trace for hover text on the weather loss factor line
+    weather_loss_value = total_allocated_hours - total_allocated_hours * weather_loss_factor
+    fig.add_trace(go.Scatter(
+        x=[weather_loss_value] * len(labels),
+        y=labels,  # Use categorical labels instead of numeric positions
+        mode='markers',
+        marker=dict(size=20, opacity=0),  # Invisible but hoverable markers
+        hovertemplate=f'<b>Weather Loss Factor</b><br>{weather_loss_value:.2f} hours<br>Allocated time minus {weather_loss_factor*100:.0f}% weather loss<br>This is only a first order estimate based on historical losses.<extra></extra>',
+        hoverlabel=dict(bgcolor='gray', font_color='white'),
+        showlegend=False
+    ))
+    
+    # Add invisible scatter trace for hover text on the throttle grace line
+    grace_value = total_allocated_hours * grace_factor
+    fig.add_trace(go.Scatter(
+        x=[grace_value] * len(labels),
+        y=labels,  # Use categorical labels instead of numeric positions
+        mode='markers',
+        marker=dict(size=20, opacity=0),  # Invisible but hoverable markers
+        hovertemplate=f'<b>Maximum Schedulable Time</b><br>{grace_value:.2f} hours<br>We allow for over-filled requests by a factor of up to {grace_factor:.2f} your allocation<br>Algorithmically, you are forbidden from getting more time than this.<extra></extra>',
+        hoverlabel=dict(bgcolor='gray', font_color='white'),
         showlegend=False
     ))
     
@@ -1358,6 +1395,19 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
             xref=xref,
             yref=yref
         )
+
+        # Add gray vertical dashed line at allocated * throttle_grace
+        weather_loss_factor = 0.2
+        fig.add_shape(
+            type="line",
+            x0=allocated - allocated * weather_loss_factor,
+            x1=allocated - allocated * weather_loss_factor,
+            y0=-0.5,
+            y1=4.5,
+            line=dict(color="gray", width=2, dash="dash"),
+            xref=xref,
+            yref=yref
+        )
         
         # Add gray vertical dashed line at allocated * throttle_grace
         grace_factor = semester_planner.throttle_grace
@@ -1387,11 +1437,44 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
             col=col
         )
         
+        # Add invisible scatter for hover on weather loss line
+        weather_loss_value = allocated - allocated * weather_loss_factor
+        fig.add_trace(
+            go.Scatter(
+                x=[weather_loss_value],
+                y=[category_names[2]],  # Middle bar (Future Scheduled)
+                mode='markers',
+                marker=dict(size=15, opacity=0),
+                hovertemplate=f'<b>{program_code} Weather Loss Factor</b><br>{weather_loss_value:.2f} hours<br>Allocated time minus {weather_loss_factor*100:.0f}% weather loss<extra></extra>',
+                hoverlabel=dict(bgcolor='gray', font_color='white'),
+                showlegend=False
+            ),
+            row=row,
+            col=col
+        )
+        
+        # Add invisible scatter for hover on throttle grace line
+        grace_value = allocated * grace_factor
+        fig.add_trace(
+            go.Scatter(
+                x=[grace_value],
+                y=[category_names[2]],  # Middle bar (Future Scheduled)
+                mode='markers',
+                marker=dict(size=15, opacity=0),
+                hovertemplate=f'<b>{program_code} Throttle Grace</b><br>{grace_value:.2f} hours<br>Allocated time times throttle grace factor ({grace_factor:.2f})<extra></extra>',
+                hoverlabel=dict(bgcolor='gray', font_color='white'),
+                showlegend=False
+            ),
+            row=row,
+            col=col
+        )
+        
         # Update x-axis for this subplot (scaled to this program's data)
-        # Include allocated*grace so the gray grace line is visible when it exceeds the bars
+        # Include allocated*grace and weather loss so the gray lines are visible when they exceed the bars
+        weather_loss_value = allocated - allocated * weather_loss_factor
         program_max = max(data['unused'], data['incomplete'], data['future'], 
                          data['past'], data['requested'], data['allocated'],
-                         allocated * grace_factor)
+                         allocated * grace_factor, weather_loss_value)
         program_max = max(program_max, 1.0)  # Ensure at least 1.0 to avoid empty scale
         
         fig.update_xaxes(
