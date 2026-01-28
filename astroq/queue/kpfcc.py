@@ -51,7 +51,7 @@ column_definitions = {
     'target.pm_dec': {'new_name': 'pmdec', 'type': 'Float64'},
     'target.epoch': {'new_name': 'epoch', 'type': 'Float64'},
     'observation.exp_meter_threshold': {'new_name': 'exp_meter_threshold', 'type': 'Float64'},
-    'schedule.ob_inactive': {'new_name': 'inactive', 'type': 'boolean'},
+    'metadata.ob_inactive': {'new_name': 'inactive', 'type': 'boolean'},
 }
 
 # Required fields for OBs to be considered valid
@@ -341,7 +341,7 @@ def apply_safety_valves(value_df, presence_df):
         'schedule.weather_band_1': True,
         'schedule.weather_band_2': True,
         'schedule.weather_band_3': False,
-        'schedule.ob_inactive': False,
+        'metadata.ob_inactive': False,
     }
     
     # Apply safety valves using a loop
