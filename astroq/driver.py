@@ -118,6 +118,8 @@ def kpfcc_prep(args):
         allocation_frame, hours_by_program, nights_by_program = kpfcc.pull_allocation_info(start_date, n_days, 'KPF-CC', conversion_ratio)
         awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())] 
         programmatics = pd.DataFrame({'program': awarded_programs, 'hours': list(hours_by_program.values()), 'nights': list(nights_by_program.values())})
+        # Manually add one row with for the Engineering program of bright backup stars. Arbitrarily give it 50 night of time. This is intentionally high so that this "program" is not effectively throttled.
+        programmatics = pd.concat([programmatics, pd.DataFrame([{'program': args.filler_programs, 'hours': 600.0, 'nights': 50.0}])], ignore_index=True)
         programmatics.to_csv(os.path.join(savepath, 'programs.csv'), index=False)
     else:
         print(f'Using allocation information from Keck Observatory Instrument Plan (KOIP) file: {allo_source}')
