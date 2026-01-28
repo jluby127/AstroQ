@@ -94,9 +94,8 @@ class StarPlotter(object):
         self.tau_intra = int(row['tau_intra'])
         self.n_inter_max = int(row['n_inter_max'])
         self.tau_inter = int(row['tau_inter'])
-        self.expected_nobs_per_night = self.n_exp * self.n_intra_max
-        self.total_observations_requested = self.expected_nobs_per_night * self.n_inter_max
-        self.total_requested_seconds = self.n_exp*self.n_intra_max*self.n_inter_max*self.exptime + readout_overhead*(self.n_exp-1) + slew_overhead*self.n_intra_max*self.n_inter_max
+        self.total_observations_requested = self.n_exp * self.n_intra_max * self.n_inter_max
+        self.total_requested_seconds = self.total_observations_requested*self.exptime + readout_overhead*(self.n_exp-1)* self.n_inter_max + slew_overhead*self.n_intra_max*self.n_inter_max
         self.total_requested_hours = self.total_requested_seconds / 3600
         self.total_requested_nights = self.total_requested_hours / hours_per_night   
 
@@ -136,9 +135,8 @@ class StarPlotter(object):
         for d, group in star_rows.groupby('d'):
             # d may be int or str; ensure it's int for indexing
             date = all_dates_array[int(d)]
-            n_slots = len(group)
-            # Optionally, normalize by slots_per_visit or n_intra_max as before
-            observations_future[date] = n_slots*self.n_exp
+            n_slots = len(group) # this is the number of starting slots in given to this target in this night
+            observations_future[date] = n_slots # no need to multiply by nexp here because we do it later in timebar; so that COF has right values.
         self.observations_future = observations_future
 
     def get_map(self, semester_planner, forecast_df):
@@ -216,20 +214,26 @@ def process_stars(semester_planner):
         newstar.get_stats(row, semester_planner.slot_size)
         if newstar.unique_id in list(semester_planner.past_history.keys()):
             newstar.observations_past = semester_planner.past_history[newstar.unique_id].n_visits_on_nights
+            newstar.observations_past_exposures = semester_planner.past_history[newstar.unique_id].n_obs_on_nights
         else:
             newstar.observations_past = {}
+            newstar.observations_past_exposures = {}
         newstar.get_future(forecast_df, semester_planner.all_dates_array)
 
         # Create COF arrays for each request
         combined_set = set(list(newstar.observations_past.keys()) + list(newstar.observations_future.keys()))
         # For inactive stars, only include past observations; for active stars, include both past and future
         if newstar.inactive == False:
-            newstar.dates_observe = [newstar.observations_past[date] if date in newstar.observations_past.keys() else (newstar.n_intra_max*newstar.n_exp if date in combined_set else 0) for date in semester_planner.all_dates_array]
+            newstar.dates_observe = [newstar.observations_past[date] if date in newstar.observations_past.keys() else (newstar.observations_future[date]*newstar.n_exp if date in combined_set else 0) for date in semester_planner.all_dates_array]
+            newstar.dates_observe_time = [(newstar.observations_past_exposures[date]*newstar.exptime + readout_overhead*(newstar.observations_past[date]-1) + slew_overhead*(newstar.observations_past[date]-1)) / 3600 if date in newstar.observations_past_exposures.keys() else ((newstar.observations_future[date]*newstar.n_exp*newstar.exptime + readout_overhead*(newstar.n_exp-1)*newstar.observations_future[date] + slew_overhead*newstar.observations_future[date]) / 3600 if date in combined_set else 0) for date in semester_planner.all_dates_array]
         else:
             # For inactive stars, only show past observations
             newstar.dates_observe = [newstar.observations_past[date] if date in newstar.observations_past.keys() else 0 for date in semester_planner.all_dates_array]
-        
+            newstar.dates_observe_time = [(newstar.observations_past_exposures[date]*newstar.exptime + readout_overhead*(newstar.observations_past[date]-1) + slew_overhead*(newstar.observations_past[date]-1)) / 3600 if date in newstar.observations_past_exposures.keys() else 0 for date in semester_planner.all_dates_array]
+
         newstar.cume_observe = np.cumsum(newstar.dates_observe)
+        newstar.cume_observe_time = np.cumsum(newstar.dates_observe_time)  # in hours
+
         if newstar.inactive:
             newstar.total_observations_requested = np.max(newstar.cume_observe)
             newstar.total_requested_seconds =newstar.total_observations_requested*newstar.exptime + slew_overhead*newstar.total_observations_requested
@@ -276,6 +280,8 @@ def process_stars(semester_planner):
     # Now create StarPlotter objects for each program, as it were one star.
     # These will not have all the attributes, but we only need these for the admin COF plot
     # These StarPlotter objects cannot be used to create a birdseye plot, they don't have all attributes
+    programmatics = pd.read_csv(os.path.join(semester_planner.semester_directory, 'programs.csv'))
+
     unique_programs = sorted(set(star.program for star in all_stars))
     programs_as_stars = {}
     for i in range(len(unique_programs)):
@@ -294,6 +300,16 @@ def process_stars(semester_planner):
         stars_stacked = np.vstack(cume_observe)
         summed_cumulative = np.sum(stars_stacked, axis=0)
         max_value = np.sum([all_stars[k].total_observations_requested for k in prog_indices])
+        programmatic_star.cume_observe_pct = np.round(summed_cumulative / max_value * 100, 2)
+
+        # Compute the cumulative observe time for all stars in the given program
+        cume_observe_time = [all_stars[k].cume_observe_time for k in prog_indices]
+        stars_stacked_time = np.vstack(cume_observe_time)
+        summed_cumulative_time = np.sum(stars_stacked_time, axis=0)
+        max_value_time = programmatics[programmatics['program'] == unique_programs[i]]['hours'].iloc[0]
+        # summed_cumulative_time and max_value_time are both in hours
+        programmatic_star.cume_observe_time_pct = np.round(summed_cumulative_time / max_value_time * 100, 2)
+        programmatic_star.cume_observe_time = summed_cumulative_time  # in hours
 
         # Handle division by zero for programs with only inactive stars
         if max_value > 0:
@@ -337,13 +353,14 @@ def process_stars(semester_planner):
 
     return program_dict, programs_as_stars, nulltime
 
-def get_cof(semester_planner, all_stars):
+def get_cof(semester_planner, all_stars, use_time=False):
     '''
     Produce a plotly figure showing the Cumulative Observability Function (COF) for a selection of stars
 
     Args:
         semester_planner (obj): a SemesterPlanner object from splan.py
         all_stars (array): a array of StarPlotter objects
+        use_time (bool): if True, use the cumulative observe time percentage instead of the cumulative observe percentage
 
     Returns:
         fig (plotly figure): a plotly figure showing the COF for a selection of stars
@@ -381,49 +398,88 @@ def get_cof(semester_planner, all_stars):
         showlegend=True,
         hoverinfo='skip',  # Don't show hover for this dummy trace
     ))
-
     lines = []
-    cume_observe = np.zeros(len(semester_planner.all_dates_array))
-    max_value = 0
-    cume_observe = np.sum([star.cume_observe for star in all_stars], axis=0)
-    max_value = sum(star.total_observations_requested for star in all_stars)
-    
-    # Handle division by zero: if all stars are inactive, use total past observations as denominator
-    if max_value > 0:
-        cume_observe_pct = np.round((cume_observe / max_value) * 100, 2)
-    else:
-        # For inactive-only programs, calculate total past observations
-        total_past_obs = sum(sum(star.observations_past.values()) if star.observations_past else 0 for star in all_stars)
-        if total_past_obs > 0:
-            cume_observe_pct = (cume_observe / total_past_obs) * 100
+    if use_time is False:
+        cume_observe = np.zeros(len(semester_planner.all_dates_array))
+        max_value = 0
+        cume_observe = np.sum([star.cume_observe for star in all_stars], axis=0)
+        max_value = sum(star.total_observations_requested for star in all_stars)
+        # Handle division by zero: if all stars are inactive, use total past observations as denominator
+        if max_value > 0:
+            cume_observe_pct = np.round((cume_observe / max_value) * 100, 2)
         else:
-            cume_observe_pct = np.zeros(len(semester_planner.all_dates_array))
-    
-    # Add the Total trace first (so it appears below other traces)
-    fig.add_trace(go.Scatter(
-        x=night_indices,
-        y=cume_observe_pct,
-        mode='lines',
-        line=dict(color=all_stars[0].program_color_rgb, width=2),
-        name="Total",
-        hovertemplate= 'Night: %{x}' + '<br>Date: ' + '%{customdata}' + '<br>% Complete: %{y}' + '<br># Obs Requested: ' + \
-            str(max_value) + '<br>',
-        customdata=semester_planner.all_dates_array
-    ))
-    
-    # Then add individual star traces (so they appear above the Total trace)
-    for i in range(len(all_stars)):
+            # For inactive-only programs, calculate total past observations
+            total_past_obs = sum(sum(star.observations_past.values()) if star.observations_past else 0 for star in all_stars)
+            if total_past_obs > 0:
+                cume_observe_pct = (cume_observe / total_past_obs) * 100
+            else:
+                cume_observe_pct = np.zeros(len(semester_planner.all_dates_array))
+
+        # Add the Total trace first (so it appears below other traces)
         fig.add_trace(go.Scatter(
             x=night_indices,
-            y=all_stars[i].cume_observe_pct,
+            y=cume_observe_pct,
+            mode='lines',
+            line=dict(color=all_stars[0].program_color_rgb, width=2),
+            name="Total",
+            hovertemplate= 'Night: %{x}' + '<br>Date: ' + '%{customdata}' + '<br>% Complete: %{y}' + '<br># Obs Requested: ' + \
+                str(max_value) + '<br>',
+            customdata=semester_planner.all_dates_array
+        ))
+    else:
+        # use_time=True: normalize by program hours from programs.csv
+        programmatics_cof = pd.read_csv(os.path.join(semester_planner.semester_directory, 'programs.csv'))
+        programs_in_stars = set(getattr(s, 'program', getattr(s, 'starname', None)) for s in all_stars)
+        programs_in_stars = {p for p in programs_in_stars if p is not None}
+        total_program_hours = programmatics_cof[programmatics_cof['program'].isin(programs_in_stars)]['hours'].sum()
+        summed_cume_time = np.sum([getattr(s, 'cume_observe_time', np.zeros(len(semester_planner.all_dates_array))) for s in all_stars], axis=0)
+        # summed_cume_time and total_program_hours are both in hours
+        if total_program_hours > 0:
+            cume_time_pct = np.round(summed_cume_time / total_program_hours * 100, 2)
+        else:
+            cume_time_pct = np.zeros(len(semester_planner.all_dates_array))
+
+        # Add the Total trace (time-based)
+        # Build program label for hover: when multiple programs, show "All programs"; when one, show its name
+        if len(programs_in_stars) == 1:
+            total_trace_label = '<b>' + list(programs_in_stars)[0] + '</b> (Total)<br>'
+        else:
+            total_trace_label = '<b>All programs (Total)</b><br>'
+        fig.add_trace(go.Scatter(
+            x=night_indices,
+            y=cume_time_pct,
+            mode='lines',
+            line=dict(color=all_stars[0].program_color_rgb, width=2),
+            name="Total",
+            hovertemplate= total_trace_label + 'Night: %{x}' + '<br>Date: ' + '%{customdata}' + '<br>Time % Complete: %{y}' + '<br>Total program time: ' + f'{total_program_hours:.1f} hours<br>' + '<extra></extra>',
+            customdata=semester_planner.all_dates_array
+        ))
+
+    # Then add individual star traces (so they appear above the Total trace)
+    for i in range(len(all_stars)):
+        if use_time:
+            y_vals = getattr(all_stars[i], 'cume_observe_time_pct', None)
+            prog_for_star = getattr(all_stars[i], 'program', all_stars[i].starname)
+            total_prog_hours = programmatics_cof.loc[programmatics_cof['program'] == prog_for_star, 'hours'].iloc[0] if prog_for_star in programmatics_cof['program'].values else 0.0
+            if y_vals is None:
+                # Individual stars: compute from cume_observe_time (hours) / program hours
+                y_vals = np.round(all_stars[i].cume_observe_time / total_prog_hours * 100, 2) if total_prog_hours > 0 else np.zeros(len(semester_planner.all_dates_array))
+            hovertemplate = '<b>' + str(prog_for_star) + '</b><br>Night: %{x}' + '<br>Date: ' + '%{customdata}' + '<br>Time % Complete: %{y}<br>Total program time: ' + f'{total_prog_hours:.1f} hours<br>' + '<extra></extra>'
+        else:
+            y_vals = all_stars[i].cume_observe_pct
+            hovertemplate = 'Night: %{x}' + '<br>Date: ' + '%{customdata}' + '<br>% Complete: %{y}' + '<br># Obs Requested: ' + str(all_stars[i].total_observations_requested) + '<br>'
+
+        fig.add_trace(go.Scatter(
+            x=night_indices,
+            y=y_vals,
             mode='lines',
             line=dict(color=all_stars[i].star_color_rgb, width=2),
             name=all_stars[i].starname,
-            hovertemplate= 'Night: %{x}' + '<br>Date: ' + '%{customdata}' + '<br>% Complete: %{y}' + '<br># Obs Requested: ' + \
-                str(all_stars[i].total_observations_requested) + '<br>',
+            hovertemplate=hovertemplate,
             customdata=semester_planner.all_dates_array
         ))
-        lines.append(str(all_stars[i].starname) + "," + str(np.round(all_stars[i].cume_observe_pct[-1],2)))
+        last_pct = float(np.round(y_vals[-1], 2)) if len(y_vals) else 0
+        lines.append(str(all_stars[i].starname) + "," + str(last_pct))
 
     # Find the night index for "today" (current_day)
     try:
@@ -469,11 +525,12 @@ def get_cof(semester_planner, all_stars):
     num_traces = len(all_stars) + 2  # +2 for "Even Burn Rate" and "Total"
     legend_height = min(300, max(150, num_traces * 25))  # Between 150-300px, 25px per trace
     
+    yaxis_title = "Time % Complete (vs program hours)" if use_time else "Request % Complete"
     fig.update_layout(
         width=1400,
         height=1000,
         xaxis_title="Night in Semester",
-        yaxis_title="Request % Complete",
+        yaxis_title=yaxis_title,
         showlegend=True,
         legend=dict(
             orientation="h",
@@ -1060,8 +1117,13 @@ def get_timebar(semester_planner, all_stars, use_program_colors=False, prevent_n
     
     programs_used = []
     for starobj in all_stars:
-        total_past += sum(starobj.observations_past.values()) * starobj.exptime + len(starobj.observations_past) * slew_overhead
-        total_future += sum(starobj.observations_future.values()) * starobj.exptime + len(starobj.observations_future) * slew_overhead
+        # Past: day-by-day sum of (exposure time) + (readout) + (slew) per visit
+        # Per date, visits = observations_past[date]: exposure = exptime * n_exp * visits; readout = readout_overhead * (n_exp - 1) * visits; slew = slew_overhead * visits
+        for visits in starobj.observations_past.values():
+            total_past += visits * (starobj.exptime * starobj.n_exp + readout_overhead * (starobj.n_exp - 1) + slew_overhead)
+        # Future: same day-by-day formula (a) exposures*visits, (b) readout*(n_exp-1)*visits, (c) slew*visits
+        for visits in starobj.observations_future.values():
+            total_future += visits * (starobj.exptime * starobj.n_exp + readout_overhead * (starobj.n_exp - 1) + slew_overhead)
         total_requested_hours += starobj.total_requested_hours
         programs_used.append(starobj.program)
     
@@ -1154,6 +1216,32 @@ def get_timebar(semester_planner, all_stars, use_program_colors=False, prevent_n
         yref="y"
     )
     
+    # Add gray vertical dashed line for weather loss factor
+    weather_loss_factor = 0.2
+    fig.add_shape(
+        type="line",
+        x0=total_allocated_hours - total_allocated_hours * weather_loss_factor,
+        x1=total_allocated_hours - total_allocated_hours * weather_loss_factor,
+        y0=-0.5,
+        y1=len(labels) - 0.5,
+        line=dict(color="gray", width=2, dash="dash"),
+        xref="x",
+        yref="y"
+    )
+    
+    # Add gray vertical dashed line at total_allocated_hours * throttle_grace
+    grace_factor = semester_planner.throttle_grace
+    fig.add_shape(
+        type="line",
+        x0=total_allocated_hours * grace_factor,
+        x1=total_allocated_hours * grace_factor,
+        y0=-0.5,
+        y1=len(labels) - 0.5,
+        line=dict(color="gray", width=2, dash="dash"),
+        xref="x",
+        yref="y"
+        )
+
     # Add invisible scatter trace for hover text on the allocated time line
     # Use the same categorical labels as the bar chart to avoid numeric y-axis ticks
     fig.add_trace(go.Scatter(
@@ -1163,6 +1251,30 @@ def get_timebar(semester_planner, all_stars, use_program_colors=False, prevent_n
         marker=dict(size=20, opacity=0),  # Invisible but hoverable markers
         hovertemplate=f'<b>Allocated Time</b><br>{total_allocated_hours:.2f} hours<br>This line represents the total allocated time for your program<extra></extra>',
         hoverlabel=dict(bgcolor='black', font_color='white'),
+        showlegend=False
+    ))
+    
+    # Add invisible scatter trace for hover text on the weather loss factor line
+    weather_loss_value = total_allocated_hours - total_allocated_hours * weather_loss_factor
+    fig.add_trace(go.Scatter(
+        x=[weather_loss_value] * len(labels),
+        y=labels,  # Use categorical labels instead of numeric positions
+        mode='markers',
+        marker=dict(size=20, opacity=0),  # Invisible but hoverable markers
+        hovertemplate=f'<b>Weather Loss Factor</b><br>{weather_loss_value:.2f} hours<br>Allocated time minus {weather_loss_factor*100:.0f}% weather loss<br>This is only a first order estimate based on historical losses.<extra></extra>',
+        hoverlabel=dict(bgcolor='gray', font_color='white'),
+        showlegend=False
+    ))
+    
+    # Add invisible scatter trace for hover text on the throttle grace line
+    grace_value = total_allocated_hours * grace_factor
+    fig.add_trace(go.Scatter(
+        x=[grace_value] * len(labels),
+        y=labels,  # Use categorical labels instead of numeric positions
+        mode='markers',
+        marker=dict(size=20, opacity=0),  # Invisible but hoverable markers
+        hovertemplate=f'<b>Maximum Schedulable Time</b><br>{grace_value:.2f} hours<br>We allow for over-filled requests by a factor of up to {grace_factor:.2f} your allocation<br>Algorithmically, you are forbidden from getting more time than this.<extra></extra>',
+        hoverlabel=dict(bgcolor='gray', font_color='white'),
         showlegend=False
     ))
     
@@ -1224,8 +1336,12 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
         total_requested_hours = 0
         
         for starobj in program_stars:
-            total_past += sum(starobj.observations_past.values()) * starobj.exptime + len(starobj.observations_past) * slew_overhead
-            total_future += sum(starobj.observations_future.values()) * starobj.exptime + len(starobj.observations_future) * slew_overhead
+            # Past: day-by-day sum of (exposure) + (readout) + (slew) per visit; per date: visits * (exptime*n_exp + readout*(n_exp-1) + slew)
+            for visits in starobj.observations_past.values():
+                total_past += visits * (starobj.exptime * starobj.n_exp + readout_overhead * (starobj.n_exp - 1) + slew_overhead)
+            # Future: same day-by-day formula
+            for visits in starobj.observations_future.values():
+                total_future += visits * (starobj.exptime * starobj.n_exp + readout_overhead * (starobj.n_exp - 1) + slew_overhead)
             total_requested_hours += starobj.total_requested_hours
         
         # Convert to hours
@@ -1347,6 +1463,32 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
             xref=xref,
             yref=yref
         )
+
+        # Add gray vertical dashed line at allocated * throttle_grace
+        weather_loss_factor = 0.2
+        fig.add_shape(
+            type="line",
+            x0=allocated - allocated * weather_loss_factor,
+            x1=allocated - allocated * weather_loss_factor,
+            y0=-0.5,
+            y1=4.5,
+            line=dict(color="gray", width=2, dash="dash"),
+            xref=xref,
+            yref=yref
+        )
+        
+        # Add gray vertical dashed line at allocated * throttle_grace
+        grace_factor = semester_planner.throttle_grace
+        fig.add_shape(
+            type="line",
+            x0=allocated * grace_factor,
+            x1=allocated * grace_factor,
+            y0=-0.5,
+            y1=4.5,
+            line=dict(color="gray", width=2, dash="dash"),
+            xref=xref,
+            yref=yref
+        )
         
         # Add invisible scatter for hover on allocated line
         fig.add_trace(
@@ -1363,10 +1505,44 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
             col=col
         )
         
+        # Add invisible scatter for hover on weather loss line
+        weather_loss_value = allocated - allocated * weather_loss_factor
+        fig.add_trace(
+            go.Scatter(
+                x=[weather_loss_value],
+                y=[category_names[2]],  # Middle bar (Future Scheduled)
+                mode='markers',
+                marker=dict(size=15, opacity=0),
+                hovertemplate=f'<b>{program_code} Weather Loss Factor</b><br>{weather_loss_value:.2f} hours<br>Allocated time minus {weather_loss_factor*100:.0f}% weather loss<extra></extra>',
+                hoverlabel=dict(bgcolor='gray', font_color='white'),
+                showlegend=False
+            ),
+            row=row,
+            col=col
+        )
+        
+        # Add invisible scatter for hover on throttle grace line
+        grace_value = allocated * grace_factor
+        fig.add_trace(
+            go.Scatter(
+                x=[grace_value],
+                y=[category_names[2]],  # Middle bar (Future Scheduled)
+                mode='markers',
+                marker=dict(size=15, opacity=0),
+                hovertemplate=f'<b>{program_code} Throttle Grace</b><br>{grace_value:.2f} hours<br>Allocated time times throttle grace factor ({grace_factor:.2f})<extra></extra>',
+                hoverlabel=dict(bgcolor='gray', font_color='white'),
+                showlegend=False
+            ),
+            row=row,
+            col=col
+        )
+        
         # Update x-axis for this subplot (scaled to this program's data)
-        # Calculate max value for this program
+        # Include allocated*grace and weather loss so the gray lines are visible when they exceed the bars
+        weather_loss_value = allocated - allocated * weather_loss_factor
         program_max = max(data['unused'], data['incomplete'], data['future'], 
-                         data['past'], data['requested'], data['allocated'])
+                         data['past'], data['requested'], data['allocated'],
+                         allocated * grace_factor, weather_loss_value)
         program_max = max(program_max, 1.0)  # Ensure at least 1.0 to avoid empty scale
         
         fig.update_xaxes(

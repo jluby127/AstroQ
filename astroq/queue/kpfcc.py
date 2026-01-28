@@ -51,7 +51,7 @@ column_definitions = {
     'target.pm_dec': {'new_name': 'pmdec', 'type': 'Float64'},
     'target.epoch': {'new_name': 'epoch', 'type': 'Float64'},
     'observation.exp_meter_threshold': {'new_name': 'exp_meter_threshold', 'type': 'Float64'},
-    'schedule.ob_inactive': {'new_name': 'inactive', 'type': 'boolean'},
+    'metadata.ob_inactive': {'new_name': 'inactive', 'type': 'boolean'},
 }
 
 # Required fields for OBs to be considered valid
@@ -155,7 +155,7 @@ def format_custom_csv(OBs):
     
     return custom_frame 
         
-def pull_allocation_info(start_date, numdays, instrument):
+def pull_allocation_info(start_date, numdays, instrument, conversion_ratio=12.0):
     """
     Pull the allocation information directly from the Keck Observatory's operations schedule via the API.
 
@@ -163,6 +163,7 @@ def pull_allocation_info(start_date, numdays, instrument):
         start_date (str): the start date of the allocation (day one of the semester)
         numdays (int): the number of days beyond the start_date to pull allocation information (usually ~180)
         instrument (str): the instrument to pull allocation data, here it is "KPF-CC"
+        conversion_ratio (float): factor to convert nights to hours (e.g. hours per night). Default 12.0.
 
     Returns:
         allocation_frame (pandas DataFrame): a DataFrame with the allocation information, equivalent to the allocation.csv file.
@@ -185,17 +186,8 @@ def pull_allocation_info(start_date, numdays, instrument):
 
         allocation_frame = df[['start', 'stop']].copy() # TODO: add observer and comment
         
-        # Calculate hours for each row
-        start_times = pd.to_datetime(df['start'])
-        stop_times = pd.to_datetime(df['stop'])
-        hours_per_row = (stop_times - start_times).dt.total_seconds() / 3600
-        
-        # Add ProjCode and hours to the dataframe
-        df['hours'] = hours_per_row
-        
-        # Calculate total hours per ProjCode
-        hours_by_program = df.groupby('ProjCode')['hours'].sum().round(3).to_dict()
         nights_by_program = df.groupby('ProjCode')['FractionOfNight'].sum().round(3).to_dict()
+        hours_by_program = {k: round(v * conversion_ratio, 3) for k, v in nights_by_program.items()}
     except:
         print("ERROR: allocation information not found. Double check date and instrument. Saving an empty file.")
         allocation_frame = pd.DataFrame(columns=['start', 'stop'])
@@ -349,7 +341,7 @@ def apply_safety_valves(value_df, presence_df):
         'schedule.weather_band_1': True,
         'schedule.weather_band_2': True,
         'schedule.weather_band_3': False,
-        'schedule.ob_inactive': False,
+        'metadata.ob_inactive': False,
     }
     
     # Apply safety valves using a loop
