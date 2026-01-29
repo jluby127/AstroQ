@@ -176,14 +176,8 @@ def kpfcc_prep(args):
         # Compute nominal exposure times and increase exposure times for different bands
         slowdown_factors = {1: 1.0, 2: 2.0, 3: 4.0}
         slow = slowdown_factors[band_number]
-        # new_exptimes = kpfcc.recompute_exposure_times(filtered_good_obs, slow)
-        # filtered_good_obs['exptime'] = new_exptimes
-
-        # quick fix: throttle Erik's program
-        for n in range(len(filtered_good_obs)):
-            if filtered_good_obs['program_code'][n] == '2025B_N427':
-                filtered_good_obs['exptime'][n] //= 4.
-
+        new_exptimes = kpfcc.recompute_exposure_times(filtered_good_obs, slow)
+        filtered_good_obs['exptime'] = new_exptimes
         filtered_good_obs.to_csv(os.path.join(savepath, request_file), index=False)
     
         # CAPTURE CUSTOM INFORMATION AND PROCESS
