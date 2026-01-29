@@ -609,20 +609,13 @@ def recompute_exposure_times(request_frame, slowdown_factor):
     slope_median = -0.362
     intercept_median = 8.889
 
-    printind = 1
-    print(request_frame['gmag'][printind])
-    print(request_frame['exp_meter_threshold'][printind])
     rate = slope_median*request_frame['gmag'] + intercept_median
     time = (request_frame['exp_meter_threshold']*factor*10**6)/(10**rate)
-    print(time[printind])
     time = time.clip(lower=12)
     if slowdown_factor > 1:
-        print("slowdown_factor > 1")
         newtime = (time * slowdown_factor).clip(upper=request_frame["exptime"]).round().astype("Int64")
     else:
-        print("slowdown_factor <= 1")
         newtime = (time * slowdown_factor).clip(lower=request_frame["exptime"]).round().astype("Int64")
-    print(newtime[printind])
     return newtime
 
 def analyze_bad_obs(trimmed_good, bad_OBs_values, bad_OBs_hasFields, awarded_programs, required_fields=required_fields):
