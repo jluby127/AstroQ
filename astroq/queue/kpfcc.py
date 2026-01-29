@@ -328,7 +328,7 @@ def apply_safety_valves(value_df, presence_df):
     safety_valve_defaults = {
         'target.gaia_id': 'NoGaiaName',
         'target.t_eff': -1000.0,
-        'observation.exp_meter_threshold': -1.0,
+        'observation.exp_meter_threshold': 50000.0, #absurdly high so that it is not used in the computation of exposure times
         'schedule.num_intranight_cadence': 0,
         'schedule.num_intranight_cadence': 0,
         'schedule.num_inter_cadence': 0,
@@ -359,6 +359,7 @@ def apply_safety_valves(value_df, presence_df):
             presence_df[col_name] = presence_df[col_name] | value_df[col_name].notna()
             
     # Special case for weather bands based on metadata.semid
+    # this was only for 2025B while weather bands were being developed
     if 'metadata.semid' in value_df.columns:
         # Check for 2025B_E473 semid and set opposite weather band values
         mask_2025B_E473 = value_df['metadata.semid'] == '2025B_E473'
@@ -564,6 +565,33 @@ def sort_good_bad(OBs, awarded_programs):
 
     return trimmed_good, bad_OBs_values, bad_OBs_hasFields
 
+# def recompute_exposure_times(request_frame, slowdown_factor):
+#     """
+    # Recompute the exposure times for the request frame based on the band number slowdown factor.
+
+    # Args:
+    #     request_frame (pandas DataFrame): the request.csv in dataframe format
+    #     slowdown_factor (float): the slowdown factor to apply to the exposure times
+
+    # Returns:
+    #     new_exptimes (list): a list of the new exposure times based on slowdown. 
+    # """
+    # new_exptimes = []
+    # for i in range(len(request_frame)):
+    #     # Using Teff = 5800 and V=10, the KPF ETC predicts time to achieve  SNR=120 @ 604 nm is 307 seconds. We use this as scaling time.
+    #     # At SNR=120, the corresponding ExpMeterThreshold is 1.0 MegaPhotons/A. 
+    #     # See this website for more details: https://www2.keck.hawaii.edu/inst/kpf/expmetertermination/
+    #     t0 = 307.0 
+    #     nominal_exptime = t0*request_frame['exp_meter_threshold'][i] * 10**(0.4*(request_frame['gmag'][i] - 10.0))
+
+    #     countpersecond = 10**(-0.351*request_frame['gmag'][i] + 8.437)
+    #     totalcounts_desired = (10**6 * request_frame['exp_meter_threshold'][i]) * (8550-4450)
+    #     totalcounts = totalcounts_desired / countpersecond
+    #     nominal_exptime = totalcounts / countpersecond
+    #     final_time = min([nominal_exptime*slowdown_factor, request_frame['exptime'][i]])
+    #     new_exptimes.append(final_time)
+    # return new_exptimes
+
 def recompute_exposure_times(request_frame, slowdown_factor):
     """
     Recompute the exposure times for the request frame based on the band number slowdown factor.
@@ -575,21 +603,27 @@ def recompute_exposure_times(request_frame, slowdown_factor):
     Returns:
         new_exptimes (list): a list of the new exposure times based on slowdown. 
     """
-    new_exptimes = []
-    for i in range(len(request_frame)):
-        # Using Teff = 5800 and V=10, the KPF ETC predicts time to achieve  SNR=120 @ 604 nm is 307 seconds. We use this as scaling time.
-        # At SNR=120, the corresponding ExpMeterThreshold is 1.0 MegaPhotons/A. 
-        # See this website for more details: https://www2.keck.hawaii.edu/inst/kpf/expmetertermination/
-        t0 = 307.0 
-        nominal_exptime = t0*request_frame['exp_meter_threshold'][i] * 10**(0.4*(request_frame['gmag'][i] - 10.0))
+    # These values determined emperically using KPF data spanning a year. 
+    # Do not change unless you have good reason.
+    factor = 40
+    slope_median = -0.362
+    intercept_median = 8.889
 
-        countpersecond = 10**(-0.351*request_frame['gmag'][i] + 8.437)
-        totalcounts_desired = (10**6 * request_frame['exp_meter_threshold'][i]) * (8550-4450)
-        totalcounts = totalcounts_desired / countpersecond
-        nominal_exptime = totalcounts / countpersecond
-        final_time = min([nominal_exptime*slowdown_factor, request_frame['exptime'][i]])
-        new_exptimes.append(final_time)
-    return new_exptimes
+    printind = 1
+    print(request_frame['gmag'][printind])
+    print(request_frame['exp_meter_threshold'][printind])
+    rate = slope_median*request_frame['gmag'] + intercept_median
+    time = (request_frame['exp_meter_threshold']*factor*10**6)/(10**rate)
+    print(time[printind])
+    time = time.clip(lower=12)
+    if slowdown_factor > 1:
+        print("slowdown_factor > 1")
+        newtime = (time * slowdown_factor).clip(upper=request_frame["exptime"]).round().astype("Int64")
+    else:
+        print("slowdown_factor <= 1")
+        newtime = (time * slowdown_factor).clip(lower=request_frame["exptime"]).round().astype("Int64")
+    print(newtime[printind])
+    return newtime
 
 def analyze_bad_obs(trimmed_good, bad_OBs_values, bad_OBs_hasFields, awarded_programs, required_fields=required_fields):
     """
