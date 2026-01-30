@@ -565,33 +565,6 @@ def sort_good_bad(OBs, awarded_programs):
 
     return trimmed_good, bad_OBs_values, bad_OBs_hasFields
 
-# def recompute_exposure_times(request_frame, slowdown_factor):
-#     """
-    # Recompute the exposure times for the request frame based on the band number slowdown factor.
-
-    # Args:
-    #     request_frame (pandas DataFrame): the request.csv in dataframe format
-    #     slowdown_factor (float): the slowdown factor to apply to the exposure times
-
-    # Returns:
-    #     new_exptimes (list): a list of the new exposure times based on slowdown. 
-    # """
-    # new_exptimes = []
-    # for i in range(len(request_frame)):
-    #     # Using Teff = 5800 and V=10, the KPF ETC predicts time to achieve  SNR=120 @ 604 nm is 307 seconds. We use this as scaling time.
-    #     # At SNR=120, the corresponding ExpMeterThreshold is 1.0 MegaPhotons/A. 
-    #     # See this website for more details: https://www2.keck.hawaii.edu/inst/kpf/expmetertermination/
-    #     t0 = 307.0 
-    #     nominal_exptime = t0*request_frame['exp_meter_threshold'][i] * 10**(0.4*(request_frame['gmag'][i] - 10.0))
-
-    #     countpersecond = 10**(-0.351*request_frame['gmag'][i] + 8.437)
-    #     totalcounts_desired = (10**6 * request_frame['exp_meter_threshold'][i]) * (8550-4450)
-    #     totalcounts = totalcounts_desired / countpersecond
-    #     nominal_exptime = totalcounts / countpersecond
-    #     final_time = min([nominal_exptime*slowdown_factor, request_frame['exptime'][i]])
-    #     new_exptimes.append(final_time)
-    # return new_exptimes
-
 def recompute_exposure_times(request_frame, slowdown_factor):
     """
     Recompute the exposure times for the request frame based on the band number slowdown factor.
