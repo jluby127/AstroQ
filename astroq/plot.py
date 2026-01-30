@@ -306,9 +306,15 @@ def process_stars(semester_planner):
         cume_observe_time = [all_stars[k].cume_observe_time for k in prog_indices]
         stars_stacked_time = np.vstack(cume_observe_time)
         summed_cumulative_time = np.sum(stars_stacked_time, axis=0)
-        max_value_time = programmatics[programmatics['program'] == unique_programs[i]]['hours'].iloc[0]
+        total_requested_prog = np.sum([all_stars[k].total_requested_hours for k in prog_indices])
+        allocated = programmatics[programmatics['program'] == unique_programs[i]]['hours'].sum()
+        # Use requested as divisor when requested < allocated, else allocated
+        max_value_time = min(total_requested_prog, allocated)
         # summed_cumulative_time and max_value_time are both in hours
-        programmatic_star.cume_observe_time_pct = np.round(summed_cumulative_time / max_value_time * 100, 2)
+        if max_value_time > 0:
+            programmatic_star.cume_observe_time_pct = np.round(summed_cumulative_time / max_value_time * 100, 2)
+        else:
+            programmatic_star.cume_observe_time_pct = np.zeros(len(semester_planner.all_dates_array))
         programmatic_star.cume_observe_time = summed_cumulative_time  # in hours
 
         # Handle division by zero for programs with only inactive stars
@@ -336,6 +342,7 @@ def process_stars(semester_planner):
         programmatic_star.observations_past = combined_past
 
         programmatic_star.total_observations_requested = np.sum([all_stars[k].total_observations_requested for k in prog_indices])
+        programmatic_star.total_requested_hours = np.sum([all_stars[k].total_requested_hours for k in prog_indices])
         programmatic_star.draw_lines = False
         programmatic_star.allow_mapview = False
 
@@ -431,8 +438,8 @@ def get_cof(semester_planner, all_stars, use_time=False):
         programmatics_cof = pd.read_csv(os.path.join(semester_planner.semester_directory, 'programs.csv'))
         programs_in_stars = set(getattr(s, 'program', getattr(s, 'starname', None)) for s in all_stars)
         programs_in_stars = {p for p in programs_in_stars if p is not None}
-        total_program_hours = programmatics_cof[programmatics_cof['program'].isin(programs_in_stars)]['hours'].sum()
         summed_cume_time = np.sum([getattr(s, 'cume_observe_time', np.zeros(len(semester_planner.all_dates_array))) for s in all_stars], axis=0)
+        total_program_hours = programmatics_cof[programmatics_cof['program'].isin(programs_in_stars)]['hours'].sum()
         # summed_cume_time and total_program_hours are both in hours
         if total_program_hours > 0:
             cume_time_pct = np.round(summed_cume_time / total_program_hours * 100, 2)
