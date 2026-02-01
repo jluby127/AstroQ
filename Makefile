@@ -10,11 +10,11 @@ SEMESTER_DIR = $(WORKDIR)/$(SEMESTER)
 DATE_DIR = $(SEMESTER_DIR)/$(DATE)
 
 # Changed only once per semester
-SEMESTER ?= 2025B
-START_DATE ?= 2025-08-01
-END_DATE ?= 2026-01-31
+SEMESTER ?= 2026A
+START_DATE ?= 2026-02-01
+END_DATE ?= 2026-07-31
 BANDS ?= band1 band2 band3 full-band1 full-band2 full-band3
-FILLER_PROGRAM ?= 2025B_E473
+FILLER_PROGRAM ?= 2026A_E475
 
 # Cross-platform sed in-place flag (Darwin uses -i '')
 UNAME_S := $(shell uname)

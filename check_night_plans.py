@@ -173,8 +173,8 @@ def main():
     parser.add_argument(
         '-s', '--semester',
         type=str,
-        default='2025B',
-        help='Semester string (e.g., 2025B). Default: 2025B'
+        default=None,
+        help='Semester string (e.g., 2025B). Required when holders_dir is not provided.'
     )
     parser.add_argument(
         '-d', '--date',
@@ -194,40 +194,50 @@ def main():
     # Default bands list
     bands = ['band1', 'band2', 'band3', 'full-band1', 'full-band2', 'full-band3']
     
-    # Get semester and date from arguments
-    semester = args.semester
-    
-    # Get date - use provided date or default to today
-    if args.date is None:
-        date = datetime.now().strftime('%Y-%m-%d')
-    else:
-        date = args.date
-        # Validate date format
-        try:
-            datetime.strptime(date, '%Y-%m-%d')
-        except ValueError:
-            print(f"❌ Error: Invalid date format '{date}'. Please use YYYY-MM-DD format (e.g., 2025-10-29)")
-            sys.exit(1)
-    
-    # Get holders directory
+    # Get holders directory, semester, and date
     if args.holders_dir:
         holders_dir = Path(args.holders_dir)
+        # Derive semester and date from path (.../semester/date) when not provided
+        if args.semester is None:
+            semester = holders_dir.parent.name
+        else:
+            semester = args.semester
+        if args.date is None:
+            date = holders_dir.name
+        else:
+            date = args.date
+            try:
+                datetime.strptime(date, '%Y-%m-%d')
+            except ValueError:
+                print(f"❌ Error: Invalid date format '{date}'. Please use YYYY-MM-DD format (e.g., 2025-10-29)")
+                sys.exit(1)
     else:
-        # Try to construct from environment variables
+        # Construct holders_dir from env vars - requires semester
+        if args.semester is None:
+            print("❌ Error: -s/--semester is required when holders_dir is not provided.")
+            sys.exit(1)
+        semester = args.semester
+        if args.date is None:
+            date = datetime.now().strftime('%Y-%m-%d')
+        else:
+            date = args.date
+            try:
+                datetime.strptime(date, '%Y-%m-%d')
+            except ValueError:
+                print(f"❌ Error: Invalid date format '{date}'. Please use YYYY-MM-DD format (e.g., 2025-10-29)")
+                sys.exit(1)
         if 'CC_RESULTS_COPY_PATH' in os.environ:
             base_path = os.environ['CC_RESULTS_COPY_PATH']
             holders_dir = Path(base_path) / semester / date
         else:
             print("Usage: python check_night_plans.py [-s SEMESTER] [-d DATE] [holders_dir]")
             print("\nOptions:")
-            print("  -s, --semester   Semester string (e.g., 2025B). Default: 2025B")
+            print("  -s, --semester   Semester string (e.g., 2025B). Required when holders_dir not provided.")
             print("  -d, --date       Date string in YYYY-MM-DD format. Default: today's date")
             print("  holders_dir      Optional: Full path to holders directory")
             print("\nOr set environment variables:")
             print("  CC_RESULTS_COPY_PATH - Base path for results")
             sys.exit(1)
-    
-    holders_dir = Path(holders_dir)
     
     if not holders_dir.exists():
         print(f"❌ Error: Holders directory does not exist: {holders_dir}")
