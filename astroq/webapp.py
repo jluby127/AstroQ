@@ -38,8 +38,6 @@ night_planner = None
 uptree_path = None
 semester_planner_timestamp = None
 
-desired_order = ["inactive","unique_id", "starname", "exptime", "n_exp", 'n_inter_max', 'tau_inter', "n_intra_max", "n_intra_min", "tau_intra", "weather_band_1", "weather_band_2", "weather_band_3"]
-
 def load_data_for_path(semester_code, date, band, uptree_path):
     """
     Load data for a specific semester_code/date/band combination
@@ -170,9 +168,7 @@ def render_admin_page(semester_code, date, band):
 
     # Get request frame table for all stars, with starname as links under program
     request_df = pl.get_request_frame(semester_planner, all_stars_from_all_programs)
-    request_df = pl.add_star_links(request_df, semester_code, date, band)
-    request_df = request_df[desired_order]
-    request_table_html = pl.dataframe_to_html(request_df)
+    request_table_html = pl.request_frame_to_html(request_df, semester_code, date, band)
     
     fig_cof1 = pl.get_cof(semester_planner, list(data_astroq[1].values()))
     fig_cof2 = pl.get_cof(semester_planner, list(data_astroq[1].values()), use_time=True)
@@ -210,9 +206,7 @@ def render_program_page(semester_code, date, band, program_code):
     
     # Get request frame table for this program's stars, with starname as links
     request_df = pl.get_request_frame(semester_planner, program_stars)
-    request_df = pl.add_star_links(request_df, semester_code, date, band)
-    request_df = request_df[desired_order]
-    request_table_html = pl.dataframe_to_html(request_df)
+    request_table_html = pl.request_frame_to_html(request_df, semester_code, date, band)
     
     # Create overview figures for this program
     fig_cof = pl.get_cof(semester_planner, program_stars)
@@ -254,10 +248,9 @@ def render_star_page(starname, program_code=None):
             object_compare_starname = true_starname.lower().replace(' ', '')
 
             if object_compare_starname == compare_starname:
-                # Get request frame table for this specific star
+                # Get request frame table for this specific star (no star links needed)
                 request_df = pl.get_request_frame(semester_planner, [star_obj])
-                request_df = request_df[desired_order]
-                request_table_html = pl.dataframe_to_html(request_df)
+                request_table_html = pl.request_frame_to_html(request_df)
 
                 fig_cof = pl.get_cof(semester_planner, [data_astroq[0][program][star_ind]])
                 fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], [star_obj])
