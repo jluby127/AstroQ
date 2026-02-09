@@ -283,9 +283,7 @@ def render_nightplan_page(band):
     slew_animation_fig = pl.get_slew_animation_plotly(data_ttp, request_frame_path, animationStep=120)
     slew_path_fig = pl.plot_path_2D_interactive(data_ttp, night_start_time=night_start_time)
     
-    # Convert dataframe to HTML with unique table ID
-    # Sort by starname (index 2) for better readability
-    script_table_html = pl.dataframe_to_html(script_table_df, sort_column=0, page_size=100, table_id='script-table')
+    script_table_html = pl.nightplan_table_to_html(script_table_df, table_id='script-table', page_size=100)
     # Convert figures to HTML
     ladder_html = pio.to_html(ladder_fig, full_html=True, include_plotlyjs='cdn')
     slew_animation_html = pio.to_html(slew_animation_fig, full_html=True, include_plotlyjs='cdn')

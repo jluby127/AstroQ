@@ -2967,6 +2967,202 @@ def request_frame_to_html(request_df, semester_code=None, date=None, band=None, 
     return custom_css + table_html + init_script
 
 
+NIGHTPLAN_COLUMNS = [
+    'First Available', 'Start Exposure', 'Last Available', 'unique_id', 'starname',
+    'program_code', 'ra', 'dec', 'exptime', 'n_exp', 'n_intra_max', 'tau_intra', 'jmag', 'gmag'
+]
+NIGHTPLAN_COLUMN_TOOLTIPS = {
+    'First Available': 'First available time to observe (HH:MM). Use > < >= <= with HH:MM to filter.',
+    'Start Exposure': 'Scheduled start time (HH:MM). Use > < >= <= with HH:MM to filter.',
+    'Last Available': 'Last available time to observe (HH:MM). Use > < >= <= with HH:MM to filter.',
+    'unique_id': 'Keck OB database unique ID',
+    'starname': 'Name of the star',
+    'program_code': 'Program Code',
+    'ra': 'Right ascension in decimal degrees',
+    'dec': 'Declination in decimal degrees',
+    'exptime': 'Exposure time in seconds',
+    'n_exp': 'Number of exposures per visit',
+    'n_intra_max': 'Maximum intra-night visits',
+    'tau_intra': 'Minimum intra-night cadence in hours',
+    'jmag': 'J-band magnitude',
+    'gmag': 'G-band magnitude',
+}
+
+
+def nightplan_table_to_html(script_df, table_id='script-table', page_size=100):
+    """
+    Convert nightplan script DataFrame to HTML with same styling as request_frame_to_html.
+
+    Same colors, fonts, fontsize, filtering (partial match, numeric > < >= <=), hover tooltips.
+    Displays: First Available, Start Exposure, Last Available, unique_id, starname, program_code,
+    ra, dec, exptime, n_exp, n_intra_max, tau_intra, jmag, gmag.
+    """
+    import re
+    from html import escape
+    df = script_df.copy()
+    df = df.reset_index(drop=True)
+    cols = [c for c in NIGHTPLAN_COLUMNS if c in df.columns]
+    df = df[cols].copy()
+    df = df.fillna('')
+    for col in df.columns:
+        if df[col].dtype == 'object':
+            df[col] = df[col].astype(str).replace('nan', '').replace('None', '')
+    table_html = df.to_html(classes='table table-striped table-hover', index=False, escape=False, table_id=table_id)
+    # Add tooltips to headers
+    tooltips = [NIGHTPLAN_COLUMN_TOOLTIPS.get(col, '') for col in df.columns]
+    def _add_th_tooltip(m):
+        idx = _add_th_tooltip.idx
+        _add_th_tooltip.idx += 1
+        t = tooltips[idx] if idx < len(tooltips) else ''
+        return f'<th data-tooltip="{escape(t)}">{m.group(1)}</th>' if t else m.group(0)
+    _add_th_tooltip.idx = 0
+    table_html = re.sub(r'<th>([^<]*)</th>', _add_th_tooltip, table_html, count=len(df.columns))
+    tfoot_cells = ''.join(['<th></th>' for _ in df.columns])
+    table_html = table_html.replace('</tbody>', '</tbody><tfoot><tr>' + tfoot_cells + '</tr></tfoot>')
+    # Column widths
+    def visible_len(s):
+        return len(re.sub(r'<[^>]+>', '', str(s)).strip())
+    widths = {}
+    for col in df.columns:
+        content_max = max((visible_len(c) for c in df[col]), default=0)
+        header_len = len(str(col))
+        ch_width = max(content_max, header_len, 1) + 2
+        widths[col] = f'{ch_width}ch'
+    column_defs = [f"{{ targets: {i}, width: '{widths[col]}' }}" for i, col in enumerate(df.columns)]
+    column_defs_str = ',\n                '.join(column_defs)
+    col_widths = [widths[col] for col in df.columns]
+    col_css = ' '.join([f"#{table_id} th:nth-child({i+1}), #{table_id} td:nth-child({i+1}) {{ width: {w} !important; max-width: {w} !important; }}" for i, w in enumerate(col_widths)])
+    custom_css = f"""
+    <style>
+    #{table_id} {{ width: auto !important; max-width: 100%; border-collapse: collapse; font-size: 21px; margin: 10px 0; table-layout: fixed !important; }}
+    {col_css}
+    #{table_id} thead th {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; font-weight: 600;
+        padding: 3pt; text-align: center; font-size: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help; }}
+    #{table_id} tbody td {{ padding: 3pt; text-align: center; font-size: 20px; border-bottom: 1px solid #e9ecef;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+    #{table_id} tbody tr:nth-child(even) {{ background-color: #dee2e6 !important; }}
+    #{table_id} tbody tr:nth-child(odd) {{ background-color: white !important; }}
+    #{table_id} tbody tr:hover {{ background-color: #e3f2fd !important; }}
+    #{table_id} tfoot th {{ padding: 8px 4px; background: #f1f3f5; border-top: 2px solid #dee2e6; }}
+    #{table_id} tfoot .column-filter {{ width: 100%; padding: 4px 8px; font-size: 14px; border: 1px solid #ced4da; border-radius: 4px; box-sizing: border-box; }}
+    #{table_id} thead th[data-tooltip] {{ position: relative; }}
+    #{table_id} thead th[data-tooltip]:hover::after {{
+        content: attr(data-tooltip);
+        position: fixed;
+        top: 140px;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 16px 24px;
+        background: #5a4d9e !important;
+        color: white !important;
+        font-size: 18px !important;
+        font-weight: 700 !important;
+        white-space: normal;
+        max-width: 675px;
+        width: 675px;
+        text-align: center;
+        border-radius: 8px;
+        border: 3px solid #4a3d8e;
+        box-shadow: 0 6px 24px rgba(0,0,0,0.5);
+        z-index: 10000;
+        pointer-events: none;
+        opacity: 1 !important;
+    }}
+    </style>
+    """
+    # Numeric columns for > < >= <= : ra(6), dec(7), exptime(8), n_exp(9), n_intra_max(10), tau_intra(11), jmag(12), gmag(13)
+    # Time columns (HH:MM): First Available(0), Start Exposure(1), Last Available(2)
+    numeric_col_indices = [6, 7, 8, 9, 10, 11, 12, 13]
+    time_col_indices = [0, 1, 2]
+    init_script = f"""
+    <script>
+    function parseHHMM(s) {{
+        var m = (s || '').match(/(\\d{{1,2}}):(\\d{{2}})/);
+        return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : NaN;
+    }}
+    $(document).ready(function() {{
+        if ($.fn.DataTable.isDataTable('#{table_id}')) {{ $('#{table_id}').DataTable().destroy(); }}
+        var numericCols = {numeric_col_indices};
+        var timeCols = {time_col_indices};
+        var table = $('#{table_id}').DataTable({{
+            autoWidth: false,
+            pageLength: {page_size},
+            order: [[1, 'asc']],
+            dom: 'lBfrtip',
+            buttons: ['copy', 'csv', 'excel', 'print'],
+            lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
+            columnDefs: [ {column_defs_str} ],
+            initComplete: function() {{
+                var api = this.api();
+                $.fn.dataTable.ext.search.push(function(settings, data, dataIndex) {{
+                    if (settings.nTable.id !== '{table_id}') return true;
+                    var tbl = $('#' + '{table_id}');
+                    for (var i = 0; i < data.length; i++) {{
+                        var input = tbl.find('tfoot th').eq(i).find('input.column-filter');
+                        var val = (input.val() || '').trim();
+                        if (!val) continue;
+                        var cellVal = data[i];
+                        if (typeof cellVal === 'string' && cellVal.indexOf('<') >= 0) {{
+                            cellVal = $('<div>').html(cellVal).text().trim();
+                        }} else {{
+                            cellVal = (cellVal || '').toString().trim();
+                        }}
+                        if (timeCols.indexOf(i) >= 0) {{
+                            var tMatch = val.match(/^(>=|<=|>|<|=|==)\s*(\\d{{1,2}}):(\\d{{2}})$/);
+                            if (tMatch) {{
+                                var op = tMatch[1];
+                                var filterMins = parseInt(tMatch[2], 10) * 60 + parseInt(tMatch[3], 10);
+                                var cellMins = parseHHMM(cellVal);
+                                if (isNaN(cellMins)) return false;
+                                switch(op) {{
+                                    case '>': if (!(cellMins > filterMins)) return false; break;
+                                    case '<': if (!(cellMins < filterMins)) return false; break;
+                                    case '>=': if (!(cellMins >= filterMins)) return false; break;
+                                    case '<=': if (!(cellMins <= filterMins)) return false; break;
+                                    case '=':
+                                    case '==': if (cellMins != filterMins) return false; break;
+                                }}
+                            }} else {{
+                                if (cellVal.toLowerCase().indexOf(val.toLowerCase()) < 0) return false;
+                            }}
+                        }} else if (numericCols.indexOf(i) >= 0) {{
+                            var match = val.match(/^(>=|<=|>|<|=|==)\s*(-?[\\d.]+)$/);
+                            if (match) {{
+                                var op = match[1];
+                                var numVal = parseFloat(match[2]);
+                                var cellNum = parseFloat(cellVal);
+                                if (isNaN(cellNum)) return false;
+                                switch(op) {{
+                                    case '>': if (!(cellNum > numVal)) return false; break;
+                                    case '<': if (!(cellNum < numVal)) return false; break;
+                                    case '>=': if (!(cellNum >= numVal)) return false; break;
+                                    case '<=': if (!(cellNum <= numVal)) return false; break;
+                                    case '=':
+                                    case '==': if (cellNum != numVal) return false; break;
+                                }}
+                            }} else {{
+                                if (cellVal.toLowerCase().indexOf(val.toLowerCase()) < 0) return false;
+                            }}
+                        }} else {{
+                            if (cellVal.toLowerCase().indexOf(val.toLowerCase()) < 0) return false;
+                        }}
+                    }}
+                    return true;
+                }});
+                api.columns().every(function() {{
+                    var column = this;
+                    var input = $('<input type="text" class="column-filter" placeholder="Filter... (> < for HH:MM or numbers)">')
+                        .appendTo($(column.footer()).empty())
+                        .on('keyup change', function() {{ api.draw(); }});
+                }});
+            }}
+        }});
+    }});
+    </script>
+    """
+    return custom_css + table_html + init_script
+
+
 def dataframe_to_html(dataframe, sort_column=2, page_size=10, table_id='request-table'):
     """
     Convert a pandas dataframe into an HTML string for rendering
