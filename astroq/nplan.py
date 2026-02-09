@@ -110,7 +110,7 @@ class NightPlanner(object):
             None
         """
 
-        observers_path = os.path.join(self.semester_directory, 'outputs')
+        observers_path = os.path.join(self.semester_directory, 'outputs/')
         check1 = os.path.isdir(observers_path)
         if not check1:
             os.makedirs(observers_path)
