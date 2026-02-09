@@ -1902,23 +1902,47 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
 def get_request_frame(semester_planner, all_stars):
     """
     Get a filtered request frame containing only the stars in all_stars.
-    
+
     Args:
         semester_planner: the semester planner object
         all_stars (list): array of StarPlotter objects
-        
+
     Returns:
         filtered_frame (pd.DataFrame): filtered request frame with only the specified stars
     """
     # Extract starnames from the StarPlotter objects
     starids = [star.unique_id for star in all_stars]
-    
+
     # Filter the request frame to only include the specified stars
     filtered_frame = semester_planner.requests_frame_all[
         semester_planner.requests_frame_all['unique_id'].isin(starids)
     ].copy()
-    
+
     return filtered_frame
+
+
+def add_star_links(request_df, semester_code, date, band):
+    """
+    Convert starname column to links: /semester/date/band/program_code/starname
+
+    Args:
+        request_df (pd.DataFrame): request frame with starname and program_code columns
+        semester_code (str): e.g. 2025B
+        date (str): e.g. 2025-01-15
+        band (str): e.g. band1
+
+    Returns:
+        request_df (pd.DataFrame): df with starname as HTML links
+    """
+    from urllib.parse import quote
+    if 'program_code' not in request_df.columns or 'starname' not in request_df.columns:
+        return request_df.copy()
+    df = request_df.copy()
+    df['starname'] = df.apply(
+        lambda row: f'<a href="/{semester_code}/{date}/{band}/{quote(str(row["program_code"]))}/{quote(str(row["starname"]))}">{row["starname"]}</a>',
+        axis=1
+    )
+    return df
 
 def get_ladder(data, tonight_start_time):
     """Produce a plotly figure which illustrates the night plan solution.

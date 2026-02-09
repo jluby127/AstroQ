@@ -108,20 +108,20 @@ def load_data_for_path(semester_code, date, band, uptree_path):
 @app.route("/", methods=["GET"])
 def index():
     navigation_text = """
-    To navigate, append to the URL in the following way: 
-    url/{semester_code}/{date}/{band}/{page} 
-    
+    To navigate, append to the URL in the following way:
+    url/{semester_code}/{date}/{band}/{page}
+
     where:
     - semester_code is the four digit year and one letter semester
     - date is in format YYYY-MM-DD
     - band is either band1, band2, or band3 (or full-band1, full-band2, or full-band3)
-    - page is one of the following: {program_code}, star/{starname}, nightplan, or admin
+    - page is one of: {program_code}, {program_code}/{starname}, nightplan, or admin
 
     Examples:
     - /2025B/2025-01-15/band1/admin
     - /2025B/2025-01-15/band3/nightplan
-    - /2025B/2025-01-15/band1/star/HD4614
-    - /2025B/2025-01-15/band1/2025B_N001 
+    - /2025B/2025-01-15/band1/2025B_N001                          (program overview)
+    - /2025B/2025-01-15/band1/2025B_N001/HD4614                   (star under program)
 
     Note: program_code contains the semester information. Correct: 2025B_N001, Incorrect: N001
     Note: You only have access to the programs and stars for which you are a PI or named Co-I on the proposal coversheet.
@@ -130,56 +130,47 @@ def index():
     """
     return render_template("homepage.html", navigation_text=navigation_text)
 
-# Dynamic route for all pages
-@app.route("/<semester_code>/<date>/<band>/star/<starname>")
-@app.route("/<semester_code>/<date>/<band>/<page>")
-@app.route("/<semester_code>/<date>/<band>/<program_code>")
-def dynamic_page(semester_code, date, band, page=None, starname=None, program_code=None):
-    """Handle all dynamic routes based on URL parameters"""
+# Star page: /semester/date/band/program_code/starname (star under program)
+@app.route("/<semester_code>/<date>/<band>/<program_code>/<starname>")
+def star_page(semester_code, date, band, program_code, starname):
+    """Handle star page route: star is under program in URL."""
     global uptree_path
-    
-    # Validate parameters
     if band not in ['band1', 'band2', 'band3', 'full-band1', 'full-band2', 'full-band3']:
         abort(400, description="Band must be 'band1', 'band2', 'band3', 'full-band1', 'full-band2', or 'full-band3'")
-    
-    # Load data for this path
     success, message = load_data_for_path(semester_code, date, band, uptree_path)
     if not success:
         return f"Error: {message}", 404
-    
-    # Route to appropriate page based on parameters
-    if starname is not None:
-        # This is a star route
-        return render_star_page(starname)
-    elif page == "admin":
-        return render_admin_page()
+    return render_star_page(starname, program_code)
+
+# Dynamic route for program, admin, nightplan
+@app.route("/<semester_code>/<date>/<band>/<page>")
+def dynamic_page(semester_code, date, band, page):
+    """Handle program, admin, and nightplan routes."""
+    global uptree_path
+    if band not in ['band1', 'band2', 'band3', 'full-band1', 'full-band2', 'full-band3']:
+        abort(400, description="Band must be 'band1', 'band2', 'band3', 'full-band1', 'full-band2', or 'full-band3'")
+    success, message = load_data_for_path(semester_code, date, band, uptree_path)
+    if not success:
+        return f"Error: {message}", 404
+    if page == "admin":
+        return render_admin_page(semester_code, date, band)
     elif page == "nightplan":
         return render_nightplan_page(band)
-    elif program_code is not None:
-        # This is a program route - check if it's a valid program code
-        if program_code in data_astroq[0]:
-            return render_program_page(semester_code, date, band, program_code)
-        else:
-            # If not a program code, treat as a page
-            page = program_code
-            if page == "admin":
-                return render_admin_page()
-            elif page == "nightplan":
-                return render_nightplan_page(band)
-            else:
-                abort(404, description=f"Page '{page}' not found")
+    elif page in data_astroq[0]:
+        return render_program_page(semester_code, date, band, page)
     else:
         abort(404, description=f"Page '{page}' not found")
 
-def render_admin_page():
+def render_admin_page(semester_code, date, band):
     """Render the admin page"""
     if data_astroq is None:
         return "Error: No data available", 404
-    
+
     all_stars_from_all_programs = np.concatenate(list(data_astroq[0].values()))
-    
-    # Get request frame table for all stars
+
+    # Get request frame table for all stars, with starname as links under program
     request_df = pl.get_request_frame(semester_planner, all_stars_from_all_programs)
+    request_df = pl.add_star_links(request_df, semester_code, date, band)
     request_df = request_df[desired_order]
     request_table_html = pl.dataframe_to_html(request_df)
     
@@ -217,8 +208,9 @@ def render_program_page(semester_code, date, band, program_code):
     
     program_stars = data_astroq[0][program_code]
     
-    # Get request frame table for this program's stars
+    # Get request frame table for this program's stars, with starname as links
     request_df = pl.get_request_frame(semester_planner, program_stars)
+    request_df = pl.add_star_links(request_df, semester_code, date, band)
     request_df = request_df[desired_order]
     request_table_html = pl.dataframe_to_html(request_df)
     
@@ -246,21 +238,21 @@ def render_program_page(semester_code, date, band, program_code):
                          programs=[program_code],
                          timestamp=semester_planner_timestamp)
 
-def render_star_page(starname):
-    """Render a specific star page"""
+def render_star_page(starname, program_code=None):
+    """Render a specific star page. If program_code is given, only look in that program."""
     if data_astroq is None:
         return "Error: No data available", 404
-    
-    compare_starname = starname.lower().replace(' ', '') # Lower case and remove all spaces
-    program_names = data_astroq[0].keys()
 
-    for program in program_names:
+    compare_starname = starname.lower().replace(' ', '')  # Lower case and remove all spaces
+    programs_to_search = [program_code] if program_code and program_code in data_astroq[0] else data_astroq[0].keys()
+
+    for program in programs_to_search:
         for star_ind in range(len(data_astroq[0][program])):
             star_obj = data_astroq[0][program][star_ind]
 
             true_starname = star_obj.starname
             object_compare_starname = true_starname.lower().replace(' ', '')
-            
+
             if object_compare_starname == compare_starname:
                 # Get request frame table for this specific star
                 request_df = pl.get_request_frame(semester_planner, [star_obj])
