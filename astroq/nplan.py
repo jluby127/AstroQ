@@ -228,7 +228,7 @@ class NightPlanner(object):
                 first_available = f"{tonight_date} {gap['gap_start_time']}"
                 last_available = f"{tonight_date} {gap['gap_stop_time']}"
                 # Exposure Time in TTP is seconds; gap_length is minutes
-                exposure_time_sec = (gap['gap_length'] - 5) * 60
+                exposure_time_sec = (gap['gap_length'] - self.semester_planner.slot_size) * 60
                 gap_rows.append({
                     "Starname": f"Gap {i}",
                     "RA": avg_ra,
