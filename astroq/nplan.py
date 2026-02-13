@@ -20,18 +20,11 @@ import astroq.io as io
 from astroq.splan import SemesterPlanner
 import astroq.queue.kpfcc as kpfcc
 
-# # TTP imports (assuming TTP is installed separately)
-# import ttp.formatting as formatting
-# import ttp.telescope as telescope
-# import ttp.plotting as plotting
-# import ttp.model as model
-import sys 
-sys.path.append('/Users/jack/Documents/github/ttp/ttp/')
 # TTP imports (assuming TTP is installed separately)
-import formatting as formatting
-import telescope as telescope
-import plotting as plotting
-import model as model
+import ttp.formatting as formatting
+import ttp.telescope as telescope
+import ttp.plotting as plotting
+import ttp.model as model
 
 class NightPlanner(object):
     """
@@ -146,10 +139,6 @@ class NightPlanner(object):
         self.tonight_gap_unallocated_slots = sum(g['n_slots_in_gap'] for g in self.tonight_allocation_gaps)
         self.tonight_gap_unallocated_minutes = self.tonight_gap_unallocated_slots * slot_size
 
-        print("--------------------------------")
-        print(self.tonight_allocation_gaps)
-        print("--------------------------------")
-
     def run_ttp(self):
         """
         Prepare the TTP input dataframe by parsing the request_selected.csv file. Ensure data is in the correct format for TTP.
@@ -237,7 +226,7 @@ class NightPlanner(object):
                     "Exposures Per Visit": 1,
                     "Visits In Night": 1,
                     "Intra_Night_Cadence": 0,
-                    "Priority": 20,
+                    "Priority": 20, #always very high priority to ensure it is scheduled 
                     "First Available": first_available,
                     "Last Available": last_available,
                 })
