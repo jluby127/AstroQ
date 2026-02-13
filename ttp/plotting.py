@@ -16,7 +16,7 @@ import imageio
 import base64
 
 
-def writeStarList(orderData, starttime, current_day, outputdir=''):
+def writeStarList(orderData, starttime, current_day, outputpath):
     """Write a text file with the optimized schedule.
 
     Args:
@@ -27,14 +27,13 @@ def writeStarList(orderData, starttime, current_day, outputdir=''):
             filename
         outputdir (str): Folder in which to write the text output
     """
-
-    f = open(os.path.join(outputdir,"ObserveOrder_" + current_day + ".txt"), "w")
-    f.write("Target,StartExposure\n")
-    for i in range(len(orderData['Starname'])):
-        adjusted_timestamp = TimeDelta(orderData['Start Exposure'][i]*60,format='sec') + starttime
-        formatted_timestamp = str(adjusted_timestamp)[11:16]
-        f.write(orderData['Starname'][i] + "," + formatted_timestamp + "\n")
-    f.close()
+    
+    with open(outputpath, "w") as f:
+        f.write("Target,StartExposure\n")
+        for i in range(len(orderData['Starname'])):
+            adjusted_timestamp = TimeDelta(orderData['Start Exposure'][i]*60,format='sec') + starttime
+            formatted_timestamp = str(adjusted_timestamp)[11:16]
+            f.write(orderData['Starname'][i] + "," + formatted_timestamp + "\n")
 
 
 def nightPlan(orderData, current_day, outputdir='plots'):
@@ -90,7 +89,8 @@ def nightPlan(orderData, current_day, outputdir='plots'):
             # if we already did this star, it is a multi-visit star and we need to adjust the row counter for plotting purposes
             ifixer -= 1
 
-    fig.update_layout(xaxis_range=[0,orderData['Start Exposure'][0] + orderData["Total Exp Time (min)"][0]])
+    # 600 minutes is a full night 
+    fig.update_layout(xaxis_range=[0,600])
 
     if outputdir != '':
         # Save as both a .html intereactive plot and a low-res png plot
