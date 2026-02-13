@@ -96,7 +96,49 @@ class NightPlanner(object):
         self.past_history = self.semester_planner.past_history
         self.slots_needed_for_exposure_dict = self.semester_planner.slots_needed_for_exposure_dict
         self.run_weather_loss = self.semester_planner.run_weather_loss
-        
+
+        # Compute tonight's allocation gaps: runs of unallocated slots (zeros) between allocated slots (ones)
+        access_record = self.semester_planner.access_record
+        tonight_index = self.today_starting_night
+        slot_size = self.semester_planner.slot_size  # minutes per slot
+        # is_alloc shape (ntargets, nnights, nslots); allocation is same for all targets
+        tonight_allocated = access_record.is_alloc[0, tonight_index, :]  # 1D: 1=allocated, 0=not
+        allocated = tonight_allocated.astype(np.int8)
+        diff = np.diff(allocated)
+        # Gap = run of zeros between ones (exclude leading/trailing zeros). diff==-1: 1->0 (gap start); diff==1: 0->1 (gap end)
+        gap_start_slots = np.where(diff == -1)[0] + 1  # first zero slot of each potential gap
+        gap_end_slots = np.where(diff == 1)[0]         # last zero slot before each 0->1 transition
+        total_slots_in_night = len(allocated)
+        total_allocated_slots = int(np.sum(allocated))
+        total_nonallocated_slots = int(np.sum(1 - allocated))
+        self.tonight_allocation_gaps = []
+        for start_slot in gap_start_slots:
+            # Pair with next gap_end that is >= start_slot (excludes trailing zeros)
+            candidates = gap_end_slots[gap_end_slots >= start_slot]
+            if len(candidates) > 0:
+                end_slot = candidates[0]
+                n_slots_in_gap = end_slot - start_slot + 1
+                start_minutes = start_slot * slot_size
+                end_minutes = (end_slot + 1) * slot_size  # end of last zero slot
+                gap_length = n_slots_in_gap * slot_size
+                gap_start_time = f"{int(start_minutes // 60):02d}:{int(start_minutes % 60):02d}"
+                gap_stop_time = f"{int(end_minutes // 60):02d}:{int(end_minutes % 60):02d}"
+                self.tonight_allocation_gaps.append({
+                    'total_slots_in_night': total_slots_in_night,
+                    'total_allocated_slots': total_allocated_slots,
+                    'total_nonallocated_slots': total_nonallocated_slots,
+                    'n_slots_in_gap': n_slots_in_gap,
+                    'gap_start_slot': start_slot,
+                    'gap_start_time': gap_start_time,
+                    'gap_stop_slot': end_slot,
+                    'gap_stop_time': gap_stop_time,
+                    'gap_length': gap_length,
+                })
+        self.tonight_total_unallocated_slots = int(np.sum(1 - allocated))
+        self.tonight_total_unallocated_minutes = self.tonight_total_unallocated_slots * slot_size
+        self.tonight_gap_unallocated_slots = sum(g['n_slots_in_gap'] for g in self.tonight_allocation_gaps)
+        self.tonight_gap_unallocated_minutes = self.tonight_gap_unallocated_slots * slot_size
+
     def run_ttp(self):
         """
         Prepare the TTP input dataframe by parsing the request_selected.csv file. Ensure data is in the correct format for TTP.
@@ -110,7 +152,7 @@ class NightPlanner(object):
             None
         """
 
-        observers_path = os.path.join(self.semester_directory, 'outputs')
+        observers_path = os.path.join(self.semester_directory, 'outputs/')
         check1 = os.path.isdir(observers_path)
         if not check1:
             os.makedirs(observers_path)
@@ -165,6 +207,31 @@ class NightPlanner(object):
             "Last Available": selected_df["last_available"],
         })
 
+        # Add dummy gap observations when there are unallocated gaps between allocated slots
+        if len(self.tonight_allocation_gaps) > 0:
+            avg_ra = selected_df["ra"].mean()
+            avg_dec = selected_df["dec"].mean()
+            tonight_date = self.current_day
+            gap_rows = []
+            for i, gap in enumerate(self.tonight_allocation_gaps, start=1):
+                first_available = f"{tonight_date} {gap['gap_start_time']}"
+                last_available = f"{tonight_date} {gap['gap_stop_time']}"
+                # Exposure Time in TTP is seconds; gap_length is minutes
+                exposure_time_sec = (gap['gap_length'] - self.semester_planner.slot_size) * 60
+                gap_rows.append({
+                    "Starname": f"Gap {i}",
+                    "RA": avg_ra,
+                    "Dec": avg_dec,
+                    "Exposure Time": exposure_time_sec,
+                    "Exposures Per Visit": 1,
+                    "Visits In Night": 1,
+                    "Intra_Night_Cadence": 0,
+                    "Priority": 20, #always very high priority to ensure it is scheduled 
+                    "First Available": first_available,
+                    "Last Available": last_available,
+                })
+            to_ttp = pd.concat([to_ttp, pd.DataFrame(gap_rows)], ignore_index=True)
+
         filename = os.path.join(self.output_directory, 'ttp_prepared.csv')
         to_ttp.to_csv(filename, index=False)
     
@@ -173,7 +240,75 @@ class NightPlanner(object):
 
         gurobi_model_backup = solution.gurobi_model  # backup the attribute, probably don't need this
         del solution.gurobi_model                   # remove attribute so object is hdf5 compatable
-    
+
+        # Compute gap stats BEFORE scrubbing (for adjusted TTP statistics)
+        gap_exposure_min = 0.0
+        gap_count = 0
+        if len(self.tonight_allocation_gaps) > 0:
+            plotly_exp = solution.plotly.get('Total Exp Time (min)', [])
+            for i, name in enumerate(solution.plotly.get('Starname', [])):
+                if str(name).startswith('Gap '):
+                    gap_count += 1
+                    gap_exposure_min += float(plotly_exp[i]) if i < len(plotly_exp) else 0
+            if solution.extras and solution.extras.get('Starname'):
+                extras_exp = solution.extras.get('Total Exp Time (min)', [])
+                for j, name in enumerate(solution.extras['Starname']):
+                    if str(name).startswith('Gap '):
+                        gap_count += 1
+                        gap_exposure_min += float(extras_exp[j]) if j < len(extras_exp) else 0
+        gap_total_min = self.tonight_gap_unallocated_minutes if len(self.tonight_allocation_gaps) > 0 else 0.0
+        n_gap_targets = len(self.tonight_allocation_gaps)
+
+        # Remove dummy "Gap X" rows from the solution so they never appear in outputs
+        def drop_gap_rows(d):
+            keep = [i for i, s in enumerate(d['Starname']) if not str(s).startswith('Gap ')]
+            return {k: [v[i] for i in keep] for k, v in d.items()}
+        solution.plotly = drop_gap_rows(solution.plotly)
+        if solution.extras is not None:
+            if isinstance(solution.extras, pd.DataFrame):
+                solution.extras = solution.extras[
+                    ~solution.extras['Starname'].astype(str).str.startswith('Gap ')
+                ]
+            elif len(solution.extras.get('Starname', [])) > 0:
+                solution.extras = drop_gap_rows(solution.extras)
+        # Scrub Gap from other solution attributes so nothing references them
+        if getattr(solution, 'stars', None) is not None:
+            solution.stars = [s for s in solution.stars if not str(getattr(s, 'name', '')).startswith('Gap ')]
+        if getattr(solution, 'schedule', None) is not None and isinstance(solution.schedule, dict) and 'Starname' in solution.schedule:
+            solution.schedule = drop_gap_rows(solution.schedule)
+
+        # Update TTP stats to exclude Gap observations (observing duration, exposing, idle)
+        if gap_total_min > 0 or gap_exposure_min > 0:
+            solution.dur = max(0, solution.dur - gap_total_min)
+            solution.time_exposing = max(0, solution.time_exposing - gap_exposure_min)
+            solution.time_idle = max(0, solution.dur - solution.time_exposing - solution.time_slewing)
+            solution.num_scheduled = solution.num_scheduled - gap_count
+            # Re-print and overwrite TTPstatistics.txt with gap-adjusted stats
+            ttp_stats_path = os.path.join(observers_path, 'TTPstatistics.txt')
+            with open(ttp_stats_path, 'w') as f:
+                f.write("Stats for TTP Solution (Gap observations excluded)\n")
+                f.write("------------------------------------\n")
+                f.write(f'    Model ran for {solution.solve_time:.2f} seconds\n')
+                f.write(f'     Observations Requested: {solution.N - 2 - n_gap_targets}\n')
+                f.write(f'     Observations Scheduled: {solution.num_scheduled}\n')
+                f.write("------------------------------------\n")
+                f.write(f'   Observing Duration (min): {solution.dur:.2f}\n')
+                f.write(f'  Time Spent Exposing (min): {solution.time_exposing:.2f}\n')
+                f.write(f'      Time Spent Idle (min): {solution.time_idle:.2f}\n')
+                f.write(f'   Time Spent Slewing (min): {solution.time_slewing:.2f}\n')
+                f.write("------------------------------------\n")
+            print('\n------------------------------------')
+            print(' (Gap observations excluded from stats)')
+            print('------------------------------------')
+            print(f'     Observations Requested: {solution.N - 2 - n_gap_targets}')
+            print(f'     Observations Scheduled: {solution.num_scheduled}')
+            print('------------------------------------')
+            print(f'   Observing Duration (min): {solution.dur:.2f}')
+            print(f'  Time Spent Exposing (min): {solution.time_exposing:.2f}')
+            print(f'      Time Spent Idle (min): {solution.time_idle:.2f}')
+            print(f'   Time Spent Slewing (min): {solution.time_slewing:.2f}')
+            print('------------------------------------')
+
         # add human readable starname to the solution so that it can be used in the plotting functions
         id_to_name = dict(zip(selected_df['unique_id'], selected_df['starname']))
         solution.plotly['human_starname'] = [
@@ -197,11 +332,10 @@ class NightPlanner(object):
         use_start_exposures = []
         for i in range(len(plotly_df)):
             adjusted_timestamp = TimeDelta(plotly_df['Start Exposure'].iloc[i]*60,format='sec') + observation_start_time
-            use_start_exposures.append(str(adjusted_timestamp)[11:16])            
+            use_start_exposures.append(str(adjusted_timestamp)[11:16])
             use_starnames.append(selected_df[selected_df['unique_id'] == plotly_df['Starname'].iloc[i]]['starname'].iloc[0])
             use_star_ids.append(str(plotly_df['Starname'].iloc[i]))
-       
-        # Convert solution.extras to a DataFrame for consistency
+
         extras_df = pd.DataFrame(solution.extras)
         for j in range(len(extras_df)):
             use_start_exposures.append('24:00')
@@ -370,15 +504,22 @@ class NightPlanner(object):
                     obj = getattr(obj, attr)
                 
                 if data_type == 'dict_json':
-                    # Convert dict with arrays/lists to JSON-serializable format
-                    serializable = {}
-                    for key, value in obj.items():
-                        if isinstance(value, np.ndarray):
-                            serializable[key] = value.tolist()
-                        elif isinstance(value, list):
-                            serializable[key] = value
-                        else:
-                            serializable[key] = str(value)
+                    # Convert dict with arrays/lists to JSON-serializable format (native Python types)
+                    def _to_native(x):
+                        if isinstance(x, np.ndarray):
+                            return _to_native(x.tolist())
+                        if isinstance(x, (list, tuple)):
+                            return [_to_native(v) for v in x]
+                        if isinstance(x, dict):
+                            return {k: _to_native(v) for k, v in x.items()}
+                        if isinstance(x, (np.integer, np.int64, np.int32)):
+                            return int(x)
+                        if isinstance(x, (np.floating, np.float64, np.float32)):
+                            return float(x)
+                        if isinstance(x, (np.bool_, bool)):
+                            return bool(x)
+                        return x
+                    serializable = {k: _to_native(v) for k, v in obj.items()}
                     f.attrs[hdf5_key] = json.dumps(serializable)
                 
                 elif data_type == 'time_list':
@@ -551,6 +692,23 @@ class NightPlanner(object):
             solution.extras = solution_extras_df.to_dict('list')
         else:
             solution.extras = solution_extras_df
+
+        # Scrub any "Gap X" entries from loaded data (handles HDF5 saved before run-time scrubbing)
+        def _drop_gap_from_dict(d):
+            if not isinstance(d, dict) or 'Starname' not in d:
+                return d
+            keep = [i for i, s in enumerate(d['Starname']) if not str(s).startswith('Gap ')]
+            return {k: ([v[i] for i in keep] if isinstance(v, (list, np.ndarray)) else v) for k, v in d.items()}
+        solution.plotly = _drop_gap_from_dict(solution.plotly)
+        solution.schedule = _drop_gap_from_dict(solution.schedule)
+        solution.stars = [s for s in solution.stars if not str(getattr(s, 'name', '')).startswith('Gap ')]
+        if solution.extras is not None:
+            if isinstance(solution.extras, pd.DataFrame):
+                solution.extras = solution.extras[
+                    ~solution.extras['Starname'].astype(str).str.startswith('Gap ')
+                ]
+            elif isinstance(solution.extras, dict) and solution.extras.get('Starname'):
+                solution.extras = _drop_gap_from_dict(solution.extras)
         
         instance.solution = [solution]
         
