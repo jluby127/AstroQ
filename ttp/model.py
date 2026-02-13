@@ -248,7 +248,7 @@ class TTPModel(object):
                         for i in range(N)),'t_min')
         t_max = Mod.addConstrs((tijm[i,j,m] <= w[m+1]*Xijm[i,j,m] for j in range(N) for m in range(M)
                         for i in range(N)),'t_max')
-        rise_constr = Mod.addConstrs((ti[i] >= te[i]*Yi[i] for i in range(N)),'rise_constr')
+        rise_constr = Mod.addConstrs((ti[i] >= (te[i] + tau_exp[i])*Yi[i] for i in range(N)),'rise_constr')
         set_constr = Mod.addConstrs((ti[i] <= tl[i]*Yi[i] for i in range(N)),'set_constr')
 
         #Multivisit constraints
@@ -537,7 +537,7 @@ class TTPModel(object):
         self.time_exposing = time_exposing
         self.solve_time = Mod.Runtime
 
-        file = open(self.outputdir + "TTPstatistics.txt", "w")
+        file = open(self.outputdir + "/TTPstatistics.txt", "w")
         file.write("Stats for TTP Solution" + "\n")
         file.write("------------------------------------" + "\n")
         file.write(f'    Model ran for {self.solve_time:.2f} seconds' + '\n')
