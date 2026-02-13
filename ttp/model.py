@@ -537,7 +537,7 @@ class TTPModel(object):
         self.time_exposing = time_exposing
         self.solve_time = Mod.Runtime
 
-        file = open(self.outputdir + "TTPstatistics.txt", "w")
+        file = open(self.outputdir + "/TTPstatistics.txt", "w")
         file.write("Stats for TTP Solution" + "\n")
         file.write("------------------------------------" + "\n")
         file.write(f'    Model ran for {self.solve_time:.2f} seconds' + '\n')
