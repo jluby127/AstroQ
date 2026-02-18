@@ -82,7 +82,7 @@ def pull_OBs(semester):
 
 def _validate_datetime_format(datetime_str):
     """
-    Validate that datetime string follows the strict format: YYYY-MM-DDTHH:MM
+    Validate that datetime string follows YYYY-MM-DDTHH:MM or YYYY-MM-DDTHH:MM:SS format.
     
     Args:
         datetime_str (str): The datetime string to validate
@@ -93,9 +93,8 @@ def _validate_datetime_format(datetime_str):
     import re
     if not isinstance(datetime_str, str):
         return False
-    
-    # Pattern for YYYY-MM-DDTHH:MM format
-    pattern = r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$'
+    # Accept YYYY-MM-DDTHH:MM or YYYY-MM-DDTHH:MM:SS (Keck API returns the latter)
+    pattern = r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$'
     return bool(re.match(pattern, datetime_str))
 
 def format_custom_csv(OBs):
@@ -110,20 +109,16 @@ def format_custom_csv(OBs):
     """
     rows = []
     for ob in OBs['observing_blocks']:
-        try:
+        if "custom_time_constraints" in ob.get('schedule', {}):
             ctc = ob['schedule']['custom_time_constraints']
             unique_id = ob['_id']
             starname = ob['target']['target_name']
 
-            # Handle ctc as a list with multiple constraints
             if isinstance(ctc, list) and len(ctc) > 0:
-                # Process each constraint in the list
-                for i, constraint in enumerate(ctc):
+                for constraint in ctc:
                     if isinstance(constraint, dict):
                         start = constraint.get('start_datetime', '')
                         stop = constraint.get('end_datetime', '')
-                        
-                        # Only add rows that have the required data and valid format
                         if start and stop and _validate_datetime_format(start) and _validate_datetime_format(stop):
                             rows.append({
                                 'unique_id': unique_id,
@@ -132,10 +127,8 @@ def format_custom_csv(OBs):
                                 'stop': stop
                             })
             elif isinstance(ctc, dict):
-                # If it's already a dict, use it directly
                 start = ctc.get('start_datetime', '')
                 stop = ctc.get('end_datetime', '')
-                
                 if start and stop and _validate_datetime_format(start) and _validate_datetime_format(stop):
                     rows.append({
                         'unique_id': unique_id,
@@ -143,14 +136,10 @@ def format_custom_csv(OBs):
                         'start': start,
                         'stop': stop
                     })
-        except Exception as e:
-            pass
 
-    # Create DataFrame and save to CSV
     if len(rows) > 0:
         custom_frame = pd.DataFrame(rows)
     else:
-        # Create empty DataFrame with proper column headers
         custom_frame = pd.DataFrame(columns=['unique_id', 'starname', 'start', 'stop'])
     
     return custom_frame 
