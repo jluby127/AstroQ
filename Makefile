@@ -41,6 +41,8 @@ all: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/plan-night-complete)
 	done
 	@echo "📋 Creating holders directories and copying ObserveOrder files..."
 	@$(MAKE) copy_observe_orders
+	@echo "📋 Copying Magiq script files to holders..."
+	@$(MAKE) copy_magiq_scripts
 	@echo "📝 Combining all band logs..."
 	@$(MAKE) combine_logs
 	@echo "🔍 Checking night plans..."
@@ -136,6 +138,17 @@ copy_observe_orders:
 		echo "✅ ObserveOrder file copied for band $$band"; \
 	done
 	@echo "✅ All ObserveOrder files copied to holders directories!"
+
+# Copy script_{date}_nominal.txt to holders as magiq_backup_{band}.txt
+copy_magiq_scripts:
+	@echo "📋 Copying Magiq script files to holders directories..."
+	@for band in $(BANDS); do \
+		echo "📋 Copying script for band $$band..."; \
+		mkdir -p $(HOLDERS_DIR)/$$band/output; \
+		cp $(DATE_DIR)/$$band/outputs/script_$(DATE)_nominal.txt $(HOLDERS_DIR)/$$band/output/magiq_backup_$$band.txt; \
+		echo "✅ Magiq script copied for band $$band"; \
+	done
+	@echo "✅ All Magiq script files copied to holders directories!"
 
 # Combine all band logs into a single file
 combine_logs:
