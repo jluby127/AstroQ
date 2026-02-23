@@ -555,6 +555,49 @@ class SemesterPlanner(object):
         rhs = self.model.objval + epsilon
         self.model.addConstr(lhs <= rhs, 'fix_previous_objective')
 
+    def set_objective_intra_program_priority(self):
+        """
+        Set intra-program priority objective:
+
+          sum over programs p of (1/N_p) * ( sum over (r,d,s) with r in R_p of 2^{w_r} Y_{r,d,s} )
+
+        where N_p = sum over r in R_p of 2^{w_r} * t_{visit,r} * n_{intra,max,r} * n_{inter,max,r}
+        (normalization per program), w_r = weight of request r, Y_{r,d,s} = binary schedule variable.
+        """
+        logs.info("Objective: Intra-program priorities.")
+        weight_by_id = self.requests_frame.set_index('unique_id')['weight']
+        t_visit_by_id = self.strategy.set_index('unique_id')['t_visit']
+        n_intra_by_id = self.requests_frame.set_index('unique_id')['n_intra_max']
+        n_inter_by_id = self.requests_frame.set_index('unique_id')['n_inter_max']
+
+        program_request_ids = {
+            p: set(self.requests_frame[self.requests_frame['program_code'] == p]['unique_id'])
+            for p in self.requests_frame['program_code'].unique()
+        }
+        # N_p = sum over r in R_p of 2^{w_r} * t_visit,r * n_intra_max,r * n_inter_max,r
+        N_p = {}
+        for p in program_request_ids:
+            total = 0.0
+            for r in program_request_ids[p]:
+                tw = 2 ** int(weight_by_id.loc[r])
+                tv = int(t_visit_by_id.loc[r])
+                ni = int(n_intra_by_id.loc[r])
+                nj = int(n_inter_by_id.loc[r])
+                total += tw * tv * ni * nj
+            N_p[p] = total if total > 0 else 1.0
+
+        self.model.setObjective(
+            gp.quicksum(
+                (1.0 / N_p[p]) * gp.quicksum(
+                    (2 ** int(weight_by_id.loc[r])) * self.Yrds[r, d, s]
+                    for r, d, s in self.observability_tuples
+                    if r in program_request_ids[p]
+                )
+                for p in program_request_ids
+            ),
+            GRB.MAXIMIZE
+        )
+
     def set_objective_maximize_slots_used(self):
         """
         Bonus round constraint: not featured in Lubin et al. 2025.
