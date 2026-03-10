@@ -328,7 +328,7 @@ class SemesterPlanner(object):
         for n, row in self.requests_frame.iterrows():
             starid = row['unique_id']
             exposure_time = float(row['exptime']*row['n_exp'])
-            overhead = 45*float(row['n_exp'] - 1) + 180*float(row['n_intra_max'])
+            overhead = 45*float(row['n_exp'] - 1) #+ 180*float(row['n_intra_max'])
             
             if always_round_up_flag:
                 slots_needed = int(np.ceil((exposure_time + overhead) / (self.slot_size * 60.0)))
@@ -574,6 +574,14 @@ class SemesterPlanner(object):
             p: set(self.requests_frame[self.requests_frame['program_code'] == p]['unique_id'])
             for p in self.requests_frame['program_code'].unique()
         }
+
+        print('--------------------------------')
+        print('--------------------------------')
+        print("program_request_ids dictionary:")
+        print(program_request_ids)
+        print('--------------------------------')
+        print('--------------------------------')
+        
         # N_p = sum over r in R_p of 2^{w_r} * t_visit,r * n_intra_max,r * n_inter_max,r
         N_p = {}
         for p in program_request_ids:
@@ -585,6 +593,25 @@ class SemesterPlanner(object):
                 nj = int(n_inter_by_id.loc[r])
                 total += tw * tv * ni * nj
             N_p[p] = total if total > 0 else 1.0
+
+        print('--------------------------------')
+        print('--------------------------------')
+        print("N_p dictionary:")
+        print(N_p)
+        print('--------------------------------')
+        print('--------------------------------')
+
+        # self.model.setObjective(
+        #     gp.quicksum(
+        #         (1.0 / N_p[p]) * gp.quicksum(
+        #             (2 ** int(weight_by_id.loc[r])) * self.Yrds[r, d, s]
+        #             for r, d, s in self.observability_tuples
+        #             if r in program_request_ids[p]
+        #         )
+        #         for p in program_request_ids
+        #     ),
+        #     GRB.MAXIMIZE
+        # )
 
         self.model.setObjective(
             gp.quicksum(
@@ -795,7 +822,8 @@ class SemesterPlanner(object):
         self.serialize_results_csv()
         if self.run_bonus_round:
             self.round_info = 'Round2'
-            self.build_model_round2()
+            self.build_model_round2_priority()
+            # self.build_model_round2()
             self.optimize_model()
             self.serialize_results_csv()
         logs.info("Scheduling complete, clear skies!")
@@ -830,6 +858,18 @@ class SemesterPlanner(object):
         self.constraint_set_max_absolute_unique_nights_Wrd()
         self.constraint_fix_previous_objective()
         self.set_objective_maximize_slots_used()
+        logs.info(f"Time to build constraints: {np.round(time.time()-t1,3):.3f}")
+
+    def build_model_round2_priority(self):
+        """
+        Implement the constraints and objective function for Round 2. Not described in Lubin et al. 2025.
+
+        Returns:
+            None
+        """
+        t1 = time.time()
+        self.constraint_fix_previous_objective()
+        self.set_objective_intra_program_priority()
         logs.info(f"Time to build constraints: {np.round(time.time()-t1,3):.3f}")
 
     def serialize_results_csv(self):
