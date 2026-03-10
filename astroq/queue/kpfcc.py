@@ -8,6 +8,7 @@ New observatories should write their own module to connect to a new "prep <your 
 import json
 import logging
 import os
+import h5py
 
 # Third-party imports
 import numpy as np
@@ -554,6 +555,54 @@ def sort_good_bad(OBs, awarded_programs):
 
     return trimmed_good, bad_OBs_values, bad_OBs_hasFields
 
+def load_fit_results_h5(filename):
+    """
+    Load fit_results and equations dict from an HDF5 file saved by save_fit_results_h5.
+    Returns (fit_results, equations).
+    """
+    fit_results = []
+    with h5py.File(filename, "r") as f:
+        for key in sorted(
+            [k for k in f.keys() if k.startswith("bin_")],
+            key=lambda x: int(x.split("_")[1]),
+        ):
+            grp = f[key]
+            params = np.array(grp["params"])
+            if np.isnan(params).all():
+                params = None
+            else:
+                params = params.tolist()
+
+            fit_results.append({
+                "tmin": grp.attrs["tmin"],
+                "tmax": grp.attrs["tmax"],
+                "x": np.array(grp["x"]),
+                "y": np.array(grp["y"]),
+                "color": np.array(grp["color"]),
+                "params": params,
+            })
+
+        eq_grp = f["equations"]
+        equations = {k: eq_grp.attrs[k] for k in eq_grp.attrs}
+
+    return fit_results, equations
+
+def compute_exposure_info(equations, gmag, thresh):
+
+    mag_to_EMcounts_slope = equations['mag_to_EMcounts_slope']
+    mag_to_EMcounts_intercept = equations['mag_to_EMcounts_intercept']
+    EMcounts_to_SCIcounts_slope = equations['EMcounts_to_SCIcounts_slope']
+    EMcounts_to_SCIcounts_intercept = equations['EMcounts_to_SCIcounts_intercept']
+    
+    thresh_raw = (thresh*10**9) #EM cuts off at MegaPhotons per Angstrom. Each EM band is 100nm wide = 1000 Angstrom. Including the "Mega" together this makes 10**9
+    
+    lograte = mag_to_EMcounts_slope*gmag + mag_to_EMcounts_intercept # the fitted linear relationship of gmag to log count rate
+    rate = (10**lograte) # counts/sec at gmag
+    time = thresh_raw / rate # time in sec
+    spectrum_counts_g = EMcounts_to_SCIcounts_slope*thresh_raw + EMcounts_to_SCIcounts_intercept # the fitted linear relationship of EM counts to L1 counts at 652nm
+
+    return time, spectrum_counts_g
+
 def recompute_exposure_times(request_frame, slowdown_factor):
     """
     Recompute the exposure times for the request frame based on the band number slowdown factor.
@@ -565,20 +614,22 @@ def recompute_exposure_times(request_frame, slowdown_factor):
     Returns:
         new_exptimes (list): a list of the new exposure times based on slowdown. 
     """
-    # These values determined emperically using KPF data spanning a year. 
-    # Do not change unless you have good reason.
-    factor = 40
-    slope_median = -0.362
-    intercept_median = 8.889
-
-    rate = slope_median*request_frame['gmag'] + intercept_median
-    time = (request_frame['exp_meter_threshold']*factor*10**6)/(10**rate)
-    time = time.clip(lower=12)
-    if slowdown_factor > 1:
-        newtime = (time * slowdown_factor).clip(upper=request_frame["exptime"]).round().astype("Int64")
-    else:
-        newtime = (time * slowdown_factor).clip(lower=request_frame["exptime"]).round().astype("Int64")
-    return newtime
+    # load models of empirical ETC. These models will need to be updated whenever there are changes to the instrument. 
+    fits_saved, equations_saved = load_fit_results_h5("data/KPF_Empirical_ETC_Feb2026_fits.h5")
+    new_exptimes = []
+    for i in range(len(request_frame)):
+        # the default value is 50k. This means the PI doesn't want to terminate via meter. Values above 2 are invalid as they require very long exposure times even for bright stars.
+        if request_frame['exp_meter_threshold'].iloc[i] < 2.0:
+            time, spectrum_counts_g = compute_exposure_info(equations_saved, request_frame['gmag'].iloc[i], request_frame['exp_meter_threshold'].iloc[i])
+            newtime = (int(time) * slowdown_factor)
+            # always keep the longer time, expecting PIs to place the exptime field as 4x the nominal time.
+            if newtime < request_frame['exptime'].iloc[i]:
+                new_exptimes.append(newtime)
+            else:
+                new_exptimes.append(request_frame['exptime'].iloc[i])
+        else:  
+            new_exptimes.append(request_frame['exptime'].iloc[i])
+    return new_exptimes
 
 def analyze_bad_obs(trimmed_good, bad_OBs_values, bad_OBs_hasFields, awarded_programs, required_fields=required_fields):
     """
