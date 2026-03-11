@@ -5,3 +5,10 @@ pandas
 astropy
 astroplan
 requests
+plotly
+imageio
+matplotlib
+seaborn
+flask
+h5py
+jinja2
