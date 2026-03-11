@@ -35,17 +35,17 @@ logs = logging.getLogger(__name__)
 
 class SemesterPlanner(object):
     """
-    Define the SemesterPlanner object. This is the heart of AstroQ. 
-    This object: 
-        - manages and holds the parameters defined in the config.ini 
-        - constructs additional metadata for easy sharing/storage across functions
-        - builds the Gurobi model
-        - defines the constraints
-        - sets the objective function
-        - kicks off the model solver
-        - serializes the results to a csv file
-        - saves the object to an hdf5 file for use later by the nplan and plot modules
-     """
+    Define the SemesterPlanner object. This is the heart of AstroQ.
+    This object:
+    - manages and holds the parameters defined in the config.ini
+    - constructs additional metadata for easy sharing/storage across functions
+    - builds the Gurobi model
+    - defines the constraints
+    - sets the objective function
+    - kicks off the model solver
+    - serializes the results to a csv file
+    - saves the object to an hdf5 file for use later by the nplan and plot modules
+    """
 
     def __init__(self, cf, run_band3):
         """
