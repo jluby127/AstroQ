@@ -63,3 +63,6 @@ autodoc_default_options = {
 # Napoleon settings (Google/NumPy docstrings)
 napoleon_google_docstring = True
 napoleon_numpy_docstring = True
+
+# Mock packages not installed on Read the Docs (gurobipy requires a license; ttp is external)
+autodoc_mock_imports = ['gurobipy', 'ttp']
