@@ -22,6 +22,7 @@ import base64
 import astroq.access as ac
 import astroq.benchmarking as bn
 import astroq.queue.kpfcc as kpfcc
+import astroq.queue.hirescps as hirescps
 import astroq.history as hs
 import astroq.io as io
 import astroq.nplan as nplan
@@ -69,6 +70,137 @@ def bench(args):
     schedule = splan.SemesterPlanner(cf, run_band3=False)
     schedule.run_model()
     return
+
+urls = ['https://docs.google.com/spreadsheets/d/1cjmWsht6d_Q2OrM5mhDz3mHwcPjQhYzm346Oyn3muM8/edit?usp=sharing']
+
+def hirescps_prep(args):
+    """
+    Prepare the CPS HIRES queue for a new night. This function is specific to the CPS HIRES program.
+    If you are adapting AstroQ for a new observatory, you will need to write your own module to connect to a new prep <your observatory> command.
+    
+    Args:
+        args (argparse.Namespace): the command line arguments with flags:
+            -cf (str): the path to the config file.
+            -band_number (int): the band number to filter the request.csv by.
+            -is_full_band (bool): whether this is a full-band that should update allocation.csv.
+            -allo_source (str): the source of the allocation information, either 'db' or a file path.
+            -past_source (str): the source of the past history information, either 'db' or a file path.
+            -request_source (str): the source of the request information, either 'db' or a file path.
+            -filler_programs (str): the semester ID for the filler program. Ex. 2025B_E473.
+    
+    Returns:
+        None
+    """
+    cf = args.config_file
+    print(f'kpfcc_prep function: config_file is {cf}')
+    config = ConfigParser()
+    config.read(cf)
+    band_number = args.band_number
+    is_full_band = args.is_full_band
+
+    # Get workdir from global section
+    workdir = str(config.get('global', 'workdir'))
+    savepath = workdir
+    semester = str(config.get('global', 'semester'))
+    start_date = str(config.get('global', 'semester_start_day'))
+    end_date = str(config.get('global', 'semester_end_day'))
+    current_date = str(config.get('global', 'current_day'))
+    start = datetime.strptime(start_date, "%Y-%m-%d")
+    end = datetime.strptime(end_date, "%Y-%m-%d")
+    n_days = (end - start).days
+
+    # CAPTURE ALLOCATION INFORMATION AND PROCESS
+    # --------------------------------------------
+    # --------------------------------------------
+    allo_source = args.allo_source
+    allocation_file = str(config.get('data', 'allocation_file'))
+    # pull the allocation 
+    if allo_source == 'db':
+        print(f'Pulling allocation information from database')
+        conversion_ratio = config.getfloat('semester', 'hours_per_night')
+        allocation_frame, hours_by_program, nights_by_program = kpfcc.pull_allocation_info(start_date, n_days, 'HIRES', conversion_ratio)
+        awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())] 
+        programmatics = pd.DataFrame({'program': awarded_programs, 'hours': list(hours_by_program.values()), 'nights': list(nights_by_program.values())})
+        # Manually add one row with for the Engineering program of bright backup stars. Arbitrarily give it 50 night of time. This is intentionally high so that this "program" is not effectively throttled.
+        programmatics = pd.concat([programmatics, pd.DataFrame([{'program': args.filler_programs, 'hours': 600.0, 'nights': 50.0}])], ignore_index=True)
+        programmatics.to_csv(os.path.join(savepath, 'programs.csv'), index=False)
+    else:
+        print(f'Using allocation information from Keck Observatory Instrument Plan (KOIP) file: {allo_source}')
+        allocation_frame, hours_by_program, nights_by_program = kpfcc.format_keck_allocation_info(allo_source)
+        awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())]
+        programmatics = pd.DataFrame({'program': awarded_programs, 'hours': list(hours_by_program.values()), 'nights': list(nights_by_program.values())})
+        programmatics.to_csv(os.path.join(savepath, 'programs.csv'), index=False)
+
+    allocation_frame['comment'] = [''] * len(allocation_frame)
+    # Update allocation times for tonight if this is a full-band
+    if is_full_band:
+        print("Updating allocation.csv for full-band")
+        allocation_frame = kpfcc.update_allocation_file(allocation_frame, current_date)
+    allocation_frame.sort_values(by='start', inplace=True)
+    allocation_frame.to_csv(os.path.join(savepath, allocation_file), index=False)
+
+    # CAPTURE REQUEST INFORMATION AND PROCESS
+    # --------------------------------------------
+    # --------------------------------------------
+    if args.request_source == 'db':
+        # Add filler programs if specified
+        fillers = args.filler_programs
+        # temporarily comment out this block for 2025B.
+        if fillers is not None:
+            print(f'Adding filler program to awarded_programs: {fillers}')
+            awarded_programs.append(fillers)
+        # Pull the request sheet
+        request_file = str(config.get('data', 'request_file'))
+        requests_df, custom_df = hirescps.pull_requests(urls, skip_rows=2)
+        requests_df.to_csv(os.path.join(savepath, request_file), index=False)
+    
+        # CAPTURE CUSTOM INFORMATION AND PROCESS
+        # --------------------------------------------
+        # --------------------------------------------
+        custom_file = str(config.get('data', 'custom_file'))
+        custom_df.to_csv(os.path.join(savepath, custom_file), index=False)
+
+        # CAPTURE FILLER REQUEST INFORMATION AND PROCESS
+        # --------------------------------------------
+        # --------------------------------------------
+        # Now get the bright backup stars information from the filler program
+        filler_file = str(config.get('data', 'filler_file'))
+        fillers_df, fillers_custom_df = hirescps.pull_requests(urls, skip_rows=2)
+        fillers_df.to_csv(os.path.join(savepath, filler_file), index=False)
+
+    else:
+        print(f'User specified request source: {args.request_source}')
+        print("No action taken on request.csv")
+        print("User must also supply a custom.csv file and a filler.csv file.")
+
+
+    # CAPTURE PAST HISTORY INFORMATION AND PROCESS
+    # --------------------------------------------
+    # --------------------------------------------
+    past_source = args.past_source
+    past_file = str(config.get('data', 'past_file'))
+    if past_source == 'db':
+        print(f'Pulling past history information from database')
+        hirescps.get_hires_past_history(path_to_csv=os.path.join(savepath, past_file))
+
+    else:
+        print(f'Using past history information from file: {past_source}')
+        # Validate that the file has the correct columns
+        expected_columns = ['id', 'target', 'semid', 'timestamp', 'exposure_start_time', 'exposure_time', 'observer']
+        if os.path.exists(past_source):
+            df = pd.read_csv(past_source, nrows=0)
+            actual_columns = set(df.columns)
+            expected_set = set(expected_columns)
+            missing_columns = expected_set - actual_columns
+            if missing_columns:
+                logging.warning(f"Past history file '{past_source}' is missing required columns: {missing_columns}")
+            else:
+                print(f"Past history file columns validated: all required columns present")
+        else:
+            logging.warning(f"Past history file '{past_source}' does not exist")
+
+    return
+
 
 def kpfcc_prep(args):
     """

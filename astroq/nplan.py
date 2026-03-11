@@ -19,6 +19,7 @@ import astroq.access as ac
 import astroq.io as io
 from astroq.splan import SemesterPlanner
 import astroq.queue.kpfcc as kpfcc
+import astroq.queue.hirescps as hirescps
 
 # TTP imports (assuming TTP is installed separately)
 import ttp.formatting as formatting
@@ -344,7 +345,7 @@ class NightPlanner(object):
         use_frame = pd.DataFrame({'unique_id': use_star_ids, 'Target': use_starnames, 'StartExposure': use_start_exposures})
         use_frame.to_csv(observe_order_file, index=False)
 
-        kpfcc.write_starlist(selected_df, solution.plotly, observation_start_time, solution.extras,
+        hirescps.write_starlist(selected_df, solution.plotly, observation_start_time, solution.extras,
                             [], str(self.current_day), observers_path)
         print("The optimal path through the sky for the selected stars is found. Clear skies!")
 
