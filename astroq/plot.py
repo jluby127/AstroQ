@@ -2743,6 +2743,72 @@ REQUEST_FRAME_COLUMN_TOOLTIPS = {
 }
 
 
+def past_history_table(semester_planner, star_plotters, table_id='past-history-table', page_size=25):
+    """
+    Build a table of past observation history for the given StarPlotter objects.
+
+    Columns: starname, total past exposures, total past exposure time, dates
+    (list of timestamps YYYY-MM-DD HH:MM for each exposure).
+
+    Args:
+        semester_planner: SemesterPlanner instance (for past_history).
+        star_plotters (list): List of StarPlotter objects.
+        table_id (str): HTML id for the table.
+        page_size (int): DataTables page size.
+
+    Returns:
+        str: HTML string for the table (with DataTables).
+    """
+    past_history = getattr(semester_planner, 'past_history', {}) or {}
+    rows = []
+    for star in star_plotters:
+        uid = str(star.unique_id)
+        starname = getattr(star, 'starname', uid)
+        hist = past_history.get(uid)
+        if hist is not None:
+            n_exp = hist.total_n_exposures
+            total_sec = hist.total_open_shutter_time
+            total_hr = total_sec / 3600.0 if total_sec else 0
+            time_str = f'{total_hr:.2f} hr' if total_sec else '0'
+            times = getattr(hist, 'exposure_start_times', [])
+            dates_str = '<br/>'.join(times) if times else ''
+        else:
+            n_exp = 0
+            time_str = '0'
+            dates_str = ''
+        rows.append({
+            'starname': starname,
+            'total_past_exposures': n_exp,
+            'total_past_exposure_time': time_str,
+            'dates': dates_str,
+        })
+    df = pd.DataFrame(rows)
+    if df.empty:
+        df = pd.DataFrame(columns=['starname', 'total_past_exposures', 'total_past_exposure_time', 'dates'])
+    df = df.fillna('')
+    column_headers = ['Starname', 'Total past exposures', 'Total past exposure time', 'Dates (YYYY-MM-DD HH:MM)']
+    df.columns = column_headers
+    table_html = df.to_html(classes='table table-striped table-hover', index=False, escape=False, table_id=table_id)
+    custom_css = f"""
+    <style>
+    #{table_id} {{ width: auto !important; max-width: 100%; border-collapse: collapse; font-size: 21px; margin: 10px 0; }}
+    #{table_id} thead th {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; font-weight: 600; padding: 8px 12px; text-align: left; }}
+    #{table_id} tbody td {{ padding: 8px 12px; border-bottom: 1px solid #eee; }}
+    #{table_id} tbody tr:hover {{ background-color: rgba(102, 126, 234, 0.08); }}
+    </style>
+    """
+    script = f"""
+    <script>
+    document.addEventListener("DOMContentLoaded", function () {{
+        if ($.fn.DataTable && !$.fn.DataTable.isDataTable("#{table_id}")) {{
+            $("#{table_id}").DataTable({{ pageLength: {page_size}, order: [[1, "desc"]] }});
+        }}
+    }});
+    </script>
+    """
+    return custom_css + '<h3>Past observation history</h3>' + table_html + script
+
+
 def request_frame_to_html(request_df, semester_code=None, date=None, band=None, table_id='request-table', page_size=25):
     """
     Convert a request frame (from request.csv) to HTML for admin/program/star pages.

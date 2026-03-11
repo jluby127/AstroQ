@@ -902,6 +902,7 @@ class SemesterPlanner(object):
                             'total_open_shutter_time': star_hist.total_open_shutter_time,
                             'n_obs_on_nights': star_hist.n_obs_on_nights,
                             'n_visits_on_nights': star_hist.n_visits_on_nights,
+                            'exposure_start_times': getattr(star_hist, 'exposure_start_times', []),
                         }
                     f.attrs[hdf5_key] = json.dumps(past_history_serialized)
                 else:
@@ -1021,7 +1022,8 @@ class SemesterPlanner(object):
                             total_n_unique_nights=hist_data['total_n_unique_nights'],
                             total_open_shutter_time=hist_data['total_open_shutter_time'],
                             n_obs_on_nights=hist_data['n_obs_on_nights'],
-                            n_visits_on_nights=hist_data['n_visits_on_nights']
+                            n_visits_on_nights=hist_data['n_visits_on_nights'],
+                            exposure_start_times=hist_data.get('exposure_start_times', [])
                         )
                         past_history[star_id] = star_hist
                     setattr(instance, attr_name, past_history)

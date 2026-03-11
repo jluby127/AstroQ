@@ -191,7 +191,9 @@ def render_admin_page(semester_code, date, band):
 
     figures_html = [fig_timebar_html, fig_timebar_by_program_html, fig_cof_html1, fig_cof_html2, fig_birdseye_html, fig_rawobs_html, fig_tau_inter_line_html, fig_football_html]
 
-    return render_template("admin.html", tables_html=[request_table_html], figures_html=figures_html, timestamp=semester_planner_timestamp)
+    past_history_table_html = pl.past_history_table(semester_planner, all_stars_from_all_programs)
+
+    return render_template("admin.html", tables_html=[request_table_html, past_history_table_html], figures_html=figures_html, timestamp=semester_planner_timestamp)
 
 def render_program_page(semester_code, date, band, program_code):
     """Render the program overview page for a specific program"""
@@ -224,10 +226,12 @@ def render_program_page(semester_code, date, band, program_code):
     fig_rawobs_html = pio.to_html(fig_rawobs, full_html=True, include_plotlyjs='cdn')
 
     figures_html = [fig_timebar_html, fig_cof_html, fig_birdseye_html, fig_rawobs_html, fig_tau_inter_line_html, fig_football_html]
-    
+
+    past_history_table_html = pl.past_history_table(semester_planner, program_stars)
+
     return render_template("semesterplan.html", 
                          programname=program_code, 
-                         tables_html=[request_table_html], 
+                         tables_html=[request_table_html, past_history_table_html], 
                          figures_html=figures_html, 
                          programs=[program_code],
                          timestamp=semester_planner_timestamp)
@@ -264,7 +268,8 @@ def render_star_page(starname, program_code=None):
                 fig_football_html = pio.to_html(fig_football, full_html=True, include_plotlyjs='cdn')
                 fig_rawobs_html = pio.to_html(fig_rawobs, full_html=True, include_plotlyjs='cdn')
 
-                tables_html = [request_table_html]
+                past_history_table_html = pl.past_history_table(semester_planner, [star_obj])
+                tables_html = [request_table_html, past_history_table_html]
                 figures_html = [fig_cof_html, fig_birdseye_html, fig_rawobs_html, fig_tau_inter_line_html, fig_football_html]
 
                 return render_template("star.html", starname=true_starname, tables_html=tables_html, figures_html=figures_html, timestamp=semester_planner_timestamp)
