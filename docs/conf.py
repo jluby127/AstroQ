@@ -9,7 +9,10 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.abspath('..')) # Make sure that the root directory is in the system path
+# Use __file__ so the package root is found regardless of build cwd (e.g. on Read the Docs)
+_docs_dir = os.path.dirname(os.path.abspath(__file__))
+_root_dir = os.path.abspath(os.path.join(_docs_dir, '..'))
+sys.path.insert(0, _root_dir)
 
 
 project = 'AstroQ'
@@ -42,10 +45,10 @@ exclude_patterns = []
 html_theme = 'sphinx_rtd_theme' #'alabaster' #
 html_static_path = ['_static']
 
-# Theme options to improve sidebar navigation
+# Theme options to improve sidebar navigation (-1 = show full tree)
 html_theme_options = {
     'collapse_navigation': False,
-    'navigation_depth': 4,
+    'navigation_depth': -1,
     'titles_only': False,
     'sticky_navigation': True,
 }
