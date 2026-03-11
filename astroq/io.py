@@ -280,7 +280,7 @@ def build_fullness_report(semester_planner, round_info):
         file.close()
         
 def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars, current_day,
-                    outputdir, version='nominal'):
+                    outputdir, version='nominal', inst='kpfcc'):
     """
     Generate the nightly script in the correct format.
 
@@ -321,9 +321,14 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
                                                 night_start_time)[11:16]
         last_available_hst = str(TimeDelta(solution_frame['Last Available'][i]*60,format='sec') + \
                                                 night_start_time)[11:16]
-
-        lines.append(format_kpf_row(row, start_exposure_hst, first_available_hst,last_available_hst,
-                                    current_day, filler_flag = filler_flag))
+        if inst == 'kpfcc':
+            lines.append(format_kpf_row(row, start_exposure_hst, first_available_hst,last_available_hst,
+                                        current_day, filler_flag = filler_flag))
+        elif inst == 'hirescps':
+            lines.append(format_hires_row(row, start_exposure_hst, first_available_hst,last_available_hst,
+                                        current_day, filler_flag = filler_flag))
+        else:
+            raise ValueError(f"Invalid instrument: {inst}")
 
     lines.append('')
     lines.append('X' * 45 + 'EXTRAS' + 'X' * 45)
@@ -336,8 +341,14 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
             filler_flag = False
         row = frame.loc[frame['unique_id'] == extras['Starname'][j]]
         row.reset_index(inplace=True)
-        lines.append(format_kpf_row(row, '24:00', extras['First Available'][j],
+        if inst == 'kpfcc':
+            lines.append(format_kpf_row(row, '24:00', extras['First Available'][j],
                     extras['Last Available'][j], current_day, filler_flag, True))
+        elif inst == 'hirescps':
+            lines.append(format_hires_row(row, '24:00', extras['First Available'][j],
+                    extras['Last Available'][j], current_day, filler_flag, True))
+        else:
+            raise ValueError(f"Invalid instrument: {inst}")
 
     # add buffer lines to end of file
     lines.append("")
@@ -438,6 +449,82 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
                 + jmagstring + ' ' + exposurestring + ' ' + ofstring + ' ' + scstring +  ' '
                 + numstring + ' '+ gmagstring + ' ' + teffstr + ' ' + gaiastring + ' CC '
                         + priostring + ' ' + programstring + ' ' + timestring2 +
+                         ' ' + first_available  + ' ' + last_available )
+
+    # Handle missing Observing Notes column
+    observing_notes = row.get('Observing Notes', [''])[0] if 'Observing Notes' in row else ''
+    if observing_notes and not pd.isnull(observing_notes):
+        line += (' ' + str(observing_notes))
+
+    return line
+
+def format_hires_row(row, obs_time, first_available, last_available, current_day,
+                    filler_flag = False, extra=False):
+    """
+    Format request data in the specific way needed for the script (relates to the Keck "Magiq"
+    software's data ingestion requirements).
+
+    Args:
+        row (dataframe): a single row from the requests sheet dataframe
+        obs_time (str): the timestamp of the night to begin the exposure according to the TTP.
+                        In format HH:MM in HST timezone
+        first_available (str): the timestamp of the night where the star is first accessible.
+                                In format HH:MM in HST timezone.
+        last_available (str): the timestamp of the night where the star is last accessible.
+                                In format HH:MM in HST timezone.
+        filler_flag (boolean): True of the target was added in the bonus round
+        extra (boolean): is this an "extra" target
+
+    Returns:
+        line (str): the properly formatted string to be included in the script file
+    """
+
+    equinox = '2000'
+    # Handle missing pmra/pmdec columns with default values
+    pmra = row.get('pmra', pd.Series([0.0])).iloc[0] if 'pmra' in row else 0.0
+    pmdec = row.get('pmdec', pd.Series([0.0])).iloc[0] if 'pmdec' in row else 0.0
+    updated_ra, updated_dec = pm_correcter(row['ra'].iloc[0], row['dec'].iloc[0],
+                                pmra, pmdec, current_day, equinox=equinox)
+    if updated_dec[0] != "-":
+        updated_dec = "+" + updated_dec
+
+    cpsname = hs.crossmatch_star_name(row['starname'].iloc[0])
+    namestring = ' '*(16-len(cpsname[:16])) + cpsname[:16]
+
+    # Handle missing columns with default values
+    gmag_val = row.get('gmag', [15.0])[0] if 'gmag' in row else 15.0
+    
+    try:
+        gmag_val = float(gmag_val) if gmag_val is not None else 15.0
+    except (ValueError, TypeError):
+        gmag_val = 25.0
+    
+    exposurestring = (' '*(4-len(str(int(row['exptime'].iloc[0])))) + \
+        str(int(row['exptime'].iloc[0])) + '/' + \
+        str(int(row['exptime'].iloc[0])) + ' '* \
+        (4-len(str(int(row['exptime'].iloc[0])))))
+
+    ofstring = ('1of' + str(int(row['n_intra_max'].iloc[0])))
+
+    numstring = str(int(row['n_exp'].iloc[0])) + "x"
+    gmagstring = 'vmag=' + str(np.round(float(gmag_val),1)) + \
+                                                ' '*(4-len(str(np.round(float(gmag_val),1))))
+
+    programstring = row['program_code'].iloc[0]
+    priostring = row['priority'].iloc[0]
+    deckerstring = row['decker'].iloc[0]
+    cellstring = row['cell in/out'].iloc[0]
+    exp_meter_thresholdstring = row['exp_meter_threshold'].iloc[0]
+
+    if extra == False:
+        timestring2 = str(obs_time)
+    else:
+        # designate a nonsense time
+        timestring2 = "24:00"
+
+    line = (namestring + ' ' + updated_ra + ' ' + updated_dec + ' ' + str(equinox) + ' '
+                + gmagstring + ' ' + exposurestring + ' ' + exp_meter_thresholdstring + ' ' + deckerstring +  ' '
+                + numstring + ' ' + cellstring + ' '+ priostring + ' CC '+ programstring + ' ' + timestring2 +
                          ' ' + first_available  + ' ' + last_available )
 
     # Handle missing Observing Notes column

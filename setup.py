@@ -17,7 +17,7 @@ setup(
     long_description_content_type="text/markdown",
     author="Jack Lubin",
     author_email="jblubin@ucla.edu",
-    url="https://github.com/jluby127/optimalAllocation/",
+    url="https://github.com/jluby127/AstroQ/",
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",

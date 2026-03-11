@@ -120,6 +120,48 @@ def main():
                                 )
     psr_prep_kpfcc.set_defaults(func=astroq.driver.kpfcc_prep)
 
+   ## subcommand of prep: hirescps -- Prep for a new HIRES CPS night
+    psr_prep_hirescps = prep_subpsr.add_parser('hirescps',
+                                            description="Compile and prepare all necessary files for the HIRES CPS queue program.",
+                                            prefix_chars='-'
+                                            )
+    psr_prep_hirescps.add_argument('-cf', '--config_file',
+                                type=str,
+                                required=True,
+                                help="Relative path of config file."
+                                )
+    psr_prep_hirescps.add_argument('-as', '--allo_source',
+                                type=str,
+                                default="db",
+                                help="Absolute path of observatory-provided allocation file. Use 'db' to pull from the database."
+                                )
+    psr_prep_hirescps.add_argument('-ps', '--past_source',
+                                type=str,
+                                default="db",
+                                help="Absolute path of a past history file. Use 'db' to pull from the database."
+                                )
+    psr_prep_hirescps.add_argument('-rs', '--request_source',
+                                type=str,
+                                default="db",
+                                help="Absolute path of a request file. Use 'db' to pull from the database, otherwise no action taken."
+                                )
+    psr_prep_hirescps.add_argument('-fillers', '--filler_programs',
+                                type=str,
+                                required=False,
+                                default="2025B_E473",
+                                help="The semester ID for the filler program. Ex. 2025B_E473."
+                                )
+    psr_prep_hirescps.add_argument('-band', '--band_number',
+                                type=int,
+                                required=True,
+                                help="Band number (1, 2, 3, etc.) for filtering request.csv."
+                                )
+    psr_prep_hirescps.add_argument('-full', '--is_full_band',
+                                action='store_true',
+                                help="Whether this is a full-band that should update allocation.csv."
+                                )
+    psr_prep_hirescps.set_defaults(func=astroq.driver.hirescps_prep)
+
     ## subcommand of astroq: webapp -- launch web app to view interactive plots
     psr_webapp = subpsr.add_parser('webapp', parents=[psr_parent],
                                     description="Launch web app to view interactive plots",
