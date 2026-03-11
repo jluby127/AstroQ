@@ -1,7 +1,7 @@
 .. _plot:
 
-plot
-====
+plot.py
+=======
 
 .. automodule:: astroq.plot
    :members:

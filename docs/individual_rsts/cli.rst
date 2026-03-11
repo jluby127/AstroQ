@@ -1,7 +1,7 @@
 .. _cli:
 
-cli
-===
+cli.py
+======
 
 .. automodule:: astroq.cli
    :members:
