@@ -9,7 +9,10 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.abspath('..')) # Make sure that the root directory is in the system path
+# Use __file__ so the package root is found regardless of build cwd (e.g. on Read the Docs)
+_docs_dir = os.path.dirname(os.path.abspath(__file__))
+_root_dir = os.path.abspath(os.path.join(_docs_dir, '..'))
+sys.path.insert(0, _root_dir)
 
 
 project = 'AstroQ'
