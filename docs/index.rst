@@ -28,6 +28,10 @@ Please cite the following papers if you use AstroQ in your to plan your observat
    getting_started
    ob_construction
    modules
+   individual_rsts/cli
+   individual_rsts/driver
+   individual_rsts/kpfcc
+   individual_rsts/plot
 
 Indices and tables
 ==================

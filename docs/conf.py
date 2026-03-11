@@ -45,10 +45,10 @@ exclude_patterns = []
 html_theme = 'sphinx_rtd_theme' #'alabaster' #
 html_static_path = ['_static']
 
-# Theme options to improve sidebar navigation
+# Theme options to improve sidebar navigation (-1 = show full tree)
 html_theme_options = {
     'collapse_navigation': False,
-    'navigation_depth': 4,
+    'navigation_depth': -1,
     'titles_only': False,
     'sticky_navigation': True,
 }
