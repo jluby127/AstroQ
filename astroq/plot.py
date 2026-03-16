@@ -2748,7 +2748,7 @@ def past_history_table(semester_planner, star_plotters, table_id='past-history-t
     Build a table of past observation history for the given StarPlotter objects.
 
     Columns: starname, total past exposures, total past exposure time, dates
-    (list of timestamps YYYY-MM-DD HH:MM for each exposure).
+    (unique dates with "-- N" for number of observations on that date, in the same column).
 
     Args:
         semester_planner: SemesterPlanner instance (for past_history).
@@ -2759,6 +2759,7 @@ def past_history_table(semester_planner, star_plotters, table_id='past-history-t
     Returns:
         str: HTML string for the table (with DataTables).
     """
+    from collections import Counter
     past_history = getattr(semester_planner, 'past_history', {}) or {}
     rows = []
     for star in star_plotters:
@@ -2771,7 +2772,14 @@ def past_history_table(semester_planner, star_plotters, table_id='past-history-t
             total_hr = total_sec / 3600.0 if total_sec else 0
             time_str = f'{total_hr:.2f} hr' if total_sec else '0'
             times = getattr(hist, 'exposure_start_times', [])
-            dates_str = '<br/>'.join(times) if times else ''
+            if times:
+                # Group by date (YYYY-MM-DD), count observations per date, format as "YYYY-MM-DD -- N"
+                date_counts = Counter(t[:10] for t in times)
+                dates_str = '<br/>'.join(f'{d} -- {c}' for d, c in sorted(date_counts.items()))
+            else:
+                # Fallback: use n_obs_on_nights (date -> count)
+                n_obs = getattr(hist, 'n_obs_on_nights', {}) or {}
+                dates_str = '<br/>'.join(f'{d} -- {c}' for d, c in sorted(n_obs.items())) if n_obs else ''
         else:
             n_exp = 0
             time_str = '0'
@@ -2786,7 +2794,7 @@ def past_history_table(semester_planner, star_plotters, table_id='past-history-t
     if df.empty:
         df = pd.DataFrame(columns=['starname', 'total_past_exposures', 'total_past_exposure_time', 'dates'])
     df = df.fillna('')
-    column_headers = ['Starname', 'Total past exposures', 'Total past exposure time', 'Dates (YYYY-MM-DD HH:MM)']
+    column_headers = ['Starname', 'Total past exposures', 'Total past exposure time', 'Dates -- #']
     df.columns = column_headers
     table_html = df.to_html(classes='table table-striped table-hover', index=False, escape=False, table_id=table_id)
     custom_css = f"""
