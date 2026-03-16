@@ -71,8 +71,6 @@ def bench(args):
     schedule.run_model()
     return
 
-urls = ['https://docs.google.com/spreadsheets/d/1cjmWsht6d_Q2OrM5mhDz3mHwcPjQhYzm346Oyn3muM8/edit?usp=sharing']
-
 def hirescps_prep(args):
     """
     Prepare the CPS HIRES queue for a new night. This function is specific to the CPS HIRES program.
@@ -92,7 +90,7 @@ def hirescps_prep(args):
         None
     """
     cf = args.config_file
-    print(f'kpfcc_prep function: config_file is {cf}')
+    print(f'hirescps_prep function: config_file is {cf}')
     config = ConfigParser()
     config.read(cf)
     band_number = args.band_number
@@ -151,7 +149,7 @@ def hirescps_prep(args):
             awarded_programs.append(fillers)
         # Pull the request sheet
         request_file = str(config.get('data', 'request_file'))
-        requests_df, custom_df = hirescps.pull_requests(urls, skip_rows=2)
+        requests_df, custom_df = hirescps.pull_requests(hirescps.PROGRAM_URLS_2026B, skip_rows=2)
         requests_df.to_csv(os.path.join(savepath, request_file), index=False)
     
         # CAPTURE CUSTOM INFORMATION AND PROCESS
@@ -160,13 +158,13 @@ def hirescps_prep(args):
         custom_file = str(config.get('data', 'custom_file'))
         custom_df.to_csv(os.path.join(savepath, custom_file), index=False)
 
-        # CAPTURE FILLER REQUEST INFORMATION AND PROCESS
-        # --------------------------------------------
-        # --------------------------------------------
-        # Now get the bright backup stars information from the filler program
-        filler_file = str(config.get('data', 'filler_file'))
-        fillers_df, fillers_custom_df = hirescps.pull_requests(urls, skip_rows=2)
-        fillers_df.to_csv(os.path.join(savepath, filler_file), index=False)
+        # # CAPTURE FILLER REQUEST INFORMATION AND PROCESS
+        # # --------------------------------------------
+        # # --------------------------------------------
+        # # Now get the bright backup stars information from the filler program
+        # filler_file = str(config.get('data', 'filler_file'))
+        # fillers_df, fillers_custom_df = hirescps.pull_requests(hirescps.PROGRAM_URLS_2026B, skip_rows=2)
+        # fillers_df.to_csv(os.path.join(savepath, filler_file), index=False)
 
     else:
         print(f'User specified request source: {args.request_source}')

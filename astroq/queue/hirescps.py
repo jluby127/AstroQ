@@ -27,12 +27,15 @@ from astroq.access import Access
 
 logs = logging.getLogger(__name__)
 
+# specify the google sheet URLs for each 2026B program here. 
+PROGRAM_URLS_2026B = ['https://docs.google.com/spreadsheets/d/1cjmWsht6d_Q2OrM5mhDz3mHwcPjQhYzm346Oyn3muM8/edit?usp=sharing']
+
 # Column definitions for requests tab (output: no start/stop)
 REQUEST_COLS = [
-    'unique_id', 'program_code', 'starname', 'ra', 'dec', 'exptime', 'n_exp',
+    'program_code', 'starname', 'unique_id', 'ra', 'dec', 'exptime', 'maxtime', 'n_exp',
     'n_inter_max', 'tau_inter', 'n_intra_max', 'n_intra_min', 'tau_intra',
     'minimum_elevation', 'minimum_moon_separation', 'weather_band_1',
-    'weather_band_2', 'weather_band_3', 'gaia_id', 'teff', 'jmag', 'gmag',
+    'weather_band_2', 'weather_band_3', 'gaia_id', 'teff', 'jmag', 'Vmag',
     'pmra', 'pmdec', 'epoch', 'exp_meter_threshold', 'inactive', 'decker', 'cell in/out?', 'priority', 'scriptline'
 ]
 
@@ -121,7 +124,8 @@ def _pull_sheet_via_public_csv(sheet_id, skip_rows=0):
     Fetch requests tab via public CSV export (no credentials). Customs are built
     from the start/stop columns on the requests tab. Raises if no valid tab found.
     """
-    for gid in range(50):
+    last_missing_msg = None
+    for gid in range(10):
         url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
         try:
             resp = requests.get(url, timeout=15)
@@ -135,15 +139,21 @@ def _pull_sheet_via_public_csv(sheet_id, skip_rows=0):
             continue
         try:
             df = _parse_export_csv(text, REQUEST_COLS_READ, skip_rows)
-        except ValueError:
+        except ValueError as e:
+            last_missing_msg = str(e)
             continue
         requests_df = df[REQUEST_COLS].copy()
+        if 'Vmag' in requests_df.columns:
+            requests_df = requests_df.rename(columns={'Vmag': 'gmag'})
         custom_df = _customs_from_requests_df(df)
         return requests_df, custom_df
-    raise ValueError(
-        f"Sheet {sheet_id}: no tab had required 'requests' columns (including start/stop). "
-        "Tried export gid 0..49."
+    msg = (
+        f"Sheet {sheet_id}: no tab had required 'requests' columns. "
+        f"Tried export gid 0..{gid}."
     )
+    if last_missing_msg:
+        msg += f" Last tab checked: {last_missing_msg}"
+    raise ValueError(msg)
 
 
 def pull_requests(sheet_urls, credentials_path=None, skip_rows=0):
@@ -237,6 +247,8 @@ def pull_requests(sheet_urls, credentials_path=None, skip_rows=0):
         requests_df = requests_df.copy()
         requests_df["ra"] = c.ra.deg
         requests_df["dec"] = c.dec.deg
+    if 'Vmag' in requests_df.columns:
+        requests_df = requests_df.rename(columns={'Vmag': 'gmag'})
     return requests_df, custom_df
 
 
@@ -419,8 +431,8 @@ def format_hires_row(row, obs_time, first_available, last_available, current_day
     
     exposurestring = (' '*(4-len(str(int(row['exptime'].iloc[0])))) + \
         str(int(row['exptime'].iloc[0])) + '/' + \
-        str(int(row['exptime'].iloc[0])) + ' '* \
-        (4-len(str(int(row['exptime'].iloc[0])))))
+        str(int(row['maxtime'].iloc[0])) + ' '* \
+        (4-len(str(int(row['maxtime'].iloc[0])))))
 
     ofstring = ('1of' + str(int(row['n_intra_max'].iloc[0])))
 

@@ -65,17 +65,18 @@ $(DATE_DIR)/%/plan-semester-run: $(DATE_DIR)/%/prep-run
 	@cd $(@D) && conda run -n $(CONDA_ENV) astroq plan-semester -cf config.ini 2>&1 | tee -a astroq.log
 	@touch $@
 
-# Unified prep command for all bands
+# Unified prep command for all bands (instrument read from config.ini)
 $(DATE_DIR)/%/prep-run: $(DATE_DIR)/%/config.ini
 	@echo "🔧 Running prep for band $(notdir $(@D))..."
-	@BAND_NUM=$$(echo $(notdir $(@D)) | sed 's/band//' | sed 's/full-//'); \
+	@INSTRUMENT=$$(sed -n 's/^[[:space:]]*instrument[[:space:]]*=[[:space:]]*//p' $(@D)/config.ini | tr -d ' \r\n'); \
+	BAND_NUM=$$(echo $(notdir $(@D)) | sed 's/band//' | sed 's/full-//'); \
 	IS_FULL_BAND=$$(echo $(notdir $(@D)) | grep -q '^full-' && echo "true" || echo "false"); \
 	if [ "$$IS_FULL_BAND" = "true" ]; then \
-		echo "📅 Running prep for full-band $$BAND_NUM..." && \
-		cd $(@D) && conda run -n $(CONDA_ENV) astroq prep kpfcc -cf config.ini -fillers $(FILLER_PROGRAM) -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
+		echo "📅 Running prep for full-band $$BAND_NUM (instrument=$$INSTRUMENT)..." && \
+		cd $(@D) && conda run -n $(CONDA_ENV) astroq prep $$INSTRUMENT -cf config.ini -fillers $(FILLER_PROGRAM) -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
 	else \
-		echo "📊 Running prep for band $$BAND_NUM..." && \
-		cd $(@D) && conda run -n $(CONDA_ENV) astroq prep kpfcc -cf config.ini -fillers $(FILLER_PROGRAM) -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
+		echo "📊 Running prep for band $$BAND_NUM (instrument=$$INSTRUMENT)..." && \
+		cd $(@D) && conda run -n $(CONDA_ENV) astroq prep $$INSTRUMENT -cf config.ini -fillers $(FILLER_PROGRAM) -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
 	fi
 	@touch $@
 
