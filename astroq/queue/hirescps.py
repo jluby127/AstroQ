@@ -29,6 +29,9 @@ logs = logging.getLogger(__name__)
 
 # specify the google sheet URLs for each 2026B program here. 
 PROGRAM_URLS_2026B = ['https://docs.google.com/spreadsheets/d/1cjmWsht6d_Q2OrM5mhDz3mHwcPjQhYzm346Oyn3muM8/edit?usp=sharing']
+# specify the allocation and programs manual file for the 2026B program here. 
+ALLOCATION_MANUAL_2026B = 'allocation_hires_cps_2026B.csv'
+PROGRAMS_MANUAL_2026B = 'programs_hires_cps_2026B.csv'
 
 # Column definitions for requests tab (output: no start/stop)
 REQUEST_COLS = [
@@ -310,7 +313,7 @@ def get_hires_past_history(path_to_csv):
     data["observer"] = ""
 
     # Create unique_id column
-    data["id"] = data["semid"] + "_" + data["target"]
+    data["id"] = data["target"]
     
     # make ints
     data["exposure_time"] = data["exposure_time"].astype(int)
