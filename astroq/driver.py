@@ -107,7 +107,7 @@ def hirescps_prep(args):
     end = datetime.strptime(end_date, "%Y-%m-%d")
     n_days = (end - start).days
 
-    # CAPTURE ALLOCATION INFORMATION AND PROCESS
+    # NOTE: NO allocation.csv generation. Must use a manual file. 
     # --------------------------------------------
     # --------------------------------------------
     allo_source = args.allo_source
@@ -135,7 +135,10 @@ def hirescps_prep(args):
         print("Updating allocation.csv for full-band")
         allocation_frame = kpfcc.update_allocation_file(allocation_frame, current_date)
     allocation_frame.sort_values(by='start', inplace=True)
+
+    allocation_manual = pd.read_csv(hirescps.ALLOCATION_MANUAL_2026B)
     allocation_frame.to_csv(os.path.join(savepath, allocation_file), index=False)
+
 
     # CAPTURE REQUEST INFORMATION AND PROCESS
     # --------------------------------------------
