@@ -138,7 +138,8 @@ def hirescps_prep(args):
 
     allocation_manual = pd.read_csv(hirescps.ALLOCATION_MANUAL_2026B)
     allocation_frame.to_csv(os.path.join(savepath, allocation_file), index=False)
-
+    programs_manual = pd.read_csv(hirescps.PROGRAMS_MANUAL_2026B)
+    programs_manual.to_csv(os.path.join(savepath, 'programs.csv'), index=False)
 
     # CAPTURE REQUEST INFORMATION AND PROCESS
     # --------------------------------------------
