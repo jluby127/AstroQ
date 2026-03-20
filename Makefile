@@ -3,18 +3,23 @@
 
 # Configuration variables
 # Conda environment to use for all commands
-CONDA_ENV ?= astroq
+CONDA_ENV ?= astroq-hires26b # needed to modify to use with my new environment
 WORKDIR ?= $(CC_OUTPUT_PATH)
 HOLDERS_DIR ?= $(CC_RESULTS_COPY_PATH)/$(SEMESTER)/$(DATE)
 SEMESTER_DIR = $(WORKDIR)/$(SEMESTER)
 DATE_DIR = $(SEMESTER_DIR)/$(DATE)
 
+# Directory containing this Makefile (stable even if make is run from elsewhere)
+MAKEFILE_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+# Absolute path to Keck allocation / KOIP file for astroq prep (passed as -as, not -db)
+ALLOCATION_FILE ?= $(MAKEFILE_DIR)allocation_hires_cps_2026B.csv
+
 # Changed only once per semester
-SEMESTER ?= 2026A
-START_DATE ?= 2026-02-01
-END_DATE ?= 2026-07-31
-BANDS ?= band1 band2 band3
-FILLER_PROGRAM ?= 2026A_E475
+SEMESTER ?= 2026B
+START_DATE ?= 2026-08-01
+END_DATE ?= 2026-01-31
+BANDS ?= band1
+FILLER_PROGRAM ?= 2026B_E475
 
 # Cross-platform sed in-place flag (Darwin uses -i '')
 UNAME_S := $(shell uname)
@@ -73,10 +78,10 @@ $(DATE_DIR)/%/prep-run: $(DATE_DIR)/%/config.ini
 	IS_FULL_BAND=$$(echo $(notdir $(@D)) | grep -q '^full-' && echo "true" || echo "false"); \
 	if [ "$$IS_FULL_BAND" = "true" ]; then \
 		echo "📅 Running prep for full-band $$BAND_NUM (instrument=$$INSTRUMENT)..." && \
-		cd $(@D) && conda run -n $(CONDA_ENV) astroq prep $$INSTRUMENT -cf config.ini -fillers $(FILLER_PROGRAM) -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
+		cd $(@D) && conda run -n $(CONDA_ENV) astroq prep $$INSTRUMENT -cf config.ini -fillers $(FILLER_PROGRAM) -as "$(ALLOCATION_FILE)" -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
 	else \
 		echo "📊 Running prep for band $$BAND_NUM (instrument=$$INSTRUMENT)..." && \
-		cd $(@D) && conda run -n $(CONDA_ENV) astroq prep $$INSTRUMENT -cf config.ini -fillers $(FILLER_PROGRAM) -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
+		cd $(@D) && conda run -n $(CONDA_ENV) astroq prep $$INSTRUMENT -cf config.ini -fillers $(FILLER_PROGRAM) -as "$(ALLOCATION_FILE)" -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
 	fi
 	@touch $@
 
@@ -211,6 +216,7 @@ status:
 	@echo "  End Date: $(END_DATE)"
 	@echo "  Bands: $(BANDS)"
 	@echo "  Filler Program: $(FILLER_PROGRAM)"
+	@echo "  Allocation file (-as): $(ALLOCATION_FILE)"
 	@echo "  Work Directory: $(WORKDIR)"
 	@echo "  Date Directory: $(DATE_DIR)"
 
