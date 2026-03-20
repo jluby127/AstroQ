@@ -223,10 +223,6 @@ def format_keck_allocation_info(allocation_file):
     """
     allocation = pd.read_csv(allocation_file)
     allocation.columns = allocation.columns.str.strip()
-<<<<<<< HEAD
-    # Drop trailing-comma empty columns from some exports
-    allocation = allocation.loc[:, [c for c in allocation.columns if c and not str(c).startswith("Unnamed")]]
-=======
     allocation = allocation.loc[:, ~allocation.columns.str.match(r'^Unnamed')]
     if 'StartTime' not in allocation.columns and 'Time' in allocation.columns:
         allocation = expand_keck_ops_schedule_time_column(allocation)
@@ -234,7 +230,6 @@ def format_keck_allocation_info(allocation_file):
     # Convert start and stop times to datetime for hour calculation
     allocation['start'] = pd.to_datetime(allocation['Date'] + ' ' + allocation['StartTime']).dt.strftime('%Y-%m-%dT%H:%M')
     allocation['stop'] = pd.to_datetime(allocation['Date'] + ' ' + allocation['EndTime']).dt.strftime('%Y-%m-%dT%H:%M')
->>>>>>> 039d6e59a3888ad884ab90da7ca9ad216db1c35c
 
     cols = set(allocation.columns)
 

@@ -18,7 +18,6 @@ from astropy.time import Time, TimeDelta
 import astropy.units as u
 import astroplan as apl
 import astropy.coordinates as apy
-import requests
 import re
 from bs4 import BeautifulSoup
 
@@ -27,11 +26,67 @@ from astroq.access import Access
 
 logs = logging.getLogger(__name__)
 
-# specify the google sheet URLs for each 2026B program here. 
-PROGRAM_URLS_2026B = ['https://docs.google.com/spreadsheets/d/1cjmWsht6d_Q2OrM5mhDz3mHwcPjQhYzm346Oyn3muM8/edit?usp=sharing']
-# specify the allocation and programs manual file for the 2026B program here. 
-ALLOCATION_MANUAL_2026B = 'allocation_hires_cps_2026B.csv'
-PROGRAMS_MANUAL_2026B = 'programs_hires_cps_2026B.csv'
+# Google Sheet URLs for HIRES CPS requests: set env HIRES_PROGRAM_SHEET_URLS_CSV to a CSV path
+# (column "url", or first column). Example: request_urls_2026B.csv next to the Makefile.
+
+
+def load_program_sheet_urls_from_csv(path):
+    """
+    Load Google Sheet share URLs from a CSV file.
+
+    Uses a column named ``url`` (case-insensitive) if present; otherwise the first column.
+    Skips blank cells and non-http(s) values.
+
+    Args:
+        path (str): Path to the CSV file.
+
+    Returns:
+        list of str: Sheet URLs in row order.
+    """
+    df = pd.read_csv(path)
+    if df.empty:
+        raise ValueError(f"CSV is empty: {path}")
+    key_map = {str(c).strip().lower(): c for c in df.columns}
+    col = key_map["url"] if "url" in key_map else df.columns[0]
+    urls = []
+    for raw in df[col].dropna().astype(str).str.strip():
+        s = raw.strip()
+        if not s or s.startswith("#"):
+            continue
+        if s.startswith(("http://", "https://")):
+            urls.append(s)
+    if not urls:
+        raise ValueError(f"No http(s) URLs found in {path!r} (column {col!r})")
+    return urls
+
+
+def get_program_sheet_urls():
+    """
+    Resolve the list of program Google Sheet URLs from the environment.
+
+    ``HIRES_PROGRAM_SHEET_URLS_CSV`` must point to a CSV file (see
+    :func:`load_program_sheet_urls_from_csv`).
+
+    Returns:
+        list of str
+
+    Raises:
+        ValueError: If the environment variable is unset or empty.
+        FileNotFoundError: If the path does not exist.
+    """
+    path = os.environ.get("HIRES_PROGRAM_SHEET_URLS_CSV", "").strip()
+    if not path:
+        raise ValueError(
+            "Set HIRES_PROGRAM_SHEET_URLS_CSV to the path of a CSV file listing Google Sheet "
+            "URLs (column 'url', or first column). "
+            "Example: export HIRES_PROGRAM_SHEET_URLS_CSV=/path/to/request_urls_2026B.csv"
+        )
+    if not os.path.isfile(path):
+        raise FileNotFoundError(
+            f"HIRES_PROGRAM_SHEET_URLS_CSV is not a file: {path}"
+        )
+    return load_program_sheet_urls_from_csv(path)
+
 
 # Column definitions for requests tab (output: no start/stop)
 REQUEST_COLS = [
@@ -47,9 +102,6 @@ REQUEST_COLS_READ = REQUEST_COLS + ['start', 'stop']
 
 # Column definitions for custom dataframe (built from start/stop on requests)
 CUSTOM_COLS = ['unique_id', 'starname', 'start', 'stop']
-
-# Backward compatibility alias
-cols = REQUEST_COLS
 
 
 def _parse_bracket_array(s):
@@ -295,18 +347,41 @@ def get_database_explorer(name, path_for_csv, url='https://jump.caltech.edu/expl
     session.keep_alive = False
     return
 
-def get_hires_past_history(path_to_csv):
+def get_hires_past_history(path_to_csv, semester_start_day=None):
+    """
+    Pull HIRES past history from Jump and write ``path_to_csv``.
+
+    Args:
+        path_to_csv (str): Output CSV path.
+        semester_start_day (str, optional): ``YYYY-MM-DD``; rows with ``timestamp`` strictly
+            before this calendar instant are dropped so ``past.csv`` matches the current
+            semester (avoids KeyError in internight logic when last obs is outside planned nights).
+    """
     name = 'HIRES_Queue_Past_History_for_CC'
     # comment this line out when playing with synthetic schedules
     get_database_explorer(name, path_to_csv)
     print("All KPF observations pulled from Jump. Saved to csv: " + path_to_csv)
-    
+
     data = pd.read_csv(path_to_csv)
-    
+
     data = data.rename(columns={
         "starname": "target",
         "program_name": "semid"
     })
+
+    if semester_start_day and "timestamp" in data.columns and len(data) > 0:
+        ts = pd.to_datetime(data["timestamp"], errors="coerce")
+        cutoff = pd.Timestamp(semester_start_day)
+        n_before = len(data)
+        valid_ts = ts.notna()
+        keep = valid_ts & (ts >= cutoff)
+        data = data.loc[keep].copy()
+        dropped = n_before - len(data)
+        if dropped:
+            print(
+                f"Dropped {dropped} past-history row(s) with timestamp before semester start "
+                f"{semester_start_day}."
+            )
 
     # Add dummy columns
     data["exposure_start_time"] = data["timestamp"]

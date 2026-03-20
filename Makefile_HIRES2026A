@@ -5,21 +5,23 @@
 # Conda environment to use for all commands
 CONDA_ENV ?= astroq-hires26b # needed to modify to use with my new environment
 WORKDIR ?= $(CC_OUTPUT_PATH)
-HOLDERS_DIR ?= $(CC_RESULTS_COPY_PATH)/$(SEMESTER)/$(DATE)
 SEMESTER_DIR = $(WORKDIR)/$(SEMESTER)
 DATE_DIR = $(SEMESTER_DIR)/$(DATE)
 
 # Directory containing this Makefile (stable even if make is run from elsewhere)
 MAKEFILE_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 # Absolute path to Keck allocation / KOIP file for astroq prep (passed as -as, not -db)
-ALLOCATION_FILE ?= $(MAKEFILE_DIR)allocation_hires_cps_2026B.csv
+ALLOCATION_FILE ?= $(MAKEFILE_DIR)allocation_hires_cps_2026A.csv
+ifndef HIRES_PROGRAM_SHEET_URLS_CSV
+export HIRES_PROGRAM_SHEET_URLS_CSV := $(MAKEFILE_DIR)request_urls_2026A.csv
+endif
 
 # Changed only once per semester
-SEMESTER ?= 2026B
-START_DATE ?= 2026-08-01
-END_DATE ?= 2026-01-31
-BANDS ?= band1
-FILLER_PROGRAM ?= 2026B_E475
+SEMESTER ?= 2026A
+START_DATE ?= 2026-02-01
+END_DATE ?= 2026-07-31
+BANDS ?= band1 full-band1
+FILLER_PROGRAM ?= 2026A_E475
 
 # Cross-platform sed in-place flag (Darwin uses -i '')
 UNAME_S := $(shell uname)
@@ -44,10 +46,6 @@ all: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/plan-night-complete)
 	@for band in $(BANDS); do \
 		echo "  $(DATE_DIR)/$$band/"; \
 	done
-	@echo "📋 Creating holders directories and copying ObserveOrder files..."
-	@$(MAKE) copy_observe_orders
-	@echo "📋 Copying Magiq script files to holders..."
-	@$(MAKE) copy_magiq_scripts
 	@echo "📝 Combining all band logs..."
 	@$(MAKE) combine_logs
 	@echo "🔍 Checking night plans..."
@@ -134,28 +132,6 @@ create_dirs: validate_date
 	@mkdir -p $(DATE_DIR)
 	@echo "✅ Directories created"
 
-# Copy ObserveOrder files to holders directories (doesn't depend on workflow)
-copy_observe_orders:
-	@echo "📋 Copying ObserveOrder files to holders directories..."
-	@for band in $(BANDS); do \
-		echo "📋 Copying ObserveOrder file for band $$band..."; \
-		mkdir -p $(HOLDERS_DIR)/$$band/output; \
-		cp $(DATE_DIR)/$$band/outputs/ObserveOrder_$(DATE).txt $(HOLDERS_DIR)/$$band/output/night_plan.csv; \
-		echo "✅ ObserveOrder file copied for band $$band"; \
-	done
-	@echo "✅ All ObserveOrder files copied to holders directories!"
-
-# Copy script_{date}_nominal.txt to holders as magiq_backup_{band}.txt
-copy_magiq_scripts:
-	@echo "📋 Copying Magiq script files to holders directories..."
-	@for band in $(BANDS); do \
-		echo "📋 Copying script for band $$band..."; \
-		mkdir -p $(HOLDERS_DIR)/$$band/output; \
-		cp $(DATE_DIR)/$$band/outputs/script_$(DATE)_nominal.txt $(HOLDERS_DIR)/$$band/output/magiq_backup_$$band.txt; \
-		echo "✅ Magiq script copied for band $$band"; \
-	done
-	@echo "✅ All Magiq script files copied to holders directories!"
-
 # Combine all band logs into a single file
 combine_logs:
 	@echo "📝 Combining logs from all bands..."
@@ -184,7 +160,7 @@ combine_logs:
 # Check night plans
 check_night_plans:
 	@echo "🔍 Running check_night_plans.py..."
-	@cd $(shell dirname $(firstword $(MAKEFILE_LIST))) && conda run -n $(CONDA_ENV) python check_night_plans.py -s $(SEMESTER) -d $(DATE) $(HOLDERS_DIR)
+	@cd $(shell dirname $(firstword $(MAKEFILE_LIST))) && conda run -n $(CONDA_ENV) python check_night_plans.py -s $(SEMESTER) -d $(DATE) $(DATE_DIR)
 	@echo "✅ Night plans check complete!"
 
 # Launch webapp
@@ -217,14 +193,13 @@ status:
 	@echo "  Bands: $(BANDS)"
 	@echo "  Filler Program: $(FILLER_PROGRAM)"
 	@echo "  Allocation file (-as): $(ALLOCATION_FILE)"
+	@echo "  Program sheet URLs CSV: $(HIRES_PROGRAM_SHEET_URLS_CSV)"
 	@echo "  Work Directory: $(WORKDIR)"
 	@echo "  Date Directory: $(DATE_DIR)"
 
-# Complete workflow (workflow + copy + webapp)
+# Complete workflow (workflow + webapp)
 complete: all
-	@echo "📋 Creating holders directories and copying ObserveOrder files..."
-	@$(MAKE) copy_observe_orders
 	@echo "🌐 Launching webapp..."
 	@$(MAKE) webapp
 
-.PHONY: all create_dirs clean status copy_observe_orders copy_only webapp complete combine_logs check_night_plans 
+.PHONY: all create_dirs clean status webapp complete combine_logs check_night_plans

@@ -74,37 +74,46 @@ def extract_log_statistics(log_path):
 
 
 def check_night_plan(base_path, band, output_path=None, date=None):
-    """Check if night_plan.csv exists and count the number of stars.
-    
+    """Check for a night plan file and count scheduled rows.
+
+    Looks for (in order):
+
+    1. ``<band>/output/night_plan.csv`` (holders / copied layout)
+    2. ``<band>/outputs/ObserveOrder_<date>.txt`` (AstroQ default output)
+
     Args:
         base_path: Base directory path for CSV files (should include semester/date)
         band: Band name (e.g., 'band1', 'band2', etc.)
         output_path: Base directory path for log files (CC_OUTPUT_PATH/semester/date)
-        date: Date string in YYYY-MM-DD format for checking allocation.csv
-    
+        date: Date string in YYYY-MM-DD format for checking allocation.csv and ObserveOrder name
+
     Returns:
         tuple: (exists: bool, star_count: int, log_stats: dict, error_message: str)
     """
     band_path = Path(base_path) / band
-    csv_path = band_path / "output" / "night_plan.csv"
-    
+    holders_csv = band_path / "output" / "night_plan.csv"
+    observe_order = (
+        band_path / "outputs" / f"ObserveOrder_{date}.txt" if date else None
+    )
+
     # Log path is in the output directory structure
     if output_path:
         log_path = Path(output_path) / band / "astroq.log"
     else:
         log_path = band_path / "astroq.log"
-    
+
     # Check if band directory exists
     if not band_path.exists():
         return False, 0, None, f"Band directory does not exist"
-    
-    # Check if output directory exists
-    output_dir = band_path / "output"
-    if not output_dir.exists():
-        return False, 0, None, f"Output directory does not exist"
-    
-    # Check if night_plan.csv exists
-    if not csv_path.exists():
+
+    if holders_csv.exists():
+        plan_path = holders_csv
+    elif observe_order is not None and observe_order.exists():
+        plan_path = observe_order
+    else:
+        plan_path = None
+
+    if plan_path is None:
         # Before reporting error, check if date is in allocation.csv
         if date:
             # Look for allocation.csv in the band directory or parent directory
@@ -144,14 +153,14 @@ def check_night_plan(base_path, band, output_path=None, date=None):
             # If date is not in allocation.csv, this is expected - no CC time tonight
             if not date_in_allocation:
                 return False, 0, None, "No CC Time Tonight"
-        
+
         # If we can't check allocation or date is in allocation but file still missing, report error
-        return False, 0, None, f"night_plan.csv does not exist"
-    
+        return False, 0, None, "night plan not found (output/night_plan.csv or outputs/ObserveOrder_<date>.txt)"
+
     # Try to read and count stars
     star_count = 0
     try:
-        df = pd.read_csv(csv_path)
+        df = pd.read_csv(plan_path)
         star_count = len(df)
     except Exception as e:
         return False, 0, None, f"Error reading CSV: {str(e)}"
@@ -186,7 +195,7 @@ def main():
         'holders_dir',
         nargs='?',
         default=None,
-        help='Optional: Full path to holders directory. If not provided, will construct from environment variables and flags.'
+        help='Optional: Base path containing band*/ (e.g. .../SEMESTER/DATE). If not provided, will construct from environment variables and flags.'
     )
     
     args = parser.parse_args()
@@ -256,7 +265,7 @@ def main():
         if output_dir.exists():
             print(f"📊 Checking logs in: {output_dir}")
     
-    print(f"📁 Checking night_plan.csv files in: {holders_dir}\n")
+    print(f"📁 Checking night plans under: {holders_dir}\n")
     
     results = []
     
