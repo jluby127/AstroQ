@@ -137,11 +137,6 @@ def hirescps_prep(args):
     allocation_frame.sort_values(by='start', inplace=True)
     allocation_frame.to_csv(os.path.join(savepath, allocation_file), index=False)
 
-    # allocation_manual = pd.read_csv(hirescps.ALLOCATION_MANUAL_2026B)
-    # allocation_frame.to_csv(os.path.join(savepath, allocation_file), index=False)
-    # programs_manual = pd.read_csv(hirescps.PROGRAMS_MANUAL_2026B)
-    # programs_manual.to_csv(os.path.join(savepath, 'programs.csv'), index=False)
-
     # CAPTURE REQUEST INFORMATION AND PROCESS
     # --------------------------------------------
     # --------------------------------------------
@@ -154,7 +149,9 @@ def hirescps_prep(args):
             awarded_programs.append(fillers)
         # Pull the request sheet
         request_file = str(config.get('data', 'request_file'))
-        requests_df, custom_df = hirescps.pull_requests(hirescps.PROGRAM_URLS_2026B, skip_rows=2)
+        requests_df, custom_df = hirescps.pull_requests(
+            hirescps.get_program_sheet_urls(), skip_rows=2
+        )
         requests_df.to_csv(os.path.join(savepath, request_file), index=False)
     
         # CAPTURE CUSTOM INFORMATION AND PROCESS
@@ -168,7 +165,7 @@ def hirescps_prep(args):
         # # --------------------------------------------
         # # Now get the bright backup stars information from the filler program
         # filler_file = str(config.get('data', 'filler_file'))
-        # fillers_df, fillers_custom_df = hirescps.pull_requests(hirescps.PROGRAM_URLS_2026B, skip_rows=2)
+        # fillers_df, fillers_custom_df = hirescps.pull_requests(hirescps.get_program_sheet_urls(), skip_rows=2)
         # fillers_df.to_csv(os.path.join(savepath, filler_file), index=False)
 
     else:
@@ -184,7 +181,10 @@ def hirescps_prep(args):
     past_file = str(config.get('data', 'past_file'))
     if past_source == 'db':
         print(f'Pulling past history information from database')
-        hirescps.get_hires_past_history(path_to_csv=os.path.join(savepath, past_file))
+        hirescps.get_hires_past_history(
+            path_to_csv=os.path.join(savepath, past_file),
+            semester_start_day=start_date,
+        )
 
     else:
         print(f'Using past history information from file: {past_source}')
