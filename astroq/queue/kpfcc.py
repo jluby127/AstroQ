@@ -223,8 +223,18 @@ def format_keck_allocation_info(allocation_file):
     """
     allocation = pd.read_csv(allocation_file)
     allocation.columns = allocation.columns.str.strip()
+<<<<<<< HEAD
     # Drop trailing-comma empty columns from some exports
     allocation = allocation.loc[:, [c for c in allocation.columns if c and not str(c).startswith("Unnamed")]]
+=======
+    allocation = allocation.loc[:, ~allocation.columns.str.match(r'^Unnamed')]
+    if 'StartTime' not in allocation.columns and 'Time' in allocation.columns:
+        allocation = expand_keck_ops_schedule_time_column(allocation)
+        
+    # Convert start and stop times to datetime for hour calculation
+    allocation['start'] = pd.to_datetime(allocation['Date'] + ' ' + allocation['StartTime']).dt.strftime('%Y-%m-%dT%H:%M')
+    allocation['stop'] = pd.to_datetime(allocation['Date'] + ' ' + allocation['EndTime']).dt.strftime('%Y-%m-%dT%H:%M')
+>>>>>>> 039d6e59a3888ad884ab90da7ca9ad216db1c35c
 
     cols = set(allocation.columns)
 
@@ -290,6 +300,52 @@ def format_keck_allocation_info(allocation_file):
         "(Date, Time, ProjCode) with Time like '07:49 - 13:21 ( 50%)', or "
         "(start, stop) ISO columns."
     )
+
+
+def expand_keck_ops_schedule_time_column(df):
+    """
+    Build StartTime, EndTime, and FractionOfNight from a compact Keck ops schedule ``Time`` column.
+
+    Expected ``Time`` format per row, e.g. ``07:49 - 13:21 ( 50%)``:
+    - StartTime = 07:49, EndTime = 13:21
+    - FractionOfNight = 0.5 from the percentage in parentheses
+
+    Also accepts rows without a parenthetical fraction (treated as 1.0).
+
+    Args:
+        df (pandas.DataFrame): Must include ``Date``, ``Time``, and ``ProjCode`` columns.
+
+    Returns:
+        pandas.DataFrame: Copy of ``df`` with ``StartTime``, ``EndTime``, and ``FractionOfNight`` added.
+    """
+    import re
+    required = {'Date', 'Time', 'ProjCode'}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(
+            f"expand_keck_ops_schedule_time_column: missing columns {sorted(missing)}"
+        )
+    pattern = re.compile(
+        r'^\s*(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\s*(?:\(\s*(\d+)\s*%\s*\))?\s*$',
+        re.IGNORECASE,
+    )
+    starts, ends, fracs = [], [], []
+    for raw in df['Time'].astype(str):
+        m = pattern.match(raw.strip())
+        if not m:
+            raise ValueError(
+                f"expand_keck_ops_schedule_time_column: could not parse Time cell: {raw!r}"
+            )
+        starts.append(m.group(1))
+        ends.append(m.group(2))
+        pct = m.group(3)
+        fracs.append(int(pct) / 100.0 if pct is not None else 1.0)
+    out = df.copy()
+    out['StartTime'] = starts
+    out['EndTime'] = ends
+    out['FractionOfNight'] = fracs
+    return out
+
 
 def pull_OB_histories(semester):
     """
