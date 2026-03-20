@@ -3084,11 +3084,18 @@ def nightplan_table_to_html(script_df, table_id='script-table', page_size=100):
     table_html = df.to_html(classes='table table-striped table-hover', index=False, escape=False, table_id=table_id)
     # Add tooltips to headers
     tooltips = [NIGHTPLAN_COLUMN_TOOLTIPS.get(col, '') for col in df.columns]
+    header_display = {
+        'First Available': 'First<br>Available',
+        'Start Exposure': 'Start<br>Exposure',
+        'Last Available': 'Last<br>Available',
+    }
     def _add_th_tooltip(m):
         idx = _add_th_tooltip.idx
         _add_th_tooltip.idx += 1
         t = tooltips[idx] if idx < len(tooltips) else ''
-        return f'<th data-tooltip="{escape(t)}">{m.group(1)}</th>' if t else m.group(0)
+        label = m.group(1)
+        display = header_display.get(label, label)
+        return f'<th data-tooltip="{escape(t)}">{display}</th>' if t else f'<th>{display}</th>'
     _add_th_tooltip.idx = 0
     table_html = re.sub(r'<th>([^<]*)</th>', _add_th_tooltip, table_html, count=len(df.columns))
     tfoot_cells = ''.join(['<th></th>' for _ in df.columns])
@@ -3097,7 +3104,19 @@ def nightplan_table_to_html(script_df, table_id='script-table', page_size=100):
     def visible_len(s):
         return len(re.sub(r'<[^>]+>', '', str(s)).strip())
     widths = {}
+    compact_cols = {
+        'First Available': '7ch',
+        'Start Exposure': '9ch',
+        'Last Available': '7ch',
+        'exptime': '6ch',
+        'n_exp': '5ch',
+        'n_intra_max': '7ch',
+        'tau_intra': '7ch',
+    }
     for col in df.columns:
+        if col in compact_cols:
+            widths[col] = compact_cols[col]
+            continue
         content_max = max((visible_len(c) for c in df[col]), default=0)
         header_len = len(str(col))
         ch_width = max(content_max, header_len, 1) + 2
@@ -3108,7 +3127,7 @@ def nightplan_table_to_html(script_df, table_id='script-table', page_size=100):
     col_css = ' '.join([f"#{table_id} th:nth-child({i+1}), #{table_id} td:nth-child({i+1}) {{ width: {w} !important; max-width: {w} !important; }}" for i, w in enumerate(col_widths)])
     custom_css = f"""
     <style>
-    #{table_id} {{ width: auto !important; max-width: 100%; border-collapse: collapse; font-size: 21px; margin: 10px 0; table-layout: fixed !important; }}
+    #{table_id} {{ width: 100% !important; max-width: 100%; border-collapse: collapse; font-size: 21px; margin: 10px 0; table-layout: fixed !important; }}
     {col_css}
     #{table_id} thead th {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; font-weight: 600;
         padding: 3pt; text-align: center; font-size: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help; }}
