@@ -39,7 +39,7 @@ REQUEST_COLS = [
     'n_inter_max', 'tau_inter', 'n_intra_max', 'n_intra_min', 'tau_intra',
     'minimum_elevation', 'minimum_moon_separation', 'weather_band_1',
     'weather_band_2', 'weather_band_3', 'gaia_id', 'teff', 'jmag', 'Vmag',
-    'pmra', 'pmdec', 'epoch', 'exp_meter_threshold', 'inactive', 'decker', 'cell in/out?', 'priority', 'scriptline'
+    'pmra', 'pmdec', 'epoch', 'exp_meter_threshold', 'inactive', 'decker', 'cell in/out?', 'priority',
 ]
 
 # Columns to read from requests tab (includes start/stop for building customs)
