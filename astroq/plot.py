@@ -2748,7 +2748,7 @@ def past_history_table(semester_planner, star_plotters, table_id='past-history-t
     Build a table of past observation history for the given StarPlotter objects.
 
     Columns: starname, total past exposures, total past exposure time, dates
-    (unique dates with "-- N" for number of observations on that date, in the same column).
+    (NightOf observing-night dates from n_obs_on_nights, with "-- N" counts per night).
 
     Args:
         semester_planner: SemesterPlanner instance (for past_history).
@@ -2771,15 +2771,19 @@ def past_history_table(semester_planner, star_plotters, table_id='past-history-t
             total_sec = hist.total_open_shutter_time
             total_hr = total_sec / 3600.0 if total_sec else 0
             time_str = f'{total_hr:.2f} hr' if total_sec else '0'
-            times = getattr(hist, 'exposure_start_times', [])
-            if times:
-                # Group by date (YYYY-MM-DD), count observations per date, format as "YYYY-MM-DD -- N"
-                date_counts = Counter(t[:10] for t in times)
-                dates_str = '<br/>'.join(f'{d} -- {c}' for d, c in sorted(date_counts.items()))
+            # Prefer n_obs_on_nights: keys are NightOf (observing-night YYYY-MM-DD), not local
+            # calendar dates of each exposure (post-midnight exposures share one night).
+            n_obs = getattr(hist, 'n_obs_on_nights', {}) or {}
+            if n_obs:
+                dates_str = '<br/>'.join(f'{d} -- {c}' for d, c in sorted(n_obs.items()))
             else:
-                # Fallback: use n_obs_on_nights (date -> count)
-                n_obs = getattr(hist, 'n_obs_on_nights', {}) or {}
-                dates_str = '<br/>'.join(f'{d} -- {c}' for d, c in sorted(n_obs.items())) if n_obs else ''
+                times = getattr(hist, 'exposure_start_times', [])
+                if times:
+                    # Legacy: local wall-clock date splits one night across two YYYY-MM-DD keys
+                    date_counts = Counter(t[:10] for t in times)
+                    dates_str = '<br/>'.join(f'{d} -- {c}' for d, c in sorted(date_counts.items()))
+                else:
+                    dates_str = ''
         else:
             n_exp = 0
             time_str = '0'
