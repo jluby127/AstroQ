@@ -25,6 +25,10 @@ from astroq.access import Access
 
 logs = logging.getLogger(__name__)
 
+# astroq/queue/kpfcc.py -> repo root (works regardless of cwd)
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+_KPF_EMPIRICAL_ETC_H5 = os.path.join(_REPO_ROOT, 'data', 'KPF_Empirical_ETC_Feb2026_fits.h5')
+
 # Column definitions: mapping from original names to new names and data types
 column_definitions = {
     '_id': {'new_name': 'unique_id', 'type': 'string'},
@@ -318,7 +322,7 @@ def apply_safety_valves(value_df, presence_df):
     safety_valve_defaults = {
         'target.gaia_id': 'NoGaiaName',
         'target.t_eff': -1000.0,
-        'observation.exp_meter_threshold': 50000.0, #absurdly high so that it is not used in the computation of exposure times
+        'observation.exp_meter_threshold': 100.0, #absurdly high so that it is not used in the computation of exposure times
         'schedule.num_intranight_cadence': 0,
         'schedule.num_intranight_cadence': 0,
         'schedule.num_inter_cadence': 0,
@@ -615,11 +619,11 @@ def recompute_exposure_times(request_frame, slowdown_factor):
         new_exptimes (list): a list of the new exposure times based on slowdown. 
     """
     # load models of empirical ETC. These models will need to be updated whenever there are changes to the instrument. 
-    fits_saved, equations_saved = load_fit_results_h5("data/KPF_Empirical_ETC_Feb2026_fits.h5")
+    fits_saved, equations_saved = load_fit_results_h5(_KPF_EMPIRICAL_ETC_H5)
     new_exptimes = []
     for i in range(len(request_frame)):
-        # the default value is 50k. This means the PI doesn't want to terminate via meter. Values above 2 are invalid as they require very long exposure times even for bright stars.
-        if request_frame['exp_meter_threshold'].iloc[i] < 2.0:
+        # the default value is 50k. This means the PI doesn't want to terminate via meter. Values above 5 are invalid as they require very long exposure times even for bright stars.
+        if request_frame['exp_meter_threshold'].iloc[i] < 5.0:
             time, spectrum_counts_g = compute_exposure_info(equations_saved, request_frame['gmag'].iloc[i], request_frame['exp_meter_threshold'].iloc[i])
             newtime = (int(time) * slowdown_factor)
             # always keep the longer time, expecting PIs to place the exptime field as 4x the nominal time.
