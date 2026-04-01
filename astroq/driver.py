@@ -226,7 +226,8 @@ def kpfcc_prep(args):
     if past_source == 'db':
         print(f'Pulling past history information from database')
         raw_history = kpfcc.pull_OB_histories(semester)
-        obhist = hs.write_OB_histories_to_csv(raw_history)
+        utc_offset_hours = config.getfloat('global', 'UTCoffset', fallback=-10)
+        obhist = hs.write_OB_histories_to_csv(raw_history, utc_offset_hours=utc_offset_hours)
         obhist.to_csv(os.path.join(savepath, past_file), index=False)
     else:
         print(f'Using past history information from file: {past_source}')

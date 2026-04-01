@@ -124,6 +124,7 @@ AstroQ requires six files to run. All example file paths are relative the astroq
     - ``semid`` - the program code of the target.
     - ``exposure_start_time`` - the start time of the recorded exposure. 
     - ``exposure_time`` - the recorded duration of the exposure.
+    - ``NightOf`` (optional) - observing night label, ``YYYY-MM-DDT12:00`` local standard time, equal to the local calendar date of ``exposure_start_time`` (after applying ``UTCoffset`` from config) minus one day. If omitted, it is computed the same way when past history is loaded.
 
    Example ``examples/hello_world/2018B/2018-08-05/band1/past.csv``:
 

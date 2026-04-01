@@ -73,7 +73,8 @@ class SemesterPlanner(object):
         self.semester_directory = workdir
         self.current_day = str(config.get('global', 'current_day'))
         self.observatory = config.get('global', 'observatory')
-        
+        self.utc_offset_hours = config.getfloat('global', 'UTCoffset', fallback=-10)
+
         # Get semester parameters from semester section
         self.slot_size = config.getint('semester', 'slot_size')
         self.run_weather_loss = config.getboolean('semester', 'run_weather_loss')
@@ -165,7 +166,7 @@ class SemesterPlanner(object):
         self.strategy = strategy
 
         # Compile additional data and metadata 
-        self.past_history = hs.process_star_history(self.past_file)
+        self.past_history = hs.process_star_history(self.past_file, self.utc_offset_hours)
         self.slots_needed_for_exposure_dict = self._build_slots_required_dictionary()
         self.all_dates_dict, self.all_dates_array = self._build_date_dictionary()
         self._calculate_slot_info()

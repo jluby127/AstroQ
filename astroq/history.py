@@ -12,11 +12,6 @@ import pandas as pd
 import requests
 from astropy.time import Time, TimeDelta
 
-# Global timezone offset: hours difference between local time and UT
-# Positive values mean local time is ahead of UT (e.g., +8 for UTC+8)
-# Negative values mean local time is behind UT (e.g., -10 for UTC-10)
-TIMEZONE_OFFSET_HOURS = -10  # Adjust this value for your timezone
-
 # Define StarHistory namedtuple at module level for proper pickling
 StarHistory = namedtuple('StarHistory', [
     'name',
@@ -30,12 +25,14 @@ StarHistory = namedtuple('StarHistory', [
     'exposure_start_times',  # list of "YYYY-MM-DD HH:MM" strings (local time) per exposure
 ])
 
-def write_OB_histories_to_csv(histories):
+def write_OB_histories_to_csv(histories, utc_offset_hours):
     """
     Prepare dataframe of past history for writing to CSV.
 
     Args:
         histories (json): the OB histories in json format
+        utc_offset_hours (float): local minus UT from config [global] UTCoffset; accepted for API
+            parity with prep (currently unused for these columns).
 
     Returns:
         df (pandas DataFrame): the OB histories in dataframe format
@@ -62,12 +59,14 @@ def write_OB_histories_to_csv(histories):
     return df
     
 
-def process_star_history(filename):
+def process_star_history(filename, utc_offset_hours):
     """
     Process the past.csv file to return a dict of star histories.
 
     Args:
         filename (str): the path to the past.csv file
+        utc_offset_hours (float): hours difference local minus UT (negative = local behind UT,
+            e.g. -10 for HST). Pass SemesterPlanner's value from config [global] UTCoffset.
 
     Returns:
         result (dict): a dictionary of star histories where keys are 'id', values are objects with attributes: date_last_observed, total_n_exposures, total_n_visits, total_n_unique_nights, total_open_shutter_time
@@ -114,7 +113,7 @@ def process_star_history(filename):
         ut_time = max(all_times) if all_times else None
         if ut_time:
             # Subtract timezone offset (negative offset means local time is behind UT)
-            local_time = ut_time - TimeDelta(abs(TIMEZONE_OFFSET_HOURS) / 24, format='jd')
+            local_time = ut_time - TimeDelta(abs(utc_offset_hours) / 24, format='jd')
             date_last_observed = local_time.isot[:10]
         else:
             date_last_observed = ''
@@ -135,7 +134,7 @@ def process_star_history(filename):
         for v in visits:
             for t in v['exposure_start_time']:
                 ut_time = Time(t)
-                local_time = ut_time - TimeDelta(abs(TIMEZONE_OFFSET_HOURS) / 24, format='jd')
+                local_time = ut_time - TimeDelta(abs(utc_offset_hours) / 24, format='jd')
                 exposure_start_times.append(local_time.to_value('datetime').strftime('%Y-%m-%d %H:%M'))
         result[unique_id] = StarHistory(
             name=starname,
