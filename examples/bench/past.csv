@@ -1,1 +1,1 @@
-,id,target,semid,timestamp,exposure_start_time,exposure_time,observer,comment
+id,target,semid,timestamp,exposure_start_time_UT,exposure_start_time_local,exposure_time,NightOf,observer,comment
