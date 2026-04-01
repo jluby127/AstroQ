@@ -122,8 +122,10 @@ AstroQ requires six files to run. All example file paths are relative the astroq
     - ``id`` - the unique identifier for the target.
     - ``target`` - the human-readable name of the target.
     - ``semid`` - the program code of the target.
-    - ``exposure_start_time`` - the start time of the recorded exposure. 
+    - ``exposure_start_time_UT`` - exposure start in UT (legacy column name ``exposure_start_time`` is still accepted).
+    - ``exposure_start_time_local`` - optional; wall time from ``UTCoffset`` when exporting from the OB database.
     - ``exposure_time`` - the recorded duration of the exposure.
+    - ``NightOf`` - optional ``YYYY-MM-DD`` observing-night label: local calendar date of the most recent sunset at the observatory (from config ``observatory``) before the exposure. Groups pre-midnight and post-midnight data on the same night. If omitted, it is computed when past history is loaded (sunset if the site resolves in astroplan, else a local-noon night boundary).
 
    Example ``examples/hello_world/2018B/2018-08-05/band1/past.csv``:
 
