@@ -2743,6 +2743,80 @@ REQUEST_FRAME_COLUMN_TOOLTIPS = {
 }
 
 
+def past_history_table(semester_planner, star_plotters, table_id='past-history-table', page_size=25):
+    """
+    Build a table of past observation history for the given StarPlotter objects.
+
+    Columns: starname, total past exposures, total past exposure time, dates
+    (unique dates with "-- N" for number of observations on that date, in the same column).
+
+    Args:
+        semester_planner: SemesterPlanner instance (for past_history).
+        star_plotters (list): List of StarPlotter objects.
+        table_id (str): HTML id for the table.
+        page_size (int): DataTables page size.
+
+    Returns:
+        str: HTML string for the table (with DataTables).
+    """
+    from collections import Counter
+    past_history = getattr(semester_planner, 'past_history', {}) or {}
+    rows = []
+    for star in star_plotters:
+        uid = str(star.unique_id)
+        starname = getattr(star, 'starname', uid)
+        hist = past_history.get(uid)
+        if hist is not None:
+            n_exp = hist.total_n_exposures
+            total_sec = hist.total_open_shutter_time
+            total_hr = total_sec / 3600.0 if total_sec else 0
+            time_str = f'{total_hr:.2f} hr' if total_sec else '0'
+            times = getattr(hist, 'exposure_start_times', [])
+            if times:
+                # Group by date (YYYY-MM-DD), count observations per date, format as "YYYY-MM-DD -- N"
+                date_counts = Counter(t[:10] for t in times)
+                dates_str = '<br/>'.join(f'{d} -- {c}' for d, c in sorted(date_counts.items()))
+            else:
+                # Fallback: use n_obs_on_nights (date -> count)
+                n_obs = getattr(hist, 'n_obs_on_nights', {}) or {}
+                dates_str = '<br/>'.join(f'{d} -- {c}' for d, c in sorted(n_obs.items())) if n_obs else ''
+        else:
+            n_exp = 0
+            time_str = '0'
+            dates_str = ''
+        rows.append({
+            'starname': starname,
+            'total_past_exposures': n_exp,
+            'total_past_exposure_time': time_str,
+            'dates': dates_str,
+        })
+    df = pd.DataFrame(rows)
+    if df.empty:
+        df = pd.DataFrame(columns=['starname', 'total_past_exposures', 'total_past_exposure_time', 'dates'])
+    df = df.fillna('')
+    column_headers = ['Starname', 'Total past exposures', 'Total past exposure time', 'Dates -- #']
+    df.columns = column_headers
+    table_html = df.to_html(classes='table table-striped table-hover', index=False, escape=False, table_id=table_id)
+    custom_css = f"""
+    <style>
+    #{table_id} {{ width: auto !important; max-width: 100%; border-collapse: collapse; font-size: 21px; margin: 10px 0; }}
+    #{table_id} thead th {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; font-weight: 600; padding: 8px 12px; text-align: left; }}
+    #{table_id} tbody td {{ padding: 8px 12px; border-bottom: 1px solid #eee; }}
+    #{table_id} tbody tr:hover {{ background-color: rgba(102, 126, 234, 0.08); }}
+    </style>
+    """
+    script = f"""
+    <script>
+    document.addEventListener("DOMContentLoaded", function () {{
+        if ($.fn.DataTable && !$.fn.DataTable.isDataTable("#{table_id}")) {{
+            $("#{table_id}").DataTable({{ pageLength: {page_size}, order: [[1, "desc"]] }});
+        }}
+    }});
+    </script>
+    """
+    return custom_css + '<h3>Past observation history</h3>' + table_html + script
+
+
 def request_frame_to_html(request_df, semester_code=None, date=None, band=None, table_id='request-table', page_size=25):
     """
     Convert a request frame (from request.csv) to HTML for admin/program/star pages.
@@ -3010,11 +3084,18 @@ def nightplan_table_to_html(script_df, table_id='script-table', page_size=100):
     table_html = df.to_html(classes='table table-striped table-hover', index=False, escape=False, table_id=table_id)
     # Add tooltips to headers
     tooltips = [NIGHTPLAN_COLUMN_TOOLTIPS.get(col, '') for col in df.columns]
+    header_display = {
+        'First Available': 'First<br>Available',
+        'Start Exposure': 'Start<br>Exposure',
+        'Last Available': 'Last<br>Available',
+    }
     def _add_th_tooltip(m):
         idx = _add_th_tooltip.idx
         _add_th_tooltip.idx += 1
         t = tooltips[idx] if idx < len(tooltips) else ''
-        return f'<th data-tooltip="{escape(t)}">{m.group(1)}</th>' if t else m.group(0)
+        label = m.group(1)
+        display = header_display.get(label, label)
+        return f'<th data-tooltip="{escape(t)}">{display}</th>' if t else f'<th>{display}</th>'
     _add_th_tooltip.idx = 0
     table_html = re.sub(r'<th>([^<]*)</th>', _add_th_tooltip, table_html, count=len(df.columns))
     tfoot_cells = ''.join(['<th></th>' for _ in df.columns])
@@ -3023,7 +3104,19 @@ def nightplan_table_to_html(script_df, table_id='script-table', page_size=100):
     def visible_len(s):
         return len(re.sub(r'<[^>]+>', '', str(s)).strip())
     widths = {}
+    compact_cols = {
+        'First Available': '7ch',
+        'Start Exposure': '9ch',
+        'Last Available': '7ch',
+        'exptime': '6ch',
+        'n_exp': '5ch',
+        'n_intra_max': '7ch',
+        'tau_intra': '7ch',
+    }
     for col in df.columns:
+        if col in compact_cols:
+            widths[col] = compact_cols[col]
+            continue
         content_max = max((visible_len(c) for c in df[col]), default=0)
         header_len = len(str(col))
         ch_width = max(content_max, header_len, 1) + 2
@@ -3034,7 +3127,7 @@ def nightplan_table_to_html(script_df, table_id='script-table', page_size=100):
     col_css = ' '.join([f"#{table_id} th:nth-child({i+1}), #{table_id} td:nth-child({i+1}) {{ width: {w} !important; max-width: {w} !important; }}" for i, w in enumerate(col_widths)])
     custom_css = f"""
     <style>
-    #{table_id} {{ width: auto !important; max-width: 100%; border-collapse: collapse; font-size: 21px; margin: 10px 0; table-layout: fixed !important; }}
+    #{table_id} {{ width: 100% !important; max-width: 100%; border-collapse: collapse; font-size: 21px; margin: 10px 0; table-layout: fixed !important; }}
     {col_css}
     #{table_id} thead th {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; font-weight: 600;
         padding: 3pt; text-align: center; font-size: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help; }}

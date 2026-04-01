@@ -27,6 +27,7 @@ StarHistory = namedtuple('StarHistory', [
     'total_open_shutter_time',
     'n_obs_on_nights',
     'n_visits_on_nights',
+    'exposure_start_times',  # list of "YYYY-MM-DD HH:MM" strings (local time) per exposure
 ])
 
 def write_OB_histories_to_csv(histories):
@@ -129,6 +130,13 @@ def process_star_history(filename):
             visit_date = v['timestamp'][:10]
             n_obs_on_nights[visit_date] = n_obs_on_nights.get(visit_date, 0) + len(v['exposure_start_time'])
             n_visits_on_nights[visit_date] = n_visits_on_nights.get(visit_date, 0) + 1
+        # Per-exposure timestamps in local time, format YYYY-MM-DD HH:MM
+        exposure_start_times = []
+        for v in visits:
+            for t in v['exposure_start_time']:
+                ut_time = Time(t)
+                local_time = ut_time - TimeDelta(abs(TIMEZONE_OFFSET_HOURS) / 24, format='jd')
+                exposure_start_times.append(local_time.to_value('datetime').strftime('%Y-%m-%d %H:%M'))
         result[unique_id] = StarHistory(
             name=starname,
             date_last_observed=date_last_observed,
@@ -137,7 +145,8 @@ def process_star_history(filename):
             total_n_unique_nights=total_n_unique_nights,
             total_open_shutter_time=total_open_shutter_time,
             n_obs_on_nights=n_obs_on_nights,
-            n_visits_on_nights=n_visits_on_nights
+            n_visits_on_nights=n_visits_on_nights,
+            exposure_start_times=exposure_start_times
         )
     return result
 
