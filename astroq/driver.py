@@ -227,18 +227,26 @@ def kpfcc_prep(args):
         print(f'Pulling past history information from database')
         raw_history = kpfcc.pull_OB_histories(semester)
         utc_offset_hours = config.getfloat('global', 'UTCoffset', fallback=-10)
-        obhist = hs.write_OB_histories_to_csv(raw_history, utc_offset_hours=utc_offset_hours)
+        obhist = hs.write_OB_histories_to_csv(
+            raw_history,
+            utc_offset_hours=utc_offset_hours,
+            observatory=config.get('global', 'observatory'),
+        )
         obhist.to_csv(os.path.join(savepath, past_file), index=False)
     else:
         print(f'Using past history information from file: {past_source}')
         # Validate that the file has the correct columns
-        expected_columns = ['id', 'target', 'semid', 'timestamp', 'exposure_start_time', 'exposure_time', 'observer']
+        required_columns = ['id', 'target', 'semid', 'timestamp', 'exposure_time', 'observer']
         if os.path.exists(past_source):
             df = pd.read_csv(past_source, nrows=0)
             actual_columns = set(df.columns)
-            expected_set = set(expected_columns)
-            missing_columns = expected_set - actual_columns
-            if missing_columns:
+            missing_columns = set(required_columns) - actual_columns
+            has_ut_start = (
+                'exposure_start_time_UT' in actual_columns or 'exposure_start_time' in actual_columns
+            )
+            if missing_columns or not has_ut_start:
+                if not has_ut_start:
+                    missing_columns.add('exposure_start_time_UT or exposure_start_time')
                 logging.warning(f"Past history file '{past_source}' is missing required columns: {missing_columns}")
             else:
                 print(f"Past history file columns validated: all required columns present")

@@ -166,7 +166,9 @@ class SemesterPlanner(object):
         self.strategy = strategy
 
         # Compile additional data and metadata 
-        self.past_history = hs.process_star_history(self.past_file, self.utc_offset_hours)
+        self.past_history = hs.process_star_history(
+            self.past_file, self.utc_offset_hours, observatory=self.observatory
+        )
         self.slots_needed_for_exposure_dict = self._build_slots_required_dictionary()
         self.all_dates_dict, self.all_dates_array = self._build_date_dictionary()
         self._calculate_slot_info()
