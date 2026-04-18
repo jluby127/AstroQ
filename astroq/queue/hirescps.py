@@ -88,8 +88,8 @@ def get_program_sheet_urls():
     return load_program_sheet_urls_from_csv(path)
 
 
-# Column definitions for requests tab (output: no start/stop)
-REQUEST_COLS = [
+# Shared request fields through ``priority`` (exptime/maxtime are seconds; Keck / MAGIQ convention).
+REQUEST_COLS_CORE = [
     'program_code', 'starname', 'unique_id', 'ra', 'dec', 'exptime', 'maxtime', 'n_exp',
     'n_inter_max', 'tau_inter', 'n_intra_max', 'n_intra_min', 'tau_intra',
     'minimum_elevation', 'minimum_moon_separation', 'weather_band_1',
@@ -97,8 +97,11 @@ REQUEST_COLS = [
     'pmra', 'pmdec', 'epoch', 'exp_meter_threshold', 'inactive', 'decker', 'cell in/out?', 'priority',
 ]
 
-# Columns to read from requests tab (includes start/stop for building customs)
-REQUEST_COLS_READ = REQUEST_COLS + ['start', 'stop']
+# On-disk ``request.csv`` from prep (no start/stop columns): comments last.
+REQUEST_COLS = REQUEST_COLS_CORE + ['comments']
+
+# Full Google Sheet ``requests`` tab (CPS template): … priority, start, stop, comments.
+REQUEST_COLS_READ = REQUEST_COLS_CORE + ['start', 'stop', 'comments']
 
 # Column definitions for custom dataframe (built from start/stop on requests)
 CUSTOM_COLS = ['unique_id', 'starname', 'start', 'stop']
@@ -168,6 +171,8 @@ def _parse_export_csv(text, required_cols, skip_rows):
     """
     df = pd.read_csv(io.StringIO(text), skiprows=skip_rows)
     df.columns = [str(c).strip() for c in df.columns]
+    if "comments" in required_cols and "comments" not in df.columns:
+        df["comments"] = ""
     missing = set(required_cols) - set(df.columns)
     if missing:
         raise ValueError(f"CSV missing required columns: {sorted(missing)}")
@@ -215,8 +220,10 @@ def pull_requests(sheet_urls, credentials_path=None, skip_rows=0):
     """
     Pull request and custom data from a list of Google Sheet URLs.
 
-    Reads only the "requests" tab. That tab must have REQUEST_COLS plus "start" and
-    "stop" columns. start/stop hold bracket arrays like "[2026-02-01 12:00, 2026-03-01 12:00]";
+    Reads only the "requests" tab. That tab must have columns ``REQUEST_COLS_READ``
+    (… ``priority``, ``start``, ``stop``, ``comments``). A missing ``comments`` column
+    is treated as all-empty strings.
+    ``start``/``stop`` hold bracket arrays like "[2026-02-01 12:00, 2026-03-01 12:00]";
     customs are built from those (one custom row per start/stop pair). The returned
     requests DataFrame does not include start/stop.
 
@@ -286,6 +293,8 @@ def pull_requests(sheet_urls, credentials_path=None, skip_rows=0):
             raise ValueError(f"Sheet {url[:60]}... 'requests' tab is empty.")
         req_df = pd.DataFrame(req_records)
         req_df.columns = [c.strip() for c in req_df.columns]
+        if "comments" not in req_df.columns:
+            req_df["comments"] = ""
         missing_req = set(REQUEST_COLS_READ) - set(req_df.columns)
         if missing_req:
             raise ValueError(

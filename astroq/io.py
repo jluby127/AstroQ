@@ -20,6 +20,29 @@ from jinja2 import Template
 import astroq.history as hs
 import astroq.access as ac
 
+
+def validate_active_request_unique_ids(requests_frame, request_path):
+    """
+    Raise ValueError if active requests contain duplicate ``unique_id`` values.
+
+    Duplicate IDs produce duplicate (unique_id, day, slot) keys for Gurobi variables
+    and fail with a cryptic ``Duplicate keys in Model.addVars()`` error.
+
+    Args:
+        requests_frame: DataFrame of active requests (inactive rows already removed).
+        request_path: Path to the request CSV, for error messages.
+    """
+    uid = requests_frame["unique_id"]
+    dup_mask = uid.duplicated(keep=False)
+    if not dup_mask.any():
+        return
+    dup_ids = sorted(uid[dup_mask].unique())
+    raise ValueError(
+        f"Duplicate unique_id among active requests in {request_path!r}: {dup_ids}. "
+        "Remove or merge duplicate rows so each active request has one row."
+    )
+
+
 def serialize_schedule(Yrds, semester_planner):
     """
     Turns the ragged matrix of the Gurobi solution Yrds into a human readable 

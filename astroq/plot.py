@@ -2715,12 +2715,12 @@ def plot_path_2D_interactive(data, night_start_time=None):
 REQUEST_FRAME_COLUMNS = [
     'starname', 'unique_id', 'program_code', 'ra', 'dec', 'exptime', 'n_exp',
     'n_inter_max', 'tau_inter', 'n_intra_max', 'n_intra_min', 'tau_intra',
-    'weather_band_1', 'weather_band_2', 'weather_band_3', 'inactive'
+    'weather_band_1', 'weather_band_2', 'weather_band_3', 'inactive', 'comments',
 ]
 BOOLEAN_COLUMNS = {'weather_band_1': 'Band1', 'weather_band_2': 'Band2', 'weather_band_3': 'Band3', 'inactive': 'Inactive'}
 REQUEST_FRAME_DISPLAY_NAMES = {
     'starname': 'Star', 'unique_id': 'ID', 'program_code': 'Program',
-    'ra': 'RA', 'dec': 'Dec', 'exptime': 'ExpTime'
+    'ra': 'RA', 'dec': 'Dec', 'exptime': 'ExpTime', 'comments': 'Comments',
 }
 # Tooltips shown when hovering over column headers (add your custom text here)
 REQUEST_FRAME_COLUMN_TOOLTIPS = {
@@ -2740,6 +2740,7 @@ REQUEST_FRAME_COLUMN_TOOLTIPS = {
     'Band2': 'Allowed to observe in Band2?',
     'Band3': 'Allowed to observe in Band3?',
     'Inactive': 'Is the star set to inactive?',
+    'Comments': 'Observer notes (e.g. from Keck star list)',
 }
 
 
@@ -2748,7 +2749,7 @@ def request_frame_to_html(request_df, semester_code=None, date=None, band=None, 
     Convert a request frame (from request.csv) to HTML for admin/program/star pages.
 
     Displays only: starname, unique_id, program_code, ra, dec, exptime, n_exp,
-    n_inter_max, tau_inter, n_intra_max, n_intra_min, tau_intra, Band1, Band2, Band3, Inactive.
+    n_inter_max, tau_inter, n_intra_max, n_intra_min, tau_intra, Band1, Band2, Band3, Inactive, Comments.
     Boolean columns (weather bands, inactive) are shown as Y/N with transparent green/red.
 
     Args:

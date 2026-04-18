@@ -138,6 +138,8 @@ class SemesterPlanner(object):
         if not os.path.exists(self.request_file):
             raise FileNotFoundError(f"Requests file not found: {self.request_file}")
         self.requests_frame_all = pd.read_csv(self.request_file)
+        if 'comments' not in self.requests_frame_all.columns:
+            self.requests_frame_all['comments'] = ''
         # splan must only know about the active requests
         mask = self.requests_frame_all['inactive'] == False
         logs.warning(f"There are {len(self.requests_frame_all[~mask])} inactive of {len(self.requests_frame_all)} requests.")
@@ -157,8 +159,9 @@ class SemesterPlanner(object):
                 self.requests_frame[weather_band_col] = self.requests_frame[weather_band_col].replace('None', np.nan).fillna(False)
         self.requests_frame['unique_id'] = self.requests_frame['unique_id'].astype(str)
         self.requests_frame['starname'] = self.requests_frame['starname'].astype(str)
+        io.validate_active_request_unique_ids(self.requests_frame, self.request_file)
 
-        # Build the "strategy" dataframe. Note exptime is in minutes and tau_intra is in hours they are both converted to slots here
+        # Build the "strategy" dataframe. Note exptime is in seconds and tau_intra is in hours; both are converted to slots here
         strategy = self.requests_frame[['starname', 'unique_id', 'n_intra_min','n_intra_max','n_inter_max','tau_inter']]
         strategy['t_visit'] = (self.requests_frame['exptime'] / 60 / self.slot_size).clip(lower=1).round().astype(int) 
         strategy['tau_intra'] = (self.requests_frame['tau_intra'] * 60 / self.slot_size).round().astype(int) 
@@ -996,7 +999,13 @@ class SemesterPlanner(object):
         # Load DataFrames first
         for hdf5_key, attr_name, data_type, _ in dataframe_attrs:
             setattr(instance, attr_name, pd.read_hdf(hdf5_path, key=hdf5_key))
-        
+        for attr_name in ('requests_frame', 'requests_frame_all'):
+            df = getattr(instance, attr_name)
+            if df is not None and 'comments' not in df.columns:
+                df = df.copy()
+                df['comments'] = ''
+                setattr(instance, attr_name, df)
+
         # Load other attributes from HDF5
         with h5py.File(hdf5_path, 'r') as f:
             # Load scalar/string attributes
