@@ -135,6 +135,9 @@ def hirescps_prep(args):
         print("Updating allocation.csv for full-band")
         allocation_frame = kpfcc.update_allocation_file(allocation_frame, current_date)
     allocation_frame.sort_values(by='start', inplace=True)
+
+    # Persist the allocation table selected or generated above. Avoid requiring
+    # an extra hard-coded local CSV that may not exist in the run directory.
     allocation_frame.to_csv(os.path.join(savepath, allocation_file), index=False)
 
     # CAPTURE REQUEST INFORMATION AND PROCESS
