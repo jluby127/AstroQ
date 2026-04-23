@@ -321,8 +321,14 @@ def login_JUMP():
     s = requests.session()
     s.get(login_url)
     csrftoken = s.cookies['csrftoken']
-    # you'll need to add your credentials for username and password
-    payload = {'action':'login', 'username':os.environ['KPFCC_JUMP_USERNAME'], 'password':os.environ['KPFCC_JUMP_PASSWORD'],
+    username = os.environ.get('KPFCC_JUMP_USERNAME')
+    password = os.environ.get('KPFCC_JUMP_PASSWORD')
+    if not username or not password:
+        raise RuntimeError(
+            "Missing JUMP credentials. Set KPFCC_JUMP_USERNAME and "
+            "KPFCC_JUMP_PASSWORD in the environment or in the workspace .env file."
+        )
+    payload = {'action':'login', 'username': username, 'password': password,
                'csrfmiddlewaretoken': csrftoken}
     new_login = s.post(login_url, data = payload, headers = dict(Referer = login_url))
     return s

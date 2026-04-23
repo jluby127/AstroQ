@@ -2,7 +2,8 @@
 """Query the Keck observing schedule form and list PIs by instrument.
 
 Defaults to the current semester, which for the current date resolves to 2026A.
-By default it queries the instruments KPF, KPF-CC, and HIRES.
+By default it queries the instruments KPF, KPF-CC, and HIRES and can write
+an all-scheduled allocation file.
 """
 
 from __future__ import annotations
@@ -165,7 +166,7 @@ def main() -> None:
         "-o",
         "--output",
         default=None,
-        help="Optional output filename for the draft allocation CSV.",
+        help="Optional output filename for the draft allocation CSV. Default: allocation_hires_all_scheduled.csv",
     )
     args = parser.parse_args()
 
@@ -197,7 +198,7 @@ def main() -> None:
         print()
 
     if args.draft_allocation:
-        output_name = args.output or f"allocation_hires_cps_{args.semester}.csv"
+        output_name = args.output or "allocation_hires_all_scheduled.csv"
         out_path = write_draft_allocation(all_rows, output_name)
         print(f"Draft allocation CSV written to: {out_path}")
 
