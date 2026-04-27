@@ -170,6 +170,9 @@ def _parse_export_csv(text, required_cols, skip_rows):
     Header row is at skip_rows (0-based). Raises on parse error or missing columns.
     """
     df = pd.read_csv(io.StringIO(text), skiprows=skip_rows)
+    # Ignore fully blank rows that can appear in shared sheets and otherwise
+    # propagate as NaN coordinates into SkyCoord parsing.
+    df = df.dropna(how="all")
     df.columns = [str(c).strip() for c in df.columns]
     if "comments" in required_cols and "comments" not in df.columns:
         df["comments"] = ""
@@ -185,8 +188,18 @@ def _pull_sheet_via_public_csv(sheet_id, skip_rows=0):
     from the start/stop columns on the requests tab. Raises if no valid tab found.
     """
     last_missing_msg = None
-    for gid in range(10):
-        url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
+    # Prefer by-name export for the canonical tab to avoid brittle gid probing.
+    candidate_urls = [
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet=requests",
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet=Requests",
+    ]
+    # Legacy fallback: probe common low gid values for older sheets.
+    candidate_urls.extend(
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
+        for gid in range(10)
+    )
+
+    for url in candidate_urls:
         try:
             resp = requests.get(url, timeout=15)
             resp.raise_for_status()
@@ -208,8 +221,8 @@ def _pull_sheet_via_public_csv(sheet_id, skip_rows=0):
         custom_df = _customs_from_requests_df(df)
         return requests_df, custom_df
     msg = (
-        f"Sheet {sheet_id}: no tab had required 'requests' columns. "
-        f"Tried export gid 0..{gid}."
+        f"Sheet {sheet_id}: could not read a public 'requests' tab with required columns. "
+        "Tried sheet=requests, sheet=Requests, then export gid 0..9."
     )
     if last_missing_msg:
         msg += f" Last tab checked: {last_missing_msg}"
@@ -319,7 +332,8 @@ def pull_requests(sheet_urls, credentials_path=None, skip_rows=0):
 def login_JUMP():
     login_url = 'https://jump.caltech.edu/user/login/'
     s = requests.session()
-    s.get(login_url)
+    login_page = s.get(login_url)
+    login_page.raise_for_status()
     csrftoken = s.cookies['csrftoken']
     username = os.environ.get('KPFCC_JUMP_USERNAME')
     password = os.environ.get('KPFCC_JUMP_PASSWORD')
@@ -331,15 +345,32 @@ def login_JUMP():
     payload = {'action':'login', 'username': username, 'password': password,
                'csrfmiddlewaretoken': csrftoken}
     new_login = s.post(login_url, data = payload, headers = dict(Referer = login_url))
+    new_login.raise_for_status()
+    if new_login.url.rstrip('/') == login_url.rstrip('/'):
+        raise RuntimeError(
+            'JUMP login appears to have failed: still on login page after submitting credentials. '
+            'Check KPFCC_JUMP_USERNAME/KPFCC_JUMP_PASSWORD.'
+        )
     return s
 
-def get_database_explorer(name, path_for_csv, url='https://jump.caltech.edu/explorer/', links=[]):
+def get_database_explorer(name, path_for_csv, url='https://jump.caltech.edu/explorer/', links=None):
     # log into JUMP and go to DataBase page
+    if links is None:
+        links = []
     session = login_JUMP()
     response = session.get(url)
+    response.raise_for_status()
     soup = BeautifulSoup(response.text, 'html.parser')
     # find the table of queries
     table = soup.find("tbody", attrs={"class":"list"})
+    if table is None:
+        title = soup.title.string.strip() if soup.title and soup.title.string else 'unknown title'
+        preview = ' '.join(soup.get_text(' ', strip=True).split()[:40])
+        raise RuntimeError(
+            "JUMP explorer page did not contain the expected query table. "
+            f"Fetched URL: {response.url!r}. Page title: {title!r}. "
+            f"Response preview: {preview!r}"
+        )
     # find the correct row by the query name
     for row in table.find_all("tr"):
         tab = row.find("td", attrs={"class":"name"})
@@ -355,10 +386,14 @@ def get_database_explorer(name, path_for_csv, url='https://jump.caltech.edu/expl
     # make sure it finds it before saving
     if links != []:
         response = session.get(links[0])
+        response.raise_for_status()
         # pretty sure you can just read this directly into pandas if that's what you want
         open(path_for_csv, 'wb').write(response.content)
     else:
-        print(" It isn't finding that query name, try again. (needs to be exact)")
+        raise RuntimeError(
+            f"JUMP explorer did not contain a download link for query {name!r}. "
+            "The query may have been renamed or the explorer markup may have changed."
+        )
     session.keep_alive = False
     return
 
