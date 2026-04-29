@@ -691,11 +691,22 @@ class NightPlanner(object):
                 star.target = SkyCoord(ra=ra*u.deg, dec=dec*u.deg)
                 solution.stars.append(star)
             
-            # Load observatory (recreate Keck1 object)
-            import sys
-            sys.path.append('/Users/jack/Documents/github/ttp/ttp/')
-            import telescope
-            solution.observatory = telescope.Keck1()
+            # Load observatory (recreate Keck1 object) without machine-specific paths.
+            telescope_mod = None
+            import_errors = []
+            for module_name in ("ttp.telescope", "telescope", "ttpsolver.telescope"):
+                try:
+                    import importlib
+                    telescope_mod = importlib.import_module(module_name)
+                    break
+                except Exception as e:
+                    import_errors.append(f"{module_name}: {e}")
+            if telescope_mod is None:
+                raise ImportError(
+                    "Could not import a telescope module to reconstruct observatory. "
+                    + " | ".join(import_errors)
+                )
+            solution.observatory = telescope_mod.Keck1()
         
         # Load solution.extras (convert back to dict if needed)
         with h5py.File(hdf5_path, 'r') as f:
