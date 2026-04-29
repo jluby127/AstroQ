@@ -10,6 +10,7 @@ import io
 import json
 import logging
 import os
+import urllib.parse
 # Third-party imports
 import numpy as np
 import pandas as pd
@@ -148,6 +149,34 @@ def _customs_from_requests_df(req_df):
 
 _SHEET_ID_RE = re.compile(r"/spreadsheets/d/([^/?#]+)")
 _GID_RE = re.compile(r"[?#&]gid=(\d+)")
+_FILENAME_STAR_RE = re.compile(r"filename\*=UTF-8''([^;]+)", re.IGNORECASE)
+_FILENAME_RE = re.compile(r'filename="([^"]+)"', re.IGNORECASE)
+
+
+def _workbook_title_from_response(resp):
+    """
+    Extract the Google Sheets workbook title from a CSV-export response.
+
+    Google's ``export?format=csv`` endpoint returns ``Content-Disposition``
+    of the form ``attachment; filename="<workbook> - <tab>.csv"; filename*=UTF-8''...``.
+    Prefer the RFC 5987 ``filename*=UTF-8''...`` form (which preserves the
+    space separator after URL-decoding) and split off the trailing ``- <tab>``.
+    Returns ``None`` if no filename is present in the header.
+    """
+    cd = resp.headers.get("Content-Disposition", "")
+    m = _FILENAME_STAR_RE.search(cd)
+    if m:
+        name = urllib.parse.unquote(m.group(1).strip())
+    else:
+        m = _FILENAME_RE.search(cd)
+        if not m:
+            return None
+        name = m.group(1)
+    if name.endswith(".csv"):
+        name = name[:-4]
+    if " - " in name:
+        name = name.rsplit(" - ", 1)[0]
+    return name
 
 
 def _fetch_sheet_dataframe(url, skip_rows=3):
@@ -184,8 +213,10 @@ def _fetch_sheet_dataframe(url, skip_rows=3):
         f"https://docs.google.com/spreadsheets/d/{sheet_id}"
         f"/export?format=csv&gid={gid}"
     )
+    print(f"downloading requests from {url}")
     resp = requests.get(csv_url, timeout=15)
     resp.raise_for_status()
+    title = _workbook_title_from_response(resp) or url
     text = resp.text
     stripped = text.lstrip()
     if not stripped or stripped.startswith("<!") or "<html" in stripped[:200].lower():
@@ -210,6 +241,7 @@ def _fetch_sheet_dataframe(url, skip_rows=3):
     missing = set(REQUEST_COLS_READ) - set(df.columns)
     if missing:
         raise ValueError(f"CSV missing required columns: {sorted(missing)}")
+    print(f"read {len(df)} records from {title}")
     return df[REQUEST_COLS_READ].copy()
 
 
@@ -288,93 +320,37 @@ def _dedup_requests_by_hash(requests_df, custom_df):
     return out, custom_df
 
 
-def pull_requests(sheet_urls, credentials_path=None, skip_rows=0):
+def pull_requests(sheet_urls):
     """
-    Pull request and custom data from a list of Google Sheet URLs.
+    Pull HIRES-CPS request and custom-window data from a list of public
+    Google Sheet URLs.
 
-    Reads only the "requests" tab. That tab must have columns ``REQUEST_COLS_READ``
-    (… ``priority``, ``start``, ``stop``, ``comments``). A missing ``comments`` column
-    is treated as all-empty strings.
-    ``start``/``stop`` hold bracket arrays like "[2026-02-01 12:00, 2026-03-01 12:00]";
-    customs are built from those (one custom row per start/stop pair). The returned
-    requests DataFrame does not include start/stop.
+    For each URL, fetches the relevant tab via :func:`_fetch_sheet_dataframe`
+    (Google's ``export?format=csv&gid=<GID>`` endpoint) and parses it using
+    the fixed HIRES-CPS layout. Each tab must expose the columns in
+    ``REQUEST_COLS_READ`` (canonical fields through ``priority`` plus
+    ``start``, ``stop``, ``comments``); a missing ``comments`` column is
+    backfilled as empty strings.
 
     Args:
-        sheet_urls (list of str): List of Google Sheets URLs (Share link).
-        credentials_path (str, optional): Path to service account JSON. If None,
-            uses GOOGLE_APPLICATION_CREDENTIALS env var.
-        skip_rows (int, optional): Rows to skip before the header row. Use 2 if
-            your column names are on row 3 (first two rows are comments). Default 0.
+        sheet_urls (list of str): Address-bar URLs of the per-PI tabs. Each
+            URL must include both the workbook ID and the tab-specific
+            ``gid`` (e.g. ``.../edit?gid=12345#gid=12345``). Sharing must be
+            set to "Anyone with the link".
 
     Returns:
-        tuple: (requests_df, custom_df) - requests use REQUEST_COLS; custom_df has
-        unique_id, starname, start, stop (one row per start/stop pair from requests).
+        tuple: ``(requests_df, custom_df)`` where ``requests_df`` has
+        ``REQUEST_COLS`` and ``custom_df`` has
+        ``[unique_id, starname, start, stop]``.
+
     """
-    path = credentials_path or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-    use_public = not path or not os.path.isfile(path)
-
-    if use_public:
-        request_dfs = []
-        custom_dfs = []
-        for url in sheet_urls:
-            url = (url or "").strip()
-            if not url:
-                continue
-            df = _fetch_sheet_dataframe(url, skip_rows=skip_rows)
-            request_dfs.append(df[REQUEST_COLS])
-            custom_dfs.append(_customs_from_requests_df(df))
-        requests_df = pd.concat(request_dfs, ignore_index=True) if request_dfs else pd.DataFrame(columns=REQUEST_COLS)
-        custom_df = pd.concat(custom_dfs, ignore_index=True) if custom_dfs else pd.DataFrame(columns=CUSTOM_COLS)
-        # Convert ra (HH:MM:SS.ss) and dec (+/-DD:MM:SS.s) from sexagesimal to decimal degrees
-        if not requests_df.empty and "ra" in requests_df.columns and "dec" in requests_df.columns:
-            c = SkyCoord(ra=requests_df["ra"].astype(str), dec=requests_df["dec"].astype(str), unit=(u.hourangle, u.deg))
-            requests_df = requests_df.copy()
-            requests_df["ra"] = c.ra.deg
-            requests_df["dec"] = c.dec.deg
-        requests_df, custom_df = _dedup_requests_by_hash(requests_df, custom_df)
-        return requests_df, custom_df
-
-    try:
-        import gspread
-        from google.oauth2.service_account import Credentials
-    except ImportError as e:
-        raise ImportError(
-            "pull_requests with credentials requires gspread and google-auth. "
-            "Install with: pip install gspread google-auth"
-        ) from e
-
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets.readonly",
-        "https://www.googleapis.com/auth/drive.readonly",
-    ]
-    creds = Credentials.from_service_account_file(path, scopes=scopes)
-    client = gspread.authorize(creds)
-
     request_dfs = []
     custom_dfs = []
-
     for url in sheet_urls:
         url = (url or "").strip()
-        if not url:
-            continue
-        wb = client.open_by_url(url)
-        ws_req = wb.worksheet("requests")
-        header_row = skip_rows + 1  # 1-based; skip_rows=2 -> header on row 3
-        req_records = ws_req.get_all_records(head=header_row)
-        if not req_records:
-            raise ValueError(f"Sheet {url[:60]}... 'requests' tab is empty.")
-        req_df = pd.DataFrame(req_records)
-        req_df.columns = [c.strip() for c in req_df.columns]
-        if "comments" not in req_df.columns:
-            req_df["comments"] = ""
-        missing_req = set(REQUEST_COLS_READ) - set(req_df.columns)
-        if missing_req:
-            raise ValueError(
-                f"Sheet 'requests' tab missing required columns (need start/stop): {sorted(missing_req)}"
-            )
-        request_dfs.append(req_df[REQUEST_COLS])
-        custom_dfs.append(_customs_from_requests_df(req_df))
-
+        df = _fetch_sheet_dataframe(url)
+        request_dfs.append(df[REQUEST_COLS])
+        custom_dfs.append(_customs_from_requests_df(df))
     requests_df = pd.concat(request_dfs, ignore_index=True) if request_dfs else pd.DataFrame(columns=REQUEST_COLS)
     custom_df = pd.concat(custom_dfs, ignore_index=True) if custom_dfs else pd.DataFrame(columns=CUSTOM_COLS)
     # Convert ra (HH:MM:SS.ss) and dec (+/-DD:MM:SS.s) from sexagesimal to decimal degrees
@@ -385,7 +361,6 @@ def pull_requests(sheet_urls, credentials_path=None, skip_rows=0):
         requests_df["dec"] = c.dec.deg
     requests_df, custom_df = _dedup_requests_by_hash(requests_df, custom_df)
     return requests_df, custom_df
-
 
 def login_JUMP():
     login_url = 'https://jump.caltech.edu/user/login/'
