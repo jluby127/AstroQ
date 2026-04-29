@@ -5,6 +5,7 @@ New observatories should write their own module to connect to a new "prep <your 
 """
 
 # Standard library imports
+import hashlib
 import io
 import json
 import logging
@@ -229,6 +230,81 @@ def _pull_sheet_via_public_csv(sheet_id, skip_rows=0):
     raise ValueError(msg)
 
 
+def _dedup_requests_by_hash(requests_df, custom_df):
+    """
+    Deduplicate ``requests_df`` rows that share the same ``unique_id`` across programs.
+
+    For each duplicate group the winner is the row with the lowest SHA-256 digest of
+    ``f"{program_code}__{unique_id}"``; ties (theoretically impossible for distinct
+    canonical strings) break lexicographically on ``program_code``. Losers are dropped
+    entirely and matching rows in ``custom_df`` are filtered out.
+
+    A ``logs.warning`` is emitted for every duplicate group, naming the kept program and
+    urging PIs to remove duplicates upstream.
+
+    Args:
+        requests_df (pd.DataFrame): Concatenated request rows.
+        custom_df (pd.DataFrame | None): Associated custom-window rows keyed by
+            ``unique_id``.
+
+    Returns:
+        tuple: ``(requests_df, custom_df)`` with duplicates removed.
+    """
+    if requests_df is None or requests_df.empty or "unique_id" not in requests_df.columns:
+        return requests_df, custom_df
+
+    df = requests_df.copy()
+    canonical = df["program_code"].astype(str) + "__" + df["unique_id"].astype(str)
+    scores = canonical.map(lambda s: hashlib.sha256(s.encode("utf-8")).hexdigest())
+    df = df.assign(precedence_score=scores)
+
+    keep_idx = []
+    duplicate_blocks = []
+    star_col = "starname" if "starname" in df.columns else "unique_id"
+    for uid, grp in df.groupby("unique_id", sort=False):
+        if len(grp) == 1:
+            keep_idx.append(grp.index[0])
+            continue
+        ranked = grp.sort_values(
+            ["precedence_score", "program_code"], ascending=[True, True]
+        )
+        winner_idx = ranked.index[0]
+        keep_idx.append(winner_idx)
+        block_lines = []
+        for i, row_idx in enumerate(ranked.index):
+            pc = str(ranked.loc[row_idx, "program_code"])
+            sn = str(ranked.loc[row_idx, star_col])
+            marker = "*" if i == 0 else " "
+            block_lines.append(f"  {pc} {sn} {marker}".rstrip())
+        duplicate_blocks.append("\n".join(block_lines))
+
+    if duplicate_blocks:
+        msg = (
+            "Duplicate rows exist!\n"
+            "\n"
+            "- Requests selected based on hash scheme.\n"
+            "- * indicates selected target\n"
+            "- Coordinate with PIs to resolve duplicates\n"
+            "\n"
+            + "\n\n".join(duplicate_blocks)
+        )
+        logs.warning(msg)
+
+    out = (
+        df.loc[sorted(keep_idx)]
+        .drop(columns=["precedence_score"])
+        .reset_index(drop=True)
+    )
+
+    if custom_df is not None and not custom_df.empty and "unique_id" in custom_df.columns:
+        kept_uids = set(out["unique_id"].astype(str))
+        custom_df = custom_df[
+            custom_df["unique_id"].astype(str).isin(kept_uids)
+        ].reset_index(drop=True)
+
+    return out, custom_df
+
+
 def pull_requests(sheet_urls, credentials_path=None, skip_rows=0):
     """
     Pull request and custom data from a list of Google Sheet URLs.
@@ -273,6 +349,7 @@ def pull_requests(sheet_urls, credentials_path=None, skip_rows=0):
             requests_df = requests_df.copy()
             requests_df["ra"] = c.ra.deg
             requests_df["dec"] = c.dec.deg
+        requests_df, custom_df = _dedup_requests_by_hash(requests_df, custom_df)
         return requests_df, custom_df
 
     try:
@@ -326,6 +403,7 @@ def pull_requests(sheet_urls, credentials_path=None, skip_rows=0):
         requests_df["dec"] = c.dec.deg
     if 'Vmag' in requests_df.columns:
         requests_df = requests_df.rename(columns={'Vmag': 'gmag'})
+    requests_df, custom_df = _dedup_requests_by_hash(requests_df, custom_df)
     return requests_df, custom_df
 
 
