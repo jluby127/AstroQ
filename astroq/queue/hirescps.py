@@ -146,102 +146,45 @@ def _customs_from_requests_df(req_df):
     return pd.DataFrame(rows, columns=CUSTOM_COLS) if rows else pd.DataFrame(columns=CUSTOM_COLS)
 
 
-def _parse_sheet_url(url):
+_SHEET_ID_RE = re.compile(r"/spreadsheets/d/([^/?#]+)")
+_GID_RE = re.compile(r"[?#&]gid=(\d+)")
+
+
+def _fetch_sheet_dataframe(url, skip_rows=3):
     """
-    Parse a Google Sheet URL into ``(sheet_id, gid)``.
+    Fetch one tab of a HIRES-CPS Google Sheet as a DataFrame.
 
-    Accepts URLs of the form
-    ``https://docs.google.com/spreadsheets/d/<SHEET_ID>/edit?gid=<GID>#gid=<GID>``
-    (the address-bar URL when viewing a specific tab). Both the workbook ID
-    and the per-tab ``gid`` are required.
+    Given the address-bar URL of the relevant tab (must include both the
+    workbook ID and the per-tab ``gid``, e.g.
+    ``https://docs.google.com/spreadsheets/d/<SHEET_ID>/edit?gid=<GID>#gid=<GID>``),
+    download via Google's public ``export?format=csv&gid=<GID>`` endpoint --
+    the same as File > Download > CSV in the UI -- and parse using the fixed
+    HIRES-CPS layout: rows 1-3 are template labels, row 4 is the canonical
+    header, row 5+ is data.
 
-    Raises ``ValueError`` if either component is missing, with guidance on
-    what the user should paste.
+    Returns a DataFrame with exactly ``REQUEST_COLS_READ`` columns.
+
+    Raises ``ValueError`` for malformed URLs, HTML responses (sharing not set
+    to "Anyone with the link"), missing ``program_code`` header, or any
+    missing required columns.
     """
     url = (url or "").strip()
-    prefix = "/spreadsheets/d/"
-    i = url.find(prefix)
-    if i == -1:
+    sheet_match = _SHEET_ID_RE.search(url)
+    if not sheet_match:
         raise ValueError(f"No Google Sheet ID in URL: {url[:80]}...")
-    start = i + len(prefix)
-    end = len(url)
-    for j in range(start, len(url)):
-        if url[j] in "/?#":
-            end = j
-            break
-    sheet_id = url[start:end].strip()
-    if not sheet_id:
-        raise ValueError(f"Empty sheet ID in URL: {url[:80]}...")
-
-    gid = None
-    for sep in ("?", "#", "&"):
-        idx = 0
-        while True:
-            idx = url.find(sep + "gid=", idx)
-            if idx == -1:
-                break
-            tok_start = idx + len(sep + "gid=")
-            tok_end = tok_start
-            while tok_end < len(url) and url[tok_end].isdigit():
-                tok_end += 1
-            if tok_end > tok_start:
-                gid = url[tok_start:tok_end]
-                break
-        if gid is not None:
-            break
-    if gid is None:
+    gid_match = _GID_RE.search(url)
+    if not gid_match:
         raise ValueError(
             "URL must include a tab-specific gid (e.g. .../edit?gid=12345#gid=12345). "
             f"Got: {url[:120]}..."
         )
-    return sheet_id, gid
+    sheet_id, gid = sheet_match.group(1), gid_match.group(1)
 
-
-def _parse_export_csv(text, required_cols, skip_rows=3):
-    """
-    Parse the raw CSV download (``export?format=csv&gid=...``).
-
-    The HIRES-CPS request template has a fixed layout in the ``requests_new``
-    tab:
-
-    - rows 1-3 (CSV indices 0-2): label / type / validation -- discarded
-    - row 4    (CSV index   3):   canonical column names    -- header
-    - row 5+   (CSV index 4+):    data
-
-    Defaults to ``skip_rows=3`` to match this layout. Raises on parse error
-    or missing columns.
-    """
-    df = pd.read_csv(io.StringIO(text), skiprows=skip_rows, dtype=str)
-    df = df.dropna(how="all")
-    df.columns = [str(c).strip() for c in df.columns]
-    if "comments" in required_cols and "comments" not in df.columns:
-        df["comments"] = ""
-    if "program_code" not in df.columns:
-        raise ValueError(
-            "CSV header row does not contain 'program_code' -- check that "
-            "row 4 of the requests_new tab matches the canonical column "
-            f"template. Found columns: {list(df.columns)[:8]}..."
-        )
-    if "program_code" in df.columns:
-        df = df[df["program_code"].astype(str).str.strip() != ""]
-        df = df[df["program_code"].astype(str).str.lower() != "nan"]
-    missing = set(required_cols) - set(df.columns)
-    if missing:
-        raise ValueError(f"CSV missing required columns: {sorted(missing)}")
-    return df[required_cols].copy()
-
-
-def _pull_sheet_via_public_csv(sheet_id, gid, skip_rows=3):
-    """
-    Fetch a specific tab as raw CSV via Google's ``export?format=csv&gid=...``
-    endpoint (the same as File > Download > CSV in the UI). No gviz, so no
-    type-coercion: every spreadsheet row maps 1:1 to a CSV row.
-    """
-    url = (
+    csv_url = (
         f"https://docs.google.com/spreadsheets/d/{sheet_id}"
         f"/export?format=csv&gid={gid}"
     )
-    resp = requests.get(url, timeout=15)
+    resp = requests.get(csv_url, timeout=15)
     resp.raise_for_status()
     text = resp.text
     stripped = text.lstrip()
@@ -250,10 +193,24 @@ def _pull_sheet_via_public_csv(sheet_id, gid, skip_rows=3):
             f"Sheet {sheet_id} (gid={gid}): export endpoint returned HTML, "
             "not CSV. Verify sharing is set to 'Anyone with the link'."
         )
-    df = _parse_export_csv(text, REQUEST_COLS_READ, skip_rows)
-    requests_df = df[REQUEST_COLS].copy()
-    custom_df = _customs_from_requests_df(df)
-    return requests_df, custom_df
+
+    df = pd.read_csv(io.StringIO(text), skiprows=skip_rows, dtype=str)
+    df = df.dropna(how="all")
+    df.columns = [str(c).strip() for c in df.columns]
+    if "comments" not in df.columns:
+        df["comments"] = ""
+    if "program_code" not in df.columns:
+        raise ValueError(
+            "CSV header row does not contain 'program_code' -- check that "
+            "row 4 of the requests_new tab matches the canonical column "
+            f"template. Found columns: {list(df.columns)[:8]}..."
+        )
+    df = df[df["program_code"].astype(str).str.strip() != ""]
+    df = df[df["program_code"].astype(str).str.lower() != "nan"]
+    missing = set(REQUEST_COLS_READ) - set(df.columns)
+    if missing:
+        raise ValueError(f"CSV missing required columns: {sorted(missing)}")
+    return df[REQUEST_COLS_READ].copy()
 
 
 def _dedup_requests_by_hash(requests_df, custom_df):
@@ -363,12 +320,9 @@ def pull_requests(sheet_urls, credentials_path=None, skip_rows=0):
             url = (url or "").strip()
             if not url:
                 continue
-            sheet_id, gid = _parse_sheet_url(url)
-            req_df, custom_df = _pull_sheet_via_public_csv(
-                sheet_id, gid, skip_rows=skip_rows
-            )
-            request_dfs.append(req_df)
-            custom_dfs.append(custom_df)
+            df = _fetch_sheet_dataframe(url, skip_rows=skip_rows)
+            request_dfs.append(df[REQUEST_COLS])
+            custom_dfs.append(_customs_from_requests_df(df))
         requests_df = pd.concat(request_dfs, ignore_index=True) if request_dfs else pd.DataFrame(columns=REQUEST_COLS)
         custom_df = pd.concat(custom_dfs, ignore_index=True) if custom_dfs else pd.DataFrame(columns=CUSTOM_COLS)
         # Convert ra (HH:MM:SS.ss) and dec (+/-DD:MM:SS.s) from sexagesimal to decimal degrees

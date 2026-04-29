@@ -331,7 +331,7 @@ class SemesterPlanner(object):
         for n, row in self.requests_frame.iterrows():
             starid = row['unique_id']
             exposure_time = float(row['exptime']*row['n_exp'])
-            overhead = 45*float(row['n_exp'] - 1) + 180*float(row['n_intra_max'])
+            overhead = 45*float(row['n_exp'] - 1) + 60*float(row['n_intra_max'])
             
             if always_round_up_flag:
                 slots_needed = int(np.ceil((exposure_time + overhead) / (self.slot_size * 60.0)))

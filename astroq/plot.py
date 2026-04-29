@@ -44,7 +44,7 @@ np.random.seed(24)
 gray = 'rgb(210,210,210)'
 clear = 'rgba(255,255,255,1)'
 labelsize = 38
-slew_overhead = 180.
+slew_overhead = 60.
 readout_overhead = 45.
 hours_per_night = 12.
 
