@@ -189,7 +189,7 @@ class NightPlanner(object):
         selected_df['n_intra_min'] = selected_df['n_intra_min'].replace('None', np.nan).fillna(1)
         selected_df['tau_intra'] = selected_df['tau_intra'].replace('None', np.nan).fillna(0.0)
         selected_df['jmag'] = selected_df['jmag'].replace('None', np.nan).fillna(0.0)
-        selected_df['gmag'] = selected_df['gmag'].replace('None', np.nan).fillna(0.0)
+        selected_df['Vmag'] = selected_df['Vmag'].replace('None', np.nan).fillna(0.0)
         selected_df['pmra'] = selected_df['pmra'].replace('None', np.nan).fillna(0.0)
         selected_df['pmdec'] = selected_df['pmdec'].replace('None', np.nan).fillna(0.0)
         selected_df['epoch'] = selected_df['epoch'].replace('None', np.nan).fillna(0.0)

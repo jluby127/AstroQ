@@ -2386,11 +2386,11 @@ def get_script_plan(night_planner):
     # desired_columns = [
     #     'Start Exposure', 'unique_id', 'starname', 'program_code', 'ra', 'dec', 
     #     'exptime', 'n_exp', 'n_intra_max', 'tau_intra', 'weather_band_1', 'weather_band_2', 'weather_band_3', 'teff', 
-    #     'jmag', 'gmag', 'epoch', 'gaia_id', 'First Available', 'Last Available'
+    #     'jmag', 'Vmag', 'epoch', 'gaia_id', 'First Available', 'Last Available'
     # ]
     desired_columns = [
          'First Available', 'Start Exposure', 'Last Available', 'unique_id', 'starname', 'program_code', 'ra', 'dec', 
-        'exptime', 'n_exp', 'n_intra_max', 'tau_intra', 'jmag', 'gmag',]
+        'exptime', 'n_exp', 'n_intra_max', 'tau_intra', 'jmag', 'Vmag',]
     
     # Keep only the columns that exist in the merged dataframe
     available_columns = [col for col in desired_columns if col in merged_df.columns]
@@ -2414,10 +2414,9 @@ def get_script_plan(night_planner):
         final_df['jmag'] = final_df['jmag'].replace('None', pd.NA)
         final_df['jmag'] = pd.to_numeric(final_df['jmag'], errors='coerce').round(1)
     
-    if 'gmag' in final_df.columns:
-        # Ensure gmag is numeric before rounding, handle 'None' strings
-        final_df['gmag'] = final_df['gmag'].replace('None', pd.NA)
-        final_df['gmag'] = pd.to_numeric(final_df['gmag'], errors='coerce').round(1)
+    if 'Vmag' in final_df.columns:
+        final_df['Vmag'] = final_df['Vmag'].replace('None', pd.NA)
+        final_df['Vmag'] = pd.to_numeric(final_df['Vmag'], errors='coerce').round(1)
 
     # if 'teff' in final_df.columns:
     #     # Ensure teff is numeric before rounding, handle 'None' strings
@@ -2970,7 +2969,7 @@ def request_frame_to_html(request_df, semester_code=None, date=None, band=None, 
 
 NIGHTPLAN_COLUMNS = [
     'First Available', 'Start Exposure', 'Last Available', 'unique_id', 'starname',
-    'program_code', 'ra', 'dec', 'exptime', 'n_exp', 'n_intra_max', 'tau_intra', 'jmag', 'gmag'
+    'program_code', 'ra', 'dec', 'exptime', 'n_exp', 'n_intra_max', 'tau_intra', 'jmag', 'Vmag'
 ]
 NIGHTPLAN_COLUMN_TOOLTIPS = {
     'First Available': 'First available time to observe (HH:MM). Use > < >= <= with HH:MM to filter.',
@@ -2986,7 +2985,7 @@ NIGHTPLAN_COLUMN_TOOLTIPS = {
     'n_intra_max': 'Maximum intra-night visits',
     'tau_intra': 'Minimum intra-night cadence in hours',
     'jmag': 'J-band magnitude',
-    'gmag': 'G-band magnitude',
+    'Vmag': 'V-band magnitude',
 }
 
 
@@ -2996,7 +2995,7 @@ def nightplan_table_to_html(script_df, table_id='script-table', page_size=100):
 
     Same colors, fonts, fontsize, filtering (partial match, numeric > < >= <=), hover tooltips.
     Displays: First Available, Start Exposure, Last Available, unique_id, starname, program_code,
-    ra, dec, exptime, n_exp, n_intra_max, tau_intra, jmag, gmag.
+    ra, dec, exptime, n_exp, n_intra_max, tau_intra, jmag, Vmag.
     """
     import re
     from html import escape
@@ -3071,7 +3070,7 @@ def nightplan_table_to_html(script_df, table_id='script-table', page_size=100):
     }}
     </style>
     """
-    # Numeric columns for > < >= <= : ra(6), dec(7), exptime(8), n_exp(9), n_intra_max(10), tau_intra(11), jmag(12), gmag(13)
+    # Numeric columns for > < >= <= : ra(6), dec(7), exptime(8), n_exp(9), n_intra_max(10), tau_intra(11), jmag(12), Vmag(13)
     # Time columns (HH:MM): First Available(0), Start Exposure(1), Last Available(2)
     numeric_col_indices = [6, 7, 8, 9, 10, 11, 12, 13]
     time_col_indices = [0, 1, 2]
@@ -3453,7 +3452,7 @@ def dataframe_to_html(dataframe, sort_column=2, page_size=10, table_id='request-
         'n_intra_max': '80px',
         'tau_intra': '80px',
         'jmag': '60px',
-        'gmag': '60px'
+        'Vmag': '60px'
     }
     
     for i, col in enumerate(dataframe.columns):
