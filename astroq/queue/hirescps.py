@@ -192,14 +192,7 @@ def _pull_sheet_via_public_csv(sheet_id, skip_rows=0):
     # Prefer by-name export for the canonical tab to avoid brittle gid probing.
     candidate_urls = [
         f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet=requests",
-        f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet=Requests",
     ]
-    # Legacy fallback: probe common low gid values for older sheets.
-    candidate_urls.extend(
-        f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
-        for gid in range(10)
-    )
-
     for url in candidate_urls:
         try:
             resp = requests.get(url, timeout=15)

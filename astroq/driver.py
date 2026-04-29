@@ -150,7 +150,7 @@ def hirescps_prep(args):
         # Pull the request sheet
         request_file = str(config.get('data', 'request_file'))
         requests_df, custom_df = hirescps.pull_requests(
-            hirescps.get_program_sheet_urls(), skip_rows=2
+            hirescps.get_program_sheet_urls(), skip_rows=3
         )
         requests_df.to_csv(os.path.join(savepath, request_file), index=False)
     
