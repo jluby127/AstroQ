@@ -5,10 +5,12 @@ New observatories should write their own module to connect to a new "prep <your 
 """
 
 # Standard library imports
+import hashlib
 import io
 import json
 import logging
 import os
+import urllib.parse
 # Third-party imports
 import numpy as np
 import pandas as pd
@@ -145,177 +147,210 @@ def _customs_from_requests_df(req_df):
     return pd.DataFrame(rows, columns=CUSTOM_COLS) if rows else pd.DataFrame(columns=CUSTOM_COLS)
 
 
-def _extract_sheet_id(url):
-    """Extract Google Sheet ID from a share/edit or publish URL. Raises ValueError if not found."""
+_SHEET_ID_RE = re.compile(r"/spreadsheets/d/([^/?#]+)")
+_GID_RE = re.compile(r"[?#&]gid=(\d+)")
+_FILENAME_STAR_RE = re.compile(r"filename\*=UTF-8''([^;]+)", re.IGNORECASE)
+_FILENAME_RE = re.compile(r'filename="([^"]+)"', re.IGNORECASE)
+
+
+def _workbook_title_from_response(resp):
+    """
+    Extract the Google Sheets workbook title from a CSV-export response.
+
+    Google's ``export?format=csv`` endpoint returns ``Content-Disposition``
+    of the form ``attachment; filename="<workbook> - <tab>.csv"; filename*=UTF-8''...``.
+    Prefer the RFC 5987 ``filename*=UTF-8''...`` form (which preserves the
+    space separator after URL-decoding) and split off the trailing ``- <tab>``.
+    Returns ``None`` if no filename is present in the header.
+    """
+    cd = resp.headers.get("Content-Disposition", "")
+    m = _FILENAME_STAR_RE.search(cd)
+    if m:
+        name = urllib.parse.unquote(m.group(1).strip())
+    else:
+        m = _FILENAME_RE.search(cd)
+        if not m:
+            return None
+        name = m.group(1)
+    if name.endswith(".csv"):
+        name = name[:-4]
+    if " - " in name:
+        name = name.rsplit(" - ", 1)[0]
+    return name
+
+
+def _fetch_sheet_dataframe(url, skip_rows=3):
+    """
+    Fetch one tab of a HIRES-CPS Google Sheet as a DataFrame.
+
+    Given the address-bar URL of the relevant tab (must include both the
+    workbook ID and the per-tab ``gid``, e.g.
+    ``https://docs.google.com/spreadsheets/d/<SHEET_ID>/edit?gid=<GID>#gid=<GID>``),
+    download via Google's public ``export?format=csv&gid=<GID>`` endpoint --
+    the same as File > Download > CSV in the UI -- and parse using the fixed
+    HIRES-CPS layout: rows 1-3 are template labels, row 4 is the canonical
+    header, row 5+ is data.
+
+    Returns a DataFrame with exactly ``REQUEST_COLS_READ`` columns.
+
+    Raises ``ValueError`` for malformed URLs, HTML responses (sharing not set
+    to "Anyone with the link"), missing ``program_code`` header, or any
+    missing required columns.
+    """
     url = (url or "").strip()
-    prefix = "/spreadsheets/d/"
-    i = url.find(prefix)
-    if i == -1:
+    sheet_match = _SHEET_ID_RE.search(url)
+    if not sheet_match:
         raise ValueError(f"No Google Sheet ID in URL: {url[:80]}...")
-    start = i + len(prefix)
-    end = len(url)
-    for j in range(start, len(url)):
-        if url[j] in "/?":
-            end = j
-            break
-    sheet_id = url[start:end].strip()
-    if not sheet_id:
-        raise ValueError(f"Empty sheet ID in URL: {url[:80]}...")
-    return sheet_id
+    gid_match = _GID_RE.search(url)
+    if not gid_match:
+        raise ValueError(
+            "URL must include a tab-specific gid (e.g. .../edit?gid=12345#gid=12345). "
+            f"Got: {url[:120]}..."
+        )
+    sheet_id, gid = sheet_match.group(1), gid_match.group(1)
 
+    csv_url = (
+        f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+        f"/export?format=csv&gid={gid}"
+    )
+    print(f"downloading requests from {url}")
+    resp = requests.get(csv_url, timeout=15)
+    resp.raise_for_status()
+    title = _workbook_title_from_response(resp) or url
+    text = resp.text
+    stripped = text.lstrip()
+    if not stripped or stripped.startswith("<!") or "<html" in stripped[:200].lower():
+        raise ValueError(
+            f"Sheet {sheet_id} (gid={gid}): export endpoint returned HTML, "
+            "not CSV. Verify sharing is set to 'Anyone with the link'."
+        )
 
-def _parse_export_csv(text, required_cols, skip_rows):
-    """
-    Parse CSV from Google's export (same format as File > Download > CSV).
-    Header row is at skip_rows (0-based). Raises on parse error or missing columns.
-    """
-    df = pd.read_csv(io.StringIO(text), skiprows=skip_rows)
-    # Ignore fully blank rows that can appear in shared sheets and otherwise
-    # propagate as NaN coordinates into SkyCoord parsing.
+    df = pd.read_csv(io.StringIO(text), skiprows=skip_rows, dtype=str)
     df = df.dropna(how="all")
     df.columns = [str(c).strip() for c in df.columns]
-    if "comments" in required_cols and "comments" not in df.columns:
+    if "comments" not in df.columns:
         df["comments"] = ""
-    missing = set(required_cols) - set(df.columns)
+    if "program_code" not in df.columns:
+        raise ValueError(
+            "CSV header row does not contain 'program_code' -- check that "
+            "row 4 of the requests_new tab matches the canonical column "
+            f"template. Found columns: {list(df.columns)[:8]}..."
+        )
+    df = df[df["program_code"].astype(str).str.strip() != ""]
+    df = df[df["program_code"].astype(str).str.lower() != "nan"]
+    missing = set(REQUEST_COLS_READ) - set(df.columns)
     if missing:
         raise ValueError(f"CSV missing required columns: {sorted(missing)}")
-    return df[required_cols].copy()
+    print(f"read {len(df)} records from {title}")
+    return df[REQUEST_COLS_READ].copy()
 
 
-def _pull_sheet_via_public_csv(sheet_id, skip_rows=0):
+def _dedup_requests_by_hash(requests_df, custom_df):
     """
-    Fetch requests tab via public CSV export (no credentials). Customs are built
-    from the start/stop columns on the requests tab. Raises if no valid tab found.
-    """
-    last_missing_msg = None
-    # Prefer by-name export for the canonical tab to avoid brittle gid probing.
-    candidate_urls = [
-        f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet=requests",
-        f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet=Requests",
-    ]
-    # Legacy fallback: probe common low gid values for older sheets.
-    candidate_urls.extend(
-        f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
-        for gid in range(10)
-    )
+    Deduplicate ``requests_df`` rows that share the same ``unique_id`` across programs.
 
-    for url in candidate_urls:
-        try:
-            resp = requests.get(url, timeout=15)
-            resp.raise_for_status()
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code in (400, 404):
-                continue
-            raise
-        text = resp.text.strip()
-        if not text or text.lstrip().startswith("<!") or "<html" in text[:200].lower():
-            continue
-        try:
-            df = _parse_export_csv(text, REQUEST_COLS_READ, skip_rows)
-        except ValueError as e:
-            last_missing_msg = str(e)
-            continue
-        requests_df = df[REQUEST_COLS].copy()
-        if 'Vmag' in requests_df.columns:
-            requests_df = requests_df.rename(columns={'Vmag': 'gmag'})
-        custom_df = _customs_from_requests_df(df)
-        return requests_df, custom_df
-    msg = (
-        f"Sheet {sheet_id}: could not read a public 'requests' tab with required columns. "
-        "Tried sheet=requests, sheet=Requests, then export gid 0..9."
-    )
-    if last_missing_msg:
-        msg += f" Last tab checked: {last_missing_msg}"
-    raise ValueError(msg)
+    For each duplicate group the winner is the row with the lowest SHA-256 digest of
+    ``f"{program_code}__{unique_id}"``; ties (theoretically impossible for distinct
+    canonical strings) break lexicographically on ``program_code``. Losers are dropped
+    entirely and matching rows in ``custom_df`` are filtered out.
 
-
-def pull_requests(sheet_urls, credentials_path=None, skip_rows=0):
-    """
-    Pull request and custom data from a list of Google Sheet URLs.
-
-    Reads only the "requests" tab. That tab must have columns ``REQUEST_COLS_READ``
-    (… ``priority``, ``start``, ``stop``, ``comments``). A missing ``comments`` column
-    is treated as all-empty strings.
-    ``start``/``stop`` hold bracket arrays like "[2026-02-01 12:00, 2026-03-01 12:00]";
-    customs are built from those (one custom row per start/stop pair). The returned
-    requests DataFrame does not include start/stop.
+    A ``logs.warning`` is emitted for every duplicate group, naming the kept program and
+    urging PIs to remove duplicates upstream.
 
     Args:
-        sheet_urls (list of str): List of Google Sheets URLs (Share link).
-        credentials_path (str, optional): Path to service account JSON. If None,
-            uses GOOGLE_APPLICATION_CREDENTIALS env var.
-        skip_rows (int, optional): Rows to skip before the header row. Use 2 if
-            your column names are on row 3 (first two rows are comments). Default 0.
+        requests_df (pd.DataFrame): Concatenated request rows.
+        custom_df (pd.DataFrame | None): Associated custom-window rows keyed by
+            ``unique_id``.
 
     Returns:
-        tuple: (requests_df, custom_df) - requests use REQUEST_COLS; custom_df has
-        unique_id, starname, start, stop (one row per start/stop pair from requests).
+        tuple: ``(requests_df, custom_df)`` with duplicates removed.
     """
-    path = credentials_path or os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-    use_public = not path or not os.path.isfile(path)
-
-    if use_public:
-        request_dfs = []
-        custom_dfs = []
-        for url in sheet_urls:
-            url = (url or "").strip()
-            if not url:
-                continue
-            sheet_id = _extract_sheet_id(url)
-            req_df, custom_df = _pull_sheet_via_public_csv(sheet_id, skip_rows=skip_rows)
-            request_dfs.append(req_df)
-            custom_dfs.append(custom_df)
-        requests_df = pd.concat(request_dfs, ignore_index=True) if request_dfs else pd.DataFrame(columns=REQUEST_COLS)
-        custom_df = pd.concat(custom_dfs, ignore_index=True) if custom_dfs else pd.DataFrame(columns=CUSTOM_COLS)
-        # Convert ra (HH:MM:SS.ss) and dec (+/-DD:MM:SS.s) from sexagesimal to decimal degrees
-        if not requests_df.empty and "ra" in requests_df.columns and "dec" in requests_df.columns:
-            c = SkyCoord(ra=requests_df["ra"].astype(str), dec=requests_df["dec"].astype(str), unit=(u.hourangle, u.deg))
-            requests_df = requests_df.copy()
-            requests_df["ra"] = c.ra.deg
-            requests_df["dec"] = c.dec.deg
+    if requests_df is None or requests_df.empty or "unique_id" not in requests_df.columns:
         return requests_df, custom_df
 
-    try:
-        import gspread
-        from google.oauth2.service_account import Credentials
-    except ImportError as e:
-        raise ImportError(
-            "pull_requests with credentials requires gspread and google-auth. "
-            "Install with: pip install gspread google-auth"
-        ) from e
+    df = requests_df.copy()
+    canonical = df["program_code"].astype(str) + "__" + df["unique_id"].astype(str)
+    scores = canonical.map(lambda s: hashlib.sha256(s.encode("utf-8")).hexdigest())
+    df = df.assign(precedence_score=scores)
 
-    scopes = [
-        "https://www.googleapis.com/auth/spreadsheets.readonly",
-        "https://www.googleapis.com/auth/drive.readonly",
-    ]
-    creds = Credentials.from_service_account_file(path, scopes=scopes)
-    client = gspread.authorize(creds)
+    keep_idx = []
+    duplicate_blocks = []
+    star_col = "starname" if "starname" in df.columns else "unique_id"
+    for uid, grp in df.groupby("unique_id", sort=False):
+        if len(grp) == 1:
+            keep_idx.append(grp.index[0])
+            continue
+        ranked = grp.sort_values(
+            ["precedence_score", "program_code"], ascending=[True, True]
+        )
+        winner_idx = ranked.index[0]
+        keep_idx.append(winner_idx)
+        block_lines = []
+        for i, row_idx in enumerate(ranked.index):
+            pc = str(ranked.loc[row_idx, "program_code"])
+            sn = str(ranked.loc[row_idx, star_col])
+            marker = "*" if i == 0 else " "
+            block_lines.append(f"  {pc} {sn} {marker}".rstrip())
+        duplicate_blocks.append("\n".join(block_lines))
 
+    if duplicate_blocks:
+        msg = (
+            "Duplicate rows exist!\n"
+            "\n"
+            "- Requests selected based on hash scheme.\n"
+            "- * indicates selected target\n"
+            "- Coordinate with PIs to resolve duplicates\n"
+            "\n"
+            + "\n\n".join(duplicate_blocks)
+        )
+        logs.warning(msg)
+
+    out = (
+        df.loc[sorted(keep_idx)]
+        .drop(columns=["precedence_score"])
+        .reset_index(drop=True)
+    )
+
+    if custom_df is not None and not custom_df.empty and "unique_id" in custom_df.columns:
+        kept_uids = set(out["unique_id"].astype(str))
+        custom_df = custom_df[
+            custom_df["unique_id"].astype(str).isin(kept_uids)
+        ].reset_index(drop=True)
+
+    return out, custom_df
+
+
+def pull_requests(sheet_urls):
+    """
+    Pull HIRES-CPS request and custom-window data from a list of public
+    Google Sheet URLs.
+
+    For each URL, fetches the relevant tab via :func:`_fetch_sheet_dataframe`
+    (Google's ``export?format=csv&gid=<GID>`` endpoint) and parses it using
+    the fixed HIRES-CPS layout. Each tab must expose the columns in
+    ``REQUEST_COLS_READ`` (canonical fields through ``priority`` plus
+    ``start``, ``stop``, ``comments``); a missing ``comments`` column is
+    backfilled as empty strings.
+
+    Args:
+        sheet_urls (list of str): Address-bar URLs of the per-PI tabs. Each
+            URL must include both the workbook ID and the tab-specific
+            ``gid`` (e.g. ``.../edit?gid=12345#gid=12345``). Sharing must be
+            set to "Anyone with the link".
+
+    Returns:
+        tuple: ``(requests_df, custom_df)`` where ``requests_df`` has
+        ``REQUEST_COLS`` and ``custom_df`` has
+        ``[unique_id, starname, start, stop]``.
+
+    """
     request_dfs = []
     custom_dfs = []
-
     for url in sheet_urls:
         url = (url or "").strip()
-        if not url:
-            continue
-        wb = client.open_by_url(url)
-        ws_req = wb.worksheet("requests")
-        header_row = skip_rows + 1  # 1-based; skip_rows=2 -> header on row 3
-        req_records = ws_req.get_all_records(head=header_row)
-        if not req_records:
-            raise ValueError(f"Sheet {url[:60]}... 'requests' tab is empty.")
-        req_df = pd.DataFrame(req_records)
-        req_df.columns = [c.strip() for c in req_df.columns]
-        if "comments" not in req_df.columns:
-            req_df["comments"] = ""
-        missing_req = set(REQUEST_COLS_READ) - set(req_df.columns)
-        if missing_req:
-            raise ValueError(
-                f"Sheet 'requests' tab missing required columns (need start/stop): {sorted(missing_req)}"
-            )
-        request_dfs.append(req_df[REQUEST_COLS])
-        custom_dfs.append(_customs_from_requests_df(req_df))
-
+        df = _fetch_sheet_dataframe(url)
+        request_dfs.append(df[REQUEST_COLS])
+        custom_dfs.append(_customs_from_requests_df(df))
     requests_df = pd.concat(request_dfs, ignore_index=True) if request_dfs else pd.DataFrame(columns=REQUEST_COLS)
     custom_df = pd.concat(custom_dfs, ignore_index=True) if custom_dfs else pd.DataFrame(columns=CUSTOM_COLS)
     # Convert ra (HH:MM:SS.ss) and dec (+/-DD:MM:SS.s) from sexagesimal to decimal degrees
@@ -324,10 +359,8 @@ def pull_requests(sheet_urls, credentials_path=None, skip_rows=0):
         requests_df = requests_df.copy()
         requests_df["ra"] = c.ra.deg
         requests_df["dec"] = c.dec.deg
-    if 'Vmag' in requests_df.columns:
-        requests_df = requests_df.rename(columns={'Vmag': 'gmag'})
+    requests_df, custom_df = _dedup_requests_by_hash(requests_df, custom_df)
     return requests_df, custom_df
-
 
 def login_JUMP():
     login_url = 'https://jump.caltech.edu/user/login/'
@@ -550,13 +583,13 @@ def format_hires_row(row, obs_time, first_available, last_available, current_day
     namestring = ' '*(16-len(starname_str[:16])) + starname_str[:16]
 
     # Handle missing columns with default values
-    gmag_val = row.get('gmag', [15.0])[0] if 'gmag' in row else 15.0
-    
+    vmag_val = row.get('Vmag', [15.0])[0] if 'Vmag' in row else 15.0
+
     try:
-        gmag_val = float(gmag_val) if gmag_val is not None else 15.0
+        vmag_val = float(vmag_val) if vmag_val is not None else 15.0
     except (ValueError, TypeError):
-        gmag_val = 25.0
-    
+        vmag_val = 25.0
+
     exposurestring = (' '*(4-len(str(int(row['exptime'].iloc[0])))) + \
         str(int(row['exptime'].iloc[0])) + '/' + \
         str(int(row['maxtime'].iloc[0])) + ' '* \
@@ -565,8 +598,8 @@ def format_hires_row(row, obs_time, first_available, last_available, current_day
     ofstring = ('1of' + str(int(row['n_intra_max'].iloc[0])))
 
     numstring = str(int(row['n_exp'].iloc[0])) + "x"
-    gmagstring = 'vmag=' + str(np.round(float(gmag_val),1)) + \
-                                                ' '*(4-len(str(np.round(float(gmag_val),1))))
+    vmagstring = 'vmag=' + str(np.round(float(vmag_val),1)) + \
+                                                ' '*(4-len(str(np.round(float(vmag_val),1))))
 
     programstring = row['program_code'].iloc[0]
     priostring = row['priority'].iloc[0]
@@ -581,7 +614,7 @@ def format_hires_row(row, obs_time, first_available, last_available, current_day
         timestring2 = "24:00"
 
     line = (namestring + ' ' + updated_ra + ' ' + updated_dec + ' ' + str(equinox) + ' '
-                + gmagstring + ' ' + exposurestring + ' ' + exp_meter_thresholdstring + ' ' + deckerstring +  ' '
+                + vmagstring + ' ' + exposurestring + ' ' + exp_meter_thresholdstring + ' ' + deckerstring +  ' '
                 + numstring + ' ' + cellstring + ' '+ priostring + ' CC '+ programstring + ' ' + timestring2 +
                          ' ' + first_available  + ' ' + last_available )
 
