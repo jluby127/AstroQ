@@ -473,6 +473,7 @@ class NightPlanner(object):
             ('solution_star_ras', 'solution.stars', 'stars', 'ra'),
             ('solution_star_decs', 'solution.stars', 'stars', 'dec'),
             ('solution_az_path', 'solution.az_path', 'array', None),
+            ('solution_mech_az_path', 'solution.mech_az_path', 'array', None),
             ('solution_alt_path', 'solution.alt_path', 'array', None),
         ]
         
@@ -501,8 +502,14 @@ class NightPlanner(object):
             # Save solution attributes
             for hdf5_key, obj_path, data_type, extra in solution_attrs:
                 obj = solution
+                missing_attr = False
                 for attr in obj_path.split('.')[1:]:  # Skip 'solution' part
+                    if not hasattr(obj, attr):
+                        missing_attr = True
+                        break
                     obj = getattr(obj, attr)
+                if missing_attr:
+                    continue
                 
                 if data_type == 'dict_json':
                     # Convert dict with arrays/lists to JSON-serializable format (native Python types)
@@ -603,6 +610,7 @@ class NightPlanner(object):
             ('nightends_jd', 'nightends', 'time', None),
             ('solution_schedule_json', 'schedule', 'dict_json', None),
             ('solution_az_path', 'az_path', 'array', None),
+            ('solution_mech_az_path', 'mech_az_path', 'array', None),
             ('solution_alt_path', 'alt_path', 'array', None),
         ]
         
@@ -643,6 +651,10 @@ class NightPlanner(object):
             
             # Load solution attributes
             for hdf5_key, attr_name, data_type, extra in solution_attrs:
+                if data_type in ('dict_json', 'time') and hdf5_key not in f.attrs:
+                    continue
+                if data_type in ('time_list', 'array') and hdf5_key not in f:
+                    continue
                 if data_type == 'dict_json':
                     data = json.loads(f.attrs[hdf5_key])
                     # Convert lists back to numpy arrays
