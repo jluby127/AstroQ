@@ -6,6 +6,7 @@ Gurobi model for semester-level observation planning. It is nearly completely ag
 
 # Standard library imports
 import logging
+import math
 import os
 import time
 import warnings
@@ -82,6 +83,7 @@ class SemesterPlanner(object):
         self.solve_max_gap = config.getfloat('semester', 'max_solve_gap')
         self.max_bonus = config.getfloat('semester', 'maximum_bonus_size')
         self.run_bonus_round = config.getboolean('semester', 'run_bonus_round')
+        self.azimuth_slew_penalty_weight = config.getfloat('semester', 'azimuth_slew_penalty_weight', fallback=0.0)
 
         self.semester_start_date = config.get('global', 'semester_start_day')
         semester_end_date = config.get('global', 'semester_end_day')
@@ -233,6 +235,15 @@ class SemesterPlanner(object):
         observability_array = list(self.observability.itertuples(index=False, name=None))
         self.Yrds = self.model.addVars(observability_array, vtype = GRB.BINARY, name = 'Requests_Slots')
 
+        # Build per-(request, day, slot) azimuth lookup to support slew-minimizing objective terms.
+        self.azimuth_by_rds = self._build_azimuth_lookup()
+        day_indices = sorted({d for _, d, _ in self.observability_tuples})
+        self.day_indices = day_indices
+        self.azimuth_max_by_day = self.model.addVars(day_indices, lb=0.0, ub=360.0, name='AzimuthMaxByDay')
+        self.azimuth_min_by_day = self.model.addVars(day_indices, lb=0.0, ub=360.0, name='AzimuthMinByDay')
+        self.azimuth_span_by_day = self.model.addVars(day_indices, lb=0.0, ub=360.0, name='AzimuthSpanByDay')
+        self._build_azimuth_span_constraints()
+
         if len(self.observability_nights) != 0:
             # Wrd is technically a 1D matrix indexed by tuples.
             # But in practice best think of it as a 2D ragged matrix of requests r and nights d, with gaps.
@@ -343,6 +354,58 @@ class SemesterPlanner(object):
             slots_needed_for_exposure_dict[starid] = slots_needed
         
         return slots_needed_for_exposure_dict
+
+    def _build_azimuth_lookup(self):
+        """
+        Build a dictionary mapping each (request, day, slot) observability tuple to azimuth in degrees.
+
+        Returns:
+            azimuth_lookup (dict): {(unique_id, d, s): azimuth_deg}
+        """
+        altaz = self.access_obj.observatory.altaz(
+            self.access_obj.slotmidpoints,
+            self.access_obj.targets,
+            grid_times_targets=True,
+        )
+        az_deg = altaz.az.deg
+
+        id_to_index = {uid: idx for idx, uid in enumerate(self.requests_frame['unique_id'])}
+        azimuth_lookup = {}
+        for r, d, s in self.observability_tuples:
+            target_idx = id_to_index.get(r)
+            if target_idx is None:
+                continue
+            azimuth_lookup[(r, d, s)] = float(az_deg[target_idx, d, s])
+        return azimuth_lookup
+
+    def _build_azimuth_span_constraints(self):
+        """
+        Add linear constraints tying scheduled observations to a per-night azimuth span.
+
+        This span is used as a proxy for slew extent in the semester objective.
+        """
+        big_m = 360.0
+        tuples_by_day = self.observability.groupby('d')[['unique_id', 's']]
+        for d, day_frame in tuples_by_day:
+            for _, row in day_frame.iterrows():
+                r = row['unique_id']
+                s = row['s']
+                if (r, d, s) not in self.azimuth_by_rds:
+                    continue
+                az_val = self.azimuth_by_rds[(r, d, s)]
+                self.model.addConstr(
+                    self.azimuth_max_by_day[d] >= az_val - big_m * (1 - self.Yrds[r, d, s]),
+                    f'azimuth_max_link_{r}_{d}_{s}'
+                )
+                self.model.addConstr(
+                    self.azimuth_min_by_day[d] <= az_val + big_m * (1 - self.Yrds[r, d, s]),
+                    f'azimuth_min_link_{r}_{d}_{s}'
+                )
+
+            self.model.addConstr(
+                self.azimuth_span_by_day[d] == self.azimuth_max_by_day[d] - self.azimuth_min_by_day[d],
+                f'azimuth_span_def_{d}'
+            )
 
     def _build_observability(self):
         """
@@ -578,7 +641,20 @@ class SemesterPlanner(object):
         of observations, weighted by the time needed
         to complete one observation.
         """
-        self.model.setObjective(gp.quicksum(self.theta[name]*self.slots_needed_for_exposure_dict[name] for name in self.schedulable_requests), GRB.MINIMIZE)
+        theta_term = gp.quicksum(
+            self.theta[name] * self.slots_needed_for_exposure_dict[name]
+            for name in self.schedulable_requests
+        )
+        azimuth_term = gp.quicksum(self.azimuth_span_by_day[d] for d in self.day_indices)
+
+        self.model.setObjective(
+            theta_term + self.azimuth_slew_penalty_weight * azimuth_term,
+            GRB.MINIMIZE,
+        )
+        logs.info(
+            "Objective: Minimize weighted shortfall with azimuth slew penalty "
+            f"(azimuth_slew_penalty_weight={self.azimuth_slew_penalty_weight})."
+        )
 
     def constraint_build_theta_multivisit(self):
         """
