@@ -23,7 +23,7 @@ SEMESTER ?= 2026A
 START_DATE ?= 2026-02-01
 END_DATE ?= 2026-07-31
 BANDS ?= band1 full-band1
-FILLER_PROGRAM ?= 2026A_E475
+FILLER_PROGRAM ?= 2026A_N012
 
 # Cross-platform sed in-place flag (Darwin uses -i '')
 UNAME_S := $(shell uname)
