@@ -84,6 +84,16 @@ class SemesterPlanner(object):
         self.max_bonus = config.getfloat('semester', 'maximum_bonus_size')
         self.run_bonus_round = config.getboolean('semester', 'run_bonus_round')
         self.azimuth_slew_penalty_weight = config.getfloat('semester', 'azimuth_slew_penalty_weight', fallback=0.0)
+        self.cadence_undercompletion_threshold = config.getfloat(
+            'semester',
+            'cadence_undercompletion_threshold',
+            fallback=0.70,
+        )
+        self.cadence_undercompletion_weight = config.getfloat(
+            'semester',
+            'cadence_undercompletion_weight',
+            fallback=1.0,
+        )
 
         self.semester_start_date = config.get('global', 'semester_start_day')
         semester_end_date = config.get('global', 'semester_end_day')
@@ -285,6 +295,33 @@ class SemesterPlanner(object):
             self.desired_max_obs_allowed_dict = desired_max_obs_allowed_dict
             self.absolute_max_obs_allowed_dict = absolute_max_obs_allowed_dict
             self.past_nights_observed_dict = past_nights_observed_dict
+
+        # Build per-request shortfall multipliers to prioritize cadence targets
+        # that are below the configured completion threshold.
+        self.shortfall_priority_multiplier = {name: 1.0 for name in self.all_requests}
+        prioritized_count = 0
+        for name in self.all_requests:
+            idx = self.requests_frame.index[self.requests_frame['unique_id'] == name][0]
+            n_inter_max = float(self.requests_frame['n_inter_max'][idx])
+            if n_inter_max <= 0:
+                continue
+
+            n_intra_max = float(self.requests_frame['n_intra_max'][idx])
+            # Cadence-required means repeated visits are requested either
+            # within a night or across the semester.
+            requires_cadence = (n_intra_max > 1) or (n_inter_max > 1)
+            completion_fraction = self.past_nights_observed_dict[name] / n_inter_max
+
+            if requires_cadence and completion_fraction < self.cadence_undercompletion_threshold:
+                self.shortfall_priority_multiplier[name] = 1.0 + self.cadence_undercompletion_weight
+                prioritized_count += 1
+
+        logs.info(
+            "Cadence under-completion prioritization: "
+            f"{prioritized_count} targets boosted "
+            f"(threshold={self.cadence_undercompletion_threshold:.2f}, "
+            f"weight={self.cadence_undercompletion_weight:.2f})."
+        )
         logs.debug("Initializing complete.")
 
     def _build_date_dictionary(self):
@@ -642,7 +679,9 @@ class SemesterPlanner(object):
         to complete one observation.
         """
         theta_term = gp.quicksum(
-            self.theta[name] * self.slots_needed_for_exposure_dict[name]
+            self.theta[name]
+            * self.slots_needed_for_exposure_dict[name]
+            * self.shortfall_priority_multiplier.get(name, 1.0)
             for name in self.schedulable_requests
         )
         azimuth_term = gp.quicksum(self.azimuth_span_by_day[d] for d in self.day_indices)
