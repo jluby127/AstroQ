@@ -24,6 +24,7 @@ START_DATE ?= 2026-02-01
 END_DATE ?= 2026-07-31
 BANDS ?= band1 full-band1
 FILLER_PROGRAM ?= 2026A_N012
+MUST_INCLUDE_TARGET ?=
 
 # Set SKIP_FULL_BAND=1 to skip all full-band* entries (e.g. make repull SKIP_FULL_BAND=1)
 SKIP_FULL_BAND ?= 0
@@ -42,6 +43,11 @@ endif
 DATE ?= $(shell date +%Y-%m-%d)
 ifdef date
 	DATE := $(date)
+endif
+
+PLAN_NIGHT_EXTRA_ARGS :=
+ifneq ($(strip $(MUST_INCLUDE_TARGET)),)
+PLAN_NIGHT_EXTRA_ARGS += --must_include_target "$(MUST_INCLUDE_TARGET)"
 endif
 
 # Mark config.ini files as precious to prevent automatic deletion
@@ -67,13 +73,13 @@ $(DATE_DIR)/%/plan-night-complete: $(DATE_DIR)/%/plan-night-run
 # Run plan-night command
 $(DATE_DIR)/%/plan-night-run: $(DATE_DIR)/%/plan-semester-run
 	@echo "🌙 Running plan-night for band $(notdir $(@D))..."
-	@cd $(@D) && $(LOAD_ENV) && conda run -n $(CONDA_ENV) astroq plan-night -cf config.ini 2>&1 | tee -a astroq.log
+	@cd $(@D) && $(LOAD_ENV) && bash -o pipefail -c 'conda run -n $(CONDA_ENV) astroq plan-night -cf config.ini $(PLAN_NIGHT_EXTRA_ARGS) 2>&1 | tee -a astroq.log'
 	@touch $@
 
 # Run plan-semester command (unified for all bands)
 $(DATE_DIR)/%/plan-semester-run: $(DATE_DIR)/%/prep-run
 	@echo "📅 Running plan-semester for band $(notdir $(@D))..."
-	@cd $(@D) && $(LOAD_ENV) && conda run -n $(CONDA_ENV) astroq plan-semester -cf config.ini 2>&1 | tee -a astroq.log
+	@cd $(@D) && $(LOAD_ENV) && bash -o pipefail -c 'conda run -n $(CONDA_ENV) astroq plan-semester -cf config.ini 2>&1 | tee -a astroq.log'
 	@touch $@
 
 # Unified prep command for all bands (instrument read from config.ini)
@@ -177,7 +183,7 @@ repull:
 	@for band in $(BANDS); do \
 		rm -f "$(DATE_DIR)/$$band/prep-run" "$(DATE_DIR)/$$band/plan-semester-run" "$(DATE_DIR)/$$band/plan-night-run" "$(DATE_DIR)/$$band/plan-night-complete"; \
 	done
-	@$(MAKE) -f $(lastword $(MAKEFILE_LIST)) all DATE=$(DATE)
+	@$(MAKE) -f $(lastword $(MAKEFILE_LIST)) all DATE=$(DATE) MUST_INCLUDE_TARGET="$(MUST_INCLUDE_TARGET)"
 
 # Re-run only plan-night for all bands (skips prep and plan-semester)
 replan-night:
@@ -185,7 +191,7 @@ replan-night:
 	@for band in $(BANDS); do \
 		rm -f "$(DATE_DIR)/$$band/plan-night-run" "$(DATE_DIR)/$$band/plan-night-complete"; \
 	done
-	@$(MAKE) -f $(lastword $(MAKEFILE_LIST)) all DATE=$(DATE)
+	@$(MAKE) -f $(lastword $(MAKEFILE_LIST)) all DATE=$(DATE) MUST_INCLUDE_TARGET="$(MUST_INCLUDE_TARGET)"
 
 # Re-run plan-semester + plan-night for all bands (skips prep/sheet pull)
 replan:
@@ -193,7 +199,7 @@ replan:
 	@for band in $(BANDS); do \
 		rm -f "$(DATE_DIR)/$$band/plan-semester-run" "$(DATE_DIR)/$$band/plan-night-run" "$(DATE_DIR)/$$band/plan-night-complete"; \
 	done
-	@$(MAKE) -f $(lastword $(MAKEFILE_LIST)) all DATE=$(DATE)
+	@$(MAKE) -f $(lastword $(MAKEFILE_LIST)) all DATE=$(DATE) MUST_INCLUDE_TARGET="$(MUST_INCLUDE_TARGET)"
 
 # Launch webapp
 webapp:
@@ -224,6 +230,7 @@ status:
 	@echo "  End Date: $(END_DATE)"
 	@echo "  Bands: $(BANDS)"
 	@echo "  Filler Program: $(FILLER_PROGRAM)"
+	@echo "  Must-include target(s): $(MUST_INCLUDE_TARGET)"
 	@echo "  Allocation file (-as): $(ALLOCATION_FILE)"
 	@echo "  Program sheet URLs CSV: $(HIRES_PROGRAM_SHEET_URLS_CSV)"
 	@echo "  Work Directory: $(WORKDIR)"

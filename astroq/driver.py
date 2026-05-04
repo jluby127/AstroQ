@@ -425,13 +425,17 @@ def plan_night(args):
     Args:
         args (argparse.Namespace): the command line arguments with flags:
             -cf (str): the path to the config file.
+            -must_include_target (str): comma-separated target IDs or starnames to force include if observable tonight.
     
     Returns:
         None
     """
     cf = args.config_file
+    must_include_target = args.must_include_target
     print(f'plan_night function: config_file is {cf}')
-    night_planner = nplan.NightPlanner(cf)
+    if must_include_target:
+        print(f'plan_night function: must_include_target is {must_include_target}')
+    night_planner = nplan.NightPlanner(cf, must_include_target=must_include_target)
     did_run = night_planner.run_ttp()
     if did_run:
         night_planner.to_hdf5()
