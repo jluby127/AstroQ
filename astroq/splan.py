@@ -6,6 +6,7 @@ Gurobi model for semester-level observation planning. It is nearly completely ag
 
 # Standard library imports
 import logging
+import math
 import os
 import time
 import warnings
@@ -82,6 +83,22 @@ class SemesterPlanner(object):
         self.solve_max_gap = config.getfloat('semester', 'max_solve_gap')
         self.max_bonus = config.getfloat('semester', 'maximum_bonus_size')
         self.run_bonus_round = config.getboolean('semester', 'run_bonus_round')
+        self.azimuth_slew_penalty_weight = config.getfloat('semester', 'azimuth_slew_penalty_weight', fallback=0.0)
+        self.cadence_undercompletion_threshold = config.getfloat(
+            'semester',
+            'cadence_undercompletion_threshold',
+            fallback=0.70,
+        )
+        self.cadence_undercompletion_weight = config.getfloat(
+            'semester',
+            'cadence_undercompletion_weight',
+            fallback=1.0,
+        )
+        self.program_balance_reward_weight = config.getfloat(
+            'semester',
+            'program_balance_reward_weight',
+            fallback=0.0,
+        )
 
         self.semester_start_date = config.get('global', 'semester_start_day')
         semester_end_date = config.get('global', 'semester_end_day')
@@ -225,6 +242,22 @@ class SemesterPlanner(object):
         # Get all request id's that are valid on a given day
         self.unique_request_on_day_pairs = self.joiner.copy().drop_duplicates(['unique_id','d'])
 
+        # Build per-(program, day) eligibility for optional balancing rewards.
+        program_day_frame = pd.merge(
+            self.unique_request_on_day_pairs[['unique_id', 'd']],
+            self.requests_frame[['unique_id', 'program_code']],
+            on=['unique_id'],
+            how='left',
+        ).drop_duplicates(['program_code', 'd', 'unique_id'])
+        self.observable_program_day_pairs = list(
+            program_day_frame[['program_code', 'd']].drop_duplicates().itertuples(index=False, name=None)
+        )
+        self.requests_by_program_day = (
+            program_day_frame.groupby(['program_code', 'd'])['unique_id']
+            .apply(list)
+            .to_dict()
+        )
+
         # Define the Gurobi model
         self.model = gp.Model('Semester_Scheduler')
         # Yrds is technically a 1D matrix indexed by tuples.
@@ -233,6 +266,15 @@ class SemesterPlanner(object):
         observability_array = list(self.observability.itertuples(index=False, name=None))
         self.Yrds = self.model.addVars(observability_array, vtype = GRB.BINARY, name = 'Requests_Slots')
 
+        # Build per-(request, day, slot) azimuth lookup to support slew-minimizing objective terms.
+        self.azimuth_by_rds = self._build_azimuth_lookup()
+        day_indices = sorted({d for _, d, _ in self.observability_tuples})
+        self.day_indices = day_indices
+        self.azimuth_max_by_day = self.model.addVars(day_indices, lb=0.0, ub=360.0, name='AzimuthMaxByDay')
+        self.azimuth_min_by_day = self.model.addVars(day_indices, lb=0.0, ub=360.0, name='AzimuthMinByDay')
+        self.azimuth_span_by_day = self.model.addVars(day_indices, lb=0.0, ub=360.0, name='AzimuthSpanByDay')
+        self._build_azimuth_span_constraints()
+
         if len(self.observability_nights) != 0:
             # Wrd is technically a 1D matrix indexed by tuples.
             # But in practice best think of it as a 2D ragged matrix of requests r and nights d, with gaps.
@@ -240,6 +282,12 @@ class SemesterPlanner(object):
             # Note that Wrd is only valid for requests r which have at least 2 visits requested in the night.
             observability_array_onsky = list(self.observability_nights.itertuples(index=False, name=None))
             self.Wrd = self.model.addVars(observability_array_onsky, vtype = GRB.BINARY, name = 'OnSky')
+
+        self.program_day_active = self.model.addVars(
+            self.observable_program_day_pairs,
+            vtype=GRB.BINARY,
+            name='ProgramDayActive',
+        )
 
         # theta is the "shortfall" variable, continous in natural numbers.
         self.theta = self.model.addVars(self.all_requests, name = 'Shortfall')
@@ -274,6 +322,33 @@ class SemesterPlanner(object):
             self.desired_max_obs_allowed_dict = desired_max_obs_allowed_dict
             self.absolute_max_obs_allowed_dict = absolute_max_obs_allowed_dict
             self.past_nights_observed_dict = past_nights_observed_dict
+
+        # Build per-request shortfall multipliers to prioritize cadence targets
+        # that are below the configured completion threshold.
+        self.shortfall_priority_multiplier = {name: 1.0 for name in self.all_requests}
+        prioritized_count = 0
+        for name in self.all_requests:
+            idx = self.requests_frame.index[self.requests_frame['unique_id'] == name][0]
+            n_inter_max = float(self.requests_frame['n_inter_max'][idx])
+            if n_inter_max <= 0:
+                continue
+
+            n_intra_max = float(self.requests_frame['n_intra_max'][idx])
+            # Cadence-required means repeated visits are requested either
+            # within a night or across the semester.
+            requires_cadence = (n_intra_max > 1) or (n_inter_max > 1)
+            completion_fraction = self.past_nights_observed_dict[name] / n_inter_max
+
+            if requires_cadence and completion_fraction < self.cadence_undercompletion_threshold:
+                self.shortfall_priority_multiplier[name] = 1.0 + self.cadence_undercompletion_weight
+                prioritized_count += 1
+
+        logs.info(
+            "Cadence under-completion prioritization: "
+            f"{prioritized_count} targets boosted "
+            f"(threshold={self.cadence_undercompletion_threshold:.2f}, "
+            f"weight={self.cadence_undercompletion_weight:.2f})."
+        )
         logs.debug("Initializing complete.")
 
     def _build_date_dictionary(self):
@@ -343,6 +418,58 @@ class SemesterPlanner(object):
             slots_needed_for_exposure_dict[starid] = slots_needed
         
         return slots_needed_for_exposure_dict
+
+    def _build_azimuth_lookup(self):
+        """
+        Build a dictionary mapping each (request, day, slot) observability tuple to azimuth in degrees.
+
+        Returns:
+            azimuth_lookup (dict): {(unique_id, d, s): azimuth_deg}
+        """
+        altaz = self.access_obj.observatory.altaz(
+            self.access_obj.slotmidpoints,
+            self.access_obj.targets,
+            grid_times_targets=True,
+        )
+        az_deg = altaz.az.deg
+
+        id_to_index = {uid: idx for idx, uid in enumerate(self.requests_frame['unique_id'])}
+        azimuth_lookup = {}
+        for r, d, s in self.observability_tuples:
+            target_idx = id_to_index.get(r)
+            if target_idx is None:
+                continue
+            azimuth_lookup[(r, d, s)] = float(az_deg[target_idx, d, s])
+        return azimuth_lookup
+
+    def _build_azimuth_span_constraints(self):
+        """
+        Add linear constraints tying scheduled observations to a per-night azimuth span.
+
+        This span is used as a proxy for slew extent in the semester objective.
+        """
+        big_m = 360.0
+        tuples_by_day = self.observability.groupby('d')[['unique_id', 's']]
+        for d, day_frame in tuples_by_day:
+            for _, row in day_frame.iterrows():
+                r = row['unique_id']
+                s = row['s']
+                if (r, d, s) not in self.azimuth_by_rds:
+                    continue
+                az_val = self.azimuth_by_rds[(r, d, s)]
+                self.model.addConstr(
+                    self.azimuth_max_by_day[d] >= az_val - big_m * (1 - self.Yrds[r, d, s]),
+                    f'azimuth_max_link_{r}_{d}_{s}'
+                )
+                self.model.addConstr(
+                    self.azimuth_min_by_day[d] <= az_val + big_m * (1 - self.Yrds[r, d, s]),
+                    f'azimuth_min_link_{r}_{d}_{s}'
+                )
+
+            self.model.addConstr(
+                self.azimuth_span_by_day[d] == self.azimuth_max_by_day[d] - self.azimuth_min_by_day[d],
+                f'azimuth_span_def_{d}'
+            )
 
     def _build_observability(self):
         """
@@ -578,7 +705,62 @@ class SemesterPlanner(object):
         of observations, weighted by the time needed
         to complete one observation.
         """
-        self.model.setObjective(gp.quicksum(self.theta[name]*self.slots_needed_for_exposure_dict[name] for name in self.schedulable_requests), GRB.MINIMIZE)
+        theta_term = gp.quicksum(
+            self.theta[name]
+            * self.slots_needed_for_exposure_dict[name]
+            * self.shortfall_priority_multiplier.get(name, 1.0)
+            for name in self.schedulable_requests
+        )
+        azimuth_term = gp.quicksum(self.azimuth_span_by_day[d] for d in self.day_indices)
+        program_balance_term = gp.quicksum(
+            self.program_day_active[program_code, day_idx]
+            for program_code, day_idx in self.observable_program_day_pairs
+        )
+
+        self.model.setObjective(
+            theta_term
+            + self.azimuth_slew_penalty_weight * azimuth_term
+            - self.program_balance_reward_weight * program_balance_term,
+            GRB.MINIMIZE,
+        )
+        logs.info(
+            "Objective: Minimize weighted shortfall with azimuth slew penalty "
+            "and optional program balancing reward "
+            f"(azimuth_slew_penalty_weight={self.azimuth_slew_penalty_weight}, "
+            f"program_balance_reward_weight={self.program_balance_reward_weight})."
+        )
+
+    def constraint_link_program_day_activity(self):
+        """Link per-(program, day) activity variables to scheduled requests."""
+        logs.info("Constraint: Link program-day activity variables.")
+        for program_code, day_idx in self.observable_program_day_pairs:
+            request_ids = self.requests_by_program_day.get((program_code, day_idx), [])
+            valid_triplets = []
+            for request_id in request_ids:
+                if request_id not in self.all_valid_ds_for_request.index:
+                    continue
+                d_list = list(self.all_valid_ds_for_request.loc[request_id].d)
+                s_list = list(self.all_valid_ds_for_request.loc[request_id].s)
+                valid_triplets.extend((request_id, d, s) for d, s in zip(d_list, s_list) if d == day_idx)
+
+            if len(valid_triplets) == 0:
+                self.model.addConstr(
+                    self.program_day_active[program_code, day_idx] == 0,
+                    name=f'program_day_active_empty_{program_code}_{day_idx}',
+                )
+                continue
+
+            self.model.addConstr(
+                gp.quicksum(self.Yrds[r, d, s] for r, d, s in valid_triplets)
+                >= self.program_day_active[program_code, day_idx],
+                name=f'program_day_active_lower_{program_code}_{day_idx}',
+            )
+
+            self.model.addConstr(
+                gp.quicksum(self.Yrds[r, d, s] for r, d, s in valid_triplets)
+                <= len(valid_triplets) * self.program_day_active[program_code, day_idx],
+                name=f'program_day_active_upper_{program_code}_{day_idx}',
+            )
 
     def constraint_build_theta_multivisit(self):
         """
@@ -774,6 +956,7 @@ class SemesterPlanner(object):
         self.constraint_build_enforce_intranight_cadence()
         self.constraint_set_min_max_visits_per_night()
         self.constraint_build_theta_multivisit()
+        self.constraint_link_program_day_activity()
         self.constraint_throttle()
         self.set_objective_minimize_theta_time_normalized()
         logs.info(f"Time to build constraints: {np.round(time.time()-t1,3):.3f}")
@@ -861,6 +1044,7 @@ class SemesterPlanner(object):
             ('allocation_file', 'allocation_file', 'string', None),
             ('throttle_grace', 'throttle_grace', 'scalar', None),
             ('hours_per_night', 'hours_per_night', 'scalar', None),
+            ('program_balance_reward_weight', 'program_balance_reward_weight', 'scalar', None),
         ]
         
         # Dictionary attributes (saved as JSON)
@@ -980,6 +1164,7 @@ class SemesterPlanner(object):
             ('semester_directory', 'semester_directory', 'string', None),
             ('custom_file', 'custom_file', 'string', None),
             ('allocation_file', 'allocation_file', 'string', None),
+            ('program_balance_reward_weight', 'program_balance_reward_weight', 'scalar', None),
         ]
         
         # Dictionary attributes (loaded from JSON)
@@ -1010,10 +1195,18 @@ class SemesterPlanner(object):
         with h5py.File(hdf5_path, 'r') as f:
             # Load scalar/string attributes
             for hdf5_key, attr_name, data_type, _ in scalar_attrs:
-                setattr(instance, attr_name, f.attrs[hdf5_key])
+                if hdf5_key in f.attrs:
+                    setattr(instance, attr_name, f.attrs[hdf5_key])
+                elif hdf5_key == 'program_balance_reward_weight':
+                    setattr(instance, attr_name, 0.0)
+                else:
+                    setattr(instance, attr_name, f.attrs[hdf5_key])
             # Optional: backwards compat for HDF5 files saved before these were stored
             instance.throttle_grace = float(f.attrs.get('throttle_grace', 1.25))
             instance.hours_per_night = float(f.attrs.get('hours_per_night', 12.0))
+            instance.program_balance_reward_weight = float(
+                f.attrs.get('program_balance_reward_weight', 0.0)
+            )
             
             # Load dictionary attributes
             for hdf5_key, attr_name, data_type, _ in dict_attrs:

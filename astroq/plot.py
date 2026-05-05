@@ -2488,6 +2488,30 @@ def plot_path_2D_interactive(data, night_start_time=None):
     az_path = model.az_path
     alt_path = model.alt_path
     wrap = model.observatory.wrapLimitAngle
+
+    def _infer_mechanical_path(sky_az_values, observatory):
+        """Infer a continuous mechanical azimuth path from sky azimuth values.
+
+        If the observatory defines mech_az_candidates(sky_az), choose candidates
+        sequentially to minimize |delta az| and preserve branch continuity.
+        """
+        if not hasattr(observatory, 'mech_az_candidates'):
+            return np.array(sky_az_values, dtype=float)
+
+        mech = []
+        prev = None
+        for sky_az in sky_az_values:
+            cands = observatory.mech_az_candidates(float(sky_az))
+            if not cands:
+                cands = [float(sky_az)]
+            if prev is None:
+                # Pick the candidate nearest 0 deg for a stable start.
+                chosen = min(cands, key=lambda x: abs(x))
+            else:
+                chosen = min(cands, key=lambda x: abs(x - prev))
+            mech.append(float(chosen))
+            prev = float(chosen)
+        return np.array(mech, dtype=float)
     
     # Use night_start_time as "Minute 0" reference
     if night_start_time is None:
@@ -2534,24 +2558,18 @@ def plot_path_2D_interactive(data, night_start_time=None):
     az_path = np.array(az_path[:min_len])
     alt_path = np.array(alt_path[:min_len])
     names = names[:min_len]
-    
-    # First, ensure all azimuth values are within 0-360 degrees using mod 360
-    # This prevents values like -10° or 370° from appearing
-    az_path = np.mod(az_path, 360)
-    
-    # Store original azimuth for hover text (0-360°)
-    az_path_original = az_path.copy()
-    
-    # For display: values above 270° should be shown as negative (subtract 360)
-    # e.g., 290° becomes -70°, 350° becomes -10°
-    az_path_display = az_path.copy()
-    az_path_display[az_path_display > 270] -= 360
+
+    # Mechanical azimuth path: prefer explicit solver output if available.
+    if hasattr(model, 'mech_az_path') and model.mech_az_path is not None:
+        mech_az_path = np.array(model.mech_az_path[:min_len], dtype=float)
+    else:
+        mech_az_path = _infer_mechanical_path(az_path, model.observatory)
     
     # For tick labels and hover, format as HH:MM
     time_labels = [Time(t, format='jd').isot[11:16] for t in obs_time]
     
-    # Create hover text arrays using ORIGINAL azimuth (0-360°)
-    hover_text_az = [f"Time: {time_labels[i]}<br>Target: {names[i]}<br>Az: {az_path_original[i]:.1f}°" 
+    # Create hover text arrays using mechanical azimuth.
+    hover_text_az = [f"Time: {time_labels[i]}<br>Target: {names[i]}<br>Mech Az: {mech_az_path[i]:.1f}°" 
                      for i in range(len(obs_time))]
     hover_text_alt = [f"Time: {time_labels[i]}<br>Target: {names[i]}<br>Alt: {alt_path[i]:.1f}°" 
                       for i in range(len(obs_time))]
@@ -2563,12 +2581,12 @@ def plot_path_2D_interactive(data, night_start_time=None):
         vertical_spacing=0.1
     )
 
-    # Azimuth plot (use display values: >270° shown as negative)
+    # Mechanical azimuth plot
     fig.add_trace(go.Scatter(
-        x=obs_time, y=az_path_display,
+        x=obs_time, y=mech_az_path,
         mode='lines+markers',
         marker=dict(color='indigo'),
-        name='Azimuth',
+        name='Mechanical Azimuth',
         text=hover_text_az,
         hovertemplate='%{text}<extra></extra>'
     ), row=1, col=1)
@@ -2583,27 +2601,36 @@ def plot_path_2D_interactive(data, night_start_time=None):
         hovertemplate='%{text}<extra></extra>'
     ), row=2, col=1)
 
-    # Add wrap limit line at the wrap position
-    # Apply same conversion as display values: if wrap > 270°, subtract 360
-    if wrap is not None:
-        # Normalize wrap to 0-360 range
+    # Draw hard limits for mechanical azimuth when available.
+    if hasattr(model.observatory, 'wrap_lo') and hasattr(model.observatory, 'wrap_hi'):
+        for lim, label in [(float(model.observatory.wrap_lo), 'North hard limit'),
+                           (float(model.observatory.wrap_hi), 'South hard limit')]:
+            fig.add_shape(
+                type="line",
+                x0=obs_time[0], x1=obs_time[-1],
+                y0=lim, y1=lim,
+                line=dict(color="red", dash="dash", width=2),
+                row=1, col=1
+            )
+            fig.add_annotation(
+                x=obs_time[-1], y=lim,
+                text=f"{label} = {lim:.1f}°",
+                showarrow=False,
+                font=dict(color="red", size=10),
+                row=1, col=1
+            )
+    elif wrap is not None:
+        # Backward-compatible single-wrap display.
         wrap_normalized = wrap % 360
-        
-        # Apply same display conversion: if > 270°, show as negative
-        wrap_display = wrap_normalized
-        if wrap_display > 270:
-            wrap_display -= 360
-        
-        # Draw wrap limit line at the display position
         fig.add_shape(
             type="line",
             x0=obs_time[0], x1=obs_time[-1],
-            y0=wrap_display, y1=wrap_display,
+            y0=wrap_normalized, y1=wrap_normalized,
             line=dict(color="red", dash="dash", width=2),
             row=1, col=1
         )
         fig.add_annotation(
-            x=obs_time[-1], y=wrap_display,
+            x=obs_time[-1], y=wrap_normalized,
             text=f"Wrap = {wrap_normalized}°",
             showarrow=False,
             font=dict(color="red", size=10),
@@ -2667,33 +2694,26 @@ def plot_path_2D_interactive(data, night_start_time=None):
         row=2, col=1
     )
 
-    # Update y-axis for azimuth to always show consistent range with 270° at the top
-    # Values >270° are displayed as negative (by subtracting 360)
-    # Range goes from -95° to 275° with 5° buffer on both ends
-    az_y_min = -95
-    az_y_max = 275
-    
-    # Generate tick positions every 45 degrees from -90 to 270
+    # Mechanical azimuth axis range and ticks.
+    if hasattr(model.observatory, 'wrap_lo') and hasattr(model.observatory, 'wrap_hi'):
+        az_y_min = float(model.observatory.wrap_lo) - 5
+        az_y_max = float(model.observatory.wrap_hi) + 5
+    else:
+        az_y_min = float(np.nanmin(mech_az_path)) - 5
+        az_y_max = float(np.nanmax(mech_az_path)) + 5
+
     tick_interval = 45
-    az_tick_positions = np.arange(-90, 271, tick_interval)  # -90, -45, 0, 45, 90, 135, 180, 225, 270
-    
-    # Create labels - convert negative angles to their 360° equivalents
-    # -90° → 270°, -45° → 315°, etc.
-    az_tick_labels = []
-    for pos in az_tick_positions:
-        if pos < 0:
-            # Convert negative to 360° equivalent
-            label = int(pos + 360)
-        else:
-            label = int(pos)
-        az_tick_labels.append(f"{label}°")
+    az_tick_start = int(np.floor(az_y_min / tick_interval) * tick_interval)
+    az_tick_stop = int(np.ceil(az_y_max / tick_interval) * tick_interval)
+    az_tick_positions = np.arange(az_tick_start, az_tick_stop + 1, tick_interval)
+    az_tick_labels = [f"{int(pos)}°" for pos in az_tick_positions]
     
     fig.update_yaxes(
         tickmode='array',
         tickvals=az_tick_positions,
         ticktext=az_tick_labels,
         range=[az_y_min, az_y_max],
-        title_text="Azimuth (deg)",
+        title_text="Mechanical Azimuth (deg)",
         row=1, col=1
     )
     

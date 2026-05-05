@@ -94,7 +94,7 @@ def load_data_for_path(semester_code, date, band, uptree_path):
             night_planner.current_day
         )
     except Exception as e:
-        print(f"No night planner found")
+        print(f"No night planner found: {e}")
         # import traceback
         # traceback.print_exc()
         night_planner = None

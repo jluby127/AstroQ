@@ -179,6 +179,35 @@ def _workbook_title_from_response(resp):
     return name
 
 
+def _repair_text_mojibake(val):
+    """Repair common UTF-8/latin-1 mojibake and normalize unicode minus-like characters."""
+    if not isinstance(val, str):
+        return val
+    s = val
+
+    # Repair the common case where UTF-8 bytes were decoded as latin-1/cp1252.
+    if "Ã" in s or "â" in s:
+        try:
+            repaired = s.encode("latin-1").decode("utf-8")
+            s = repaired
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            pass
+
+    # Normalize minus/dash variants to plain ASCII '-' for numeric fields.
+    s = s.replace("\u2212", "-").replace("\u2013", "-").replace("\u2014", "-")
+    return s
+
+
+def _normalize_sheet_text(df):
+    """Apply text repair/normalization across all string columns in a sheet DataFrame."""
+    if df is None or df.empty:
+        return df
+    out = df.copy()
+    for col in out.columns:
+        out[col] = out[col].apply(_repair_text_mojibake)
+    return out
+
+
 def _fetch_sheet_dataframe(url, skip_rows=3):
     """
     Fetch one tab of a HIRES-CPS Google Sheet as a DataFrame.
@@ -217,7 +246,12 @@ def _fetch_sheet_dataframe(url, skip_rows=3):
     resp = requests.get(csv_url, timeout=15)
     resp.raise_for_status()
     title = _workbook_title_from_response(resp) or url
-    text = resp.text
+    # Decode explicitly as UTF-8 to avoid response-header-dependent mojibake (e.g. '−' -> 'â...').
+    try:
+        text = resp.content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        # Fallback to requests' detected encoding, but keep replacement-safe decoding.
+        text = resp.content.decode(resp.encoding or "utf-8", errors="replace")
     stripped = text.lstrip()
     if not stripped or stripped.startswith("<!") or "<html" in stripped[:200].lower():
         raise ValueError(
@@ -227,6 +261,7 @@ def _fetch_sheet_dataframe(url, skip_rows=3):
 
     df = pd.read_csv(io.StringIO(text), skiprows=skip_rows, dtype=str)
     df = df.dropna(how="all")
+    df = _normalize_sheet_text(df)
     df.columns = [str(c).strip() for c in df.columns]
     if "comments" not in df.columns:
         df["comments"] = ""
@@ -640,6 +675,41 @@ def pm_correcter(ra, dec, pmra, pmdec, current_day, equinox="2000"):
     Returns:
         formatted_ra (str), formatted_dec (str): updated coordinates as strings
     """
+    def _safe_float(val, field_name):
+        """Coerce potentially malformed numeric strings (including mojibake minus signs) to float."""
+        if pd.isna(val):
+            return 0.0
+        if isinstance(val, (int, float, np.integer, np.floating)):
+            return float(val)
+
+        s = str(val).strip()
+        if not s:
+            return 0.0
+
+        # Normalize common unicode minus/dash and mojibake variants to ASCII '-'.
+        for bad in ("−", "–", "—", "âˆ’", "â€“", "â€”", "Ã¢\x88\x92", "Ã¢\x80\x93", "Ã¢\x80\x94"):
+            s = s.replace(bad, "-")
+
+        # If a mangled leading marker remains (e.g., 'â37.3'), assume intended negative sign.
+        if s.startswith("â") and len(s) > 1 and s[1].isdigit():
+            s = "-" + s[1:]
+
+        # Keep only the first float-like token.
+        match = re.search(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", s)
+        if match:
+            try:
+                return float(match.group(0))
+            except ValueError:
+                pass
+
+        logs.warning("Could not parse %s=%r; defaulting to 0.0 mas/yr", field_name, val)
+        return 0.0
+
+    ra = _safe_float(ra, "ra")
+    dec = _safe_float(dec, "dec")
+    pmra = _safe_float(pmra, "pmra")
+    pmdec = _safe_float(pmdec, "pmdec")
+
     start_time = Time(f'J{equinox}')
     current_time = Time(current_day)
     coord = SkyCoord(

@@ -207,6 +207,12 @@ def main():
                                       required=True,
                                       help="Relative path of config file."
                                       )
+    psr_plan_night.add_argument('--must_include_target',
+                                      type=str,
+                                      required=False,
+                                      default='',
+                                      help="Comma-separated target IDs or starnames to force-include in night planning if observable tonight."
+                                      )
     psr_plan_night.set_defaults(func=astroq.driver.plan_night)
 
     ## subcommand of astroq: compare -- compare request set and schedule file

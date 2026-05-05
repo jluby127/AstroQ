@@ -33,12 +33,13 @@ class NightPlanner(object):
     It is built from the config file and requires a semester_planner object to have been created and saved to an h5 file first.
     """
     
-    def __init__(self, config_file):
+    def __init__(self, config_file, must_include_target=''):
         """
         Initialize the Night Planner with a config file.
         
         Args:
             config_file: Path to configuration file
+            must_include_target: Comma-separated target IDs or starnames to force include if observable tonight
         """
         
         # Parse config file directly for paths (following SemesterPlanner pattern)
@@ -53,6 +54,10 @@ class NightPlanner(object):
         self.current_day = str(config.get('global', 'current_day'))
         self.output_directory = os.path.join(self.upstream_path, "outputs")
         self.reports_directory = os.path.join(self.upstream_path, "outputs")
+        self.must_include_target = must_include_target
+        self.must_include_targets = [
+            t.strip() for t in str(must_include_target).split(',') if t.strip()
+        ]
 
         # Get night plan specific parameters
         self.max_solve_gap = config.getfloat('night', 'max_solve_gap')
@@ -86,6 +91,12 @@ class NightPlanner(object):
         workdir = os.path.join(str(config.get('global', 'workdir')), "outputs")
 
         semester_planner_h5 = os.path.join(workdir, 'semester_planner.h5')
+        if not os.path.exists(semester_planner_h5):
+            raise FileNotFoundError(
+                f"File {semester_planner_h5} does not exist. "
+                "Run 'astroq plan-semester -cf config.ini' in this band directory first "
+                "(or clear Makefile sentinels with replan/repull and rerun)."
+            )
         self.semester_planner = SemesterPlanner.from_hdf5(semester_planner_h5)
         
         # Pull properties from SemesterPlanner for consistency
@@ -173,6 +184,74 @@ class NightPlanner(object):
         if not os.path.exists(selected_path):
             raise FileNotFoundError(f"{selected_path} not found. Please run the scheduler first.")
         selected_df = pd.read_csv(selected_path)
+
+        # Force-include requested targets only if they are observable tonight.
+        def _normalize_id(val):
+            """Strip trailing .0 from float-typed IDs so large integer IDs match user input."""
+            s = str(val).strip()
+            if s.endswith('.0') and s[:-2].lstrip('-').isdigit():
+                s = s[:-2]
+            return s.lower()
+
+        forced_ids = set()
+        if self.must_include_targets:
+            tonight_index = self.all_dates_dict[self.current_day]
+            requests_df = self.semester_planner.requests_frame
+            target_to_index = {
+                _normalize_id(row['unique_id']): idx for idx, row in requests_df.iterrows()
+            }
+            starnames = requests_df['starname'].astype(str).str.strip().str.lower()
+            unique_ids = requests_df['unique_id'].apply(_normalize_id)
+            existing_ids = set(
+                selected_df['unique_id'].apply(_normalize_id)
+            ) if 'unique_id' in selected_df.columns else set()
+
+            for target in self.must_include_targets:
+                target_key = _normalize_id(target)
+                # Match by unique_id first, then by starname.
+                matched_rows = requests_df[unique_ids == target_key]
+                if len(matched_rows) == 0:
+                    matched_rows = requests_df[starnames == target_key]
+                if len(matched_rows) == 0:
+                    print(f"Must-include target '{target}' not found in active requests; skipping.")
+                    continue
+
+                for _, req_row in matched_rows.iterrows():
+                    request_id = str(req_row['unique_id'])
+                    request_id_normalized = _normalize_id(req_row['unique_id'])
+                    if request_id_normalized not in target_to_index:
+                        continue
+
+                    target_idx = target_to_index[request_id_normalized]
+                    tonight_observable = self.semester_planner.access_record.is_observable[
+                        target_idx, tonight_index, :
+                    ]
+                    if not np.any(tonight_observable):
+                        print(
+                            f"Must-include target '{target}' ({request_id}) is not observable on {self.current_day}; skipping."
+                        )
+                        continue
+
+                    # Track as forced regardless of whether already in selected_df
+                    forced_ids.add(request_id_normalized)
+
+                    if request_id_normalized not in existing_ids:
+                        row_df = pd.DataFrame([req_row])
+                        if len(selected_df) == 0:
+                            selected_df = row_df.copy()
+                        else:
+                            for col in selected_df.columns:
+                                if col not in row_df.columns:
+                                    row_df[col] = np.nan
+                            for col in row_df.columns:
+                                if col not in selected_df.columns:
+                                    selected_df[col] = np.nan
+                            selected_df = pd.concat([selected_df, row_df[selected_df.columns]], ignore_index=True)
+                        existing_ids.add(request_id)
+                        print(f"Force-including target '{target}' ({request_id}) for night planning.")
+                    else:
+                        print(f"Must-include target '{target}' ({request_id}) already in schedule; boosting its priority.")
+
         # Gracefully fail if no targets are selected (useful on non-"full" bands when not allocated)
         if len(selected_df) == 0:
             print(f"No targets found in {selected_path}. Not running TTP. No night_planner.pkl file will be created.")
@@ -195,6 +274,11 @@ class NightPlanner(object):
         selected_df['epoch'] = selected_df['epoch'].replace('None', np.nan).fillna(0.0)
 
         # Prepare the TTP input DataFrame (matching the old prepare_for_ttp output)
+        # Must-include targets get a very high priority so TTP strongly prefers scheduling them.
+        priorities = [
+            1000 if _normalize_id(uid) in forced_ids else 10
+            for uid in selected_df["unique_id"]
+        ]
         to_ttp = pd.DataFrame({
             "Starname": selected_df["unique_id"],
             "RA": selected_df["ra"],
@@ -203,7 +287,7 @@ class NightPlanner(object):
             "Exposures Per Visit": selected_df["n_exp"],
             "Visits In Night": selected_df["n_intra_max"],
             "Intra_Night_Cadence": selected_df["tau_intra"],
-            "Priority": 10,  # Default priority, or you can add logic if needed
+            "Priority": priorities,
             "First Available": selected_df["first_available"],
             "Last Available": selected_df["last_available"],
         })
@@ -453,6 +537,7 @@ class NightPlanner(object):
             ('current_day', 'self.current_day', 'string', None),
             ('output_directory', 'self.output_directory', 'string', None),
             ('reports_directory', 'self.reports_directory', 'string', None),
+            ('must_include_target', 'self.must_include_target', 'string', None),
             ('max_solve_gap', 'self.max_solve_gap', 'scalar', None),
             ('max_solve_time', 'self.max_solve_time', 'scalar', None),
             ('show_gurobi_output', 'self.show_gurobi_output', 'scalar', None),
@@ -473,6 +558,7 @@ class NightPlanner(object):
             ('solution_star_ras', 'solution.stars', 'stars', 'ra'),
             ('solution_star_decs', 'solution.stars', 'stars', 'dec'),
             ('solution_az_path', 'solution.az_path', 'array', None),
+            ('solution_mech_az_path', 'solution.mech_az_path', 'array', None),
             ('solution_alt_path', 'solution.alt_path', 'array', None),
         ]
         
@@ -501,8 +587,14 @@ class NightPlanner(object):
             # Save solution attributes
             for hdf5_key, obj_path, data_type, extra in solution_attrs:
                 obj = solution
+                missing_attr = False
                 for attr in obj_path.split('.')[1:]:  # Skip 'solution' part
+                    if not hasattr(obj, attr):
+                        missing_attr = True
+                        break
                     obj = getattr(obj, attr)
+                if missing_attr:
+                    continue
                 
                 if data_type == 'dict_json':
                     # Convert dict with arrays/lists to JSON-serializable format (native Python types)
@@ -588,6 +680,7 @@ class NightPlanner(object):
             ('current_day', 'current_day', 'string', None),
             ('output_directory', 'output_directory', 'string', None),
             ('reports_directory', 'reports_directory', 'string', None),
+            ('must_include_target', 'must_include_target', 'string', None),
             ('max_solve_gap', 'max_solve_gap', 'scalar', None),
             ('max_solve_time', 'max_solve_time', 'scalar', None),
             ('show_gurobi_output', 'show_gurobi_output', 'scalar', None),
@@ -603,6 +696,7 @@ class NightPlanner(object):
             ('nightends_jd', 'nightends', 'time', None),
             ('solution_schedule_json', 'schedule', 'dict_json', None),
             ('solution_az_path', 'az_path', 'array', None),
+            ('solution_mech_az_path', 'mech_az_path', 'array', None),
             ('solution_alt_path', 'alt_path', 'array', None),
         ]
         
@@ -623,7 +717,16 @@ class NightPlanner(object):
         with h5py.File(hdf5_path, 'r') as f:
             # Load NightPlanner attributes
             for hdf5_key, attr_name, data_type, _ in nightplanner_attrs:
-                setattr(instance, attr_name, f.attrs[hdf5_key])
+                if hdf5_key in f.attrs:
+                    setattr(instance, attr_name, f.attrs[hdf5_key])
+                elif hdf5_key == 'must_include_target':
+                    setattr(instance, attr_name, '')
+                else:
+                    setattr(instance, attr_name, f.attrs[hdf5_key])
+
+            instance.must_include_targets = [
+                t.strip() for t in str(getattr(instance, 'must_include_target', '')).split(',') if t.strip()
+            ]
             
             # Load semester_planner
             semester_planner_h5_path = f.attrs['semester_planner_h5_path']
@@ -643,6 +746,10 @@ class NightPlanner(object):
             
             # Load solution attributes
             for hdf5_key, attr_name, data_type, extra in solution_attrs:
+                if data_type in ('dict_json', 'time') and hdf5_key not in f.attrs:
+                    continue
+                if data_type in ('time_list', 'array') and hdf5_key not in f:
+                    continue
                 if data_type == 'dict_json':
                     data = json.loads(f.attrs[hdf5_key])
                     # Convert lists back to numpy arrays
@@ -679,11 +786,22 @@ class NightPlanner(object):
                 star.target = SkyCoord(ra=ra*u.deg, dec=dec*u.deg)
                 solution.stars.append(star)
             
-            # Load observatory (recreate Keck1 object)
-            import sys
-            sys.path.append('/Users/jack/Documents/github/ttp/ttp/')
-            import telescope
-            solution.observatory = telescope.Keck1()
+            # Load observatory (recreate Keck1 object) without machine-specific paths.
+            telescope_mod = None
+            import_errors = []
+            for module_name in ("ttp.telescope", "telescope", "ttpsolver.telescope"):
+                try:
+                    import importlib
+                    telescope_mod = importlib.import_module(module_name)
+                    break
+                except Exception as e:
+                    import_errors.append(f"{module_name}: {e}")
+            if telescope_mod is None:
+                raise ImportError(
+                    "Could not import a telescope module to reconstruct observatory. "
+                    + " | ".join(import_errors)
+                )
+            solution.observatory = telescope_mod.Keck1()
         
         # Load solution.extras (convert back to dict if needed)
         with h5py.File(hdf5_path, 'r') as f:
