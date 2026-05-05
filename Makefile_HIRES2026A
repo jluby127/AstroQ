@@ -3,7 +3,7 @@
 
 # Configuration variables
 # Conda environment to use for all commands
-CONDA_ENV ?= astroq-hires26b # needed to modify to use with my new environment
+CONDA_ENV ?= $(CC_CONDA_ENV) # needed to modify to use with my new environment
 WORKDIR ?= $(CC_OUTPUT_PATH)
 SEMESTER_DIR = $(WORKDIR)/$(SEMESTER)
 DATE_DIR = $(SEMESTER_DIR)/$(DATE)

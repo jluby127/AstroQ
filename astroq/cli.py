@@ -172,6 +172,11 @@ def main():
                               required=True,
                               help="Path to the uptree directory (e.g., /Users/jack/Desktop)."
                                 )
+    psr_webapp.add_argument('-p', '--port',
+                              type=int,
+                              default=50001,
+                              help="Port to bind the webapp to (default: 50001)."
+                                )
     psr_webapp.set_defaults(func=astroq.driver.kpfcc_webapp)
 
     ## subcommand of astroq: plan-semester -- plan a semester's worth of observations

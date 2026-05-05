@@ -9,7 +9,13 @@ This package contains the code for solving two related problems:
 
 For information on the installation and use of the ``AstroQ`` code, please visit the [documentation page](https://astroq.readthedocs.io).
 
+# Notes on HIRES implementation
 
+These are notes for the HIRES implementation starting in 2026A. You'll need the following extra environment variables to be set
+
+CC_CONDA_ENV = <name of conda environment> # needed to test and develop different versions of the cod
+HIRES_PROGRAM_SHEET_URLS_CSV = <csv file containing urls to google sheet of hires requests>
+CC_OUTPUT_PATH = usually the same directory as where the repo is stored.
 
 # More Info
 More information on the KPF-CC program and the algorithm can be found in these places:
