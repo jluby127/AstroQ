@@ -387,12 +387,14 @@ def kpfcc_webapp(args):
     Args:
         args (argparse.Namespace): the command line arguments with flags:
             -uptree_path (str): the path to the uptree directory below which the folder structure is <semester_code>/<date>/<band>/.
+            -port (int): the port to bind the webapp to (default: 50001).
     
     Returns:
         None
     """
     uptree_path = args.uptree_path
-    app.launch_app(uptree_path)
+    port = getattr(args, 'port', 50001)
+    app.launch_app(uptree_path, port=port)
     return
 
 def plan_semester(args):
