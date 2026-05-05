@@ -329,15 +329,15 @@ def download_nightplan(semester_code, date, band):
     except Exception as e:
         return f"Error downloading file: {str(e)}", 500
 
-def launch_app(uptree_path_param):
+def launch_app(uptree_path_param, port=50001):
     """Launch the Flask app"""
     global uptree_path
     uptree_path = uptree_path_param
-    
+
     if running_on_keck_machines:
-        app.run(host=gethostname(), debug=False, use_reloader=False, port=50001)
+        app.run(host=gethostname(), debug=False, use_reloader=False, port=port)
     else:
-        app.run(debug=True, use_reloader=True, port=50001)
+        app.run(debug=True, use_reloader=True, port=port)
 
 if __name__ == "__main__":
     launch_app(".")
