@@ -61,13 +61,13 @@ $(DATE_DIR)/%/plan-night-complete: $(DATE_DIR)/%/plan-night-run
 # Run plan-night command
 $(DATE_DIR)/%/plan-night-run: $(DATE_DIR)/%/plan-semester-run
 	@echo "🌙 Running plan-night for band $(notdir $(@D))..."
-	@cd $(@D) && $(LOAD_ENV) && conda run -n $(CONDA_ENV) astroq plan-night -cf config.ini 2>&1 | tee -a astroq.log
+	@cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq plan-night -cf config.ini 2>&1 | tee -a astroq.log
 	@touch $@
 
 # Run plan-semester command (unified for all bands)
 $(DATE_DIR)/%/plan-semester-run: $(DATE_DIR)/%/prep-run
 	@echo "📅 Running plan-semester for band $(notdir $(@D))..."
-	@cd $(@D) && $(LOAD_ENV) && conda run -n $(CONDA_ENV) astroq plan-semester -cf config.ini 2>&1 | tee -a astroq.log
+	@cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq plan-semester -cf config.ini 2>&1 | tee -a astroq.log
 	@touch $@
 
 # Unified prep command for all bands (instrument read from config.ini)
@@ -79,10 +79,10 @@ $(DATE_DIR)/%/prep-run: $(DATE_DIR)/%/config.ini
 	IS_FULL_BAND=$$(echo $(notdir $(@D)) | grep -q '^full-' && echo "true" || echo "false"); \
 	if [ "$$IS_FULL_BAND" = "true" ]; then \
 		echo "📅 Running prep for full-band $$BAND_NUM (instrument=$$INSTRUMENT)..." && \
-		cd $(@D) && $(LOAD_ENV) && conda run -n $(CONDA_ENV) astroq prep $$INSTRUMENT -cf config.ini -fillers $(FILLER_PROGRAM) -as "$(ALLOCATION_FILE)" -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
+		cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$INSTRUMENT -cf config.ini -fillers $(FILLER_PROGRAM) -as "$(ALLOCATION_FILE)" -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
 	else \
 		echo "📊 Running prep for band $$BAND_NUM (instrument=$$INSTRUMENT)..." && \
-		cd $(@D) && $(LOAD_ENV) && conda run -n $(CONDA_ENV) astroq prep $$INSTRUMENT -cf config.ini -fillers $(FILLER_PROGRAM) -as "$(ALLOCATION_FILE)" -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
+		cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$INSTRUMENT -cf config.ini -fillers $(FILLER_PROGRAM) -as "$(ALLOCATION_FILE)" -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
 	fi
 	@touch $@
 
@@ -163,7 +163,7 @@ combine_logs:
 # Check night plans
 check_night_plans:
 	@echo "🔍 Running check_night_plans.py..."
-	@cd $(shell dirname $(firstword $(MAKEFILE_LIST))) && $(LOAD_ENV) && conda run -n $(CONDA_ENV) python check_night_plans.py -s $(SEMESTER) -d $(DATE) $(DATE_DIR)
+	@cd $(shell dirname $(firstword $(MAKEFILE_LIST))) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) python check_night_plans.py -s $(SEMESTER) -d $(DATE) $(DATE_DIR)
 	@echo "✅ Night plans check complete!"
 
 # Launch webapp
