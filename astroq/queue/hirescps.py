@@ -241,7 +241,7 @@ def _fetch_sheet_dataframe(url, skip_rows=3):
     missing = set(REQUEST_COLS_READ) - set(df.columns)
     if missing:
         raise ValueError(f"CSV missing required columns: {sorted(missing)}")
-    print(f"read {len(df)} records from {title}")
+    print(f"read {len(df)} records from {title}\n")
     return df[REQUEST_COLS_READ].copy()
 
 
