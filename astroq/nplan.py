@@ -346,7 +346,9 @@ class NightPlanner(object):
         use_frame.to_csv(observe_order_file, index=False)
 
         hirescps.write_starlist(selected_df, solution.plotly, observation_start_time, solution.extras,
-                            [], str(self.current_day), observers_path)
+                            [], str(self.current_day), observers_path,
+                            all_active_requests=self.semester_planner.requests_frame,
+                            past_history=self.past_history)
         print("The optimal path through the sky for the selected stars is found. Clear skies!")
 
         return True

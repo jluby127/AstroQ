@@ -28,68 +28,6 @@ from astroq.access import Access
 
 logs = logging.getLogger(__name__)
 
-# Google Sheet URLs for HIRES CPS requests: set env HIRES_PROGRAM_SHEET_URLS_CSV to a CSV path
-# (column "url", or first column). Example: request_urls_2026B.csv next to the Makefile.
-
-
-def load_program_sheet_urls_from_csv(path):
-    """
-    Load Google Sheet share URLs from a CSV file.
-
-    Uses a column named ``url`` (case-insensitive) if present; otherwise the first column.
-    Skips blank cells and non-http(s) values.
-
-    Args:
-        path (str): Path to the CSV file.
-
-    Returns:
-        list of str: Sheet URLs in row order.
-    """
-    df = pd.read_csv(path)
-    if df.empty:
-        raise ValueError(f"CSV is empty: {path}")
-    key_map = {str(c).strip().lower(): c for c in df.columns}
-    col = key_map["url"] if "url" in key_map else df.columns[0]
-    urls = []
-    for raw in df[col].dropna().astype(str).str.strip():
-        s = raw.strip()
-        if not s or s.startswith("#"):
-            continue
-        if s.startswith(("http://", "https://")):
-            urls.append(s)
-    if not urls:
-        raise ValueError(f"No http(s) URLs found in {path!r} (column {col!r})")
-    return urls
-
-
-def get_program_sheet_urls():
-    """
-    Resolve the list of program Google Sheet URLs from the environment.
-
-    ``HIRES_PROGRAM_SHEET_URLS_CSV`` must point to a CSV file (see
-    :func:`load_program_sheet_urls_from_csv`).
-
-    Returns:
-        list of str
-
-    Raises:
-        ValueError: If the environment variable is unset or empty.
-        FileNotFoundError: If the path does not exist.
-    """
-    path = os.environ.get("HIRES_PROGRAM_SHEET_URLS_CSV", "").strip()
-    if not path:
-        raise ValueError(
-            "Set HIRES_PROGRAM_SHEET_URLS_CSV to the path of a CSV file listing Google Sheet "
-            "URLs (column 'url', or first column). "
-            "Example: export HIRES_PROGRAM_SHEET_URLS_CSV=/path/to/request_urls_2026B.csv"
-        )
-    if not os.path.isfile(path):
-        raise FileNotFoundError(
-            f"HIRES_PROGRAM_SHEET_URLS_CSV is not a file: {path}"
-        )
-    return load_program_sheet_urls_from_csv(path)
-
-
 # Shared request fields through ``priority`` (exptime/maxtime are seconds; Keck / MAGIQ convention).
 REQUEST_COLS_CORE = [
     'program_code', 'starname', 'unique_id', 'ra', 'dec', 'exptime', 'maxtime', 'n_exp',
@@ -320,10 +258,11 @@ def _dedup_requests_by_hash(requests_df, custom_df):
     return out, custom_df
 
 
-def pull_requests(sheet_urls):
+def pull_requests():
     """
-    Pull HIRES-CPS request and custom-window data from a list of public
-    Google Sheet URLs.
+    Pull HIRES-CPS request and custom-window data from the per-program Google
+    Sheets listed in the CSV at ``$HIRES_PROGRAM_SHEET_URLS_CSV`` (column
+    ``url``).
 
     For each URL, fetches the relevant tab via :func:`_fetch_sheet_dataframe`
     (Google's ``export?format=csv&gid=<GID>`` endpoint) and parses it using
@@ -332,18 +271,22 @@ def pull_requests(sheet_urls):
     ``start``, ``stop``, ``comments``); a missing ``comments`` column is
     backfilled as empty strings.
 
-    Args:
-        sheet_urls (list of str): Address-bar URLs of the per-PI tabs. Each
-            URL must include both the workbook ID and the tab-specific
-            ``gid`` (e.g. ``.../edit?gid=12345#gid=12345``). Sharing must be
-            set to "Anyone with the link".
-
     Returns:
         tuple: ``(requests_df, custom_df)`` where ``requests_df`` has
         ``REQUEST_COLS`` and ``custom_df`` has
         ``[unique_id, starname, start, stop]``.
 
+    Raises:
+        ValueError: If ``HIRES_PROGRAM_SHEET_URLS_CSV`` is unset or empty.
     """
+    path = os.environ.get("HIRES_PROGRAM_SHEET_URLS_CSV")
+    if not path:
+        raise ValueError(
+            "HIRES_PROGRAM_SHEET_URLS_CSV is not set. "
+            "Point it at a CSV with a 'url' column, e.g. request_urls_2026A.csv."
+        )
+    sheet_urls = pd.read_csv(path)["url"].tolist()
+
     request_dfs = []
     custom_dfs = []
     for url in sheet_urls:
@@ -481,7 +424,7 @@ def get_hires_past_history(path_to_csv, semester_start_day=None):
     
 
 def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars, current_day,
-                    outputdir, version='nominal'):
+                    outputdir, version='nominal', all_active_requests=None, past_history=None):
     """
     Generate the nightly script in the correct format.
 
@@ -494,9 +437,15 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
         current_day (str): today's date in format YYYY-MM-DD
         outputdir (str): the directory to save the script file
         version (str): a tag for thescript (e.g. nominal, slowdown, backups, etc)
+        all_active_requests (pd.DataFrame | None): full active request frame for
+            the semester. When provided together with ``past_history``, a third
+            ``BACKUPS`` section is appended listing every active request along
+            with an ``obs=N/M`` token (past nights observed / requested).
+        past_history (dict | None): mapping ``unique_id -> StarHistory``. Used to
+            compute the ``obs=N/M`` token for the BACKUPS section.
 
     Returns:
-        None
+        list[str]: the lines written to the script file.
     """
     # Cast starname column to strings to ensure proper matching
     frame['starname'] = frame['starname'].astype(str)
@@ -540,6 +489,31 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
         lines.append(format_hires_row(row, '24:00', extras['First Available'][j],
                     extras['Last Available'][j], current_day, filler_flag, True))
 
+    if all_active_requests is not None and past_history is not None:
+        lines.append('')
+        lines.append('X' * 44 + 'BACKUPS' + 'X' * 44)
+        lines.append('')
+
+        backup_df = all_active_requests.copy()
+        backup_df['_ra_float'] = pd.to_numeric(backup_df['ra'], errors='coerce')
+        backup_df = backup_df.sort_values('_ra_float', kind='mergesort')
+
+        for _, req_row in backup_df.iterrows():
+            uid = req_row['unique_id']
+            n_done = (past_history[uid].total_n_unique_nights
+                      if uid in past_history else 0)
+            n_req_raw = req_row.get('n_inter_max', 0)
+            n_req = int(n_req_raw) if pd.notna(n_req_raw) else 0
+            obs_token = f"obs={n_done}/{n_req}"
+
+            row = backup_df.loc[backup_df['unique_id'] == uid].head(1)
+            row = row.reset_index()
+            lines.append(format_hires_row(
+                row, None, None, None, current_day,
+                filler_flag=False, extra=False,
+                omit_timing=True, obs_token=obs_token,
+            ))
+
     # add buffer lines to end of file
     lines.append("")
     lines.append("")
@@ -550,7 +524,7 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
     return lines
 
 def format_hires_row(row, obs_time, first_available, last_available, current_day,
-                    filler_flag = False, extra=False):
+                    filler_flag = False, extra=False, omit_timing=False, obs_token=None):
     """
     Format request data in the specific way needed for the script (relates to the Keck "Magiq"
     software's data ingestion requirements).
@@ -565,6 +539,14 @@ def format_hires_row(row, obs_time, first_available, last_available, current_day
                                 In format HH:MM in HST timezone.
         filler_flag (boolean): True of the target was added in the bonus round
         extra (boolean): is this an "extra" target
+        omit_timing (boolean): if True, drop the trailing
+            ``<obs_time> <first_available> <last_available>`` triplet (used for
+            the BACKUPS section, where targets are not tied to a specific time).
+            ``obs_time`` / ``first_available`` / ``last_available`` may be passed
+            as ``None`` in this mode.
+        obs_token (str | None): optional trailing token (e.g. ``"obs=3/10"``)
+            appended at the very end of the line. Used by the BACKUPS section to
+            show past-vs-requested observation counts.
 
     Returns:
         line (str): the properly formatted string to be included in the script file
@@ -615,13 +597,18 @@ def format_hires_row(row, obs_time, first_available, last_available, current_day
 
     line = (namestring + ' ' + updated_ra + ' ' + updated_dec + ' ' + str(equinox) + ' '
                 + vmagstring + ' ' + exposurestring + ' ' + exp_meter_thresholdstring + ' ' + deckerstring +  ' '
-                + numstring + ' ' + cellstring + ' '+ priostring + ' CC '+ programstring + ' ' + timestring2 +
-                         ' ' + first_available  + ' ' + last_available )
+                + numstring + ' ' + cellstring + ' '+ priostring + ' CC '+ programstring)
+
+    if not omit_timing:
+        line += (' ' + timestring2 + ' ' + first_available + ' ' + last_available)
 
     # Handle missing Observing Notes column
     observing_notes = row.get('Observing Notes', [''])[0] if 'Observing Notes' in row else ''
     if observing_notes and not pd.isnull(observing_notes):
         line += (' ' + str(observing_notes))
+
+    if obs_token is not None:
+        line += (' ' + str(obs_token))
 
     return line
 
