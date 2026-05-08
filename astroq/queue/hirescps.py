@@ -490,29 +490,36 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
                     extras['Last Available'][j], current_day, filler_flag, True))
 
     if all_active_requests is not None and past_history is not None:
-        lines.append('')
-        lines.append('X' * 44 + 'BACKUPS' + 'X' * 44)
-        lines.append('')
-
         backup_df = all_active_requests.copy()
         backup_df['_ra_float'] = pd.to_numeric(backup_df['ra'], errors='coerce')
+        backup_df['_vmag_float'] = pd.to_numeric(
+            backup_df.get('Vmag', pd.Series(dtype=float)), errors='coerce'
+        )
         backup_df = backup_df.sort_values('_ra_float', kind='mergesort')
 
-        for _, req_row in backup_df.iterrows():
-            uid = req_row['unique_id']
-            n_done = (past_history[uid].total_n_unique_nights
-                      if uid in past_history else 0)
-            n_req_raw = req_row.get('n_inter_max', 0)
-            n_req = int(n_req_raw) if pd.notna(n_req_raw) else 0
-            obs_token = f"obs={n_done}/{n_req}"
+        def emit_block(header, sub_df):
+            lines.append('')
+            lines.append(header)
+            lines.append('')
+            for _, req_row in sub_df.iterrows():
+                uid = req_row['unique_id']
+                n_done = (past_history[uid].total_n_unique_nights
+                          if uid in past_history else 0)
+                n_req_raw = req_row.get('n_inter_max', 0)
+                n_req = int(n_req_raw) if pd.notna(n_req_raw) else 0
+                obs_token = f"obs={n_done}/{n_req}"
 
-            row = backup_df.loc[backup_df['unique_id'] == uid].head(1)
-            row = row.reset_index()
-            lines.append(format_hires_row(
-                row, None, None, None, current_day,
-                filler_flag=False, extra=False,
-                omit_timing=True, obs_token=obs_token,
-            ))
+                row = sub_df.loc[sub_df['unique_id'] == uid].head(1)
+                row = row.reset_index()
+                lines.append(format_hires_row(
+                    row, None, None, None, current_day,
+                    filler_flag=False, extra=False,
+                    omit_timing=True, obs_token=obs_token,
+                ))
+
+        emit_block('XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX 2026A - Requests - All XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX', backup_df)
+        emit_block('XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX 2026A - Requests - V < 8 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX',
+                   backup_df[backup_df['_vmag_float'] < 8])
 
     # add buffer lines to end of file
     lines.append("")
