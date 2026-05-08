@@ -383,7 +383,7 @@ def get_hires_past_history(path_to_csv, semester_start_day=None):
             before this calendar instant are dropped so ``past.csv`` matches the current
             semester (avoids KeyError in internight logic when last obs is outside planned nights).
     """
-    name = 'HIRES_Queue_Past_History_for_CC'
+    name = 'HIRES2026A - All Observations'
     # comment this line out when playing with synthetic schedules
     get_database_explorer(name, path_to_csv)
     print("All KPF observations pulled from Jump. Saved to csv: " + path_to_csv)
