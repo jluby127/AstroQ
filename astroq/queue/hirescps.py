@@ -5,12 +5,14 @@ New observatories should write their own module to connect to a new "prep <your 
 """
 
 # Standard library imports
+import csv
 import hashlib
 import io
 import json
 import logging
 import os
 import urllib.parse
+from datetime import date
 # Third-party imports
 import numpy as np
 import pandas as pd
@@ -304,6 +306,133 @@ def pull_requests():
         requests_df["dec"] = c.dec.deg
     requests_df, custom_df = _dedup_requests_by_hash(requests_df, custom_df)
     return requests_df, custom_df
+
+
+KECK_SCHEDULE_QUERY_URL = "https://www2.keck.hawaii.edu/observing/keckSchedule/queryForm.php"
+DEFAULT_INSTRUMENTS = ("KPF", "KPF-CC", "HIRES")
+
+
+def canonicalize_instrument(name):
+    """Map Keck schedule instrument variants (HIRESr/HIRESb/...) to a canonical name."""
+    value = (name or "").strip()
+    lower = value.lower()
+    if lower.startswith("hires"):
+        return "HIRES"
+    if lower.startswith("kpf-cc"):
+        return "KPF-CC"
+    if lower == "kpf":
+        return "KPF"
+    return value
+
+
+def infer_current_semester(today=None):
+    """Return the Keck semester (e.g. ``"2026A"``) for ``today``.
+
+    Convention: months 02-07 are A, 08+ are B, 01 is the previous year's B.
+    """
+    today = today or date.today()
+    if 2 <= today.month <= 7:
+        return f"{today.year}A"
+    if today.month >= 8:
+        return f"{today.year}B"
+    return f"{today.year - 1}B"
+
+
+def semester_date_range(semester):
+    """Return ``(start_date, end_date)`` ISO strings for a semester like ``"2026A"``."""
+    semester = semester.strip().upper()
+    if len(semester) != 5 or semester[-1] not in {"A", "B"} or not semester[:4].isdigit():
+        raise ValueError(f"Invalid semester format: {semester!r}. Expected forms like 2026A or 2026B.")
+    year = int(semester[:4])
+    if semester[-1] == "A":
+        return f"{year}-02-01", f"{year}-07-31"
+    return f"{year}-08-01", f"{year + 1}-01-31"
+
+
+def fetch_schedule_csv(semester, instrument, timeout=60):
+    """Submit the Keck schedule query form for one instrument and return matching rows."""
+    start_date, end_date = semester_date_range(semester)
+    payload = {
+        "doQuery": "1",
+        "table": "schedule",
+        "Date": f"between {start_date} and {end_date}",
+        "Instrument": instrument,
+        "cb_Date": "on",
+        "cb_TelNr": "on",
+        "cb_Instrument": "on",
+        "cb_Account": "on",
+        "cb_Principal": "on",
+        "cb_Institution": "on",
+        "cb_ProjCode": "on",
+        "excel": "on",
+        "sched": "Query Tel Schedule",
+    }
+    response = requests.post(KECK_SCHEDULE_QUERY_URL, data=payload, timeout=timeout)
+    response.raise_for_status()
+    text = response.text.strip()
+    if not text.startswith("Date,"):
+        snippet = text[:200].replace("\n", " ")
+        raise RuntimeError(f"Unexpected response from schedule form: {snippet}")
+
+    reader = csv.DictReader(io.StringIO(text))
+    rows = [dict(row) for row in reader]
+
+    canonical_requested = canonicalize_instrument(instrument).lower()
+    exact_rows = []
+    for row in rows:
+        normalized = canonicalize_instrument(row.get("Instrument") or "")
+        if normalized.lower() == canonical_requested:
+            new_row = dict(row)
+            new_row["Instrument"] = normalized
+            exact_rows.append(new_row)
+    return exact_rows
+
+
+def pull_all_scheduled(semester, instruments=DEFAULT_INSTRUMENTS, output_path=None):
+    """Query the Keck schedule form for each instrument and return one combined DataFrame.
+
+    Columns: ``Date, Time, Dark, TelNr, Instrument, Account, PI, Institution, ProjCode``.
+    If ``output_path`` is given, also write the same DataFrame to CSV.
+    """
+    rows = []
+    for inst in instruments:
+        rows.extend(fetch_schedule_csv(semester, inst))
+    df = pd.DataFrame(rows)
+    if df.empty:
+        return df
+    df["Instrument"] = df["Instrument"].map(canonicalize_instrument)
+    df = df.sort_values(["Date", "Time", "Instrument", "ProjCode"], kind="mergesort").reset_index(drop=True)
+    if output_path is not None:
+        df.to_csv(output_path, index=False)
+    return df
+
+
+def crossmatch_allocation(scheduled_df, request_urls_path, semester, output_path=None):
+    """Filter the all-scheduled Keck DataFrame to rows whose ProjCode appears in
+    ``request_urls_<sem>.csv`` (column ``program_code``, e.g. ``2026A_C364``).
+
+    Splits the schedule's ``Time`` cell (``"05:03 - 13:22 ( 75%)"``) into
+    ``StartTime`` / ``EndTime`` and emits the AstroQ allocation columns. If
+    ``output_path`` is given, also writes the result as CSV.
+    """
+    req = pd.read_csv(request_urls_path)
+    req["ProjCode"] = req["program_code"].str.removeprefix(f"{semester}_")
+    matched = scheduled_df.merge(req[["ProjCode"]], on="ProjCode", how="inner")
+    matched[["StartTime", "EndTime"]] = matched["Time"].str.extract(
+        r"(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})"
+    )
+    matched["start"] = matched["Date"] + "T" + matched["StartTime"]
+    matched["stop"] = matched["Date"] + "T" + matched["EndTime"]
+    matched["comment"] = ""
+    cols = ["Date", "StartTime", "EndTime", "start", "stop",
+            "PI", "Instrument", "ProjCode", "comment"]
+    matched = (matched[cols]
+               .sort_values(["Date", "StartTime", "ProjCode"])
+               .reset_index(drop=True))
+    if output_path is not None:
+        matched.to_csv(output_path, index=False)
+    return matched
+
 
 def login_JUMP():
     login_url = 'https://jump.caltech.edu/user/login/'

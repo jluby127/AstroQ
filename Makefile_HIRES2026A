@@ -12,7 +12,9 @@ DATE_DIR = $(SEMESTER_DIR)/$(DATE)
 MAKEFILE_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 ENV_FILE ?= $(MAKEFILE_DIR).env
 LOAD_ENV = if [ -f "$(ENV_FILE)" ]; then set -a; . "$(ENV_FILE)"; set +a; fi
-# Absolute path to Keck allocation / KOIP file for astroq prep (passed as -as, not -db)
+# Optional offline allocation file. By default `astroq prep hires` pulls the
+# Keck schedule live and crossmatches against $HIRES_PROGRAM_SHEET_URLS_CSV.
+# To run offline, append   -as "$(ALLOCATION_FILE)"   to the prep recipes below.
 ALLOCATION_FILE ?= $(MAKEFILE_DIR)allocation_hires_cps_2026A.csv
 ifndef HIRES_PROGRAM_SHEET_URLS_CSV
 export HIRES_PROGRAM_SHEET_URLS_CSV := $(MAKEFILE_DIR)request_urls_2026A.csv
@@ -79,10 +81,10 @@ $(DATE_DIR)/%/prep-run: $(DATE_DIR)/%/config.ini
 	IS_FULL_BAND=$$(echo $(notdir $(@D)) | grep -q '^full-' && echo "true" || echo "false"); \
 	if [ "$$IS_FULL_BAND" = "true" ]; then \
 		echo "📅 Running prep for full-band $$BAND_NUM (instrument=$$INSTRUMENT)..." && \
-		cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$INSTRUMENT -cf config.ini -fillers $(FILLER_PROGRAM) -as "$(ALLOCATION_FILE)" -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
+		cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$INSTRUMENT -cf config.ini -fillers $(FILLER_PROGRAM) -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
 	else \
 		echo "📊 Running prep for band $$BAND_NUM (instrument=$$INSTRUMENT)..." && \
-		cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$INSTRUMENT -cf config.ini -fillers $(FILLER_PROGRAM) -as "$(ALLOCATION_FILE)" -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
+		cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$INSTRUMENT -cf config.ini -fillers $(FILLER_PROGRAM) -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
 	fi
 	@touch $@
 

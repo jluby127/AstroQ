@@ -132,8 +132,11 @@ def main():
                                 )
     psr_prep_hirescps.add_argument('-as', '--allo_source',
                                 type=str,
-                                default="db",
-                                help="Absolute path of observatory-provided allocation file. Use 'db' to pull from the database."
+                                default=None,
+                                help=("Allocation source. If omitted (default), the Keck schedule is "
+                                      "queried live and crossmatched against $HIRES_PROGRAM_SHEET_URLS_CSV. "
+                                      "Pass an absolute path to use an offline KOIP/allocation CSV, "
+                                      "or 'db' to pull from the database.")
                                 )
     psr_prep_hirescps.add_argument('-ps', '--past_source',
                                 type=str,

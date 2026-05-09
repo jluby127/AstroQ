@@ -11,15 +11,10 @@ from configparser import ConfigParser
 # Third-party imports
 import numpy as np
 import pandas as pd
-import astroplan as apl
 import plotly.io as pio
-from astropy.time import Time, TimeDelta
-from io import BytesIO
-import imageio.v3 as iio
-import base64
 
 # Local imports
-import astroq.access as ac
+
 import astroq.benchmarking as bn
 import astroq.queue.kpfcc as kpfcc
 import astroq.queue.hirescps as hirescps
@@ -107,22 +102,37 @@ def hirescps_prep(args):
     end = datetime.strptime(end_date, "%Y-%m-%d")
     n_days = (end - start).days
 
-    # NOTE: NO allocation.csv generation. Must use a manual file. 
+    # NOTE: NO allocation.csv generation. Must use a manual file.
     # --------------------------------------------
     # --------------------------------------------
     allo_source = args.allo_source
     allocation_file = str(config.get('data', 'allocation_file'))
-    # pull the allocation 
+    # pull the allocation
     if allo_source == 'db':
         print(f'Pulling allocation information from database')
         conversion_ratio = config.getfloat('semester', 'hours_per_night')
         allocation_frame, hours_by_program, nights_by_program = kpfcc.pull_allocation_info(start_date, n_days, 'HIRES', conversion_ratio)
-        awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())] 
+        awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())]
         programmatics = pd.DataFrame({'program': awarded_programs, 'hours': list(hours_by_program.values()), 'nights': list(nights_by_program.values())})
         # Manually add one row with for the Engineering program of bright backup stars. Arbitrarily give it 50 night of time. This is intentionally high so that this "program" is not effectively throttled.
         programmatics = pd.concat([programmatics, pd.DataFrame([{'program': args.filler_programs, 'hours': 600.0, 'nights': 50.0}])], ignore_index=True)
         programmatics.to_csv(os.path.join(savepath, 'programs.csv'), index=False)
     else:
+        if not allo_source:
+            request_urls_path = os.environ.get("HIRES_PROGRAM_SHEET_URLS_CSV")
+            if not request_urls_path:
+                raise ValueError(
+                    "HIRES_PROGRAM_SHEET_URLS_CSV is not set. "
+                    "Point it at a CSV with 'url' and 'program_code' columns, "
+                    "e.g. request_urls_2026A.csv."
+                )
+            sched_path = os.path.join(savepath, "allocation_hires_all_scheduled.csv")
+            cps_path = os.path.join(savepath, f"allocation_hires_cps_{semester}.csv")
+            print(f"Pulling Keck schedule live for {semester} -> {sched_path}")
+            scheduled_df = hirescps.pull_all_scheduled(semester, output_path=sched_path)
+            print(f"Crossmatching against {request_urls_path} -> {cps_path}")
+            hirescps.crossmatch_allocation(scheduled_df, request_urls_path, semester, output_path=cps_path)
+            allo_source = cps_path
         print(f'Using allocation information from Keck Observatory Instrument Plan (KOIP) file: {allo_source}')
         allocation_frame, hours_by_program, nights_by_program = kpfcc.format_keck_allocation_info(allo_source)
         awarded_programs = [semester + "_" + val for val in list(hours_by_program.keys())]
