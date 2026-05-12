@@ -10,7 +10,9 @@ alwaysApply: true
 AstroQ is an automated scheduler for cadenced astronomical observations. The codebase implements a two-stage pipeline:
 
 1. **Semester plan** — `splan.SemesterPlanner` formulates a Gurobi ILP that picks which targets are observed on which nights/slots across an entire 6-month semester.
-2. **Night plan** — `nplan.NightPlanner` calls the external [TTP](https://github.com/lukehandley/ttp) solver to produce the slew-optimal observing order for tonight's selected targets. It uses an MILP formulation. 
+2. **Night plan** — selected by `[night] engine` in `config.ini`:
+   - `ilp` (default) — `nplan_ilp.NightPlannerILP` runs an in-house Gurobi ILP (splan-style packing + cadence + pair-specific slew refinement at fine slot granularity, default 30 s).
+   - `ttp` (legacy) — `nplan.NightPlanner` calls the external [TTP](https://github.com/lukehandley/ttp) MILP wrapper. Both engines emit identical on-disk artifacts and a TTP-shaped `solution` object so downstream code is engine-agnostic.
 
 See [README.md](README.md) and [docs/getting_started.rst](docs/getting_started.rst).
 
@@ -32,7 +34,9 @@ See [README.md](README.md) and [docs/getting_started.rst](docs/getting_started.r
 - [astroq/cli.py](astroq/cli.py) — argparse, one subparser per subcommand: `bench`, `prep {kpfcc,hirescps}`, `plan-semester`, `plan-night`, `plot`, `webapp`, `compare`.
 - [astroq/driver.py](astroq/driver.py) — one function per CLI subcommand; pure dispatch + light I/O.
 - [astroq/splan.py](astroq/splan.py) — `SemesterPlanner` (Gurobi model, constraints, h5 round-trip).
-- [astroq/nplan.py](astroq/nplan.py) — `NightPlanner` (TTP wrapper, gap handling, h5 round-trip).
+- [astroq/nplan.py](astroq/nplan.py) — `NightPlanner` (legacy TTP wrapper, gap handling) plus the shared `save_night_planner_hdf5` / `load_night_planner_hdf5` h5 helpers (`NightPlanner.from_hdf5` is the canonical reader for both engines).
+- [astroq/nplan_ilp.py](astroq/nplan_ilp.py) — `NightPlannerILP` (in-house Gurobi ILP, default engine; emits TTP-shaped `solution` via `_build_solution` and the same artifacts as the legacy path).
+- [astroq/slew.py](astroq/slew.py) — simplified Keck-I slew-time model used by `NightPlannerILP`.
 - [astroq/access.py](astroq/access.py) — `Access` class; computes `is_altaz`, `is_future`, `is_moon`, `is_custom`, `is_inter`, `is_allocated`, `is_clear`, and the AND-reduction `is_observable`.
 - [astroq/queue/kpfcc.py](astroq/queue/kpfcc.py), [astroq/queue/hirescps.py](astroq/queue/hirescps.py) — instrument-specific prep + starlist writers; `prep` chooses by `[global] instrument`.
 - [astroq/io.py](astroq/io.py), [astroq/history.py](astroq/history.py), [astroq/plot.py](astroq/plot.py), [astroq/webapp.py](astroq/webapp.py).
@@ -54,7 +58,8 @@ See [README.md](README.md) and [docs/getting_started.rst](docs/getting_started.r
 - `splan` filters `requests_frame_all['inactive'] == False` before building the model. Downstream code consumes `semester_planner.requests_frame` (active) or `requests_frame_all` (everything).
 - `unique_id` is the join key everywhere; before creating Gurobi vars, validate with `io.validate_active_request_unique_ids` to avoid the cryptic `Duplicate keys in Model.addVars()` failure.
 - Persistence: paired `to_hdf5(self, ...)` / `from_hdf5(cls, ...)` using `h5py` for scalars/strings/JSON-encoded dicts and `pd.read_hdf` for DataFrames. `solution.gurobi_model` is deleted before save.
-- TTP "Gap" invariant: synthetic `Gap N` rows added to keep the solver out of unallocated gaps must be scrubbed from `solution.plotly`, `solution.extras`, `solution.stars`, `solution.schedule` and from `dur` / `time_exposing` / `num_scheduled` / `TTPstatistics.txt`. See `drop_gap_rows` in [astroq/nplan.py](astroq/nplan.py).
+- TTP "Gap" invariant (legacy engine only): synthetic `Gap N` rows added to keep the solver out of unallocated gaps must be scrubbed from `solution.plotly`, `solution.extras`, `solution.stars`, `solution.schedule` and from `dur` / `time_exposing` / `num_scheduled` / `TTPstatistics.txt`. See `drop_gap_rows` in [astroq/nplan.py](astroq/nplan.py). The `ilp` engine's `Access.is_allocated` already gates unallocated slots, so no gap injection is needed.
+- Engine switch: `[night] engine = ilp | ttp` in `config.ini` (default `ilp`). `astroq.driver.plan_night` branches on it; both paths write the same `outputs/{ttp_prepared.csv, ObserveOrder_<date>.txt, script_<date>_nominal.txt, TTPstatistics.txt, night_planner.h5}`.
 - `requests_vs_schedule` in [astroq/driver.py](astroq/driver.py) encodes the constraint invariants — useful regression check after any schedule-related change.
 
 ## References

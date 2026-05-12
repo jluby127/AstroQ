@@ -427,17 +427,40 @@ def plan_semester(args):
 
 def plan_night(args):
     """
-    Run the slew path optimization using the TTP package for a given night's selected targets.
-    
+    Run the slew-path optimization for tonight's selected targets.
+
+    Chooses the engine from ``[night] engine`` (``ttp`` = external TTP wrapper,
+    ``ilp`` = in-house Gurobi ILP). Defaults to ``ttp`` if the option is missing.
+
     Args:
         args (argparse.Namespace): the command line arguments with flags:
             -cf (str): the path to the config file.
-    
+
     Returns:
         None
     """
     cf = args.config_file
     print(f'plan_night function: config_file is {cf}')
+
+    config = ConfigParser()
+    config.read(cf)
+    engine = (
+        config.get('night', 'engine', fallback='ttp').strip().lower()
+        if config.has_section('night') else 'ttp'
+    )
+    print(f'plan_night function: engine is {engine}')
+
+    if engine == 'ilp':
+        from astroq.nplan_ilp import NightPlannerILP
+        planner = NightPlannerILP(cf)
+        summary, schedule_df, slew_stats = planner.run(log_prefix='[ilp] ')
+        if planner.solution is not None and len(schedule_df) > 0:
+            planner.write_outputs()
+            planner.to_hdf5()
+        else:
+            print('plan_night: ILP produced no schedule; no night_planner.h5 written.')
+        return
+
     night_planner = nplan.NightPlanner(cf)
     did_run = night_planner.run_ttp()
     if did_run:

@@ -67,7 +67,7 @@ from configparser import ConfigParser
 import gurobipy as gp
 import numpy as np
 import pandas as pd
-from astropy.time import Time
+from astropy.time import Time, TimeDelta
 from gurobipy import GRB
 
 from astroq.access import Access
@@ -78,7 +78,7 @@ from astroq.splan import SemesterPlanner
 logs = logging.getLogger(__name__)
 
 
-class NightPlannerMILP:
+class NightPlannerILP:
     """In-house Gurobi ILP night planner.
 
     Reuses `astroq.access.Access` for the access cube; this class only owns
@@ -103,6 +103,17 @@ class NightPlannerMILP:
 
         self.allocation_file = _resolve("data", "allocation_file")
         self.custom_file = _resolve("data", "custom_file")
+        # Optional in some configs but expected by save_night_planner_hdf5.
+        if config.has_option("data", "filler_file"):
+            self.filler_file = _resolve("data", "filler_file")
+        else:
+            self.filler_file = ""
+
+        # Aliases / extras the legacy NightPlanner sets and that the HDF5
+        # writer + downstream consumers (webapp, astroq plot) expect.
+        self.upstream_path = workdir
+        self.semester_directory = workdir
+        self.reports_directory = self.output_directory
 
         def _get(section, key, fallback, kind=str):
             if not config.has_option(section, key):
@@ -133,6 +144,7 @@ class NightPlannerMILP:
                 "Run plan-semester first."
             )
         self.semester_planner = SemesterPlanner.from_hdf5(sp_path)
+        self.past_history = self.semester_planner.past_history
 
         selected_path = os.path.join(self.output_directory, "request_selected.csv")
         if not os.path.exists(selected_path):
@@ -273,10 +285,13 @@ class NightPlannerMILP:
 
     def build_model(self):
         """Construct the Gurobi ILP."""
-        m = gp.Model("NightPlannerMILP")
+        m = gp.Model("NightPlannerILP")
         m.Params.OutputFlag = 1 if self.show_gurobi_output else 0
         m.Params.TimeLimit = self.max_solve_time
         m.Params.MIPGap = self.max_solve_gap
+        gurobi_log_file = getattr(self, "gurobi_log_file", None)
+        if gurobi_log_file:
+            m.Params.LogFile = gurobi_log_file
         # Barrier root LP and aggressive heuristics are both important at
         # fine slot resolutions. With the cover-form C1 the presolve picture
         # is benign: empirically Presolve=1 (conservative) removes ~180 rows
@@ -324,38 +339,55 @@ class NightPlannerMILP:
         # Each starts_for[i] is naturally sorted ascending (np.where output).
 
         # ----- C1a: splan-style aggregated cover constraint -----
-        # For each slot s, at most one visit may be occupying s:
+        # Mirrors `splan.constraint_reserve_multislot_exposures` (Lubin
+        # et al. 2025 Constraint 1) restricted to one night, with a slew
+        # floor of `slew_floor` slots baked into each target's effective
+        # duration `t_block[i] = t_visit[i] + slew_floor`. For every slot
+        # s with at least one observable start:
         #
-        #   Σ_{(i, s') : s - t_block[i] + 1 ≤ s' ≤ s} Y[i, s'] ≤ 1
+        #     1 − Σ_{i ∈ R_s} Y[i, s]                    (slack at s)
+        #     ≥ Σ_{δ ≥ 1} Σ_{i ∈ R_{s-δ}, t_block[i] ≥ δ+1} Y[i, s−δ]
         #
-        # with t_block[i] = t_visit[i] + slew_floor. This is the splan
-        # "reserve multislot exposures" form (Lubin et al. 2025 Constraint 1)
-        # adapted to one night: aggregating identical clique inequalities
-        # into one row per slot is what gives splan its integer-tight LP
-        # relaxation, and the same effect carries over here.
+        # where R_s is the set of targets that may start at slot s. The
+        # left-hand side is the slack of slot s after counting starts at
+        # s; the right-hand side is the total number of in-progress
+        # exposures that begain earlier and still occupy slot s.
+        # Aggregating identical clique inequalities into one row per slot
+        # is what gives the LP relaxation its integer-tight behavior here
+        # and at the splan semester scale.
         #
-        # The cover form alone treats slew as a constant per-target floor of
-        # `slew_floor` slots regardless of the actual transit between the
-        # two consecutive visits. C1b below adds the *pair-specific* tail.
+        # The cover form alone treats slew as a constant per-target floor
+        # of `slew_floor` slots regardless of the actual transit between
+        # the two consecutive visits. C1b below adds the pair-specific
+        # tail.
         slew_floor = 1
         t_block = self.t_visit + slew_floor
         max_t_block = int(t_block.max())
+        # R_s[s] = set of targets that can start at slot s.
+        R_s = [set(starts_at[s]) for s in range(self.n_slots)]
+        # R_geq_t_block[k] = set of targets i with t_block[i] >= k.
+        R_geq_t_block = {
+            k: set(np.where(t_block >= k)[0].tolist())
+            for k in range(1, max_t_block + 1)
+        }
 
         for s in range(self.n_slots):
-            cover_terms = [(i, s) for i in starts_at[s]]
-            for delta in range(1, max_t_block):
-                s_prev = s - delta
-                if s_prev < 0:
-                    break
-                for i in starts_at[s_prev]:
-                    if t_block[i] >= delta + 1:
-                        cover_terms.append((i, s_prev))
-            if len(cover_terms) < 2:
+            if not R_s[s]:
                 continue
-            m.addConstr(
-                gp.quicksum(Y[i, s_prev] for (i, s_prev) in cover_terms) <= 1,
-                name=f"cover_{s}",
-            )
+            rhs = []
+            for delta in range(1, max_t_block):
+                s_shift = s - delta
+                if s_shift < 0:
+                    break
+                if not R_s[s_shift]:
+                    continue
+                rhs.extend(
+                    Y[i, s_shift]
+                    for i in R_s[s_shift] & R_geq_t_block[delta + 1]
+                )
+            lhs = 1 - gp.quicksum(Y[i, s] for i in R_s[s])
+            rhs = gp.quicksum(rhs)
+            m.addConstr(lhs >= rhs, name=f"reserve_multislot_{s}s")
 
         # ----- C1b: pair-specific slew refinement -----
         # The cover constraint above forbids any earlier start (j, s_prev)
@@ -491,7 +523,7 @@ class NightPlannerMILP:
                 f"warm start: loaded={n_loaded} zeroed={n_zero} "
                 f"(ratio={ratio})"
             )
-        elif os.environ.get("NPLAN_MILP_WARM_START", "0") == "1":
+        elif os.environ.get("NPLAN_ILP_WARM_START", "0") == "1":
             warm = self._greedy_warm_start(starts_for, starts_at)
             for (i, s), val in warm.items():
                 Y[i, s].Start = val
@@ -617,7 +649,32 @@ class NightPlannerMILP:
         }
 
     def run(self, log_prefix=""):
-        """End-to-end build + solve. Returns (summary, schedule_df, slew_stats)."""
+        """End-to-end build + solve. Returns (summary, schedule_df, slew_stats).
+
+        Also exposes a TTP-shaped `self.solution = [obj]` so downstream consumers
+        (webapp, `astroq plot`, `hirescps.write_starlist`, HDF5 round-trip)
+        keep working without code changes.
+        """
+        from astroq.nplan import get_nightly_times_from_allocation
+        try:
+            self.observation_start_time, self.observation_stop_time = (
+                get_nightly_times_from_allocation(self.allocation_file, self.current_day)
+            )
+        except ValueError:
+            logs.warning(
+                f"{log_prefix}No allocation for {self.current_day}; "
+                "ILP cannot run, returning empty result."
+            )
+            self.solution = None
+            return (
+                {"status": -1, "wall_seconds": 0.0, "obj": None,
+                 "bound": None, "mip_gap": None, "node_count": 0,
+                 "n_vars": 0, "n_constrs": 0, "n_nonzeros": 0},
+                pd.DataFrame(),
+                {"n_transitions": 0, "total_slew_seconds": 0.0,
+                 "total_slew_minutes": 0.0},
+            )
+
         t0 = time.time()
         self.build_access()
         n_obs = int(self.is_observable.sum())
@@ -647,4 +704,267 @@ class NightPlannerMILP:
             f"{log_prefix}schedule: {len(schedule_df)} visits, "
             f"total slew {slew_stats['total_slew_minutes']:.2f} min"
         )
+
+        self.schedule_df = schedule_df
+        self.summary = summary
+        self.slew_stats = slew_stats
+        self.solution = [self._build_solution(schedule_df, summary, slew_stats)]
         return summary, schedule_df, slew_stats
+
+    # ------------------------------------------------------------------
+    # TTP-shaped solution shim + on-disk artifacts
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _keck1_observatory():  # exposed via helper below for clarity
+        from ttp import telescope
+        return telescope.Keck1()
+
+    def _get_first_last_minutes(self, target_idx):
+        """First/last observable slot (relative to obs start time) in minutes.
+
+        Mirrors the legacy `NightPlanner.get_first_last_indices` (which used a
+        coarser slot grid via `semester_planner.access_record`) but operates on
+        the fine ILP access cube and returns numeric minutes-from-night-start
+        to match the TTP `solution.plotly['First/Last Available']` convention.
+        """
+        observable = self.is_observable[target_idx, :]
+        true_idx = np.where(observable)[0]
+        slot_size_min = self.slot_size_seconds / 60.0
+        if len(true_idx) == 0:
+            # Sentinel: clamp to night end. TTP returns the literal allocation
+            # window in this case; matching that is fine since downstream code
+            # only renders these for display.
+            return 0.0, 0.0
+        first_slot = int(true_idx[0])
+        last_slot = int(true_idx[-1])
+        first_min = first_slot * slot_size_min - self._slot0_offset_min()
+        last_min = last_slot * slot_size_min - self._slot0_offset_min()
+        return first_min, last_min
+
+    def _slot0_offset_min(self):
+        """Minutes between Access's slot 0 (00:00 UTC of current_day) and obs start."""
+        return (
+            (self.observation_start_time
+             - self.access_obj.daily_start).sec / 60.0
+        )
+
+    def _build_solution(self, schedule_df, summary, slew_stats):
+        """Build a TTP-shaped `solution` object from the ILP schedule.
+
+        Downstream consumers (write_starlist, get_script_plan, get_ladder,
+        plot_path_2D_interactive, get_slew_animation_plotly, save_night_planner_hdf5)
+        treat `solution.plotly` as a dict-of-lists keyed by Starname / Start Exposure
+        / Stop Exposure / First Available / Last Available / Total Exp Time (min) /
+        Minutes the from Start of the Night / human_starname / UTC Start Time.
+        Times are minutes from `nightstarts`.
+        """
+        from types import SimpleNamespace
+        from astropy.coordinates import SkyCoord
+        import astropy.units as u
+
+        slot_size_min = self.slot_size_seconds / 60.0
+        slot0_offset_min = self._slot0_offset_min()
+        obs_start = self.observation_start_time
+        obs_stop = self.observation_stop_time
+        dur_min = float((obs_stop.jd - obs_start.jd) * 24.0 * 60.0)
+
+        # Build a per-row id_to_idx into self.selected_df.
+        uid_to_idx = {uid: i for i, uid in enumerate(self.selected_df["unique_id"])}
+
+        starnames = []
+        human = []
+        starts = []
+        stops = []
+        firsts = []
+        lasts = []
+        totals = []
+        exposure_mins = []
+        n_shots_list = []
+        utc_strs = []
+        stars = []
+        times_list = []
+        az_path = []
+        alt_path = []
+
+        for _, row in schedule_df.iterrows():
+            uid = row["unique_id"]
+            i = uid_to_idx[uid]
+            s = int(row["slot"])
+            t_visit_slots = int(row["t_visit_slots"])
+            start_min = s * slot_size_min - slot0_offset_min
+            total_min = t_visit_slots * slot_size_min
+            stop_min = start_min + total_min
+            first_min, last_min = self._get_first_last_minutes(i)
+
+            starnames.append(uid)
+            human.append(str(self.selected_df["starname"].iloc[i]))
+            starts.append(round(start_min, 2))
+            stops.append(round(stop_min, 2))
+            firsts.append(round(first_min, 2))
+            lasts.append(round(last_min, 2))
+            totals.append(round(total_min, 2))
+            exposure_mins.append(round(float(self.selected_df["exptime"].iloc[i]) / 60.0, 2))
+            n_shots_list.append(int(self.selected_df["n_exp"].iloc[i]))
+
+            start_abs = obs_start + TimeDelta(start_min * 60.0, format="sec")
+            utc_strs.append(str(start_abs)[11:16])
+            times_list.append(start_abs)
+
+            star = SimpleNamespace(
+                name=uid,
+                target=SkyCoord(
+                    ra=float(self.selected_df["ra"].iloc[i]) * u.deg,
+                    dec=float(self.selected_df["dec"].iloc[i]) * u.deg,
+                ),
+            )
+            stars.append(star)
+            az_path.append(float(self.azs[i, s]))
+            alt_path.append(float(self.alts[i, s]))
+
+        plotly = {
+            "Starname": starnames,
+            "human_starname": human,
+            "Start Exposure": starts,
+            "Stop Exposure": stops,
+            "First Available": firsts,
+            "Last Available": lasts,
+            "Total Exp Time (min)": totals,
+            "Exposure Time (min)": exposure_mins,
+            "N_shots": n_shots_list,
+            "Minutes the from Start of the Night": starts,  # alias TTP also sets
+            "UTC Start Time": utc_strs,
+            # Fixed priority 10 mirrors the legacy `to_ttp` "Priority": 10 used by
+            # the TTP path; downstream ladder plotting colors by this.
+            "Priority": [10] * len(starnames),
+        }
+
+        # Empty `extras` (no unscheduled-targets section per spec).
+        extras = {k: [] for k in plotly}
+
+        # `schedule` is consumed by get_slew_animation_plotly which needs
+        # parallel `Starname` and `Time` (JD) arrays.
+        schedule = {
+            "Starname": list(starnames),
+            "Time": [t.jd for t in times_list],
+        }
+
+        time_exposing = sum(totals)
+        time_slewing = float(slew_stats["total_slew_minutes"])
+        time_idle = max(0.0, dur_min - time_exposing - time_slewing)
+        num_scheduled = len(schedule_df)
+
+        solution = SimpleNamespace(
+            plotly=plotly,
+            extras=extras,
+            schedule=schedule,
+            stars=stars,
+            times=times_list,
+            nightstarts=obs_start,
+            nightends=obs_stop,
+            az_path=np.array(az_path),
+            alt_path=np.array(alt_path),
+            dur=dur_min,
+            time_exposing=time_exposing,
+            time_slewing=time_slewing,
+            time_idle=time_idle,
+            num_scheduled=num_scheduled,
+            # TTP exposes N = real_targets + 2 anchors; mirror that so legacy
+            # text like "Observations Requested: N - 2" still works.
+            N=num_scheduled + 2,
+            solve_time=float(summary.get("wall_seconds", 0.0)),
+            observatory=self._keck1_observatory(),
+        )
+        return solution
+
+    def write_outputs(self):
+        """Write all on-disk artifacts the legacy TTP path produced.
+
+        Files written into `self.output_directory`:
+          - ttp_prepared.csv        (debug parity with legacy)
+          - ObserveOrder_<date>.txt
+          - script_<date>_nominal.txt
+          - TTPstatistics.txt
+        """
+        from astroq.queue import hirescps
+
+        if self.solution is None or len(self.solution[0].plotly["Starname"]) == 0:
+            logs.warning(
+                "ILP produced no scheduled visits; not writing TTP artifacts."
+            )
+            return False
+
+        solution = self.solution[0]
+        plotly = solution.plotly
+        observers_path = self.output_directory
+        os.makedirs(observers_path, exist_ok=True)
+
+        # ---- ttp_prepared.csv (debug parity) ----
+        to_ttp = pd.DataFrame({
+            "Starname": self.selected_df["unique_id"],
+            "RA": self.selected_df["ra"],
+            "Dec": self.selected_df["dec"],
+            "Exposure Time": self.selected_df["exptime"],
+            "Exposures Per Visit": self.selected_df["n_exp"],
+            "Visits In Night": self.selected_df["n_intra_max"],
+            "Intra_Night_Cadence": self.selected_df["tau_intra"],
+            "Priority": 10,
+            "First Available": "",
+            "Last Available": "",
+        })
+        to_ttp.to_csv(os.path.join(observers_path, "ttp_prepared.csv"), index=False)
+
+        # ---- ObserveOrder_<date>.txt ----
+        observe_order_file = os.path.join(
+            observers_path, f"ObserveOrder_{self.current_day}.txt"
+        )
+        order_rows = []
+        for i, uid in enumerate(plotly["Starname"]):
+            order_rows.append({
+                "unique_id": str(uid),
+                "Target": plotly["human_starname"][i],
+                "StartExposure": plotly["UTC Start Time"][i],
+            })
+        pd.DataFrame(order_rows).to_csv(observe_order_file, index=False)
+
+        # ---- script_<date>_nominal.txt ----
+        hirescps.write_starlist(
+            self.selected_df,
+            plotly,
+            self.observation_start_time,
+            solution.extras,
+            [],
+            str(self.current_day),
+            observers_path,
+            all_active_requests=self.semester_planner.requests_frame,
+            past_history=self.past_history,
+        )
+
+        # ---- TTPstatistics.txt + matching stdout for check_night_plans.py ----
+        stats_lines = [
+            "Stats for ILP Solution",
+            "------------------------------------",
+            f"    Model ran for {solution.solve_time:.2f} seconds",
+            f"     Observations Requested: {self.N}",
+            f"     Observations Scheduled: {solution.num_scheduled}",
+            "------------------------------------",
+            f"   Observing Duration (min): {solution.dur:.2f}",
+            f"  Time Spent Exposing (min): {solution.time_exposing:.2f}",
+            f"      Time Spent Idle (min): {solution.time_idle:.2f}",
+            f"   Time Spent Slewing (min): {solution.time_slewing:.2f}",
+            "------------------------------------",
+        ]
+        ttp_stats_path = os.path.join(observers_path, "TTPstatistics.txt")
+        with open(ttp_stats_path, "w") as f:
+            f.write("\n".join(stats_lines) + "\n")
+        # Emit to stdout so check_night_plans.py (which greps astroq.log) finds them.
+        print("\n" + "\n".join(stats_lines))
+        return True
+
+    def to_hdf5(self, hdf5_path=None):
+        """Write night_planner.h5 using the same format as the legacy engine."""
+        from astroq.nplan import save_night_planner_hdf5
+        if self.solution is None:
+            logs.warning("ILP has no solution; skipping night_planner.h5 write.")
+            return None
+        return save_night_planner_hdf5(self, hdf5_path)

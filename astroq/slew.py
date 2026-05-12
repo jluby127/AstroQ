@@ -1,10 +1,10 @@
 """
-Simplified Keck-I-style slew time model for the in-house night MILP.
+Simplified Keck-I-style slew time model for the in-house night ILP.
 
 Numbers are calibrated to reproduce typical real-world Keck-I slew + acquisition
 times: ~30-90 s for nearby fields, up to ~2 min for max separations. They are
 NOT a high-fidelity replacement for the TTP Keck1 model -- the goal is to give
-the night-plan MILP a per-pair upper bound on the time the telescope is
+the night-plan ILP a per-pair upper bound on the time the telescope is
 unavailable between two consecutive science exposures.
 
 Constants
