@@ -15,19 +15,27 @@ Plumbing reuses:
 Variables:
   Y[i, s] in {0, 1}      (i, s) in A
   W[i]    in {0, 1}      i in multi-visit
+  B[i, s] in [0, 1]      (i, s) with s in [s_lo[i], s_hi[i]]  (continuous)
 
-C1a (cover form: at most one visit occupies any slot)
-  For every slot s:
-      Sum_{(i, s') : s' <= s < s' + t_visit[i] + slew_floor}  Y[i, s']  <=  1
-  This is the aggregated splan-style "reserve multislot exposures" form
-  (Lubin et al. 2025 Constraint 1), applied to one night. `slew_floor` is a
-  per-target slot inflation (default 1 slot) that bakes in the minimum slew
-  between any two consecutive visits.
+C1a (delta-form occupancy cover: at most one visit occupies any slot)
+  Equivalence-preserving rewrite of the aggregated splan-style "reserve
+  multislot exposures" cover (Lubin et al. 2025 Constraint 1), expressed as
+  a sliding-sum recurrence on a continuous occupancy indicator:
+      B[i, s] = Σ_{s' = s - t_block[i] + 1}^{s}  Y[i, s']
+  where t_block[i] = t_visit[i] + slew_floor and slew_floor (default 1 slot)
+  bakes in the minimum slew between any two consecutive visits.
 
-  Aggregating identical clique inequalities into one row per slot (rather
-  than one row per (i, s)) is the textbook LP-tightening for time-indexed
-  scheduling formulations and is the reason splan's LP relaxation is
-  integer-tight at the semester scale.
+  The cover is then three sparse blocks:
+      B_init :  B[i, s_lo[i]] = Y[i, s_lo[i]]                  (1 row per i)
+      B_rec  :  B[i, s] - B[i, s-1] - Y[i, s] + Y[i, s - t_block[i]] = 0
+                                                                (1 row per (i, s))
+      B_cap  :  Σ_i B[i, s] <= 1                               (1 row per s)
+  Each recurrence row has at most 4 nonzeros; the cap row has at most one
+  entry per target with active B support at slot s. Treating B as continuous
+  is exact: the recurrence forces B integral whenever Y is integral, and
+  projecting onto Y reproduces the original aggregated cover polytope (same
+  LP relaxation). The delta form sidesteps the sliding-shift density that
+  Gurobi's Sparsify otherwise has to discover at presolve time.
 
 C1b (pair-specific slew refinement)
   C1a uses a constant `slew_floor` for every target pair. The true slew
@@ -340,56 +348,98 @@ class NightPlannerILP:
             starts_for[i].append(s)
         # Each starts_for[i] is naturally sorted ascending (np.where output).
 
-        # ----- C1a: splan-style aggregated cover constraint -----
-        # Mirrors `splan.constraint_reserve_multislot_exposures` (Lubin
-        # et al. 2025 Constraint 1) restricted to one night, with a slew
-        # floor of `slew_floor` slots baked into each target's effective
-        # duration `t_block[i] = t_visit[i] + slew_floor`. For every slot
-        # s with at least one observable start:
+        # ----- C1a: delta-form occupancy cover -----
+        # Equivalence-preserving rewrite of the splan-style aggregated
+        # cover constraint. Introduces a continuous occupancy indicator
         #
-        #     1 − Σ_{i ∈ R_s} Y[i, s]                    (slack at s)
-        #     ≥ Σ_{δ ≥ 1} Σ_{i ∈ R_{s-δ}, t_block[i] ≥ δ+1} Y[i, s−δ]
+        #     B[i, s] = Σ_{s' = s - t_block[i] + 1}^{s} Y[i, s']
         #
-        # where R_s is the set of targets that may start at slot s. The
-        # left-hand side is the slack of slot s after counting starts at
-        # s; the right-hand side is the total number of in-progress
-        # exposures that begain earlier and still occupy slot s.
-        # Aggregating identical clique inequalities into one row per slot
-        # is what gives the LP relaxation its integer-tight behavior here
-        # and at the splan semester scale.
+        # i.e. B[i, s] = 1 iff target i is mid-visit at slot s, with the
+        # per-target footprint length t_block[i] = t_visit[i] + slew_floor
+        # baking in a constant slew floor. C1b below adds the pair-specific
+        # slew tail.
         #
-        # The cover form alone treats slew as a constant per-target floor
-        # of `slew_floor` slots regardless of the actual transit between
-        # the two consecutive visits. C1b below adds the pair-specific
-        # tail.
+        # Three sparse blocks replace the dense sliding-window cover:
+        #
+        #   B_init : B[i, s_lo[i]] = Y[i, s_lo[i]]           (one row per i)
+        #   B_rec  : B[i, s] - B[i, s-1] - Y[i, s] + Y[i, s - t_block[i]] = 0
+        #                                                     (one row per (i, s))
+        #   B_cap  : Σ_i B[i, s] <= 1                        (one row per s)
+        #
+        # Each recurrence row carries at most 4 nonzeros; the cap row
+        # carries one entry per target with active B support at slot s.
+        # Treating B as continuous in [0, 1] does not relax the integer
+        # program: B is forced integral by the recurrence whenever Y is
+        # integral. Projecting onto Y reproduces today's cover polytope
+        # exactly, so the root LP bound is unchanged.
         slew_floor = 1
         t_block = self.t_visit + slew_floor
-        max_t_block = int(t_block.max())
-        # R_s[s] = set of targets that can start at slot s.
-        R_s = [set(starts_at[s]) for s in range(self.n_slots)]
-        # R_geq_t_block[k] = set of targets i with t_block[i] >= k.
-        R_geq_t_block = {
-            k: set(np.where(t_block >= k)[0].tolist())
-            for k in range(1, max_t_block + 1)
-        }
 
-        for s in range(self.n_slots):
-            if not R_s[s]:
+        obs_pairs_set = set(obs_pairs)
+
+        # Per-target B support [s_lo[i], s_hi[i]]. Targets with no
+        # observable start (starts_for[i] empty) contribute no B rows.
+        s_lo = np.full(self.N, -1, dtype=int)
+        s_hi = np.full(self.N, -1, dtype=int)
+        for i in range(self.N):
+            if not starts_for[i]:
                 continue
-            rhs = []
-            for delta in range(1, max_t_block):
-                s_shift = s - delta
-                if s_shift < 0:
-                    break
-                if not R_s[s_shift]:
-                    continue
-                rhs.extend(
-                    Y[i, s_shift]
-                    for i in R_s[s_shift] & R_geq_t_block[delta + 1]
+            s_lo[i] = int(starts_for[i][0])
+            s_hi[i] = min(
+                self.n_slots - 1,
+                int(starts_for[i][-1]) + int(t_block[i]) - 1,
+            )
+
+        B_pairs = [
+            (i, s)
+            for i in range(self.N)
+            if s_lo[i] >= 0
+            for s in range(int(s_lo[i]), int(s_hi[i]) + 1)
+        ]
+        B = m.addVars(
+            B_pairs, lb=0.0, ub=1.0, vtype=GRB.CONTINUOUS, name="B"
+        )
+        self.B = B
+
+        # Per-slot covering set for the cap row.
+        covers_slot = [[] for _ in range(self.n_slots)]
+        for (i, s) in B_pairs:
+            covers_slot[s].append(i)
+
+        # B_init: anchor B at the first slot of each target's support.
+        for i in range(self.N):
+            if s_lo[i] < 0:
+                continue
+            s0 = int(s_lo[i])
+            # By construction s0 = starts_for[i][0], so (i, s0) ∈ obs_pairs.
+            m.addConstr(B[i, s0] == Y[i, s0], name=f"B_init_{i}")
+
+        # B_rec: telescoping recurrence over each target's B support.
+        for i in range(self.N):
+            if s_lo[i] < 0:
+                continue
+            tb = int(t_block[i])
+            for s in range(int(s_lo[i]) + 1, int(s_hi[i]) + 1):
+                y_in = Y[i, s] if (i, s) in obs_pairs_set else 0
+                s_out = s - tb
+                y_out = (
+                    Y[i, s_out]
+                    if s_out >= 0 and (i, s_out) in obs_pairs_set
+                    else 0
                 )
-            lhs = 1 - gp.quicksum(Y[i, s] for i in R_s[s])
-            rhs = gp.quicksum(rhs)
-            m.addConstr(lhs >= rhs, name=f"reserve_multislot_{s}s")
+                m.addConstr(
+                    B[i, s] - B[i, s - 1] - y_in + y_out == 0,
+                    name=f"B_rec_{i}_{s}",
+                )
+
+        # B_cap: at most one target mid-visit at any given slot.
+        for s in range(self.n_slots):
+            if not covers_slot[s]:
+                continue
+            m.addConstr(
+                gp.quicksum(B[i, s] for i in covers_slot[s]) <= 1,
+                name=f"cover_{s}",
+            )
 
         # ----- C1b: pair-specific slew refinement -----
         # The cover constraint above forbids any earlier start (j, s_prev)
