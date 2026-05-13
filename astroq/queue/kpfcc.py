@@ -908,52 +908,67 @@ def filter_request_csv(request_df, weather_band_num):
     
 def update_allocation_file(allocation_df, current_date):
     """
-    Update allocation.csv file with today's 12-degree twilight times
-    
+    Update allocation.csv file with today's 12-degree twilight times.
+
+    All existing rows whose ``start`` falls on ``current_date`` are collapsed
+    into a single sunset-to-sunrise row, preserving the original
+    "full-band = whole night is available" semantics even when the source
+    allocation lists multiple abutting blocks for that night (e.g. when the
+    night is shared across multiple programs in the master allocation file).
+
     Args:
-        allocation_file_path (str): Path to the allocation.csv file
-        current_date (str): Current date in YYYY-MM-DD format
-        
+        allocation_df (pd.DataFrame): in-memory allocation with at minimum
+            ``start``, ``stop`` and ``comment`` columns.
+        current_date (str): Current date in YYYY-MM-DD format.
+
     Returns:
-        bool: True if update was successful, False otherwise
+        pd.DataFrame: allocation with all rows on ``current_date`` replaced
+        by a single nautical-twilight span.
     """
-    date_exists = False
-    date_idx = -1
-    
-    # Check if current date exists in allocation file
-    for idx, row in allocation_df.iterrows():
-        row_date = str(row['start'])[:10]  # Get YYYY-MM-DD portion
-        if row_date == current_date:
-            date_exists = True
-            date_idx = idx
-            break
-    
-    # Get 12-degree twilight times for current date
     observatory = 'Keck Observatory'
     keck = apl.Observer.at_site(observatory)
     day = Time(current_date, format='isot', scale='utc')
-    
+
     evening_12 = keck.twilight_evening_nautical(day, which='next')
     morning_12 = keck.twilight_morning_nautical(day, which='next')
-    
-    if not date_exists:
+
+    same_day_mask = allocation_df['start'].astype(str).str[:10] == current_date
+    n_existing = int(same_day_mask.sum())
+
+    if n_existing == 0:
         print(f'Adding allocation row for current_day: {current_date}')
-        # Add new row at the bottom
-        new_row = pd.DataFrame({
-            'start': [evening_12.strftime('%Y-%m-%dT%H:%M')],
-            'stop': [morning_12.strftime('%Y-%m-%dT%H:%M')]
-        })
-        allocation_df = pd.concat([allocation_df, new_row], ignore_index=True)
-        allocation_df.loc[len(allocation_df)-1, 'comment'] = 'added as part of full-band processing'
-        print(f'Added allocation: {evening_12.iso} to {morning_12.iso}')
-    else:
+    elif n_existing == 1:
         print(f'Updating existing allocation row for current_day: {current_date}')
-        # Update existing row
-        allocation_df.loc[date_idx, 'start'] = evening_12.strftime('%Y-%m-%dT%H:%M')
-        allocation_df.loc[date_idx, 'stop'] = morning_12.strftime('%Y-%m-%dT%H:%M')
-        allocation_df.loc[date_idx, 'comment'] = 'added as part of full-band processing'
-        print(f'Updated allocation: {evening_12.iso} to {morning_12.iso}')
-    
+    else:
+        print(
+            f'Collapsing {n_existing} existing allocation rows for '
+            f'current_day {current_date} into a single full-night row'
+        )
+        allocation_df = allocation_df.loc[~same_day_mask].copy()
+        same_day_mask = pd.Series([False] * len(allocation_df), index=allocation_df.index)
+
+    new_row = {
+        'start': evening_12.strftime('%Y-%m-%dT%H:%M'),
+        'stop': morning_12.strftime('%Y-%m-%dT%H:%M'),
+        'comment': 'added as part of full-band processing',
+    }
+
+    if n_existing <= 1:
+        if n_existing == 0:
+            allocation_df = pd.concat(
+                [allocation_df, pd.DataFrame([new_row])], ignore_index=True
+            )
+        else:
+            date_idx = allocation_df.index[same_day_mask][0]
+            for col, val in new_row.items():
+                allocation_df.loc[date_idx, col] = val
+    else:
+        allocation_df = pd.concat(
+            [allocation_df, pd.DataFrame([new_row])], ignore_index=True
+        )
+
+    print(f'Allocation for {current_date} set to: {evening_12.iso} to {morning_12.iso}')
+
     return allocation_df
 
 def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars, current_day,

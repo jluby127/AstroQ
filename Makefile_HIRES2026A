@@ -14,8 +14,16 @@ ENV_FILE ?= $(MAKEFILE_DIR).env
 LOAD_ENV = if [ -f "$(ENV_FILE)" ]; then set -a; . "$(ENV_FILE)"; set +a; fi
 # Optional offline allocation file. By default `astroq prep hires` pulls the
 # Keck schedule live and crossmatches against $HIRES_PROGRAM_SHEET_URLS_CSV.
-# To run offline, append   -as "$(ALLOCATION_FILE)"   to the prep recipes below.
-ALLOCATION_FILE ?= $(MAKEFILE_DIR)allocation_hires_cps_2026A.csv
+# Set ALLOCATION_FILE (env var or `make ALLOCATION_FILE=...`) to a CSV in the
+# `allocation_hires_cps_<semester>.csv` shape to use a hand-crafted allocation
+# instead. Useful for stress tests; see allocation_hires_cps_2026A_test.csv.
+ALLOCATION_FILE ?=
+# Optional offline past-history file. By default `astroq prep hires` pulls
+# past observations from the database. Set PAST_FILE to a CSV in the
+# `target,timestamp,exposure_time,exposure_start_time,observer,id` shape to
+# bypass the DB pull. For stress tests with no prior observations, use
+# past_empty.csv (header-only, no rows).
+PAST_FILE ?=
 ifndef HIRES_PROGRAM_SHEET_URLS_CSV
 export HIRES_PROGRAM_SHEET_URLS_CSV := $(MAKEFILE_DIR)request_urls_2026A.csv
 endif
@@ -79,12 +87,18 @@ $(DATE_DIR)/%/prep-run: $(DATE_DIR)/%/config.ini
 	@INSTRUMENT=$$(sed -n 's/^[[:space:]]*instrument[[:space:]]*=[[:space:]]*//p' $(@D)/config.ini | tr -d ' \r\n'); \
 	BAND_NUM=$$(echo $(notdir $(@D)) | sed 's/band//' | sed 's/full-//'); \
 	IS_FULL_BAND=$$(echo $(notdir $(@D)) | grep -q '^full-' && echo "true" || echo "false"); \
+	ALLOC_ARG="$(if $(strip $(ALLOCATION_FILE)),-as $(abspath $(ALLOCATION_FILE)),)"; \
+	PAST_ARG="$(if $(strip $(PAST_FILE)),-ps $(abspath $(PAST_FILE)),)"; \
+	if [ -n "$(strip $(PAST_FILE))" ]; then \
+		echo "📜 Seeding $(@D)/past.csv from $(abspath $(PAST_FILE)) (bypassing DB pull)"; \
+		cp "$(abspath $(PAST_FILE))" "$(@D)/past.csv"; \
+	fi; \
 	if [ "$$IS_FULL_BAND" = "true" ]; then \
 		echo "📅 Running prep for full-band $$BAND_NUM (instrument=$$INSTRUMENT)..." && \
-		cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$INSTRUMENT -cf config.ini -fillers $(FILLER_PROGRAM) -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
+		cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$INSTRUMENT -cf config.ini $$ALLOC_ARG $$PAST_ARG -fillers $(FILLER_PROGRAM) -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
 	else \
 		echo "📊 Running prep for band $$BAND_NUM (instrument=$$INSTRUMENT)..." && \
-		cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$INSTRUMENT -cf config.ini -fillers $(FILLER_PROGRAM) -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
+		cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$INSTRUMENT -cf config.ini $$ALLOC_ARG $$PAST_ARG -fillers $(FILLER_PROGRAM) -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
 	fi
 	@touch $@
 

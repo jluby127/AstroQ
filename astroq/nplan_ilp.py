@@ -299,7 +299,9 @@ class NightPlannerILP:
         # burns the full TimeLimit chasing marginal row removals and never
         # gets to the root LP. Keep it overridable so we can re-sweep.
         m.Params.Method = 2
-        m.Params.Presolve = getattr(self, "presolve_override", 1)
+        m.Params.Presolve = 2
+        m.Params.Symmetry = 2
+        m.Params.Aggregate = 2
         m.Params.MIPFocus = 1
         m.Params.Heuristics = 0.5
 
