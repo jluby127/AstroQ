@@ -18,28 +18,37 @@ Variables:
 
 C1a (cover form: at most one visit occupies any slot)
   For every slot s:
-      Sum_{(i, s') : s' <= s < s' + t_visit[i] + slew_floor}  Y[i, s']  <=  1
+      Sum_{(i, s') : s' <= s < s' + t_visit[i] + slew_floor[i]}  Y[i, s']  <=  1
   This is the aggregated splan-style "reserve multislot exposures" form
-  (Lubin et al. 2025 Constraint 1), applied to one night. `slew_floor` is a
-  per-target slot inflation (default 1 slot) that bakes in the minimum slew
-  between any two consecutive visits.
+  (Lubin et al. 2025 Constraint 1), applied to one night. `slew_floor[i]`
+  is a per-target slot inflation set to
 
-  Aggregating identical clique inequalities into one row per slot (rather
-  than one row per (i, s)) is the textbook LP-tightening for time-indexed
-  scheduling formulations and is the reason splan's LP relaxation is
+      slew_floor[i] = min over (k != i, s in alloc) of slew_slots(i, k, s)
+
+  i.e. the strongest target-only (i.e. time-invariant) lower bound on the
+  slew out of i into any successor. Because the floor depends only on i,
+  C1a remains aggregable as a single inequality per slot (rather than per
+  (i, s)), which is the textbook LP-tightening for time-indexed
+  scheduling formulations and the reason splan's LP relaxation is
   integer-tight at the semester scale.
 
-C1b (pair-specific slew refinement)
-  C1a uses a constant `slew_floor` for every target pair. The true slew
+C1b (pair-specific slew residual)
+  C1a now bakes in the time-invariant per-target floor. The true slew
   between consecutive visits j and i, evaluated at the slot s where i
-  starts, can exceed that floor. For every (i, s) we add the residual
-  forbidden range only:
+  starts, can exceed that floor. For every (i, s) we add only the
+  residual forbidden range that C1a does not already cover:
       Y[i, s] + Σ_{j != i}
                  Σ_{s' in [s - t_visit[j] - slew(j, i, s) + 1,
-                           s - t_visit[j] - slew_floor + 1)} Y[j, s']
+                           s - t_visit[j] - slew_floor[j] + 1)} Y[j, s']
       <=  1
-  These rows are sparse (only the slew-excess slots), so the cover form
-  still does the heavy LP lifting while exact pair-wise slew is honored.
+  The residual window for any j has width slew(j, i, s) - slew_floor[j],
+  which is zero whenever (i, s) attains the per-target floor for j. The
+  combined C1a + C1b feasible region is identical to the original
+  (constant-floor C1a) + (full-window C1b) construction, so the LP
+  relaxation is at least as tight; raising the per-target floor strictly
+  tightens it whenever max_j slew_floor[j] > 1. Fewer C1b rows survive
+  and each surviving row carries fewer nonzeros, which is the static
+  model-size win that motivates this decomposition.
 
 C4 (intra-night cadence)
   For each (i, s) in A with n_intra_max[i] > 1 and tau_intra_slots[i] > 1:
@@ -283,6 +292,37 @@ class NightPlannerILP:
         np.fill_diagonal(slots, 0)
         return slots
 
+    def _compute_slew_floor_per_j(self):
+        """Per-target slew lower bound used by the C1a + C1b decomposition.
+
+        Returns ``slew_floor[j] = min over (i != j, s in alloc) of
+        slew_slots(j, i, s)`` as an integer array of length N. This is the
+        smallest number of slots the telescope is guaranteed to be unavailable
+        after target j finishes exposing, regardless of which successor i is
+        chosen or when in the allocation it happens. Folded into C1a's
+        per-target ``t_block[j] = t_visit[j] + slew_floor[j]`` so C1a stays
+        per-slot aggregable, while the residual C1b only carries the per-s
+        excess ``slew(j, i, s) - slew_floor[j]``.
+        """
+        if getattr(self, "_slew_floor_j", None) is not None:
+            return self._slew_floor_j
+        N = self.N
+        big = np.iinfo(np.int32).max
+        floor = np.full(N, big, dtype=np.int64)
+        for s in range(self.alloc_start_slot, self.alloc_stop_slot):
+            slots = self.slew_slots_at(s)
+            # Diagonal is 0 (self-slew); mask it out before per-row min.
+            masked = slots.astype(np.int64, copy=True)
+            np.fill_diagonal(masked, big)
+            floor = np.minimum(floor, masked.min(axis=1))
+        # Guard against degenerate single-target cases or unmasked all-big rows
+        # (no allocated slot found for that target). Slew is bounded below by
+        # SETTLE_SECONDS in slew.py so ``1`` slot is always a valid lower bound.
+        floor = np.where(floor >= big, 1, floor)
+        floor = np.maximum(floor, 1).astype(int)
+        self._slew_floor_j = floor
+        return floor
+
     def build_model(self):
         """Construct the Gurobi ILP."""
         m = gp.Model("NightPlannerILP")
@@ -358,12 +398,20 @@ class NightPlannerILP:
         # is what gives the LP relaxation its integer-tight behavior here
         # and at the splan semester scale.
         #
-        # The cover form alone treats slew as a constant per-target floor
-        # of `slew_floor` slots regardless of the actual transit between
-        # the two consecutive visits. C1b below adds the pair-specific
-        # tail.
-        slew_floor = 1
-        t_block = self.t_visit + slew_floor
+        # The cover form alone treats slew as a per-target floor of
+        # `slew_floor[j]` slots. We choose the strongest such floor that
+        # still keeps C1a per-slot aggregable:
+        #
+        #     slew_floor[j] = min over (i != j, s in alloc) of slew_slots(j, i, s)
+        #
+        # i.e. the minimum slew out of j into any successor at any slot.
+        # This is a valid lower bound on the slew after every visit of j,
+        # so the cover "footprint" t_block[j] = t_visit[j] + slew_floor[j]
+        # is always respected. Raising the floor folds the time-invariant
+        # portion of the pair-specific slew into C1a so the residual C1b
+        # below only carries the per-(i, s) slew excess.
+        slew_floor_j = self._compute_slew_floor_per_j()
+        t_block = self.t_visit + slew_floor_j
         max_t_block = int(t_block.max())
         # R_s[s] = set of targets that can start at slot s.
         R_s = [set(starts_at[s]) for s in range(self.n_slots)]
@@ -391,26 +439,31 @@ class NightPlannerILP:
             rhs = gp.quicksum(rhs)
             m.addConstr(lhs >= rhs, name=f"reserve_multislot_{s}s")
 
-        # ----- C1b: pair-specific slew refinement -----
-        # The cover constraint above forbids any earlier start (j, s_prev)
-        # with s_prev ≥ s - t_visit[j] - slew_floor + 1 from coexisting
-        # with Y[i, s]. The *true* pair-specific feasibility requires
+        # ----- C1b: pair-specific slew residual -----
+        # The cover constraint above already forbids any earlier start
+        # (j, s_prev) with s_prev ≥ s - t_visit[j] - slew_floor[j] + 1
+        # from coexisting with Y[i, s]. The *true* pair-specific
+        # feasibility requires
         #
         #     s - s_prev ≥ t_visit[j] + slew_slots(j, i, evaluated at s)
         #
-        # which, when slew_slots(j, i, s) > slew_floor, forbids an
-        # additional `slew_slots(j, i, s) - slew_floor` slots of earlier
-        # starts. We add only the residual forbidden range here so the
-        # cover form still does the heavy LP lifting:
+        # which, when slew_slots(j, i, s) > slew_floor[j], forbids an
+        # additional `slew_slots(j, i, s) - slew_floor[j]` slots of
+        # earlier starts. We add only that residual forbidden range
+        # here so the cover form still does the heavy LP lifting:
         #
         #     Y[i, s] + Σ_j Σ_{s_prev ∈ R_j(i, s)} Y[j, s_prev]  ≤  1
         #
         # where R_j(i, s) = [s - t_visit[j] - slew(j, i, s) + 1,
-        #                    s - t_visit[j] - slew_floor + 1).
+        #                    s - t_visit[j] - slew_floor[j] + 1).
         #
-        # Constraints are sparse (only the slew-excess slots, not the full
-        # t_visit window), so total nonzero count stays comparable to the
-        # cover form.
+        # Since slew_floor[j] = min over (i, s) of slew(j, i, s), the
+        # residual window has width slew(j, i, s) - slew_floor[j] which
+        # is zero whenever the current (i, s) pair happens to attain
+        # the per-target floor. The C1b row drops in those cases,
+        # shrinking the static nonzero count while leaving the
+        # combined C1a+C1b feasible region (and therefore the LP
+        # relaxation) at least as tight as before.
         t_visit = self.t_visit
         for s in range(self.n_slots):
             if not starts_at[s]:
@@ -422,10 +475,11 @@ class NightPlannerILP:
                     if j == i:
                         continue
                     sl = int(slew_at_s[j, i])
-                    if sl <= slew_floor:
+                    floor_j = int(slew_floor_j[j])
+                    if sl <= floor_j:
                         continue
                     lo = max(0, s - int(t_visit[j]) - sl + 1)
-                    hi = s - int(t_visit[j]) - slew_floor + 1
+                    hi = s - int(t_visit[j]) - floor_j + 1
                     if lo >= hi:
                         continue
                     sj = starts_for[j]
