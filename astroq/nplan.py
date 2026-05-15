@@ -21,11 +21,8 @@ from astroq.splan import SemesterPlanner
 import astroq.queue.kpfcc as kpfcc
 import astroq.queue.hirescps as hirescps
 
-# TTP imports (assuming TTP is installed separately)
-import ttp.formatting as formatting
-import ttp.telescope as telescope
-import ttp.plotting as plotting
-import ttp.model as model
+# TTP imports (vendored at astroq/ttp/)
+from astroq.ttp import formatting, telescope, plotting, model
 
 class NightPlanner(object):
     """
@@ -682,9 +679,7 @@ class NightPlanner(object):
                 solution.stars.append(star)
             
             # Load observatory (recreate Keck1 object)
-            import sys
-            sys.path.append('/Users/jack/Documents/github/ttp/ttp/')
-            import telescope
+            from astroq.ttp import telescope
             solution.observatory = telescope.Keck1()
         
         # Load solution.extras (convert back to dict if needed)
