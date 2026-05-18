@@ -26,9 +26,82 @@ import re
 from bs4 import BeautifulSoup
 
 # Local imports
-from astroq.access import Access
+from astroq.queue.base import Queue
 
 logs = logging.getLogger(__name__)
+
+
+class HIRESCPS(Queue):
+    """HIRES-CPS on Keck-I.
+
+    HIRES is permanently installed on Keck-I, so the telescope/instrument
+    pairing is unique and this single class fully describes the queue.
+
+    Pointing geometry references the Keck-I limits page:
+    https://www2.keck.hawaii.edu/inst/common/TelLimits.html
+
+    The upper elevation limit (``tel_max=85``) is chosen to match
+    ``Access_KPFCC`` rather than TTP's historical ``Keck1.zenLim=84``; the
+    physical zenith limit is 88.9 deg and 85 is the value we currently use
+    when computing accessibility.
+    """
+
+    # --- Keck-I site / pointing geometry --------------------------------------
+    # Duplicated independently in HIRESCPS and KPFCC; the two queues may
+    # legitimately diverge on these (e.g. different elevation policies).
+    nays_az_low = 5.3
+    nays_az_high = 146.2
+    nays_alt = 33.3
+    tel_min = 18.0
+    tel_max = 85.0
+    slew_rate = 0.6           # deg/s; matches TTP Keck1 (6./10.)
+    wrap_limit = 270.0        # deg azimuth
+    nSlots = 1                # TTP slew-slot granularity
+
+    # --- HIRES-CPS overheads --------------------------------------------------
+    readout_time = 45.0       # seconds; per-shot detector readout
+    slew_overhead = 60.0      # seconds; per-visit slew + acquisition
+
+    def __init__(self):
+        import astroplan as apl
+        self.observer = apl.Observer.at_site(
+            "Keck Observatory", name="Keck", timezone="US/Hawaii"
+        )
+
+    def pointing_limits(self, az, unvignetted=True):
+        if self.nays_az_low < az < self.nays_az_high:
+            return [self.nays_alt, self.tel_max]
+        if unvignetted:
+            return [self.tel_min, self.tel_max]
+        return [0.0, self.tel_max]
+
+    def is_accessible(self, alt, az):
+        alt_a = np.asarray(alt)
+        az_a = np.asarray(az)
+        in_deck = (
+            (az_a > self.nays_az_low)
+            & (az_a < self.nays_az_high)
+            & (alt_a < self.nays_alt)
+        )
+        in_elev = (alt_a >= self.tel_min) & (alt_a <= self.tel_max)
+        return (~in_deck) & in_elev
+
+    def write_starlist(self, *args, **kwargs):
+        return write_starlist(*args, **kwargs)
+
+    # TTP plotter aliases for the Keck-I nasmyth deck obstruction (see
+    # astroq.plot.get_slew_animation_plotly and astroq.ttp.plotting).
+    @property
+    def deckAzLim1(self):
+        return self.nays_az_low
+
+    @property
+    def deckAzLim2(self):
+        return self.nays_az_high
+
+    @property
+    def deckAltLim(self):
+        return self.nays_alt
 
 # Shared request fields through ``priority`` (exptime/maxtime are seconds; Keck / MAGIQ convention).
 REQUEST_COLS_CORE = [

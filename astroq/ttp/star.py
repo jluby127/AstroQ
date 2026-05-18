@@ -62,7 +62,7 @@ class star(object):
         self.exptime = np.round(float(row['Exposure Time']/60),2) # Seconds to minutes
         self.shots = int(row['Exposures Per Visit'])
         self.visits = int(row['Visits In Night'])
-        self.expwithreadout = np.round(float(self.exptime*self.shots + (45/60)*(self.shots-1)),2)
+        self.expwithreadout = float(observatory.visit_duration(row['Exposure Time'], self.shots))
         self.intra_night_cadence = int(row['Intra_Night_Cadence']) # Hours
         self.index = index
 

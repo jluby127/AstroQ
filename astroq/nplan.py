@@ -18,11 +18,9 @@ from astropy.time import Time, TimeDelta
 import astroq.access as ac
 import astroq.io as io
 from astroq.splan import SemesterPlanner
-import astroq.queue.kpfcc as kpfcc
-import astroq.queue.hirescps as hirescps
 
 # TTP imports (vendored at astroq/ttp/)
-from astroq.ttp import formatting, telescope, plotting, model
+from astroq.ttp import formatting, plotting, model
 
 class NightPlanner(object):
     """
@@ -84,7 +82,11 @@ class NightPlanner(object):
 
         semester_planner_h5 = os.path.join(workdir, 'semester_planner.h5')
         self.semester_planner = SemesterPlanner.from_hdf5(semester_planner_h5)
-        
+
+        # The night plan inherits the queue from the semester plan to guarantee
+        # they use identical telescope/instrument descriptions.
+        self.queue = self.semester_planner.queue
+
         # Pull properties from SemesterPlanner for consistency
         self.semester_start_date = self.semester_planner.semester_start_date
         self.semester_length = self.semester_planner.semester_length
@@ -155,7 +157,7 @@ class NightPlanner(object):
         if not check1:
             os.makedirs(observers_path)
 
-        observatory = telescope.Keck1()
+        observatory = self.queue
         # Get start/stop times from allocation file
         try:
             observation_start_time, observation_stop_time = get_nightly_times_from_allocation(self.allocation_file, self.current_day)
@@ -342,7 +344,7 @@ class NightPlanner(object):
         use_frame = pd.DataFrame({'unique_id': use_star_ids, 'Target': use_starnames, 'StartExposure': use_start_exposures})
         use_frame.to_csv(observe_order_file, index=False)
 
-        hirescps.write_starlist(selected_df, solution.plotly, observation_start_time, solution.extras,
+        self.queue.write_starlist(selected_df, solution.plotly, observation_start_time, solution.extras,
                             [], str(self.current_day), observers_path,
                             all_active_requests=self.semester_planner.requests_frame,
                             past_history=self.past_history)
@@ -639,6 +641,7 @@ class NightPlanner(object):
             instance.past_history = instance.semester_planner.past_history
             instance.slots_needed_for_exposure_dict = instance.semester_planner.slots_needed_for_exposure_dict
             instance.run_weather_loss = instance.semester_planner.run_weather_loss
+            instance.queue = instance.semester_planner.queue
             
             # Load solution attributes
             for hdf5_key, attr_name, data_type, extra in solution_attrs:
@@ -678,9 +681,8 @@ class NightPlanner(object):
                 star.target = SkyCoord(ra=ra*u.deg, dec=dec*u.deg)
                 solution.stars.append(star)
             
-            # Load observatory (recreate Keck1 object)
-            from astroq.ttp import telescope
-            solution.observatory = telescope.Keck1()
+            # observatory is the night plan's queue (same as semester plan's)
+            solution.observatory = instance.queue
         
         # Load solution.extras (convert back to dict if needed)
         with h5py.File(hdf5_path, 'r') as f:

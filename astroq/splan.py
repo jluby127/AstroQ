@@ -27,6 +27,7 @@ import astroplan as apl
 import astroq.access as ac
 import astroq.history as hs
 import astroq.io as io
+import astroq.queue
 
 # Suppress warnings
 warnings.filterwarnings('ignore')
@@ -72,7 +73,11 @@ class SemesterPlanner(object):
         workdir = str(config.get('global', 'workdir'))
         self.semester_directory = workdir
         self.current_day = str(config.get('global', 'current_day'))
-        self.observatory = config.get('global', 'observatory')
+
+        # The queue owns all telescope+instrument knowledge (site geometry,
+        # overheads, starlist writer). Selected via [global] queue.
+        self.queue = astroq.queue.from_config(config)
+        self.queue_name = config.get('global', 'queue')
         
         # Get semester parameters from semester section
         self.slot_size = config.getint('semester', 'slot_size')
@@ -324,24 +329,30 @@ class SemesterPlanner(object):
         """
         Determine the number of slots required to complete for each visit of a given request.
 
+        Per-request overheads (readout, slew) come from ``self.queue`` so the
+        canonical numbers live in exactly one place repo-wide.
+
         Returns:
             slots_needed_for_exposure_dict (dict): a dictionary where keys are the star names and values are the number of slots required for each exposure
         """
+        readout = self.queue.readout_time
+        slew = self.queue.slew_overhead
+
         slots_needed_for_exposure_dict = {}
         for n, row in self.requests_frame.iterrows():
             starid = row['unique_id']
             exposure_time = float(row['exptime']*row['n_exp'])
-            overhead = 45*float(row['n_exp'] - 1) + 60*float(row['n_intra_max'])
-            
+            overhead = readout*float(row['n_exp'] - 1) + slew*float(row['n_intra_max'])
+
             if always_round_up_flag:
                 slots_needed = int(np.ceil((exposure_time + overhead) / (self.slot_size * 60.0)))
             else:
                 slots_needed = int(np.round((exposure_time + overhead) / (self.slot_size * 60.0)))
             if slots_needed < 1:
                 slots_needed = 1
-            
+
             slots_needed_for_exposure_dict[starid] = slots_needed
-        
+
         return slots_needed_for_exposure_dict
 
     def _build_observability(self):
@@ -351,38 +362,9 @@ class SemesterPlanner(object):
         Returns:
             observability (dict): a dictionary where keys are the star names and values are the indices of the slots where the target is observable
         """
-        # Create Access object with parameters from config
-        # Use KPFCC-specific Access class for Keck Observatory, otherwise use base Access class
-        if 'Keck' in self.observatory or 'keck' in self.observatory.lower():
-            from astroq.queue.kpfcc import Access_KPFCC
-            AccessClass = Access_KPFCC
-        else:
-            AccessClass = ac.Access
-        
-        self.access_obj = AccessClass(
-            semester_start_date=self.semester_start_date,
-            semester_length=self.semester_length,
-            n_nights_in_semester=self.n_nights_in_semester,
-            today_starting_night=self.today_starting_night,
-            current_day=self.current_day,
-            all_dates_dict=self.all_dates_dict,
-            all_dates_array=self.all_dates_array,
-            slot_size=self.slot_size,
-            slots_needed_for_exposure_dict=self.slots_needed_for_exposure_dict,
-            custom_file=self.custom_file,
-            allocation_file=self.allocation_file,
-            past_history=self.past_history,
-            output_directory=self.output_directory,
-            run_weather_loss=self.run_weather_loss,
-            run_band3=self.run_band3,
-            observatory_string=self.observatory,
-            request_frame=self.requests_frame
-        )
-
-        # Store the full access record array for later use
+        self.access_obj = ac.Access(self)
         self.access_record = self.access_obj.produce_ultimate_map()
         observability = self.access_obj.observability(self.requests_frame, access=self.access_record)
-
         return observability
 
     def _compute_slots_required_for_exposure(self, exposure_time, slot_size, always_round_up_flag):
@@ -722,9 +704,7 @@ class SemesterPlanner(object):
         self.model.Params.OutputFlag = self.gurobi_output
         # Allow stop at 5% gap to prevent from spending lots of time on marginally better solution
         self.model.params.MIPGap = self.solve_max_gap
-        # More aggressive presolve gives better solution in shorter time
-        self.model.params.Presolve = 2
-        #self.model.params.Presolve = 0
+        self.model.params.Presolve = 1
         self.model.update()
         self.model.optimize()
 
@@ -848,7 +828,7 @@ class SemesterPlanner(object):
             ('today_starting_slot', 'today_starting_slot', 'scalar', None),
             ('today_starting_night', 'today_starting_night', 'scalar', None),
             ('run_band3', 'run_band3', 'scalar', None),
-            ('observatory', 'observatory', 'string', None),
+            ('queue', 'queue_name', 'string', None),
             ('output_directory', 'output_directory', 'string', None),
             ('run_weather_loss', 'run_weather_loss', 'scalar', None),
             ('solve_time_limit', 'solve_time_limit', 'scalar', None),
@@ -969,7 +949,6 @@ class SemesterPlanner(object):
             ('today_starting_slot', 'today_starting_slot', 'scalar', None),
             ('today_starting_night', 'today_starting_night', 'scalar', None),
             ('run_band3', 'run_band3', 'scalar', None),
-            ('observatory', 'observatory', 'string', None),
             ('output_directory', 'output_directory', 'string', None),
             ('run_weather_loss', 'run_weather_loss', 'scalar', None),
             ('solve_time_limit', 'solve_time_limit', 'scalar', None),
@@ -981,7 +960,7 @@ class SemesterPlanner(object):
             ('custom_file', 'custom_file', 'string', None),
             ('allocation_file', 'allocation_file', 'string', None),
         ]
-        
+
         # Dictionary attributes (loaded from JSON)
         dict_attrs = [
             ('all_dates_dict_json', 'all_dates_dict', 'dict_json', None),
@@ -1014,6 +993,29 @@ class SemesterPlanner(object):
             # Optional: backwards compat for HDF5 files saved before these were stored
             instance.throttle_grace = float(f.attrs.get('throttle_grace', 1.25))
             instance.hours_per_night = float(f.attrs.get('hours_per_night', 12.0))
+
+            # Queue: prefer the new 'queue' attr; fall back to inferring from
+            # legacy ('observatory', 'instrument') attrs for h5 files written
+            # before the queue refactor.
+            if 'queue' in f.attrs:
+                queue_name = f.attrs['queue']
+                if isinstance(queue_name, bytes):
+                    queue_name = queue_name.decode('utf-8')
+            else:
+                obs = f.attrs.get('observatory', '')
+                if isinstance(obs, bytes):
+                    obs = obs.decode('utf-8')
+                inst = f.attrs.get('instrument', 'hirescps')
+                if isinstance(inst, bytes):
+                    inst = inst.decode('utf-8')
+                queue_name = inst if inst in astroq.queue.QUEUE_REGISTRY else 'hirescps'
+                logs.warning(
+                    "HDF5 file lacks 'queue' attr (legacy format). Inferred "
+                    "queue=%r from observatory=%r, instrument=%r.",
+                    queue_name, obs, inst,
+                )
+            instance.queue_name = queue_name
+            instance.queue = astroq.queue.from_name(queue_name)
             
             # Load dictionary attributes
             for hdf5_key, attr_name, data_type, _ in dict_attrs:
@@ -1074,40 +1076,14 @@ class SemesterPlanner(object):
                     # Convert to recarray so we can use dot notation
                     setattr(instance, attr_name, struct_array.view(np.recarray))
         
-        # Recreate access_obj using the loaded parameters
-        # Use KPFCC-specific Access class for Keck Observatory, otherwise use base Access class
-        if 'Keck' in instance.observatory or 'keck' in instance.observatory.lower():
-            from astroq.queue.kpfcc import Access_KPFCC
-            AccessClass = Access_KPFCC
-        else:
-            AccessClass = ac.Access
-        
-        instance.access_obj = AccessClass(
-            semester_start_date=instance.semester_start_date,
-            semester_length=instance.semester_length,
-            n_nights_in_semester=instance.n_nights_in_semester,
-            today_starting_night=instance.today_starting_night,
-            current_day=instance.current_day,
-            all_dates_dict=instance.all_dates_dict,
-            all_dates_array=instance.all_dates_array,
-            slot_size=instance.slot_size,
-            slots_needed_for_exposure_dict=instance.slots_needed_for_exposure_dict,
-            custom_file=instance.custom_file,
-            allocation_file=instance.allocation_file,
-            past_history=instance.past_history,
-            output_directory=instance.output_directory,
-            run_weather_loss=instance.run_weather_loss,
-            run_band3=instance.run_band3,
-            observatory_string=instance.observatory,
-            request_frame=instance.requests_frame
-        )        
+        # Recreate access_obj using the rehydrated planner
+        instance.access_obj = ac.Access(instance)
         logs.info(f"SemesterPlanner loaded from HDF5: {hdf5_path}")
         return instance
 
     def add_twilights(self):
         """Add 20-minute buffer to allocation times that match 12-degree twilight."""
-        observatory = self.config.get('global', 'observatory')
-        keck = apl.Observer.at_site(observatory)
+        keck = self.queue.observer
         allocation_df = pd.read_csv(self.allocation_file)
         
         for idx, row in allocation_df.iterrows():
