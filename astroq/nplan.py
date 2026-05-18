@@ -242,8 +242,8 @@ class NightPlanner(object):
             optgap=self.max_solve_gap,
         )
 
-        gurobi_model_backup = solution.gurobi_model  # backup the attribute, probably don't need this
-        del solution.gurobi_model                   # remove attribute so object is hdf5 compatable
+        model_backup = solution.model  # backup the attribute, probably don't need this
+        del solution.model             # remove attribute so object is hdf5 compatable
 
         # Compute gap stats BEFORE scrubbing (for adjusted TTP statistics)
         gap_exposure_min = 0.0
