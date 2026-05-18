@@ -5,18 +5,21 @@ A :class:`Queue` represents a single, specific telescope + instrument
 combination (e.g. HIRES-CPS on Keck-I; KPF-CC on Keck-I). It is the single
 source of truth for:
 
-- Site geometry (astroplan ``Observer``, slew rate, wrap, pointing/elevation
-  limits, nasmyth deck obstruction).
+- Site geometry (astroplan ``Observer``, slew rate, wrap).
+- Inaccessible alt/az regions (``inaccessible_zones``), the single declarative
+  spec replacing the old scattered ``nays_*`` / ``tel_min`` / ``tel_max`` /
+  ``deckAzLim*`` / ``vigLim`` / ``zenLim`` constants and the per-subclass
+  ``is_accessible`` / ``pointing_limits`` overrides.
 - Per-instrument timing overheads (readout time, slew overhead).
 - Visit-duration math used by both the semester planner (slot accounting)
   and the night planner (TTP MILP).
 - Instrument-specific I/O (``write_starlist``).
 
 The same Queue instance is shared by ``SemesterPlanner``, ``NightPlanner``,
-``Access``, and the TTP MILP. The TTP code in ``astroq.ttp.*`` consumes a
-Queue via duck typing as its ``observatory`` argument; the back-compat
-property aliases (:attr:`slewrate`, :attr:`wrapLimitAngle`, :attr:`readOutTime`)
-exist exclusively for that purpose.
+and ``Access``. The TTP MILP in ``astroq.ttp.*`` does NOT depend on Queue;
+it consumes the queue's primitive fields (``observer``, ``slew_rate``,
+``wrap_limit``, ``readout_time``, ``nSlots``, ``inaccessible_zones``) as
+explicit ``TTPModel`` kwargs. This keeps ``astroq.ttp`` a leaf module.
 
 Concrete subclasses live in :mod:`astroq.queue.hirescps` and
 :mod:`astroq.queue.kpfcc`. The factory :func:`astroq.queue.from_config` selects
@@ -34,7 +37,8 @@ class Queue:
     """Abstract base class for a (telescope + instrument) queue.
 
     Subclasses are expected to populate the following attributes in
-    ``__init__`` and override the abstract methods below.
+    ``__init__`` and (optionally) override :meth:`is_accessible` if the
+    geometry can't be expressed as alt/az rectangles.
 
     Attributes:
         observer (astroplan.Observer): site-aware observer object.
@@ -43,59 +47,55 @@ class Queue:
             means no wrap.
         nSlots (int): TTP slew-slot granularity (kept ``int`` and Pascal-cased
             because TTP consumes it as ``observatory.nSlots``).
-        tel_min (float): hard lower elevation limit, degrees.
-        tel_max (float): hard upper elevation limit, degrees.
         readout_time (float): detector readout time between successive shots
             of a single visit, seconds. Canonical source for both
             ``visit_duration`` and splan's slot accounting.
         slew_overhead (float): average per-visit slew overhead, seconds. Used
             only by splan's ``visit_slots``; the TTP MILP computes slew time
             from the pointing tensor directly.
+        inaccessible_zones (list[tuple]): Boxes in (alt, az) space where the
+            telescope cannot point. Each entry is
+            ``(az_min, az_max, alt_min, alt_max)`` in degrees. A sky point is
+            excluded iff it lies inside ANY box. Replaces the old per-subclass
+            ``is_accessible`` overrides; the base-class implementation is
+            generic and reads from this list.
     """
 
     observer = None
     slew_rate: float
     wrap_limit: float | None = None
     nSlots: int = 1
-    tel_min: float
-    tel_max: float
     readout_time: float
     slew_overhead: float
-
-    def pointing_limits(self, az, unvignetted=True):
-        """Return ``[lower, upper]`` elevation limits at azimuth ``az`` (deg).
-
-        Used by the legacy TTP back-compat path (``ttp.star`` falls back to
-        this if a star lacks ``First Available`` / ``Last Available``).
-        """
-        raise NotImplementedError
-
-    def is_up(self, alt, az, unvignetted=True):
-        """1/0 array marking which (alt, az) pairs are on the sky.
-
-        Legacy TTP signature. Default impl is a thin wrapper around
-        :meth:`is_accessible`; subclasses can override if they need the
-        ``unvignetted`` knob.
-        """
-        return self.is_accessible(alt, az).astype(int)
+    inaccessible_zones: list[tuple[float, float, float, float]] = []
 
     def is_accessible(self, alt, az):
         """Boolean mask of telescope-accessible (alt, az) pairs.
 
-        Encapsulates *all* hard telescope geometry: deck/nasmyth obstruction,
-        elevation clamps (``tel_min`` / ``tel_max``), wrap, vignette. Used by
+        Encapsulates all hard telescope geometry by checking the input
+        coordinates against :attr:`inaccessible_zones`. Used by
         :class:`astroq.access.Access` as the single per-cell pointing gate.
 
-        The mask matches the shape of the broadcast of ``alt`` and ``az``.
+        The returned mask matches the broadcast shape of ``alt`` and ``az``.
+        Subclasses may override for non-rectangular geometries (e.g. a
+        polygonal nasmyth shadow), but the default loop over rectangular
+        zones suffices for all currently-supported telescopes.
         """
-        raise NotImplementedError
+        alt = np.asarray(alt)
+        az = np.asarray(az)
+        excluded = np.zeros(np.broadcast(alt, az).shape, dtype=bool)
+        for az_min, az_max, alt_min, alt_max in self.inaccessible_zones:
+            excluded |= (
+                (az >= az_min) & (az <= az_max)
+                & (alt >= alt_min) & (alt <= alt_max)
+            )
+        return ~excluded
 
     def visit_duration(self, exptime_s, n_shots):
         """Total duration of one visit (n_shots shots), in *minutes*.
 
         Canonical formula: ``(exptime_s * n_shots + readout_time * (n_shots - 1)) / 60``.
-        Consumed by :class:`astroq.ttp.star.star` (``expwithreadout``) and the
-        TTP plotly summary in :mod:`astroq.ttp.model`.
+        Consumed by ``TTPModel._visit_duration`` and the TTP plotly summary.
         """
         return (exptime_s * n_shots + self.readout_time * (n_shots - 1)) / 60.0
 
@@ -125,30 +125,3 @@ class Queue:
         as this method.
         """
         raise NotImplementedError
-
-    # --- TTP back-compat aliases ---------------------------------------------
-    # Read-only properties so the canonical attribute name on the Queue
-    # (``slew_rate``, ``wrap_limit``, ``readout_time``) can never drift from
-    # the TTP-facing name (``slewrate``, ``wrapLimitAngle``, ``readOutTime``).
-
-    @property
-    def slewrate(self):
-        return self.slew_rate
-
-    @property
-    def wrapLimitAngle(self):
-        return self.wrap_limit
-
-    @property
-    def readOutTime(self):
-        return self.readout_time
-
-    @property
-    def vigLim(self):
-        """TTP plotter alias for the unvignetted lower elevation limit."""
-        return self.tel_min
-
-    @property
-    def zenLim(self):
-        """TTP plotter alias for the upper (zenith-side) elevation limit."""
-        return self.tel_max

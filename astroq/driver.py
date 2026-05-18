@@ -23,6 +23,7 @@ import astroq.io as io
 import astroq.nplan as nplan
 import astroq.plot as pl
 import astroq.splan as splan
+import astroq.ttp.plot as tplot
 import astroq.webapp as app
 
 log = logging.getLogger(__name__)
@@ -515,8 +516,8 @@ def plot(args):
         script_table_df = pl.get_script_plan(night_planner)
         timebar_fig = pl.get_timebar(semester_planner, all_stars_from_all_programs, use_program_colors=False)
         ladder_fig = pl.get_ladder(data_ttp, night_start_time)
-        slew_animation_fig = pl.get_slew_animation_plotly(data_ttp, os.path.join(semester_directory, "request.csv"), animationStep=120)
-        slew_path_fig = pl.plot_path_2D_interactive(data_ttp, night_start_time=night_start_time)
+        slew_animation_fig = tplot.get_slew_animation_plotly(data_ttp, os.path.join(semester_directory, "request.csv"), animationStep=120)
+        slew_path_fig = tplot.plot_path_2D_interactive(data_ttp, night_start_time=night_start_time)
 
         # write the html versions 
         script_table_html = pl.dataframe_to_html(script_table_df)

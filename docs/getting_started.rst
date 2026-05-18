@@ -325,22 +325,10 @@ Here are the new files in ``examples/hello_world/outputs/``:
 
     .. code-block:: bash
         
-        -rw-r--r--@ 1 jack  staff     447 Oct 29 13:36 ttp_prepared.csv
         -rw-r--r--@ 1 jack  staff     433 Oct 29 13:36 TTPstatistics.txt
         -rw-r--r--@ 1 jack  staff     158 Oct 29 13:36 ObserveOrder_2018-08-05.txt
         -rw-r--r--@ 1 jack  staff    1157 Oct 29 13:36 script_2018-08-05_nominal.txt
         -rw-r--r--@ 1 jack  staff   16080 Oct 29 13:36 night_planner.h5
-
-- ``ttp_prepared.csv`` is the input to the TTP solver. It contains the target information in the format required by the TTP solver. See example and the TTP repository for more info:
-
-    .. csv-table::
-       :header: "Starname", "RA", "Dec", "Exposure Time", "Exposures Per Visit", "Visits In Night", "Intra_Night_Cadence", "Priority", "First Available", "Last Available"
-       :widths: auto
-
-       e1, 4.77317661843625, -9.964852409, 360, 2, 1, 0, 10, 2018-08-05 10:20, 2018-08-05 15:00
-       e2, 259.0173367, 72.16115935, 1200, 1, 1, 0, 10, 2018-08-05 05:50, 2018-08-05 08:50
-       e7, 285.679422455377, 50.2413060048164, 50, 1, 4, 1, 10, 2018-08-05 05:50, 2018-08-05 12:20
-       e9, 348.320729001503, 57.1683566176719, 60, 3, 1, 0, 10, 2018-08-05 08:40, 2018-08-05 15:00
 
 - ``TTPstatistics.txt`` contains some basic statistics about the TTP solution. See example:
 

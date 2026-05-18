@@ -11,7 +11,6 @@ from configparser import ConfigParser
 from io import BytesIO
         
 # Third-party imports
-import imageio.v3 as iio
 import numpy as np
 import pandas as pd
 import plotly.io as pio
@@ -22,6 +21,7 @@ from socket import gethostname
 import astroq.nplan as nplan
 import astroq.plot as pl
 import astroq.splan as splan
+import astroq.ttp.plot as tplot
 from astroq.splan import SemesterPlanner
 from astroq.nplan import NightPlanner
 from astroq.nplan import get_nightly_times_from_allocation
@@ -280,8 +280,8 @@ def render_nightplan_page(band):
     
     script_table_df = pl.get_script_plan(night_planner)
     ladder_fig = pl.get_ladder(data_ttp, night_start_time)
-    slew_animation_fig = pl.get_slew_animation_plotly(data_ttp, request_frame_path, animationStep=120)
-    slew_path_fig = pl.plot_path_2D_interactive(data_ttp, night_start_time=night_start_time)
+    slew_animation_fig = tplot.get_slew_animation_plotly(data_ttp, request_frame_path, animationStep=120)
+    slew_path_fig = tplot.plot_path_2D_interactive(data_ttp, night_start_time=night_start_time)
     
     script_table_html = pl.nightplan_table_to_html(script_table_df, table_id='script-table', page_size=100)
     # Convert figures to HTML

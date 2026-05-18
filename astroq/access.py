@@ -112,7 +112,8 @@ class Access:
         is_altaz0 = self.queue.is_accessible(alts, azes)
 
         # PI-supplied per-target minimum elevation overlay. queue.is_accessible
-        # already enforces tel_min, so no np.maximum(min_elev, tel_min) needed.
+        # already enforces the lower-elevation clamp via inaccessible_zones, so
+        # no np.maximum needed here.
         pi_elev = self.request_frame['minimum_elevation'].values
         is_altaz0 &= alts >= pi_elev[:, np.newaxis]
 

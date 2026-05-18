@@ -36,65 +36,32 @@ class KPFCC(Queue):
     https://www2.keck.hawaii.edu/inst/common/TelLimits.html
 
     Geometry constants are duplicated from :class:`HIRESCPS` rather than shared
-    via a mixin: the two queues may legitimately diverge on elevation policy
-    over time, and we want that freedom.
+    via a mixin: the two queues may legitimately diverge on elevation policy.
     """
 
-    # --- Keck-I site / pointing geometry --------------------------------------
-    nays_az_low = 5.3
-    nays_az_high = 146.2
-    nays_alt = 33.3
-    tel_min = 18.0
-    tel_max = 85.0
     slew_rate = 0.6           # deg/s
     wrap_limit = 270.0        # deg azimuth
     nSlots = 1                # TTP slew-slot granularity
-
-    # --- KPF-CC overheads -----------------------------------------------------
     # Same readout/slew numbers as HIRES-CPS in production today; revisit if
     # KPF's measured detector readout or acquisition time diverges.
     readout_time = 45.0
     slew_overhead = 60.0
+
+    # Inaccessible (alt, az) boxes, degrees. (az_min, az_max, alt_min, alt_max).
+    # See Queue.is_accessible. Duplicated from HIRESCPS; may diverge over time.
+    inaccessible_zones = [
+        (5.3,   146.2, 0.0,  33.3),   # Nasmyth deck obstruction
+        (0.0,   360.0, 0.0,  18.0),   # below 18 deg elevation clamp
+        (0.0,   360.0, 85.0, 90.0),   # above 85 deg elevation clamp
+    ]
 
     def __init__(self):
         self.observer = apl.Observer.at_site(
             "Keck Observatory", name="Keck", timezone="US/Hawaii"
         )
 
-    def pointing_limits(self, az, unvignetted=True):
-        if self.nays_az_low < az < self.nays_az_high:
-            return [self.nays_alt, self.tel_max]
-        if unvignetted:
-            return [self.tel_min, self.tel_max]
-        return [0.0, self.tel_max]
-
-    def is_accessible(self, alt, az):
-        alt_a = np.asarray(alt)
-        az_a = np.asarray(az)
-        in_deck = (
-            (az_a > self.nays_az_low)
-            & (az_a < self.nays_az_high)
-            & (alt_a < self.nays_alt)
-        )
-        in_elev = (alt_a >= self.tel_min) & (alt_a <= self.tel_max)
-        return (~in_deck) & in_elev
-
     def write_starlist(self, *args, **kwargs):
         return write_starlist(*args, **kwargs)
-
-    # TTP plotter aliases for the Keck-I nasmyth deck obstruction (see
-    # astroq.plot.get_slew_animation_plotly and astroq.ttp.plotting).
-    @property
-    def deckAzLim1(self):
-        return self.nays_az_low
-
-    @property
-    def deckAzLim2(self):
-        return self.nays_az_high
-
-    @property
-    def deckAltLim(self):
-        return self.nays_alt
 
 # Column definitions: mapping from original names to new names and data types
 column_definitions = {
@@ -820,27 +787,33 @@ def plot_bad_obs_histograms(bad_obs_count_by_semid, bad_field_histogram):
     Returns:
         None
     """
-    import matplotlib.pyplot as plt
+    import plotly.graph_objects as go
 
-    # Plot for bad_obs_count_by_semid
-    plt.figure(figsize=(10, 4))
-    plt.bar(bad_obs_count_by_semid.keys(), bad_obs_count_by_semid.values())
-    plt.xlabel('Program (metadata.semid)')
-    plt.ylabel('Number of Bad OBs')
-    plt.title('Number of Bad OBs per Program')
-    plt.xticks(rotation=45, ha='right')
-    plt.tight_layout()
-    plt.show()
+    fig1 = go.Figure(go.Bar(
+        x=list(bad_obs_count_by_semid.keys()),
+        y=list(bad_obs_count_by_semid.values()),
+    ))
+    fig1.update_layout(
+        title='Number of Bad OBs per Program',
+        xaxis_title='Program (metadata.semid)',
+        yaxis_title='Number of Bad OBs',
+        xaxis=dict(tickangle=-45),
+        width=900, height=400,
+    )
+    fig1.show()
 
-    # Plot for bad_field_histogram
-    plt.figure(figsize=(12, 4))
-    plt.bar(bad_field_histogram.keys(), bad_field_histogram.values())
-    plt.xlabel('Field')
-    plt.ylabel('Count as Reason for Bad OB')
-    plt.title('Frequency of Each Field as Reason for Bad OB')
-    plt.xticks(rotation=90, ha='right')
-    plt.tight_layout()
-    plt.show()
+    fig2 = go.Figure(go.Bar(
+        x=list(bad_field_histogram.keys()),
+        y=list(bad_field_histogram.values()),
+    ))
+    fig2.update_layout(
+        title='Frequency of Each Field as Reason for Bad OB',
+        xaxis_title='Field',
+        yaxis_title='Count as Reason for Bad OB',
+        xaxis=dict(tickangle=-90),
+        width=1100, height=400,
+    )
+    fig2.show()
 
 def inspect_row(df_exists, df_values, row_num, required_fields=required_fields):
     """
