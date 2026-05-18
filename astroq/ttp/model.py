@@ -1,16 +1,6 @@
-"""Traveling Telescope Problem (TTP) solver, AstroQ-native API.
+"""Traveling Telescope Problem (TTP) solver
 
 The model implements the MILP of Handley et al. 2024 (arXiv:2310.18497).
-The solver itself is unchanged; the wrapping API has been redesigned around
-two principles:
-
-1. Per-request data lives in a single ``pandas.DataFrame`` (``requests_frame``)
-   using AstroQ's canonical column vocabulary. Replaces the per-target
-   ``Star`` class.
-2. Site/instrument knowledge is injected as primitive keyword arguments
-   (``observer``, ``slew_rate``, ``wrap_limit``, ``readout_time``, ``n_slots``,
-   ``inaccessible_zones``). The solver does NOT import ``astroq.queue``;
-   ``astroq.ttp`` is a leaf module.
 
 Required columns of ``requests_frame`` (see :data:`REQUIRED_COLUMNS`)::
 
@@ -23,10 +13,6 @@ Required columns of ``requests_frame`` (see :data:`REQUIRED_COLUMNS`)::
     priority         int            objective weight; higher = more important
     first_available  str            ISO-8601 (caller computes; e.g. via Access)
     last_available   str            ISO-8601
-
-TTPModel does NOT compute target availability; the caller must supply
-``first_available``/``last_available`` (the pipeline uses
-``astroq.access.Access``; the standalone runner does the same).
 
 Internal naming is aligned with the Handley 2024 paper (``N``, ``M``, ``Yi``,
 ``Xijm``, ``tau_slew``) and with AstroQ vocabulary elsewhere (``t_visit``,
