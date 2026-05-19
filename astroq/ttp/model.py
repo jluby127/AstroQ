@@ -64,8 +64,6 @@ class TTPModel:
         inaccessible_zones (list[tuple]): retained on the model only as a
             convenience for the plotter (``astroq.ttp.plot``); the solver
             does not use them.
-        runtime (float): Gurobi time limit, seconds.
-        optgap (float): Gurobi MIP gap.
         slew_sample_cadence_min (int): max spacing in minutes at which to
             sample the slew tensor within a slot.
         output_flag (bool): pass-through to ``gurobipy.Model.Params.OutputFlag``.
@@ -77,9 +75,23 @@ class TTPModel:
     * ``self.tau_slew`` -- per-arc slew tensor, indexed by ``(i, j, m)``.
        Built by :meth:`build_slew_tensor`.
 
-    Internal naming is aligned with the Handley 2024 paper (``N``, ``M``, ``Yi``,
-    ``Xijm``, ``tau_slew``) and with AstroQ vocabulary elsewhere (``t_visit``,
-    ``tau_intra``).
+    Notes:
+        Internal naming is aligned with the Handley 2024 paper 
+            (``N``, ``M``, ``Yi``, ``Xijm``, ``tau_slew``) 
+        and with AstroQ vocabulary elsewhere (``t_visit``,``tau_intra``).
+
+        Build, parameter wiring, and solve are decoupled. Callers drive the
+        full sequence explicitly so Gurobi parameters live on ``self.model``
+        rather than on the Python wrapper::
+
+            tm = TTPModel(...)
+            tm.build_nodes()
+            tm.build_slew_tensor()
+            tm.build_model()
+            tm.model.params.TimeLimit = runtime
+            tm.model.params.MIPGap = optgap
+            tm.model.update()
+            tm.run_model()
     """
 
     #: Slew tie-breaker weight in the objective. Same constant is used to
@@ -99,8 +111,6 @@ class TTPModel:
         readout_time=0.0,
         n_slots=1,
         inaccessible_zones=None,
-        runtime=300,
-        optgap=0.01,
         slew_sample_cadence_min=30,
         output_flag=True,
     ):
@@ -110,13 +120,12 @@ class TTPModel:
             if col not in requests_frame.columns:
                 raise ValueError(f"requests_frame missing required column: {col}")
 
-        # Attach per-row SkyCoord (``coord`` column). 
-        coord = SkyCoord(
+        # Attach per-row SkyCoord 
+        requests_frame["coord"] = SkyCoord(
             requests_frame.ra * u.deg, 
             requests_frame.dec.values * u.deg, 
             frame="icrs",
         )
-        requests_frame["coord"] = coord
 
         self.requests_frame = requests_frame.reset_index(drop=True).copy()
         self.night_start = night_start
@@ -128,8 +137,6 @@ class TTPModel:
         self.readout_time = readout_time
         self.n_slots = n_slots
         self.inaccessible_zones = list(inaccessible_zones or [])
-        self.runtime = runtime
-        self.optgap = optgap
         self.slew_sample_cadence_min = slew_sample_cadence_min
         self.output_flag = output_flag
         self.M = self.n_slots
@@ -480,16 +487,16 @@ class TTPModel:
             GRB.MAXIMIZE,
         )
 
-        self.model.params.TimeLimit = self.runtime
-        self.model.params.MIPGap = self.optgap
         self.model.update()
 
     def run_model(self):
-        """Build and solve the MILP, then post-process the solution.
+        """Solve the MILP and post-process the solution.
+
+        Assumes the caller has already invoked :meth:`build_nodes`,
+        :meth:`build_slew_tensor`, and :meth:`build_model`, set any Gurobi
+        parameters on ``self.model`` (e.g. ``TimeLimit``, ``MIPGap``), and
+        called ``self.model.update()``.
         """
-        self.build_nodes()
-        self.build_slew_tensor()
-        self.build_model()
         logs.info(f"Solving TTP for {self.N - 2} visits")
         t0 = time.time()
         self.model.optimize()
@@ -507,7 +514,7 @@ class TTPModel:
         else:
             logs.warning(
                 "No incumbent TTP solution within time limit. "
-                "Try increasing the ``runtime`` parameter."
+                "Try raising ``self.model.params.TimeLimit`` before solving."
             )
 
     # ---------------------------------------------------------- post-process

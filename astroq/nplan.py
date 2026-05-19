@@ -227,7 +227,7 @@ class NightPlanner(object):
                 })
             to_ttp = pd.concat([to_ttp, pd.DataFrame(gap_rows)], ignore_index=True)
 
-        solution = model.TTPModel(
+        tm = model.TTPModel(
             requests_frame=to_ttp,
             night_start=observation_start_time,
             night_end=observation_stop_time,
@@ -238,26 +238,30 @@ class NightPlanner(object):
             readout_time=self.queue.readout_time,
             n_slots=self.queue.nSlots,
             inaccessible_zones=self.queue.inaccessible_zones,
-            runtime=self.max_solve_time,
-            optgap=self.max_solve_gap,
         )
-        solution.run_model()
+        tm.build_nodes()
+        tm.build_slew_tensor()
+        tm.build_model()
+        tm.model.params.TimeLimit = self.max_solve_time
+        tm.model.params.MIPGap = self.max_solve_gap
+        tm.model.update()
+        tm.run_model()
 
-        model_backup = solution.model  # backup the attribute, probably don't need this
-        del solution.model             # remove attribute so object is hdf5 compatable
+        model_backup = tm.model  # backup the attribute, probably don't need this
+        del tm.model             # remove attribute so object is hdf5 compatable
 
         # Compute gap stats BEFORE scrubbing (for adjusted TTP statistics)
         gap_exposure_min = 0.0
         gap_count = 0
         if len(self.tonight_allocation_gaps) > 0:
-            plotly_exp = solution.plotly.get('Total Exp Time (min)', [])
-            for i, name in enumerate(solution.plotly.get('Starname', [])):
+            plotly_exp = tm.plotly.get('Total Exp Time (min)', [])
+            for i, name in enumerate(tm.plotly.get('Starname', [])):
                 if str(name).startswith('Gap '):
                     gap_count += 1
                     gap_exposure_min += float(plotly_exp[i]) if i < len(plotly_exp) else 0
-            if solution.extras and solution.extras.get('Starname'):
-                extras_exp = solution.extras.get('Total Exp Time (min)', [])
-                for j, name in enumerate(solution.extras['Starname']):
+            if tm.extras and tm.extras.get('Starname'):
+                extras_exp = tm.extras.get('Total Exp Time (min)', [])
+                for j, name in enumerate(tm.extras['Starname']):
                     if str(name).startswith('Gap '):
                         gap_count += 1
                         gap_exposure_min += float(extras_exp[j]) if j < len(extras_exp) else 0
@@ -268,71 +272,71 @@ class NightPlanner(object):
         def drop_gap_rows(d):
             keep = [i for i, s in enumerate(d['Starname']) if not str(s).startswith('Gap ')]
             return {k: [v[i] for i in keep] for k, v in d.items()}
-        solution.plotly = drop_gap_rows(solution.plotly)
-        if solution.extras is not None:
-            if isinstance(solution.extras, pd.DataFrame):
-                solution.extras = solution.extras[
-                    ~solution.extras['Starname'].astype(str).str.startswith('Gap ')
+        tm.plotly = drop_gap_rows(tm.plotly)
+        if tm.extras is not None:
+            if isinstance(tm.extras, pd.DataFrame):
+                tm.extras = tm.extras[
+                    ~tm.extras['Starname'].astype(str).str.startswith('Gap ')
                 ]
-            elif len(solution.extras.get('Starname', [])) > 0:
-                solution.extras = drop_gap_rows(solution.extras)
-        if getattr(solution, 'schedule', None) is not None and isinstance(solution.schedule, dict) and 'Starname' in solution.schedule:
-            solution.schedule = drop_gap_rows(solution.schedule)
+            elif len(tm.extras.get('Starname', [])) > 0:
+                tm.extras = drop_gap_rows(tm.extras)
+        if getattr(tm, 'schedule', None) is not None and isinstance(tm.schedule, dict) and 'Starname' in tm.schedule:
+            tm.schedule = drop_gap_rows(tm.schedule)
         # Drop "Gap N" rows from requests_frame too; downstream consumers iterate it.
-        if getattr(solution, 'requests_frame', None) is not None:
-            mask = ~solution.requests_frame['unique_id'].astype(str).str.startswith('Gap ')
-            solution.requests_frame = solution.requests_frame[mask].reset_index(drop=True)
+        if getattr(tm, 'requests_frame', None) is not None:
+            mask = ~tm.requests_frame['unique_id'].astype(str).str.startswith('Gap ')
+            tm.requests_frame = tm.requests_frame[mask].reset_index(drop=True)
 
         # Update TTP stats to exclude Gap observations (observing duration, exposing, idle)
         if gap_total_min > 0 or gap_exposure_min > 0:
-            solution.dur = max(0, solution.dur - gap_total_min)
-            solution.time_exposing = max(0, solution.time_exposing - gap_exposure_min)
-            solution.time_idle = max(0, solution.dur - solution.time_exposing - solution.time_slewing)
-            solution.num_scheduled = solution.num_scheduled - gap_count
+            tm.dur = max(0, tm.dur - gap_total_min)
+            tm.time_exposing = max(0, tm.time_exposing - gap_exposure_min)
+            tm.time_idle = max(0, tm.dur - tm.time_exposing - tm.time_slewing)
+            tm.num_scheduled = tm.num_scheduled - gap_count
             # Re-print and overwrite TTPstatistics.txt with gap-adjusted stats
             ttp_stats_path = os.path.join(observers_path, 'TTPstatistics.txt')
             with open(ttp_stats_path, 'w') as f:
                 f.write("Stats for TTP Solution (Gap observations excluded)\n")
                 f.write("------------------------------------\n")
-                f.write(f'    Model ran for {solution.solve_time:.2f} seconds\n')
-                f.write(f'     Observations Requested: {solution.N - 2 - n_gap_targets}\n')
-                f.write(f'     Observations Scheduled: {solution.num_scheduled}\n')
+                f.write(f'    Model ran for {tm.solve_time:.2f} seconds\n')
+                f.write(f'     Observations Requested: {tm.N - 2 - n_gap_targets}\n')
+                f.write(f'     Observations Scheduled: {tm.num_scheduled}\n')
                 f.write("------------------------------------\n")
-                f.write(f'   Observing Duration (min): {solution.dur:.2f}\n')
-                f.write(f'  Time Spent Exposing (min): {solution.time_exposing:.2f}\n')
-                f.write(f'      Time Spent Idle (min): {solution.time_idle:.2f}\n')
-                f.write(f'   Time Spent Slewing (min): {solution.time_slewing:.2f}\n')
+                f.write(f'   Observing Duration (min): {tm.dur:.2f}\n')
+                f.write(f'  Time Spent Exposing (min): {tm.time_exposing:.2f}\n')
+                f.write(f'      Time Spent Idle (min): {tm.time_idle:.2f}\n')
+                f.write(f'   Time Spent Slewing (min): {tm.time_slewing:.2f}\n')
                 f.write("------------------------------------\n")
             print('\n------------------------------------')
             print(' (Gap observations excluded from stats)')
             print('------------------------------------')
-            print(f'     Observations Requested: {solution.N - 2 - n_gap_targets}')
-            print(f'     Observations Scheduled: {solution.num_scheduled}')
+            print(f'     Observations Requested: {tm.N - 2 - n_gap_targets}')
+            print(f'     Observations Scheduled: {tm.num_scheduled}')
             print('------------------------------------')
-            print(f'   Observing Duration (min): {solution.dur:.2f}')
-            print(f'  Time Spent Exposing (min): {solution.time_exposing:.2f}')
-            print(f'      Time Spent Idle (min): {solution.time_idle:.2f}')
-            print(f'   Time Spent Slewing (min): {solution.time_slewing:.2f}')
+            print(f'   Observing Duration (min): {tm.dur:.2f}')
+            print(f'  Time Spent Exposing (min): {tm.time_exposing:.2f}')
+            print(f'      Time Spent Idle (min): {tm.time_idle:.2f}')
+            print(f'   Time Spent Slewing (min): {tm.time_slewing:.2f}')
             print('------------------------------------')
 
         # add human readable starname to the solution so that it can be used in the plotting functions
         id_to_name = dict(zip(selected_df['unique_id'], selected_df['starname']))
-        solution.plotly['human_starname'] = [
-            id_to_name.get(uid, "NO MATCHING NAME") for uid in solution.plotly['Starname']
+        tm.plotly['human_starname'] = [
+            id_to_name.get(uid, "NO MATCHING NAME") for uid in tm.plotly['Starname']
         ]
-        self.solution = [solution]
+        self.solution = [tm]
 
-        solution.plotly['UTC Start Time'] = [0]*len(solution.plotly['Start Exposure'])
-        for i in range(len(solution.plotly['Start Exposure'])):
-            solution.plotly['UTC Start Time'][i] = str(TimeDelta(solution.plotly['Start Exposure'][i]*60,format='sec') + observation_start_time)[11:16]
+        tm.plotly['UTC Start Time'] = [0]*len(tm.plotly['Start Exposure'])
+        for i in range(len(tm.plotly['Start Exposure'])):
+            tm.plotly['UTC Start Time'][i] = str(TimeDelta(tm.plotly['Start Exposure'][i]*60,format='sec') + observation_start_time)[11:16]
         numeric_columns = ['Start Exposure', 'First Available', 'Last Available', 'Minutes the from Start of the Night']
         for col in numeric_columns:
-            if col in solution.plotly:
-                solution.plotly[col] = np.round(np.array(solution.plotly[col]), 2).tolist()
+            if col in tm.plotly:
+                tm.plotly[col] = np.round(np.array(tm.plotly[col]), 2).tolist()
 
-        # Convert solution.plotly to a DataFrame for easier handling
+        # Convert tm.plotly to a DataFrame for easier handling
         observe_order_file = os.path.join(observers_path, f"ObserveOrder_{self.current_day}.txt")
-        plotly_df = pd.DataFrame(solution.plotly)
+        plotly_df = pd.DataFrame(tm.plotly)
         use_starnames = []
         use_star_ids = []
         use_start_exposures = []
@@ -342,7 +346,7 @@ class NightPlanner(object):
             use_starnames.append(selected_df[selected_df['unique_id'] == plotly_df['Starname'].iloc[i]]['starname'].iloc[0])
             use_star_ids.append(str(plotly_df['Starname'].iloc[i]))
 
-        extras_df = pd.DataFrame(solution.extras)
+        extras_df = pd.DataFrame(tm.extras)
         for j in range(len(extras_df)):
             use_start_exposures.append('24:00')
             use_star_ids.append(str(extras_df['Starname'].iloc[j]))
@@ -350,7 +354,7 @@ class NightPlanner(object):
         use_frame = pd.DataFrame({'unique_id': use_star_ids, 'Target': use_starnames, 'StartExposure': use_start_exposures})
         use_frame.to_csv(observe_order_file, index=False)
 
-        self.queue.write_starlist(selected_df, solution.plotly, observation_start_time, solution.extras,
+        self.queue.write_starlist(selected_df, tm.plotly, observation_start_time, tm.extras,
                             [], str(self.current_day), observers_path,
                             all_active_requests=self.semester_planner.requests_frame,
                             past_history=self.past_history)
