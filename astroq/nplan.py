@@ -1,13 +1,11 @@
 """
 Module for night-level observation planning and optimization.
 Uses the vendored TTP MILP solver (``astroq.ttp.model.TTPModel``) to optimize
-nightly observation sequences. Reference: Handley et al. 2024, arXiv:2310.18497.
+nightly observation sequences.
 """
 
 # Standard library imports
 import os
-import pickle
-from configparser import ConfigParser
 
 # Third-party imports
 import numpy as np
@@ -17,10 +15,7 @@ import astropy.units as u
 from astropy.time import Time, TimeDelta
 
 # Local imports
-import astroq.access as ac
-import astroq.io as io
 from astroq.splan import SemesterPlanner
-
 from astroq.ttp import model
 
 # HDF5 schema version for night_planner.h5. Bumped when the layout changes so
@@ -247,7 +242,6 @@ class NightPlanner(object):
         tm.model.update()
         tm.run_model()
 
-        model_backup = tm.model  # backup the attribute, probably don't need this
         del tm.model             # remove attribute so object is hdf5 compatable
 
         # Compute gap stats BEFORE scrubbing (for adjusted TTP statistics)
@@ -577,7 +571,6 @@ class NightPlanner(object):
         """
         import h5py
         import json
-        import tables  # noqa: F401  - registers pandas HDFStore engines
 
         instance = cls.__new__(cls)
         
