@@ -132,6 +132,7 @@ class TTPModel:
         self.optgap = optgap
         self.slew_sample_cadence_min = slew_sample_cadence_min
         self.output_flag = output_flag
+        self.M = self.n_slots
 
     # ---------------------------------------------------------- helpers
 
@@ -193,7 +194,28 @@ class TTPModel:
         """
         self.dur = float(np.round(self._minutes_from_start(self.night_end), 0))
 
-        anchor_row = {
+        # Start from a copy of the requests frame and only add/modify the
+        reqs = self.requests_frame.copy()
+        reqs["request_idx"] = np.arange(len(reqs), dtype=np.int64)
+        reqs["t_early"] = self._minutes_from_start(Time(reqs.first_available.tolist()))
+        reqs["t_late"] = self._minutes_from_start(Time(reqs.last_available.tolist()))
+        reqs["t_visit"] = self._visit_duration(reqs.exptime, reqs.n_exp)
+        reqs["tau_intra"] = reqs.tau_intra.astype(float) * 60.0  # hours -> minutes
+        reqs["is_anchor"] = False
+
+        # Attach visit_seq via a simple cross-join + filter.
+        max_intra = int(reqs.n_intra_max.max())
+        visit_seq_table = pd.DataFrame({
+            "visit_seq": np.arange(max_intra, dtype=np.int64),
+        })
+        visits = (
+            reqs.merge(visit_seq_table, how="cross")
+                .query("visit_seq < n_intra_max")
+                .sort_values(["request_idx", "visit_seq"], kind="stable")
+                .reset_index(drop=True)
+        )
+
+        anchor_template = {
             "unique_id": "",
             "request_idx": -1,
             "visit_seq": 0,
@@ -205,40 +227,22 @@ class TTPModel:
             "priority": 0,
             "coord": None,
         }
+        anchor_df = pd.DataFrame([anchor_template, anchor_template])
 
-        rows = [dict(anchor_row)]  # start anchor at index 0
-        for row_idx, row in self.requests_frame.iterrows():
-            visits = int(row.n_intra_max)
-            for v in range(visits):
-                rows.append({
-                    "unique_id": row.unique_id,
-                    "request_idx": int(row_idx),
-                    "visit_seq": v,
-                    "is_anchor": False,
-                    "t_early": self._minutes_from_start(Time(row.first_available)),
-                    "t_late": self._minutes_from_start(Time(row.last_available)),
-                    "t_visit": self._visit_duration(float(row.exptime), int(row.n_exp)),
-                    "tau_intra": float(row.tau_intra) * 60.0,  # hours -> minutes
-                    "priority": int(row.priority),
-                    "coord": row.coord,
-                })
-        rows.append(dict(anchor_row))  # end anchor at index N-1
-
-        self.nodes = pd.DataFrame(rows)
+        self.nodes = pd.concat(
+            [anchor_df.iloc[[0]], visits, anchor_df.iloc[[1]]],
+            ignore_index=True,
+        )
         self.N = len(self.nodes)
-        self.M = self.n_slots
 
         # Multi-visit groups: keyed by unique_id, value is the list of node
         # ids (in visit_seq order) for requests with n_intra_max > 1.
-        self.multi_visit_groups = {}
-        real = self.nodes[~self.nodes["is_anchor"]]
-        for uid, group in real.groupby("unique_id", sort=False):
-            if len(group) > 1:
-                self.multi_visit_groups[uid] = (
-                    group.sort_values("visit_seq").index.tolist()
-                )
-
-    # -------------------------------------------------------------- slew grid
+        gb = self.nodes[~self.nodes["is_anchor"]].groupby("unique_id", sort=False)
+        sizes = gb.size()
+        self.multi_visit_groups = {
+            uid: gb.get_group(uid).sort_values("visit_seq").index.tolist()
+            for uid in sizes.index[sizes > 1]
+        }
 
     def build_slew_tensor(self, *, samples_per_slot=3):
         """Build slew tensor.
@@ -324,19 +328,6 @@ class TTPModel:
         """Construct the TTP MILP (Handley+ 2024, eqs. 2-9, B3, 10).
 
         Constraints are added in the order they appear in Handley+ 2024 §2.4.
-        Each constraint family iterates one of three slices of ``range(N)``
-        that line up with the paper:
-
-        * ``range(1, N - 1)`` -- real visit nodes (paper's ``1..N``).
-        * ``range(N - 1)`` -- arc sources, i.e. start anchor + real
-          (paper's ``0..N``).
-        * ``range(1, N)`` -- arc targets, i.e. real + end anchor
-          (paper's ``1..N+1``).
-
-        Per-node scalars (``t_early``, ``t_late``, ``t_visit``, ``tau_intra``,
-        ``priority``) are pulled directly from ``self.nodes`` at constraint
-        construction. The only hot cube loop is eq. 8 which reads only
-        ``self.w``, so no pre-extraction is needed.
         """
         self.model = gp.Model("TTP")
         self.model.Params.OutputFlag = self.output_flag
@@ -493,12 +484,13 @@ class TTPModel:
         self.model.params.MIPGap = self.optgap
         self.model.update()
 
-    def optimize_model(self):
-        """Optimize ``self.model`` and report infeasibility via IIS.
-
-        Mirrors :meth:`astroq.splan.SemesterPlanner.optimize_model`.
+    def run_model(self):
+        """Build and solve the MILP, then post-process the solution.
         """
-        logs.debug("Begin TTP solve.")
+        self.build_nodes()
+        self.build_slew_tensor()
+        self.build_model()
+        logs.info(f"Solving TTP for {self.N - 2} visits")
         t0 = time.time()
         self.model.optimize()
         if self.model.Status == GRB.INFEASIBLE:
@@ -507,25 +499,8 @@ class TTPModel:
             for c in self.model.getConstrs():
                 if c.IISConstr:
                     logs.critical(c.ConstrName)
+
         logs.info(f"TTP solve finished in {time.time() - t0:.3f}s")
-
-    def run_model(self):
-        """Build and solve the MILP, then post-process the solution.
-
-        Pipeline:
-
-            build_nodes -> build_slew_tensor -> build_model
-              -> optimize_model -> digest_gurobi -> optimization_status
-
-        Callers may invoke the individual stages directly to inspect
-        intermediate state (e.g. ``self.nodes``, ``self.tau_slew``) without
-        paying the solve cost.
-        """
-        self.build_nodes()
-        logs.info(f"Solving TTP for {self.N - 2} visits with Gurobi")
-        self.build_slew_tensor()
-        self.build_model()
-        self.optimize_model()
         if self.model.SolCount > 0:
             self.digest_gurobi()
             self.optimization_status()
