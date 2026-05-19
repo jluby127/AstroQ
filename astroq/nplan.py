@@ -241,6 +241,7 @@ class NightPlanner(object):
             runtime=self.max_solve_time,
             optgap=self.max_solve_gap,
         )
+        solution.run_model()
 
         model_backup = solution.model  # backup the attribute, probably don't need this
         del solution.model             # remove attribute so object is hdf5 compatable

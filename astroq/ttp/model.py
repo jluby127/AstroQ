@@ -17,13 +17,39 @@ Required columns of ``requests_frame`` (see :data:`REQUIRED_COLUMNS`)::
 Internal naming is aligned with the Handley 2024 paper (``N``, ``M``, ``Yi``,
 ``Xijm``, ``tau_slew``) and with AstroQ vocabulary elsewhere (``t_visit``,
 ``tau_intra``).
+
+Node indexing
+-------------
+
+After :meth:`TTPModel._build_nodes` runs, the model carries a single
+``self.nodes`` DataFrame indexed by integer ``node_id``:
+
+* ``node_id == 0`` is the start anchor.
+* ``node_id == 1 .. N-2`` are real visit nodes (one row per visit; a request
+  with ``n_intra_max > 1`` produces consecutive rows that share
+  ``unique_id`` and differ in ``visit_seq``).
+* ``node_id == N - 1`` is the end anchor.
+
+Anchors are MILP bookkeeping and carry ``unique_id == ""``, ``priority == 0``,
+``t_visit == 0``, ``tau_intra == 0``, and a ``coord`` of ``None``. They are
+present in the nodes DataFrame so that Gurobi tupledicts can be keyed by a
+single integer space ``range(N)`` and the constraint loops are uniform.
+
+The MILP loops use three slices of ``range(N)`` that line up with the
+Handley+ 2024 paper:
+
+* ``range(1, N - 1)`` -- real visit nodes (paper's ``1..N``).
+* ``range(N - 1)`` -- sources of an arc, i.e. start anchor + real
+  (paper's ``0..N``).
+* ``range(1, N)`` -- targets of an arc, i.e. real + end anchor
+  (paper's ``1..N+1``).
 """
 
 # Standard library imports
 import logging
 import time
 from collections import defaultdict
-from itertools import permutations
+from itertools import permutations, product
 
 # Third-party imports
 import numpy as np
@@ -53,11 +79,17 @@ REQUIRED_COLUMNS = [
 class TTPModel:
     """MILP solver for the Traveling Telescope Problem (Handley+ 2024).
 
-    The class follows the same layout as ``astroq.splan.SemesterPlanner``:
-    ``self.model`` is the Gurobi model, Gurobi variables are named class
-    attributes (``self.Yi`` / ``self.Xijm`` / ``self.ti`` / ``self.tijm``),
-    and three entry points -- ``build_model``, ``optimize_model``,
-    ``run_model`` -- mirror the splan equivalents.
+    The class is structured around three DataFrames:
+
+    * ``self.requests_frame`` -- one row per request (input, validated and
+      with a derived ``coord`` column attached on ``__init__``).
+    * ``self.nodes`` -- one row per MILP node, indexed 0..N-1 (see the module
+      docstring for the indexing convention). Built by :meth:`_build_nodes`.
+    * ``self.tau_slew`` -- per-arc slew tensor, indexed by ``(i, j, m)``.
+      Built by :meth:`_compute_tau_slew`.
+
+    Lifecycle: ``__init__`` only validates and stashes config. Call
+    :meth:`run_model` to actually build and solve the MILP.
 
     Args:
         requests_frame (pd.DataFrame): one row per request, AstroQ-vocab columns
@@ -69,7 +101,7 @@ class TTPModel:
 
     Keyword Args:
         observer (astroplan.Observer): site fixture for alt/az lookups. Used by
-            :meth:`compute_tau_slew` to grid the slew tensor and by
+            :meth:`_compute_tau_slew` to grid the slew tensor and by
             :meth:`digest_gurobi` to evaluate alt/az at solver-chosen times.
         slew_rate (float): mean slew rate, degrees/second.
         wrap_limit (float | None): azimuth wrap limit, degrees. ``None`` means
@@ -93,20 +125,22 @@ class TTPModel:
         N (int): total node count (= visit count + 2 anchor nodes).
         M (int): equal to ``n_slots``.
         dur (float): observing-interval duration, minutes.
-        node_to_request (dict[int, int]): node index -> row index in
-            ``requests_frame``.
-        multi_visit_ind (dict[int, list[int]]): row index -> list of node
-            indices for multi-visit requests.
-        t_visit (np.ndarray): per-node visit duration (minutes, including
-            readout).
-        tau_intra (np.ndarray): per-node intra-night cadence (minutes).
-        t_early, t_late (np.ndarray): per-node first/last allowed completion
-            times (minutes from ``night_start``).
-        priorities (np.ndarray): per-node objective weights.
-        tau_slew (dict): slew tensor ``{(i,j,m): minutes}``.
+        nodes (pd.DataFrame): one row per MILP node, indexed 0..N-1. Columns:
+            ``unique_id``, ``request_idx``, ``visit_seq``, ``is_anchor``,
+            ``t_early``, ``t_late``, ``t_visit``, ``tau_intra``, ``priority``,
+            ``coord``.
+        multi_visit_groups (dict[str, list[int]]): keyed by ``unique_id``,
+            value is the list of node ids (in ``visit_seq`` order) for
+            requests with ``n_intra_max > 1``.
+        tau_slew (pd.DataFrame): per-arc slew tensor with MultiIndex
+            ``(i, j, m)`` and columns ``i_id``, ``j_id``, ``tau`` (minutes).
+            Inner (non-anchor) arcs only.
         w (np.ndarray): slot bound times (minutes from ``night_start``).
         model (gurobipy.Model): underlying Gurobi model.
         Yi, Xijm, ti, tijm (gurobipy tupledict): MILP decision variables.
+        tour (pd.DataFrame): chosen tour in traversal order. Columns:
+            ``node_id``, ``unique_id``, ``t_start``, ``t_end``, ``arc_slot``,
+            ``arc_from``.
         schedule, plotly, extras, times, az_path, alt_path,
         num_scheduled, time_idle, time_slewing, time_exposing, solve_time:
         populated by :meth:`digest_gurobi` / :meth:`optimization_status`.
@@ -168,11 +202,7 @@ class TTPModel:
             )
         )
 
-        self.create_nodes()
-        self.compute_tau_slew()
-        self.run_model()
-
-    # ------------------------------------------------------------------ setup
+    # ---------------------------------------------------------- helpers
 
     def _visit_duration(self, exptime_s, n_shots):
         """Total visit duration in *minutes* including readout between shots.
@@ -181,8 +211,6 @@ class TTPModel:
         the model is queue-free.
         """
         return (exptime_s * n_shots + self.readout_time * (n_shots - 1)) / 60.0
-
-    # --------------------------------------------------------- geometry helpers
 
     def _wrap_az(self, angle_deg):
         """Vectorized wrap-frame shift. ``wrap_limit=None`` means no shift."""
@@ -206,8 +234,6 @@ class TTPModel:
         alt_sep = np.abs(np.asarray(alt_a) - np.asarray(alt_b))
         return np.maximum(az_sep, alt_sep) / (60.0 * self.slew_rate)
 
-    # ------------------------------------------------------------ time helpers
-
     def _minutes_from_start(self, t):
         """``astropy.time.Time`` -> minutes since ``self.night_start``."""
         return (t.jd - self.night_start.jd) * 24 * 60
@@ -218,82 +244,80 @@ class TTPModel:
 
     # ------------------------------------------------------------- node setup
 
-    def create_nodes(self):
-        """Expand the request frame into TTP nodes (one per visit + 2 anchors).
-
-        For each request with ``n_intra_max`` visits per night we create that
-        many consecutive nodes; the multi-visit ordering constraint is layered
-        on later in :meth:`build_model`.
+    def _build_nodes(self):
+        """Expand the request frame into the ``self.nodes`` DataFrame.
 
         Sets attributes:
-            N, dur, t_early, t_late, t_visit, tau_intra, priorities,
-            node_to_request, multi_visit_ind, _node_coords.
+            N, M, dur, nodes, multi_visit_groups.
 
-        All times are in minutes from ``night_start``.
+        All times in ``self.nodes`` are in minutes from ``night_start``.
         """
-        self.dur = np.round(self._minutes_from_start(self.night_end), 0)
+        self.dur = float(np.round(self._minutes_from_start(self.night_end), 0))
 
-        node_to_request = defaultdict(int)
-        multi_visit_ind = defaultdict(list)
+        anchor_row = {
+            "unique_id": "",
+            "request_idx": -1,
+            "visit_seq": 0,
+            "is_anchor": True,
+            "t_early": 0.0,
+            "t_late": self.dur,
+            "t_visit": 0.0,
+            "tau_intra": 0.0,
+            "priority": 0,
+            "coord": None,
+        }
 
-        i = 1
+        rows = [dict(anchor_row)]  # start anchor at index 0
         for row_idx, row in self.requests_frame.iterrows():
             visits = int(row.n_intra_max)
-            for _ in range(visits):
-                if visits > 1:
-                    multi_visit_ind[row_idx].append(i)
-                node_to_request[i] = row_idx
-                i += 1
+            for v in range(visits):
+                rows.append({
+                    "unique_id": row.unique_id,
+                    "request_idx": int(row_idx),
+                    "visit_seq": v,
+                    "is_anchor": False,
+                    "t_early": self._minutes_from_start(Time(row.first_available)),
+                    "t_late": self._minutes_from_start(Time(row.last_available)),
+                    "t_visit": self._visit_duration(float(row.exptime), int(row.n_exp)),
+                    "tau_intra": float(row.tau_intra) * 60.0,  # hours -> minutes
+                    "priority": int(row.priority),
+                    "coord": row.coord,
+                })
+        rows.append(dict(anchor_row))  # end anchor at index N-1
 
-        N = int(self.requests_frame.n_intra_max.sum()) + 2
-        self.N = N
+        self.nodes = pd.DataFrame(rows)
+        self.N = len(self.nodes)
+        self.M = self.n_slots
 
-        t_early, t_late = [], []
-        t_visit, tau_intra, priorities = [], [], []
-
-        for i in range(N):
-            if i == 0 or i == N - 1:
-                t_early.append(0)
-                t_late.append(self.dur)
-                t_visit.append(0)
-                tau_intra.append(0)
-                priorities.append(0)
-            else:
-                row = self.requests_frame.iloc[node_to_request[i]]
-                priorities.append(int(row.priority))
-                t_visit.append(self._visit_duration(float(row.exptime), int(row.n_exp)))
-                tau_intra.append(float(row.tau_intra) * 60.0)        # hours -> minutes
-                t_early.append(self._minutes_from_start(Time(row.first_available)))
-                t_late.append(self._minutes_from_start(Time(row.last_available)))
-
-        self.t_early = np.array(t_early)
-        self.t_late = np.array(t_late)
-        self.priorities = np.array(priorities)
-        self.t_visit = np.array(t_visit)
-        self.tau_intra = np.array(tau_intra)
-        self.node_to_request = node_to_request
-        self.multi_visit_ind = multi_visit_ind
-
-        # Cache per-node SkyCoord (real nodes only, length N-2; index by node-1).
-        self._node_coords = [
-            self.requests_frame.iloc[node_to_request[i]]["coord"]
-            for i in range(1, N - 1)
-        ]
+        # Multi-visit groups: keyed by unique_id, value is the list of node
+        # ids (in visit_seq order) for requests with n_intra_max > 1.
+        self.multi_visit_groups = {}
+        real = self.nodes[~self.nodes["is_anchor"]]
+        for uid, group in real.groupby("unique_id", sort=False):
+            if len(group) > 1:
+                self.multi_visit_groups[uid] = (
+                    group.sort_values("visit_seq").index.tolist()
+                )
 
     # -------------------------------------------------------------- slew grid
 
-    def compute_tau_slew(self):
-        """Build the per-slot worst-case slew tensor ``tau_slew[i,j,m]``.
+    def _compute_tau_slew(self):
+        """Build the per-slot worst-case slew tensor.
 
-        Within slot ``m``, sample alt/az for every target at least every
-        ``slew_sample_cadence_min`` minutes (and at least 3 times per slot);
-        the worst-case slew between any two targets is the maximum of
-        ``max|delta_alt|`` and ``max|delta_az|`` (wrap-aware), divided by
-        ``slew_rate``.
+        Within slot ``m``, sample alt/az for every real (non-anchor) node at
+        least every ``slew_sample_cadence_min`` minutes (and at least 3 times
+        per slot); the worst-case slew between any two real nodes is the
+        maximum of ``max|delta_alt|`` and ``max|delta_az|`` (wrap-aware),
+        divided by ``slew_rate``.
 
-        Sets attributes ``M``, ``w``, ``tau_slew``.
+        Sets attributes ``w`` and ``tau_slew``.
+
+        ``tau_slew`` is a DataFrame with MultiIndex ``(i, j, m)`` and columns
+        ``i_id``, ``j_id`` (the ``unique_id`` of each endpoint, for human
+        introspection) and ``tau`` (minutes). Inner arcs only (``i, j`` in
+        ``range(1, N - 1)``); anchor arcs are MILP bookkeeping and default to
+        ``0.0`` via ``.get(..., 0.0)`` inside :meth:`build_model`.
         """
-        self.M = self.n_slots
         M = self.M
         samples_per_slot = int(max(self.dur / (M * self.slew_sample_cadence_min), 3))
 
@@ -308,43 +332,76 @@ class TTPModel:
         ])
         times = Time(sample_jd.ravel(), format="jd")
 
-        altaz = self.observer.altaz(
-            times, self._node_coords, grid_times_targets=True
-        )
-        # Reshape to (N-2, M, samples_per_slot) so the slot dimension is explicit.
-        alts = altaz.alt.deg.reshape(self.N - 2, M, samples_per_slot)
-        azs = altaz.az.deg.reshape(self.N - 2, M, samples_per_slot)
+        real_ids = range(1, self.N - 1)
+        n_real = self.N - 2
+        real_coords = [self.nodes.at[i, "coord"] for i in real_ids]
 
-        tau_slew = defaultdict(float)  # minutes
+        altaz = self.observer.altaz(
+            times, real_coords, grid_times_targets=True
+        )
+        # Reshape to (n_real, M, samples_per_slot) so the slot dimension is explicit.
+        alts = altaz.alt.deg.reshape(n_real, M, samples_per_slot)
+        azs = altaz.az.deg.reshape(n_real, M, samples_per_slot)
+
+        records = []
         for m in range(M):
-            for i, j in permutations(range(1, self.N - 1), 2):
-                tau_slew[(i, j, m)] = np.round(
+            for i, j in permutations(real_ids, 2):
+                # Real node ids are 1..N-2; subtract 1 to index alts/azs.
+                tau = float(np.round(
                     self._slew_minutes(
                         alts[i - 1, m], alts[j - 1, m],
                         azs[i - 1, m], azs[j - 1, m],
                     ).max(),
                     3,
-                )
+                ))
+                records.append({
+                    "i": i,
+                    "j": j,
+                    "m": m,
+                    "i_id": self.nodes.at[i, "unique_id"],
+                    "j_id": self.nodes.at[j, "unique_id"],
+                    "tau": tau,
+                })
+
+        self.tau_slew = (
+            pd.DataFrame.from_records(
+                records,
+                columns=["i", "j", "m", "i_id", "j_id", "tau"],
+            ).set_index(["i", "j", "m"])
+        )
 
         # Slot bounds expressed as minutes from start.
         self.w = (slot_bounds.jd - slot_bounds[0].jd) * 24 * 60
-        self.tau_slew = tau_slew
         import pdb; pdb.set_trace()
-
     # ------------------------------------------------------------- MILP build
 
     def build_model(self):
         """Construct the TTP MILP (Handley+ 2024, eqs. 2-9, B3, 10).
 
         Constraints are added in the order they appear in Handley+ 2024 §2.4.
-        Each constraint family uses an explicit Python ``for`` loop so the
-        index structure is visible at the indentation level. ``gp.quicksum``
-        generators are used only for the *summation* dimensions.
+        Each constraint family iterates one of three slices of ``range(N)``
+        that line up with the paper:
+
+        * ``range(1, N - 1)`` -- real visit nodes (paper's ``1..N``).
+        * ``range(N - 1)`` -- arc sources, i.e. start anchor + real
+          (paper's ``0..N``).
+        * ``range(1, N)`` -- arc targets, i.e. real + end anchor
+          (paper's ``1..N+1``).
+
+        Per-node scalars (``t_early``, ``t_late``, ``t_visit``, ``tau_intra``,
+        ``priority``) are pulled directly from ``self.nodes`` at constraint
+        construction. The only hot cube loop is eq. 8 which reads only
+        ``self.w``, so no pre-extraction is needed.
         """
         self.model = gp.Model("TTP")
         self.model.Params.OutputFlag = self.output_flag
 
         N, M = self.N, self.M
+        nodes = self.nodes
+
+        # O(1) slew lookup for hot loops (anchor arcs absent => .get(..., 0.0)).
+        tau_slew_lookup = self.tau_slew["tau"].to_dict()
+
         self.Yi = self.model.addVars(
             range(N), vtype=GRB.BINARY, name="Yi",
         )
@@ -358,127 +415,130 @@ class TTPModel:
             range(N), vtype=GRB.CONTINUOUS, lb=0, name="ti",
         )
 
-        # eqs. 2-3 - anchor flow: exactly one arc out of node 0, exactly one
-        # arc into node N-1.
+        # eq. 2 - exactly one arc out of the start anchor.
         self.model.addConstr(
             gp.quicksum(
                 self.Xijm[0, j, m]
-                for j in range(N)
+                for j in range(1, N)
                 for m in range(M)
             ) == 1,
             "start_anchor",
         )
+
+        # eq. 3 - exactly one arc into the end anchor.
         self.model.addConstr(
             gp.quicksum(
                 self.Xijm[i, N - 1, m]
-                for i in range(N)
+                for i in range(N - 1)
                 for m in range(M)
             ) == 1,
             "end_anchor",
         )
 
-        # eq. 4 - visit indicator (one constraint per j)
-        for j in range(N)[1:]:
+        # eq. 4 - visit indicator (one constraint per non-start node).
+        for j in range(1, N):
             self.model.addConstr(
                 gp.quicksum(
                     self.Xijm[i, j, m]
-                    for i in range(N)[:-1]
+                    for i in range(N - 1)
                     for m in range(M)
                 ) == self.Yi[j],
                 f"visit_once_{j}",
             )
 
-        # eq. 5 - flow conservation (one constraint per internal node k)
-        for k in range(N)[1:-1]:
+        # eq. 5 - flow conservation (one constraint per real node).
+        for k in range(1, N - 1):
             self.model.addConstr(
                 gp.quicksum(
                     self.Xijm[i, k, m]
-                    for i in range(N)[:-1]
+                    for i in range(N - 1)
                     for m in range(M)
                 )
                 - gp.quicksum(
                     self.Xijm[k, j, m]
-                    for j in range(N)[1:]
+                    for j in range(1, N)
                     for m in range(M)
                 ) == 0,
                 f"flow_constr_{k}",
             )
 
-        # eq. 6 - link ti to tijm (one constraint per i)
-        for i in range(N)[:-1]:
+        # eq. 6 - link ti to tijm (one constraint per non-end node).
+        for i in range(N - 1):
             self.model.addConstr(
                 self.ti[i] == gp.quicksum(
                     self.tijm[i, j, m]
-                    for j in range(N)[1:]
+                    for j in range(1, N)
                     for m in range(M)
                 ),
                 f"tijm_def_{i}",
             )
 
-        # eq. 7 - exposure/slew time linking (one constraint per j)
-        for j in range(N)[1:]:
+        # eq. 7 - exposure/slew time linking (one constraint per non-start
+        # node). Anchor arcs (i=0) are MILP bookkeeping with tau_slew = 0; the
+        # .get(..., 0.0) fallback keeps tau_slew restricted to real arcs.
+        for j in range(1, N):
+            t_visit_j = nodes.at[j, "t_visit"]
             self.model.addConstr(
                 self.ti[j] >= gp.quicksum(
                     self.tijm[i, j, m]
-                    + (self.tau_slew[(i, j, m)] + self.t_visit[j]) * self.Xijm[i, j, m]
-                    for i in range(N)[:-1]
+                    + (tau_slew_lookup.get((i, j, m), 0.0) + t_visit_j) * self.Xijm[i, j, m]
+                    for i in range(N - 1)
                     for m in range(M)
                 ),
                 f"exp_constr_{j}",
             )
 
-        # eq. 8 - slot bounds on tijm (one pair per (i, j, m))
-        for i in range(N):
-            for j in range(N):
-                for m in range(M):
-                    self.model.addConstr(
-                        self.tijm[i, j, m] >= self.w[m] * self.Xijm[i, j, m],
-                        f"t_min_{i}_{j}_{m}",
-                    )
-                    self.model.addConstr(
-                        self.tijm[i, j, m] <= self.w[m + 1] * self.Xijm[i, j, m],
-                        f"t_max_{i}_{j}_{m}",
-                    )
-
-        # eq. 9 - node accessibility (one pair per i)
-        for i in range(N):
+        # eq. 8 - slot bounds on tijm (one pair per (i, j, m)).
+        for i, j, m in product(range(N), range(N), range(M)):
             self.model.addConstr(
-                self.ti[i] >= (self.t_early[i] + self.t_visit[i]) * self.Yi[i],
+                self.tijm[i, j, m] >= self.w[m] * self.Xijm[i, j, m],
+                f"t_min_{i}_{j}_{m}",
+            )
+            self.model.addConstr(
+                self.tijm[i, j, m] <= self.w[m + 1] * self.Xijm[i, j, m],
+                f"t_max_{i}_{j}_{m}",
+            )
+
+        # eq. 9 - node accessibility (one pair per node).
+        for i in range(N):
+            row = nodes.loc[i]
+            self.model.addConstr(
+                self.ti[i] >= (row.t_early + row.t_visit) * self.Yi[i],
                 f"rise_constr_{i}",
             )
             self.model.addConstr(
-                self.ti[i] <= self.t_late[i] * self.Yi[i],
+                self.ti[i] <= row.t_late * self.Yi[i],
                 f"set_constr_{i}",
             )
 
-        # eq. B3 - intra-night separation (multi-visit only)
-        for indices in self.multi_visit_ind.values():
+        # eq. B3 - intra-night separation (multi-visit only).
+        for indices in self.multi_visit_groups.values():
             for k in range(1, len(indices)):
                 self.model.addConstr(
                     gp.quicksum(
                         self.tijm[indices[k], j, m]
-                        for j in range(N)[1:]
+                        for j in range(1, N)
                         for m in range(M)
                     )
                     >= gp.quicksum(
                         self.tijm[indices[k - 1], j, m]
-                        for j in range(N)[1:]
+                        for j in range(1, N)
                         for m in range(M)
                     )
-                    + self.Yi[indices[k]] * self.tau_intra[indices[k]],
+                    + self.Yi[indices[k]] * nodes.at[indices[k], "tau_intra"],
                     f"intra_sep_constr_{indices[k - 1]}_{indices[k]}",
                 )
 
-        # eq. 10 - objective: priority-weighted visit count minus slew tie-breaker
+        # eq. 10 - objective: priority-weighted visit count minus slew tie-breaker.
         self.model.setObjective(
             gp.quicksum(
-                self.priorities[j] * self.Yi[j]
-                for j in range(N)[1:-1]
+                nodes.at[j, "priority"] * self.Yi[j]
+                for j in range(1, N - 1)
             )
             - self._SLEW_PENALTY * gp.quicksum(
-                self.tau_slew[(i, j, m)] * self.Xijm[i, j, m]
-                for i in range(N)[1:-1]
-                for j in range(N)[1:-1]
+                tau_slew_lookup.get((i, j, m), 0.0) * self.Xijm[i, j, m]
+                for i in range(1, N - 1)
+                for j in range(1, N - 1)
                 for m in range(M)
             ),
             GRB.MAXIMIZE,
@@ -505,11 +565,20 @@ class TTPModel:
         logs.info(f"TTP solve finished in {time.time() - t0:.3f}s")
 
     def run_model(self):
-        """Build, optimize, and post-process the TTP MILP.
+        """Build and solve the MILP, then post-process the solution.
 
-        Mirrors :meth:`astroq.splan.SemesterPlanner.run_model`.
+        Pipeline:
+
+            _build_nodes -> _compute_tau_slew -> build_model
+              -> optimize_model -> digest_gurobi -> optimization_status
+
+        Callers may invoke the individual stages directly to inspect
+        intermediate state (e.g. ``self.nodes``, ``self.tau_slew``) without
+        paying the solve cost.
         """
-        logs.info(f"Solving TTP for {self.N - 2} exposures with Gurobi")
+        self._build_nodes()
+        logs.info(f"Solving TTP for {self.N - 2} visits with Gurobi")
+        self._compute_tau_slew()
         self.build_model()
         self.optimize_model()
         if self.model.SolCount > 0:
@@ -524,42 +593,34 @@ class TTPModel:
     # ---------------------------------------------------------- post-process
 
     def _extract_tour(self):
-        """Walk the chosen tour 0 -> ... -> N-1 and read every Gurobi var once.
+        """Walk the chosen tour 0 -> ... -> N-1, populating ``self.tour``.
 
-        Returns a dict with keys:
-            tour_nodes (list[int]): real (non-anchor) node indices in
-                traversal order.
-            t_end (np.ndarray): completion time ``ti`` per tour node
-                (minutes from ``night_start``).
-            arc_slots (np.ndarray): slot ``m`` used for each arc *into*
-                ``tour_nodes[k]``. ``arc_slots[0]`` is the 0 -> first-visit
-                arc.
-            Y (np.ndarray): per-node visit indicators (length ``N``).
-            X_chosen (dict[int, list[tuple]]): ``{i: [(j, m, tijm_val), ...]}``
-                for every chosen arc i -> j (used by ``optimization_status``).
+        Reads solution values directly off the Gurobi ``Var.X`` attribute of
+        ``self.Yi`` / ``self.Xijm`` / ``self.ti`` / ``self.tijm``. Stores:
+
+        * ``self.tour`` (DataFrame): one row per real node in traversal order.
+          Columns: ``node_id``, ``unique_id``, ``t_start``, ``t_end``,
+          ``arc_slot``, ``arc_from``.
+        * ``self._Y`` (np.ndarray): per-node visit indicators (length ``N``).
+        * ``self._chosen_out`` (dict[int, list[tuple]]):
+          ``{i: [(j, m, tijm_val), ...]}`` for every chosen arc i -> j (used
+          by :meth:`optimization_status`).
         """
-        Y_dict = self.model.getAttr("X", self.Yi)
-        X_dict = self.model.getAttr("X", self.Xijm)
-        ti_dict = self.model.getAttr("X", self.ti)
-        tijm_dict = self.model.getAttr("X", self.tijm)
-
-        Y_arr = np.array([Y_dict[i] for i in range(self.N)])
+        Y_arr = np.array([self.Yi[i].X for i in range(self.N)])
 
         # Filter out arcs that exist in the variable space but are
         # unconstrained in the MILP (and thus may be set to 1 by Gurobi
         # without any feasibility penalty):
         #   * j == 0          arcs into the start anchor
         #   * i == self.N - 1 arcs out of the end anchor
-        # The original digest_gurobi avoided this bug by only iterating
-        # real-internal i and j; we make the filter explicit here so
-        # the tour walk is robust.
         chosen_out = defaultdict(list)
-        for (i, j, m), v in X_dict.items():
-            if v > 0.5 and j != 0 and i != self.N - 1:
-                chosen_out[i].append((j, m, tijm_dict[(i, j, m)]))
+        for (i, j, m), var in self.Xijm.items():
+            if var.X > 0.5 and j != 0 and i != self.N - 1:
+                chosen_out[i].append((j, m, self.tijm[i, j, m].X))
 
-        tour_nodes, arc_slots, arc_times = [], [], []
+        tour_rows = []
         node = 0
+        order = 0
         # Flow conservation guarantees exactly one outgoing arc per node up to
         # the end anchor; the loop terminates when the end anchor is reached.
         while True:
@@ -568,45 +629,54 @@ class TTPModel:
                 f"TTP tour broken: node {node} has {len(succs)} chosen "
                 f"outgoing arcs (expected 1). chosen_out={dict(chosen_out)}"
             )
-            j, m, tval = succs[0]
-            arc_slots.append(m)
-            arc_times.append(tval)
+            j, m, _tval = succs[0]
             if j == self.N - 1:
                 break
-            tour_nodes.append(j)
+            t_end = self.ti[j].X
+            tour_rows.append({
+                "order": order,
+                "node_id": j,
+                "unique_id": self.nodes.at[j, "unique_id"],
+                "t_start": t_end - self.nodes.at[j, "t_visit"],
+                "t_end": t_end,
+                "arc_slot": m,
+                "arc_from": node,
+            })
             node = j
+            order += 1
 
-        t_end = np.array([ti_dict[i] for i in tour_nodes])
-        return {
-            "tour_nodes": tour_nodes,
-            "t_end": t_end,
-            "arc_slots": np.array(arc_slots),
-            "arc_times": np.array(arc_times),
-            "Y": Y_arr,
-            "X_chosen": chosen_out,
-        }
+        if tour_rows:
+            self.tour = pd.DataFrame(tour_rows).set_index("order")
+        else:
+            self.tour = pd.DataFrame(
+                columns=[
+                    "node_id", "unique_id", "t_start", "t_end",
+                    "arc_slot", "arc_from",
+                ]
+            )
+            self.tour.index.name = "order"
+
+        self._Y = Y_arr
+        self._chosen_out = chosen_out
 
     def digest_gurobi(self):
         """Interpret the Gurobi solution; populate schedule / plotly / paths.
 
-        Walks the chosen tour ``0 -> j_1 -> ... -> N-1`` rather than sorting
+        Walks the chosen tour (via :meth:`_extract_tour`) rather than sorting
         visits by float ``ti``; the tour is the canonical TTP output and is
         guaranteed to be in execution order even under numerically degenerate
         solves.
 
         Sets attributes ``extras``, ``num_scheduled``, ``schedule``,
-        ``plotly``, ``times``, ``az_path``, ``alt_path``, ``_tour``.
+        ``plotly``, ``times``, ``az_path``, ``alt_path``, ``tour``.
         """
-        tour = self._extract_tour()
-        self._tour = tour
-
-        tour_nodes = tour["tour_nodes"]
-        t_end = tour["t_end"]
-        self.num_scheduled = len(tour_nodes)
+        self._extract_tour()
+        self.num_scheduled = len(self.tour)
 
         # Sanity check: tour order should agree with argsort(ti). Disagreement
         # is loud, not silent -- usually a numerically degenerate solve.
-        if not np.array_equal(
+        t_end = self.tour["t_end"].to_numpy()
+        if len(t_end) and not np.array_equal(
             np.argsort(t_end, kind="stable"), np.arange(len(t_end))
         ):
             logs.warning(
@@ -614,22 +684,32 @@ class TTPModel:
                 "Likely a numerically degenerate Gurobi solution."
             )
 
+        self._tour_to_legacy_dicts()
+
+    def _tour_to_legacy_dicts(self):
+        """Map ``self.tour`` -> legacy dict outputs.
+
+        The wire format of ``schedule`` / ``plotly`` / ``extras`` (dict keys,
+        value dtypes, ``Time`` in JD where applicable) is the public contract
+        consumed by :mod:`astroq.nplan`, :mod:`astroq.ttp.plot`, and
+        :mod:`astroq.plot`; do not change it without coordinating with those
+        modules.
+        """
+        tour = self.tour
+        tour_nodes = tour["node_id"].tolist()
+
         # ----- extras: real nodes not in the tour ------------------------
-        real_nodes = range(1, self.N - 1)
         scheduled = set(tour_nodes)
-        unscheduled = [i for i in real_nodes if i not in scheduled]
+        unscheduled = [i for i in range(1, self.N - 1) if i not in scheduled]
         if unscheduled:
-            extras_rows = self.requests_frame.iloc[
-                [self.node_to_request[i] for i in unscheduled]
-            ]
             self.extras = {
-                "Starname": list(extras_rows.unique_id),
+                "Starname": self.nodes.loc[unscheduled, "unique_id"].tolist(),
                 "First Available": [
-                    self._time_from_minutes(self.t_early[i]).isot[11:16]
+                    self._time_from_minutes(self.nodes.at[i, "t_early"]).isot[11:16]
                     for i in unscheduled
                 ],
                 "Last Available": [
-                    self._time_from_minutes(self.t_late[i]).isot[11:16]
+                    self._time_from_minutes(self.nodes.at[i, "t_late"]).isot[11:16]
                     for i in unscheduled
                 ],
             }
@@ -637,18 +717,18 @@ class TTPModel:
             self.extras = {"Starname": [], "First Available": [], "Last Available": []}
 
         # ----- per-visit arrays -----------------------------------------
-        rows = self.requests_frame.iloc[
-            [self.node_to_request[i] for i in tour_nodes]
-        ]
-        visit_dur = self.t_visit[np.array(tour_nodes)] if tour_nodes else np.array([])
-        t_start = t_end - visit_dur
+        if tour_nodes:
+            request_indices = self.nodes.loc[tour_nodes, "request_idx"].to_numpy()
+            rows = self.requests_frame.iloc[request_indices]
+            visit_dur = self.nodes.loc[tour_nodes, "t_visit"].to_numpy()
+            t_start = tour["t_start"].to_numpy()
+            t_end = tour["t_end"].to_numpy()
 
-        t_start_time = self._time_from_minutes(t_start) if len(t_start) else []
-        t_end_time = self._time_from_minutes(t_end) if len(t_end) else []
+            t_start_time = self._time_from_minutes(t_start)
+            t_end_time = self._time_from_minutes(t_end)
 
-        # Two batched altaz calls replace 2N scalar ones from the old loop.
-        coords = [self._node_coords[i - 1] for i in tour_nodes]
-        if coords:
+            # Two batched altaz calls cover the start and end of every visit.
+            coords = [self.nodes.at[i, "coord"] for i in tour_nodes]
             aa_start = self.observer.altaz(t_start_time, coords)
             aa_end = self.observer.altaz(t_end_time, coords)
             az_start = np.atleast_1d(aa_start.az.deg)
@@ -662,36 +742,44 @@ class TTPModel:
             times_list = [
                 t for pair in zip(list(t_start_time), list(t_end_time)) for t in pair
             ]
+
+            self.schedule = {
+                "Order": list(range(len(tour_nodes))),
+                "Starname": tour["unique_id"].tolist(),
+                "Time": [self.night_start.jd + t / (24 * 60) for t in t_start],
+            }
+            self.plotly = {
+                "Starname": tour["unique_id"].tolist(),
+                "First Available": self.nodes.loc[tour_nodes, "t_early"].to_numpy(),
+                "Last Available": self.nodes.loc[tour_nodes, "t_late"].to_numpy(),
+                "Start Exposure": t_start,
+                "Minutes the from Start of the Night": (t_start + t_end) / 2,
+                "Stop Exposure": t_end,
+                "N_shots": rows["n_exp"].astype(int).to_numpy(),
+                "Exposure Time (min)": rows["exptime"].astype(float).to_numpy(),
+                "Total Exp Time (min)": visit_dur,
+                "Priority": rows["priority"].astype(int).tolist(),
+            }
+            self.times = times_list
+            self.az_path = az_path
+            self.alt_path = alt_path
         else:
-            az_path = np.array([])
-            alt_path = np.array([])
-            times_list = []
-
-        # ----- public outputs --------------------------------------------
-        # schedule['Time']: start-of-exposure time in JD (legacy contract;
-        # consumed by nplan.drop_gap_rows and the plotter).
-        self.schedule = {
-            "Order": list(range(len(tour_nodes))),
-            "Starname": list(rows.unique_id),
-            "Time": [self.night_start.jd + t / (24 * 60) for t in t_start],
-        }
-
-        self.plotly = {
-            "Starname": list(rows.unique_id),
-            "First Available": self.t_early[np.array(tour_nodes)] if tour_nodes else np.array([]),
-            "Last Available": self.t_late[np.array(tour_nodes)] if tour_nodes else np.array([]),
-            "Start Exposure": t_start,
-            "Minutes the from Start of the Night": (t_start + t_end) / 2 if len(t_start) else np.array([]),
-            "Stop Exposure": t_end,
-            "N_shots": rows["n_exp"].astype(int).to_numpy() if tour_nodes else np.array([], dtype=int),
-            "Exposure Time (min)": rows["exptime"].astype(float).to_numpy() if tour_nodes else np.array([]),
-            "Total Exp Time (min)": visit_dur,
-            "Priority": rows["priority"].astype(int).tolist(),
-        }
-
-        self.times = times_list
-        self.az_path = az_path
-        self.alt_path = alt_path
+            self.schedule = {"Order": [], "Starname": [], "Time": []}
+            self.plotly = {
+                "Starname": [],
+                "First Available": np.array([]),
+                "Last Available": np.array([]),
+                "Start Exposure": np.array([]),
+                "Minutes the from Start of the Night": np.array([]),
+                "Stop Exposure": np.array([]),
+                "N_shots": np.array([], dtype=int),
+                "Exposure Time (min)": np.array([]),
+                "Total Exp Time (min)": np.array([]),
+                "Priority": [],
+            }
+            self.times = []
+            self.az_path = np.array([])
+            self.alt_path = np.array([])
 
     def optimization_status(self):
         """Write ``TTPstatistics.txt`` and log solver wall-clock stats.
@@ -700,18 +788,26 @@ class TTPModel:
         values rather than from the fractional part of the objective bound;
         this is correct under non-uniform priorities.
         """
-        tour = self._tour
+        # Sum tau_slew over inner arcs (exclude anchor arcs) by joining the
+        # chosen-arc keys against self.tau_slew.
+        chosen_arcs = [
+            (i, j, m)
+            for i, succs in self._chosen_out.items()
+            for (j, m, _tval) in succs
+            if 0 < i < self.N - 1 and 0 < j < self.N - 1
+        ]
+        if chosen_arcs:
+            chosen_idx = pd.MultiIndex.from_tuples(
+                chosen_arcs, names=["i", "j", "m"]
+            )
+            time_slewing = float(
+                self.tau_slew.loc[chosen_idx, "tau"].sum()
+            )
+        else:
+            time_slewing = 0.0
 
-        # Sum tau_slew over inner arcs (exclude anchor arcs).
-        time_slewing = 0.0
-        for i, succs in tour["X_chosen"].items():
-            if not (0 < i < self.N - 1):
-                continue
-            for (j, m, _tval) in succs:
-                if 0 < j < self.N - 1:
-                    time_slewing += self.tau_slew[(i, j, m)]
-
-        time_exposing = float(np.dot(tour["Y"], self.t_visit))
+        t_visit = self.nodes["t_visit"].to_numpy()
+        time_exposing = float(np.dot(self._Y, t_visit))
         time_idle = self.dur - time_exposing - time_slewing
 
         self.time_idle = time_idle
@@ -719,7 +815,6 @@ class TTPModel:
         self.time_exposing = time_exposing
         self.solve_time = self.model.Runtime
 
-        # Build the stats block once, then write + log.
         lines = [
             "Stats for TTP Solution",
             "------------------------------------",
