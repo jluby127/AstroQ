@@ -45,7 +45,7 @@ class KPFCC(Queue):
     # Same readout/slew numbers as HIRES-CPS in production today; revisit if
     # KPF's measured detector readout or acquisition time diverges.
     readout_time = 45.0
-    slew_overhead = 60.0
+    slew_overhead_mean = 60.0
 
     # Inaccessible (alt, az) boxes, degrees. (az_min, az_max, alt_min, alt_max).
     # See Queue.is_accessible. Duplicated from HIRESCPS; may diverge over time.

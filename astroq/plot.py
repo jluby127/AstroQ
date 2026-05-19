@@ -43,8 +43,6 @@ np.random.seed(24)
 gray = 'rgb(210,210,210)'
 clear = 'rgba(255,255,255,1)'
 labelsize = 38
-slew_overhead = 60.
-readout_overhead = 45.
 hours_per_night = 12.
 
 class StarPlotter(object):
@@ -65,13 +63,15 @@ class StarPlotter(object):
         """
         self.unique_id = unique_id
 
-    def get_stats(self, row, slot_size):
+    def get_stats(self, row, slot_size, queue):
         """
         Grab the observational stategy information for a given star from the requests.csv file.
 
         Args:
             row (pd.Series): A row from the requests.csv file as a DataFrame 
             slot_size (int): The slot size in minutes
+            queue (astroq.queue.base.Queue): provides ``slew_overhead_mean``
+                and ``readout_time`` for the per-request seconds accounting.
 
         Returns:
             expected_nobs_per_night (int): how many exposures we expect to take
@@ -94,7 +94,7 @@ class StarPlotter(object):
         self.n_inter_max = int(row['n_inter_max'])
         self.tau_inter = int(row['tau_inter'])
         self.total_observations_requested = self.n_exp * self.n_intra_max * self.n_inter_max
-        self.total_requested_seconds = self.total_observations_requested*self.exptime + readout_overhead*(self.n_exp-1)* self.n_inter_max + slew_overhead*self.n_intra_max*self.n_inter_max
+        self.total_requested_seconds = self.total_observations_requested*self.exptime + queue.readout_time*(self.n_exp-1)* self.n_inter_max + queue.slew_overhead_mean*self.n_intra_max*self.n_inter_max
         self.total_requested_hours = self.total_requested_seconds / 3600
         self.total_requested_nights = self.total_requested_hours / hours_per_night   
 
@@ -195,6 +195,11 @@ def process_stars(semester_planner):
     forecast_df = semester_planner.serialized_schedule # pd.read_csv(semester_planner.output_directory + semester_planner.future_forecast)
     forecast_df['r'] = forecast_df['r'].astype(str)  # Convert to string once
 
+    # Per-visit overhead scalars come from the queue (single source of truth).
+    queue = semester_planner.queue
+    slew_overhead = queue.slew_overhead_mean
+    readout_overhead = queue.readout_time
+
     # Previously, there was a unique call to star names, every row of the request frame will be unique already when we switch to "id"
     starnames = semester_planner.requests_frame_all['starname'].unique()
     programs = semester_planner.requests_frame_all['program_code'].unique()
@@ -210,7 +215,7 @@ def process_stars(semester_planner):
         # Create a StarPlotter object for each request, fill and compute relavant information
         newstar = StarPlotter(row['unique_id'])
         newstar.get_map(semester_planner, forecast_df)
-        newstar.get_stats(row, semester_planner.slot_size)
+        newstar.get_stats(row, semester_planner.slot_size, queue)
         if newstar.unique_id in list(semester_planner.past_history.keys()):
             newstar.observations_past = semester_planner.past_history[newstar.unique_id].n_visits_on_nights
             newstar.observations_past_exposures = semester_planner.past_history[newstar.unique_id].n_obs_on_nights
@@ -1115,6 +1120,10 @@ def get_timebar(semester_planner, all_stars, use_program_colors=False, prevent_n
     """
     programmatics = pd.read_csv(os.path.join(semester_planner.semester_directory, 'programs.csv'))
 
+    # Per-visit overhead scalars come from the queue (single source of truth).
+    slew_overhead = semester_planner.queue.slew_overhead_mean
+    readout_overhead = semester_planner.queue.readout_time
+
     # Accumulate total times across all stars
     total_past = 0
     total_future = 0
@@ -1317,7 +1326,11 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
         fig (plotly figure): a plotly figure showing time breakdown per program as a grid of horizontal bar charts
     """
     programmatics = pd.read_csv(os.path.join(semester_planner.semester_directory, 'programs.csv'))
-    
+
+    # Per-visit overhead scalars come from the queue (single source of truth).
+    slew_overhead = semester_planner.queue.slew_overhead_mean
+    readout_overhead = semester_planner.queue.readout_time
+
     # Get all programs from programs.csv
     all_programs_in_csv = set(programmatics['program'].unique())
     programs_with_requests = set(programs_dict.keys())

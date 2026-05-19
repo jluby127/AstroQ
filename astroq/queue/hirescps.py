@@ -49,7 +49,7 @@ class HIRESCPS(Queue):
     wrap_limit = 270.0        # deg azimuth
     nSlots = 1                # TTP slew-slot granularity
     readout_time = 45.0       # seconds; per-shot detector readout
-    slew_overhead = 60.0      # seconds; per-visit slew + acquisition
+    slew_overhead_mean = 60.0  # seconds; mean per-visit slew + acquisition (splan-only estimate)
 
     # Inaccessible (alt, az) boxes, degrees. (az_min, az_max, alt_min, alt_max).
     # A sky point is excluded iff it lies inside ANY box. See Queue.is_accessible.

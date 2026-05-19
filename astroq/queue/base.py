@@ -50,9 +50,11 @@ class Queue:
         readout_time (float): detector readout time between successive shots
             of a single visit, seconds. Canonical source for both
             ``visit_duration`` and splan's slot accounting.
-        slew_overhead (float): average per-visit slew overhead, seconds. Used
-            only by splan's ``visit_slots``; the TTP MILP computes slew time
-            from the pointing tensor directly.
+        slew_overhead_mean (float): mean per-visit slew overhead used by
+            the semester ILP as a constant estimate (since splan cannot know
+            target ordering). Superseded at night-plan time by TTP's per-arc
+            ``tau_slew`` tensor computed from the alt/az pointing geometry.
+            Seconds.
         inaccessible_zones (list[tuple]): Boxes in (alt, az) space where the
             telescope cannot point. Each entry is
             ``(az_min, az_max, alt_min, alt_max)`` in degrees. A sky point is
@@ -66,7 +68,7 @@ class Queue:
     wrap_limit: float | None = None
     nSlots: int = 1
     readout_time: float
-    slew_overhead: float
+    slew_overhead_mean: float
     inaccessible_zones: list[tuple[float, float, float, float]] = []
 
     def is_accessible(self, alt, az):
@@ -99,22 +101,36 @@ class Queue:
         """
         return (exptime_s * n_shots + self.readout_time * (n_shots - 1)) / 60.0
 
+    def visit_seconds(self, exptime_s, n_exp, n_intra_max):
+        """Splan-canonical per-visit seconds.
+
+        Per-visit elapsed time charged by the semester ILP. Includes the
+        raw exposure time, between-shot readouts, and a slew-overhead term
+        that uses ``n_intra_max`` as the multiplier (preserved bug-for-bug
+        from the historical formula; see note below).
+
+        This is the single source of truth for the splan-style "visit
+        seconds" calculation. Callers (:meth:`visit_slots`,
+        :meth:`astroq.splan.SemesterPlanner._build_slots_required_dictionary`)
+        do their own slot conversion (round vs ceil) on top of the seconds.
+
+        Note: ``slew_overhead_mean * n_intra_max`` is the legacy formula
+        used by splan and :meth:`visit_slots`. A per-visit slew should
+        arguably be a single ``slew_overhead_mean`` rather than
+        ``n_intra_max`` of them; this is flagged as a follow-up.
+        """
+        return (
+            exptime_s * n_exp
+            + self.readout_time * (n_exp - 1)
+            + self.slew_overhead_mean * n_intra_max
+        )
+
     def visit_slots(self, exptime_s, n_exp, slot_size_min, n_intra_max):
         """Slots needed for one entry in ``slots_needed_for_exposure_dict``.
 
-        Bug-for-bug compatible with the formula at
-        ``splan._build_slots_required_dictionary`` prior to the queue refactor::
-
-            overhead_s = readout_time * (n_exp - 1) + slew_overhead * n_intra_max
-            slots      = max(1, round((exptime_s * n_exp + overhead_s) / (slot_size_min * 60)))
-
-        Note: the ``slew_overhead * n_intra_max`` term is suspect for a
-        per-visit quantity (per-visit slew should be a single ``slew_overhead``,
-        not ``n_intra_max`` of them). Preserved here to keep schedules
-        identical across the refactor; flagged as a follow-up.
+        Computes seconds via :meth:`visit_seconds` then rounds to slots.
         """
-        overhead_s = self.readout_time * (n_exp - 1) + self.slew_overhead * n_intra_max
-        total_s = exptime_s * n_exp + overhead_s
+        total_s = self.visit_seconds(exptime_s, n_exp, n_intra_max)
         slots = int(np.round(total_s / (slot_size_min * 60.0)))
         return max(1, slots)
 

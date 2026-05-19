@@ -1,48 +1,6 @@
 """Traveling Telescope Problem (TTP) solver
 
 The model implements the MILP of Handley et al. 2024 (arXiv:2310.18497).
-
-Required columns of ``requests_frame`` (see :data:`REQUIRED_COLUMNS`)::
-
-    unique_id        str            primary key
-    ra, dec          float, deg
-    exptime          float, seconds (single shot exposure time)
-    n_exp            int            shots per visit (multi-shot exposures)
-    n_intra_max      int            visits per night
-    tau_intra        float, hours   minimum spacing between visits within a night
-    priority         int            objective weight; higher = more important
-    first_available  str            ISO-8601 (caller computes; e.g. via Access)
-    last_available   str            ISO-8601
-
-Internal naming is aligned with the Handley 2024 paper (``N``, ``M``, ``Yi``,
-``Xijm``, ``tau_slew``) and with AstroQ vocabulary elsewhere (``t_visit``,
-``tau_intra``).
-
-Node indexing
--------------
-
-After :meth:`TTPModel._build_nodes` runs, the model carries a single
-``self.nodes`` DataFrame indexed by integer ``node_id``:
-
-* ``node_id == 0`` is the start anchor.
-* ``node_id == 1 .. N-2`` are real visit nodes (one row per visit; a request
-  with ``n_intra_max > 1`` produces consecutive rows that share
-  ``unique_id`` and differ in ``visit_seq``).
-* ``node_id == N - 1`` is the end anchor.
-
-Anchors are MILP bookkeeping and carry ``unique_id == ""``, ``priority == 0``,
-``t_visit == 0``, ``tau_intra == 0``, and a ``coord`` of ``None``. They are
-present in the nodes DataFrame so that Gurobi tupledicts can be keyed by a
-single integer space ``range(N)`` and the constraint loops are uniform.
-
-The MILP loops use three slices of ``range(N)`` that line up with the
-Handley+ 2024 paper:
-
-* ``range(1, N - 1)`` -- real visit nodes (paper's ``1..N``).
-* ``range(N - 1)`` -- sources of an arc, i.e. start anchor + real
-  (paper's ``0..N``).
-* ``range(1, N)`` -- targets of an arc, i.e. real + end anchor
-  (paper's ``1..N+1``).
 """
 
 # Standard library imports
@@ -60,9 +18,7 @@ from astropy.time import Time, TimeDelta
 import gurobipy as gp
 from gurobipy import GRB
 
-
 logs = logging.getLogger(__name__)
-
 
 REQUIRED_COLUMNS = [
     "unique_id", "ra", "dec",
@@ -75,26 +31,22 @@ REQUIRED_COLUMNS = [
     "last_available",
 ]
 
-
 class TTPModel:
     """MILP solver for the Traveling Telescope Problem (Handley+ 2024).
 
-    The class is structured around three DataFrames:
-
-    * ``self.requests_frame`` -- one row per request (input, validated and
-      with a derived ``coord`` column attached on ``__init__``).
-    * ``self.nodes`` -- one row per MILP node, indexed 0..N-1 (see the module
-      docstring for the indexing convention). Built by :meth:`_build_nodes`.
-    * ``self.tau_slew`` -- per-arc slew tensor, indexed by ``(i, j, m)``.
-      Built by :meth:`_compute_tau_slew`.
-
-    Lifecycle: ``__init__`` only validates and stashes config. Call
-    :meth:`run_model` to actually build and solve the MILP.
-
     Args:
-        requests_frame (pd.DataFrame): one row per request, AstroQ-vocab columns
-            (see :data:`REQUIRED_COLUMNS`). A derived ``coord`` column
-            (``SkyCoord``) is attached on init and is NOT serialization-safe.
+        requests_frame (pd.DataFrame): one row per request, required columns
+
+            unique_id        str            primary key
+            ra, dec          float, deg
+            exptime          float, seconds (single shot exposure time)
+            n_exp            int            shots per visit (multi-shot exposures)
+            n_intra_max      int            visits per night
+            tau_intra        float, hours   minimum spacing between visits within a night
+            priority         int            objective weight; higher = more important
+            first_available  str            ISO-8601 (caller computes; e.g. via Access)
+            last_available   str            ISO-8601
+
         night_start (astropy.time.Time): start of the observing interval.
         night_end (astropy.time.Time): end of the observing interval.
         outdir (str): directory in which to write ``TTPstatistics.txt``.
@@ -118,32 +70,16 @@ class TTPModel:
             sample the slew tensor within a slot.
         output_flag (bool): pass-through to ``gurobipy.Model.Params.OutputFlag``.
 
-    Attributes:
-        requests_frame, night_start, night_end, outdir, observer, slew_rate,
-        wrap_limit, readout_time, n_slots, inaccessible_zones, runtime, optgap,
-        slew_sample_cadence_min, output_flag: as above.
-        N (int): total node count (= visit count + 2 anchor nodes).
-        M (int): equal to ``n_slots``.
-        dur (float): observing-interval duration, minutes.
-        nodes (pd.DataFrame): one row per MILP node, indexed 0..N-1. Columns:
-            ``unique_id``, ``request_idx``, ``visit_seq``, ``is_anchor``,
-            ``t_early``, ``t_late``, ``t_visit``, ``tau_intra``, ``priority``,
-            ``coord``.
-        multi_visit_groups (dict[str, list[int]]): keyed by ``unique_id``,
-            value is the list of node ids (in ``visit_seq`` order) for
-            requests with ``n_intra_max > 1``.
-        tau_slew (pd.DataFrame): per-arc slew tensor with MultiIndex
-            ``(i, j, m)`` and columns ``i_id``, ``j_id``, ``tau`` (minutes).
-            Inner (non-anchor) arcs only.
-        w (np.ndarray): slot bound times (minutes from ``night_start``).
-        model (gurobipy.Model): underlying Gurobi model.
-        Yi, Xijm, ti, tijm (gurobipy tupledict): MILP decision variables.
-        tour (pd.DataFrame): chosen tour in traversal order. Columns:
-            ``node_id``, ``unique_id``, ``t_start``, ``t_end``, ``arc_slot``,
-            ``arc_from``.
-        schedule, plotly, extras, times, az_path, alt_path,
-        num_scheduled, time_idle, time_slewing, time_exposing, solve_time:
-        populated by :meth:`digest_gurobi` / :meth:`optimization_status`.
+    The class is structured around three DataFrames:
+
+    * ``self.requests_frame`` -- one row per request
+    * ``self.nodes`` -- one row per MILP node Built by :meth:`_build_nodes`
+    * ``self.tau_slew`` -- per-arc slew tensor, indexed by ``(i, j, m)``.
+       Built by :meth:`_compute_tau_slew`.
+
+    Internal naming is aligned with the Handley 2024 paper (``N``, ``M``, ``Yi``,
+    ``Xijm``, ``tau_slew``) and with AstroQ vocabulary elsewhere (``t_visit``,
+    ``tau_intra``).
     """
 
     #: Slew tie-breaker weight in the objective. Same constant is used to
@@ -372,7 +308,7 @@ class TTPModel:
 
         # Slot bounds expressed as minutes from start.
         self.w = (slot_bounds.jd - slot_bounds[0].jd) * 24 * 60
-        import pdb; pdb.set_trace()
+
     # ------------------------------------------------------------- MILP build
 
     def build_model(self):

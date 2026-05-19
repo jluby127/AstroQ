@@ -329,29 +329,26 @@ class SemesterPlanner(object):
         """
         Determine the number of slots required to complete for each visit of a given request.
 
-        Per-request overheads (readout, slew) come from ``self.queue`` so the
-        canonical numbers live in exactly one place repo-wide.
+        Per-visit seconds come from :meth:`astroq.queue.base.Queue.visit_seconds`
+        so the canonical formula lives in exactly one place repo-wide. The only
+        thing splan does on top is choose ``ceil`` vs ``round`` for the
+        seconds-to-slots conversion (driven by ``always_round_up_flag``).
 
         Returns:
             slots_needed_for_exposure_dict (dict): a dictionary where keys are the star names and values are the number of slots required for each exposure
         """
-        readout = self.queue.readout_time
-        slew = self.queue.slew_overhead
+        slot_seconds = self.slot_size * 60.0
+        rounder = np.ceil if always_round_up_flag else np.round
 
         slots_needed_for_exposure_dict = {}
-        for n, row in self.requests_frame.iterrows():
-            starid = row['unique_id']
-            exposure_time = float(row['exptime']*row['n_exp'])
-            overhead = readout*float(row['n_exp'] - 1) + slew*float(row['n_intra_max'])
-
-            if always_round_up_flag:
-                slots_needed = int(np.ceil((exposure_time + overhead) / (self.slot_size * 60.0)))
-            else:
-                slots_needed = int(np.round((exposure_time + overhead) / (self.slot_size * 60.0)))
-            if slots_needed < 1:
-                slots_needed = 1
-
-            slots_needed_for_exposure_dict[starid] = slots_needed
+        for _, row in self.requests_frame.iterrows():
+            total_s = self.queue.visit_seconds(
+                float(row['exptime']),
+                int(row['n_exp']),
+                int(row['n_intra_max']),
+            )
+            slots = int(rounder(total_s / slot_seconds))
+            slots_needed_for_exposure_dict[row['unique_id']] = max(1, slots)
 
         return slots_needed_for_exposure_dict
 
