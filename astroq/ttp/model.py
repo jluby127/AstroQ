@@ -629,6 +629,8 @@ class TTPModel:
         scheduled = set(tour_nodes)
         unscheduled = [i for i in range(1, self.N - 1) if i not in scheduled]
         if unscheduled:
+            extras_request_idx = self.nodes.loc[unscheduled, "request_idx"].to_numpy()
+            extras_rows = self.requests_frame.iloc[extras_request_idx]
             self.extras = {
                 "Starname": self.nodes.loc[unscheduled, "unique_id"].tolist(),
                 "First Available": [
@@ -639,9 +641,25 @@ class TTPModel:
                     self._time_from_minutes(self.nodes.at[i, "t_late"]).isot[11:16]
                     for i in unscheduled
                 ],
+                "t_early (min)": self.nodes.loc[unscheduled, "t_early"].to_numpy(),
+                "t_late (min)": self.nodes.loc[unscheduled, "t_late"].to_numpy(),
+                "Exposure Time (min)": extras_rows["exptime"].astype(float).to_numpy(),
+                "N_shots": extras_rows["n_exp"].astype(int).to_numpy(),
+                "Total Exp Time (min)": self.nodes.loc[unscheduled, "t_visit"].to_numpy(),
+                "Priority": extras_rows["priority"].astype(int).tolist(),
             }
         else:
-            self.extras = {"Starname": [], "First Available": [], "Last Available": []}
+            self.extras = {
+                "Starname": [],
+                "First Available": [],
+                "Last Available": [],
+                "t_early (min)": np.array([]),
+                "t_late (min)": np.array([]),
+                "Exposure Time (min)": np.array([]),
+                "N_shots": np.array([], dtype=int),
+                "Total Exp Time (min)": np.array([]),
+                "Priority": [],
+            }
 
         # ----- per-visit arrays -----------------------------------------
         if tour_nodes:
@@ -653,6 +671,34 @@ class TTPModel:
 
             t_start_time = self._time_from_minutes(t_start)
             t_end_time = self._time_from_minutes(t_end)
+
+            # Per-row predicted slew from tau_slew on the chosen arcs.
+            # tour rows log the arc that *arrived* at the node; shift by one
+            # to get the arc *leaving* the node. The last row's outgoing arc
+            # is to the end anchor (j == N-1) and lives in self._chosen_out.
+            # Anchor arcs (i==0 or j==N-1) are absent from tau_slew by design
+            # (Handley+ 2024 anchor convention); they fill with 0.
+            slew_in_idx = pd.MultiIndex.from_arrays(
+                [tour["arc_from"].to_numpy(),
+                 tour["node_id"].to_numpy(),
+                 tour["arc_slot"].to_numpy()],
+                names=["i", "j", "m"],
+            )
+            slew_in = (
+                self.tau_slew["tau"]
+                .reindex(slew_in_idx, fill_value=0.0)
+                .to_numpy()
+            )
+            slew_out = np.empty(len(tour))
+            if len(tour) > 1:
+                slew_out[:-1] = slew_in[1:]
+            last_node = int(tour["node_id"].iat[-1])
+            j_anchor, m_anchor, _ = self._chosen_out[last_node][0]
+            slew_out[-1] = float(
+                self.tau_slew["tau"].get(
+                    (last_node, j_anchor, m_anchor), 0.0
+                )
+            )
 
             # Two batched altaz calls cover the start and end of every visit.
             coords = [self.nodes.at[i, "coord"] for i in tour_nodes]
@@ -686,6 +732,7 @@ class TTPModel:
                 "Exposure Time (min)": rows["exptime"].astype(float).to_numpy(),
                 "Total Exp Time (min)": visit_dur,
                 "Priority": rows["priority"].astype(int).tolist(),
+                "Slew to Next (min)": slew_out,
             }
             self.times = times_list
             self.az_path = az_path
@@ -703,6 +750,7 @@ class TTPModel:
                 "Exposure Time (min)": np.array([]),
                 "Total Exp Time (min)": np.array([]),
                 "Priority": [],
+                "Slew to Next (min)": np.array([]),
             }
             self.times = []
             self.az_path = np.array([])

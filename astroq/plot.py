@@ -1966,11 +1966,58 @@ def get_ladder(data, tonight_start_time):
         fig (plotly figure): a plotly figure illustrating the night plan solution.
     """
 
-    orderData = data[0].plotly
-    # reverse the order so that the plot flows from top to bottom with time
-    orderData = pd.DataFrame.from_dict(orderData)
-    orderData = orderData.iloc[::-1]
-    orderData.reset_index(inplace=True)
+    scheduled_df = pd.DataFrame.from_dict(data[0].plotly)
+    if 'Slew to Next (min)' not in scheduled_df.columns:
+        scheduled_df['Slew to Next (min)'] = 0.0
+
+    # Append unscheduled targets at the bottom of the plot. They use the same
+    # row schema as scheduled rows: Start Exposure = 0, Stop Exposure =
+    # Total Exp Time (min), Slew = 0. The lime accessibility band uses the
+    # numeric t_early/t_late fields emitted by astroq.ttp.model.
+    extras = getattr(data[0], 'extras', None)
+    if isinstance(extras, pd.DataFrame):
+        extras_dict = extras.to_dict('list')
+    elif isinstance(extras, dict):
+        extras_dict = extras
+    else:
+        extras_dict = None
+
+    has_extras = bool(
+        extras_dict
+        and len(extras_dict.get('Starname', []))
+        and 't_early (min)' in extras_dict
+        and 'Total Exp Time (min)' in extras_dict
+    )
+    if has_extras:
+        n_extra = len(extras_dict['Starname'])
+        total_exp = list(extras_dict['Total Exp Time (min)'])
+        extras_df = pd.DataFrame({
+            'Starname':            list(extras_dict['Starname']),
+            'human_starname':      list(extras_dict.get('human_starname',
+                                                        extras_dict['Starname'])),
+            'First Available':     list(extras_dict['t_early (min)']),
+            'Last Available':      list(extras_dict['t_late (min)']),
+            'Start Exposure':      [0.0] * n_extra,
+            'Stop Exposure':       total_exp,
+            'Total Exp Time (min)': total_exp,
+            'Exposure Time (min)':  list(extras_dict.get('Exposure Time (min)',
+                                                         total_exp)),
+            'N_shots':              list(extras_dict.get('N_shots', [1] * n_extra)),
+            'Priority':             list(extras_dict['Priority']),
+            'Slew to Next (min)':   [0.0] * n_extra,
+            'UTC Start Time':       [''] * n_extra,
+            'Minutes the from Start of the Night': [0.0] * n_extra,
+        })
+        extras_df = extras_df.sort_values('First Available').reset_index(drop=True)
+        orderData = pd.concat([scheduled_df, extras_df], ignore_index=True)
+        n_unscheduled = len(extras_df)
+    else:
+        orderData = scheduled_df
+        n_unscheduled = 0
+
+    # reverse so the plot flows top -> bottom with time; after reversal,
+    # the lowest indices (bottom of plot) hold the unscheduled block.
+    orderData = orderData.iloc[::-1].reset_index(drop=True)
 
     # Each priority gets a different color. Make sure that each priority is actually included here or the plot will break. Recall bigger numbers are higher priorities.
     colordict = {'10':'red',
@@ -1985,38 +2032,58 @@ def get_ladder(data, tonight_start_time):
                  '2':'magenta',
                 '1':'blue'}
 
-    # build the outline of the plot, add dummy points that are not displyed within the x/y limits so as to fill in the legend
-    fig = px.scatter(orderData, x='Minutes the from Start of the Night', y='human_starname', hover_data=['First Available', 'Last Available', 'Exposure Time (min)', "N_shots", "Total Exp Time (min)", 'UTC Start Time'] ,title='Night Plan', width=800, height=1000) #color='Program'
-    # Hide the y-axis label
+    hover_cols = ['First Available', 'Last Available', 'Exposure Time (min)',
+                  "N_shots", "Total Exp Time (min)", 'Slew to Next (min)',
+                  'UTC Start Time']
+    fig = px.scatter(orderData, x='Minutes the from Start of the Night', y='human_starname', hover_data=hover_cols ,title='Night Plan', width=800, height=1000) #color='Program'
     fig.update_layout(yaxis_title='')
     fig.add_shape(type="rect", x0=-100, x1=-80, y0=-0.5, y1=0.5, fillcolor='red', showlegend=True, name='Exposure')
+    fig.add_shape(type="rect", x0=-100, x1=-80, y0=-0.5, y1=0.5, fillcolor='dimgray', showlegend=True, name='Slew')
     fig.add_shape(type="rect", x0=-100, x1=-80, y0=-0.5, y1=0.5, fillcolor='lime', opacity=0.3, showlegend=True, name='Accessible')
 
     new_already_processed = []
     ifixer = 0 # for multi-visit targets, it throws off the one row per target plotting...this fixes it
     for i in range(len(orderData['Starname'])):
         if orderData['Starname'][i] not in new_already_processed:
-            # find all the times in the night when the star is being visited
             indices = [k for k in range(len(orderData['Starname'])) if orderData['Starname'][k] == orderData['Starname'][i]]
             for j in range(len(indices)):
-                fig.add_shape(type="rect", x0=orderData['Start Exposure'][indices[j]], x1=orderData['Start Exposure'][indices[j]] + orderData["Total Exp Time (min)"][indices[j]], y0=i+ifixer-0.5, y1=i+ifixer+0.5, fillcolor=colordict[str(orderData['Priority'][indices[j]])])
                 if j == 0:
                     # only do this once, otherwise the green bar gets discolored compared to other rows
                     fig.add_shape(type="rect", x0=orderData['First Available'][indices[j]], x1=orderData['Last Available'][indices[j]], y0=i+ifixer-0.5, y1=i+ifixer+0.5, fillcolor='lime', opacity=0.3, showlegend=False)
+                fig.add_shape(type="rect", x0=orderData['Start Exposure'][indices[j]], x1=orderData['Start Exposure'][indices[j]] + orderData["Total Exp Time (min)"][indices[j]], y0=i+ifixer-0.5, y1=i+ifixer+0.5, fillcolor=colordict[str(orderData['Priority'][indices[j]])])
+                slew = float(orderData['Slew to Next (min)'][indices[j]])
+                if slew > 0:
+                    fig.add_shape(type="rect",
+                                  x0=orderData['Stop Exposure'][indices[j]],
+                                  x1=orderData['Stop Exposure'][indices[j]] + slew,
+                                  y0=i+ifixer-0.5, y1=i+ifixer+0.5,
+                                  fillcolor='dimgray',
+                                  line=dict(width=0))
             new_already_processed.append(orderData['Starname'][i])
         else:
             # if we already did this star, it is a multi-visit star and we need to adjust the row counter for plotting purposes
             ifixer -= 1
 
-    # Get the x-axis range
+    if n_unscheduled and n_unscheduled < len(orderData):
+        sep_y = n_unscheduled - 0.5
+        fig.add_hline(y=sep_y, line_color='black', line_width=1, line_dash='solid')
+
     x_min = 0
-    if len(orderData) > 0:
-        # Calculate the maximum end time (start + duration) across all observations
-        end_times = orderData['Start Exposure'] + orderData["Total Exp Time (min)"]
+    night_start = getattr(data[0], 'night_start', None)
+    night_end = getattr(data[0], 'night_end', None)
+    if night_start is not None and night_end is not None:
+        x_max = (night_end.jd - night_start.jd) * 24 * 60
+    elif len(orderData) > 0:
+        end_times = (orderData['Start Exposure']
+                     + orderData['Total Exp Time (min)']
+                     + orderData['Slew to Next (min)'])
         x_max = end_times.max()
     else:
         x_max = 600
     fig.update_layout(xaxis_range=[x_min, x_max])
+    for x_line, label in [(x_min, 'start'), (x_max, 'end')]:
+        fig.add_vline(x=x_line, line_color='black', line_width=1,
+                      annotation_text=label, annotation_position='top')
     # Add secondary x-axis with UTC time
     start_time = tonight_start_time.to_datetime()
     # Create tick positions (every 60 minutes or so, adjust as needed)

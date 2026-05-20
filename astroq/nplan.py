@@ -239,6 +239,7 @@ class NightPlanner(object):
         tm.build_model()
         tm.model.params.TimeLimit = self.max_solve_time
         tm.model.params.MIPGap = self.max_solve_gap
+        tm.model.params.PreSolve = 2
         tm.model.update()
         tm.run_model()
 
@@ -318,6 +319,18 @@ class NightPlanner(object):
         tm.plotly['human_starname'] = [
             id_to_name.get(uid, "NO MATCHING NAME") for uid in tm.plotly['Starname']
         ]
+        if tm.extras is not None:
+            extras_starnames = (
+                tm.extras['Starname'].tolist()
+                if isinstance(tm.extras, pd.DataFrame)
+                else list(tm.extras.get('Starname', []))
+            )
+            if extras_starnames:
+                human = [id_to_name.get(uid, "NO MATCHING NAME") for uid in extras_starnames]
+                if isinstance(tm.extras, pd.DataFrame):
+                    tm.extras = tm.extras.assign(human_starname=human)
+                else:
+                    tm.extras['human_starname'] = human
         self.solution = [tm]
 
         tm.plotly['UTC Start Time'] = [0]*len(tm.plotly['Start Exposure'])

@@ -46,8 +46,8 @@ class HIRESCPS(Queue):
     """
 
     slew_rate = 0.6           # deg/s; matches TTP Keck1 (6./10.)
-    wrap_limit = 270.0        # deg azimuth
-    nSlots = 1                # TTP slew-slot granularity
+    wrap_limit = 235.0        # deg azimuth
+    nSlots = 4                # TTP slew-slot granularity
     readout_time = 45.0       # seconds; per-shot detector readout
     slew_overhead_mean = 60.0  # seconds; mean per-visit slew + acquisition (splan-only estimate)
 
