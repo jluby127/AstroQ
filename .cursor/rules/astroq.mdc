@@ -1,0 +1,273 @@
+---
+description: AstroQ project context (semester + night scheduling pipeline)
+alwaysApply: true
+---
+
+# AstroQ Agent Context
+
+## Purpose
+
+AstroQ is an automated scheduler for cadenced astronomical observations. The codebase implements a two-stage pipeline:
+
+1. **Semester plan** — `splan.SemesterPlanner` formulates a Gurobi ILP that picks which targets are observed on which nights/slots across an entire 6-month semester.
+2. **Night plan** — selected by `[night] engine` in `config.ini`:
+   - `ilp` (default) — `nplan_ilp.NightPlannerILP` runs an in-house Gurobi ILP (splan-style packing + cadence + pair-specific slew refinement at fine slot granularity, default 30 s).
+   - `ttp` (legacy) — `nplan.NightPlanner` calls the external [TTP](https://github.com/lukehandley/ttp) MILP wrapper. Both engines emit identical on-disk artifacts and a TTP-shaped `solution` object so downstream code is engine-agnostic.
+
+See [README.md](README.md) and [docs/getting_started.rst](docs/getting_started.rst).
+
+## Glossary
+
+- `request` — one row of `request.csv`. 
+- `unique_id` - is the primary key everywhere
+- `program_code` - observing program (e.g. `2026A_N012`).
+- `t_visit` — slots per single visit (derived from `exptime` + overheads).
+- `n_inter_max` / `tau_inter` — max distinct nights / min nights between nights (days).
+- `n_intra_min` / `n_intra_max`  - min/max visits per night, for multi-shot expsoures
+- `tau_intra` — minimum spacing between multi-visit exposures.
+- `band` — weather band 1/2/3; `full-bandN` = night actually allocated to us.
+- `(d, s)` — day index from `semester_start_day` and slot index `0..n_slots_in_night-1`. Slot size in minutes from `[semester] slot_size`.
+- `allocation` / `access` — boolean cubes shaped `(ntargets, nnights, nslots)` produced by `Access`.
+
+## Repo Layout
+
+- [astroq/cli.py](astroq/cli.py) — argparse, one subparser per subcommand: `bench`, `prep {kpfcc,hirescps}`, `plan-semester`, `plan-night`, `plot`, `webapp`, `compare`.
+- [astroq/driver.py](astroq/driver.py) — one function per CLI subcommand; pure dispatch + light I/O.
+- [astroq/splan.py](astroq/splan.py) — `SemesterPlanner` (Gurobi model, constraints, h5 round-trip).
+- [astroq/nplan.py](astroq/nplan.py) — `NightPlanner` (legacy TTP wrapper, gap handling) plus the shared `save_night_planner_hdf5` / `load_night_planner_hdf5` h5 helpers (`NightPlanner.from_hdf5` is the canonical reader for both engines).
+- [astroq/nplan_ilp.py](astroq/nplan_ilp.py) — `NightPlannerILP` (in-house Gurobi ILP, default engine; emits TTP-shaped `solution` via `_build_solution` and the same artifacts as the legacy path).
+- [astroq/slew.py](astroq/slew.py) — simplified Keck-I slew-time model used by `NightPlannerILP`.
+- [astroq/access.py](astroq/access.py) — `Access` class; computes `is_altaz`, `is_future`, `is_moon`, `is_custom`, `is_inter`, `is_allocated`, `is_clear`, and the AND-reduction `is_observable`.
+- [astroq/queue/kpfcc.py](astroq/queue/kpfcc.py), [astroq/queue/hirescps.py](astroq/queue/hirescps.py) — instrument-specific prep + starlist writers; `prep` chooses by `[global] instrument`.
+- [astroq/io.py](astroq/io.py), [astroq/history.py](astroq/history.py), [astroq/plot.py](astroq/plot.py), [astroq/webapp.py](astroq/webapp.py).
+- Per-run on-disk layout: `<workdir>/<semester>/<date>/<band>/{config.ini, allocation.csv, request.csv, custom.csv, past.csv, programs.csv, outputs/}`. Driven by [Makefile_HIRES2026A](Makefile_HIRES2026A) (also `Makefile_HIRES`, `Makefile_HIRES2026B`).
+
+## Data Schemas
+
+- `request.csv` — see `REQUEST_COLS_CORE` in [astroq/queue/hirescps.py](astroq/queue/hirescps.py). Units: `exptime`/`maxtime` seconds, `tau_intra` hours, `tau_inter` days.
+- `allocation.csv` — `start`, `stop` ISO `YYYY-MM-DDTHH:MM`, optional `comment`. Multiple blocks per night allowed.
+- `past.csv` — `id, target, semid, timestamp, exposure_start_time, exposure_time, observer`.
+- `custom.csv` — `unique_id, starname, start, stop` (`YYYY-MM-DD HH:MM`).
+- `programs.csv` — `program, hours, nights`.
+- Outputs in `outputs/`: `semester_plan.csv`, `serialized_outputs_dense_v{1,2}.csv` (`d, s, r, name`), `request_selected.csv`, `runReport.txt`, `ttp_prepared.csv`, `ObserveOrder_<date>.txt`, `script_<date>_nominal.txt`, `TTPstatistics.txt`, `semester_planner.h5`, `night_planner.h5`.
+
+## Conventions
+
+- Single `config.ini` drives everything; resolve paths via `[global] workdir` + `[data] *_file`, supporting absolute or relative (see [astroq/nplan.py](astroq/nplan.py) lines 62-81).
+- Module-level loggers: `logs = logging.getLogger(__name__)`. Root config in [astroq/__init__.py](astroq/__init__.py) silences `gurobipy` propagation — don't reconfigure logging.
+- `splan` filters `requests_frame_all['inactive'] == False` before building the model. Downstream code consumes `semester_planner.requests_frame` (active) or `requests_frame_all` (everything).
+- `unique_id` is the join key everywhere; before creating Gurobi vars, validate with `io.validate_active_request_unique_ids` to avoid the cryptic `Duplicate keys in Model.addVars()` failure.
+- Persistence: paired `to_hdf5(self, ...)` / `from_hdf5(cls, ...)` using `h5py` for scalars/strings/JSON-encoded dicts and `pd.read_hdf` for DataFrames. `solution.gurobi_model` is deleted before save.
+- TTP "Gap" invariant (legacy engine only): synthetic `Gap N` rows added to keep the solver out of unallocated gaps must be scrubbed from `solution.plotly`, `solution.extras`, `solution.stars`, `solution.schedule` and from `dur` / `time_exposing` / `num_scheduled` / `TTPstatistics.txt`. See `drop_gap_rows` in [astroq/nplan.py](astroq/nplan.py). The `ilp` engine's `Access.is_allocated` already gates unallocated slots, so no gap injection is needed.
+- Engine switch: `[night] engine = ilp | ttp` in `config.ini` (default `ilp`). `astroq.driver.plan_night` branches on it; both paths write the same `outputs/{ttp_prepared.csv, ObserveOrder_<date>.txt, script_<date>_nominal.txt, TTPstatistics.txt, night_planner.h5}`.
+- `requests_vs_schedule` in [astroq/driver.py](astroq/driver.py) encodes the constraint invariants — useful regression check after any schedule-related change.
+
+## References
+
+Background papers — `WebFetch` these on demand when constraint formulation, variable names, or solver behavior matter. Don't paste paper text into this rule.
+
+- [Lubin et al. 2025 (arXiv:2506.08195)](https://arxiv.org/abs/2506.08195) — semester-scheduling MILP implemented in [astroq/splan.py](astroq/splan.py). Paper notation maps to code: `Y_{r,d,s}` → `Yrds`, `W_{r,d}` → `Wrd`, shortfall → `theta`. Read when changing the objective or constraints.
+- [Handley et al. 2024 (arXiv:2310.18497)](https://arxiv.org/abs/2310.18497) — Traveling Telescope Problem MILP. Implementation lives in the external `ttp` package (https://github.com/lukehandley/ttp), consumed by [astroq/nplan.py](astroq/nplan.py) via `formatting.theTTP`, `telescope.Keck1`, `model.TTPModel`. Read when touching slew-time modeling or TTP integration.
+
+## Semester Scheduler (Lubin+ 2025)
+
+Summary of [arXiv:2506.08195](https://arxiv.org/abs/2506.08195) §2-3 in the paper's notation implemented in [astroq/splan.py](astroq/splan.py) with accessibility maps in [astroq/access.py](astroq/access.py).
+
+### Inputs and discretization
+
+- Semester = `N_d × N_s` slots of duration `τ_slot` minutes.
+- Per-request fields:
+  - `n_inter,r` — max unique nights to visit.
+  - `τ_inter,r` — min days between successive nights.
+  - `t_visit,r` — slots per visit
+  - `n_intra,max,r` - max visits per night.
+  - `n_intra,min,r` — min visits per night.
+  - `τ_intra,r` — min slot spacing between visits within a night (only for multi-visit requests)
+  - `A_r ⊂ D × S` — accessible `(d, s)` pairs.
+  - `P_r` — past visits already executed.
+
+### Accessibility map A_r (paper § 3.2)
+
+Per-target boolean map, AND of:
+
+- alt-az / pointing limits (KPF clamps to ≥ 33°).
+- moon separation ≥ 30°.
+- past observations: zero out `(d, s)` within `τ_inter,r` of any prior visit.
+- PI-defined custom windows.
+- multi-slot grow: if a target is inaccessible at any slot in `[s, s + t_visit,r − 1]`, mark the starting slot inaccessible too.
+
+Plus a global allocation/twilight map shared by all targets.
+
+### Decision variables
+
+```text
+Y[r,d,s] ∈ {0,1}     (r,d,s) ∈ A
+W[r,d]   ∈ {0,1}     r ∈ R_multi-visit,  d ∈ D_r
+Θ[r]     ≥ 0         r ∈ R
+```
+
+`Y` is sparse over the accessibility tuple set `A`; `W` is defined only for multi-visit requests; `Θ[r]` is the auxiliary shortfall.
+
+### Objective (eq. 1-3)
+
+```text
+minimize    Σ_r  Θ[r] · t_visit,r
+
+Θ[r] = max(0, a[r])
+
+a[r] = n_inter,r − P_r − ( Σ_{(d,s) ∈ A_r} Y[r,d,s] ) / n_intra,max,r
+```
+
+`max(0, ·)` is realized with linear constraints + auxiliary vars so the objective stays piecewise linear and overscheduling earns no reward.
+
+### Constraints
+
+```text
+C1 — No overlapping visits  (eq. 5)
+
+  Σ_{r ∈ R_{d,s}} Y[r,d,s]
+    ≤ 1 − Σ_{δ=1}^{s−1} Σ_{r' ∈ R'_{d,s,δ}} Y[r', d, s−δ]
+                                                    ∀ (d,s) ∈ T
+  where R'_{d,s,δ} = { r ∈ R_{d,s}  |  t_visit,r ≥ δ }
+```
+
+```text
+C2 — Max visits across the semester  (eq. 7-8)
+
+  single-visit:  Σ_{(d,s) ∈ A_r} Y[r,d,s] + P_r ≤ n_inter,r
+                                                    ∀ r ∈ R_single-visit
+  multi-visit:   Σ_{d ∈ D_r}     W[r,d]    + P_r ≤ n_inter,r
+                                                    ∀ r ∈ R_multi-visit
+```
+
+```text
+C3 — Inter-night cadence  (eq. 9)
+
+  Σ_{s ∈ S_{r,d}} Y[r,d,s] / n_intra,max,r
+    ≤ 1 − Σ_{δ=1}^{τ_inter,r − 1} Σ_{s ∈ S_{r,d+δ}} Y[r, d+δ, s]
+                                                    ∀ (r,d) ∈ R × D
+```
+
+The `1 / n_intra,max,r` normalization collapses multi-visit requests to a 'this night was used' indicator on the LHS.
+
+```text
+C4 — Intra-night cadence  (multi-visit only, eq. 11)
+
+  Y[r,d,s] ≤ W[r,d] − Σ_{s' ∈ S'_{r,d,s}} Y[r, d, s']
+                                                    ∀ (r,d,s) ∈ A,  r ∈ R_multi-visit
+  where S'_{r,d,s} = { s' ∈ S_{r,d}  |  s < s' < s + τ_intra,r }
+
+  plus implicit linking:
+  n_intra,min,r · W[r,d]  ≤  Σ_{s ∈ S_{r,d}} Y[r,d,s]  ≤  n_intra,max,r · W[r,d]
+```
+
+This ties multi-visit counts to `W[r,d]` and forces ≥ `τ_intra,r` slots between repeats.
+
+```text
+Visit duration  (eq. 14)
+
+  t_visit,r = ( n_exp,r · t_exp,r + (n_exp,r − 1) · t_read + t_slew ) / τ_slot
+
+```
+
+t_read, t_slew - are the readout and *average* slew which are different from telescope to telescope
+
+### Paper ↔ code mapping
+
+- `Y[r,d,s]` → `self.Yrds` (built from `observability_array`)
+- `W[r,d]` → `self.Wrd` (built from `observability_nights`, multi-visit subset)
+- `Θ[r]` → `self.theta`
+- `A_r` construction → `Access.compute_*` and `Access.produce_ultimate_map` in [astroq/access.py](astroq/access.py)
+- `t_visit,r` → `self.slots_needed_for_exposure_dict` and `self.strategy['t_visit']` in [astroq/splan.py](astroq/splan.py). NOTE: two formulas in code disagree with each other and with paper eq. 14 (strategy uses `(exptime/60/slot_size).round()` with no overheads; `_build_slots_required_dictionary` uses `t_read = 45 s`, `t_slew = 60 s`; paper uses `t_read = 45 s`, `t_slew = 120 s`). Worth unifying during the night-plan refactor.
+- Sets `R, D, S` → `requests_frame`, `all_dates_dict`, `n_slots_in_night`
+- Constraint regression check → `requests_vs_schedule` in [astroq/driver.py](astroq/driver.py)
+
+## Night Planner / TTP (Handley+ 2024)
+
+Faithful summary of [arXiv:2310.18497](https://arxiv.org/abs/2310.18497) §2 and Appendix B.2 in the paper's notation. The MILP itself lives in the external `ttp` package (https://github.com/lukehandley/ttp); [astroq/nplan.py](astroq/nplan.py) translates semester-plan outputs into TTP inputs and ingests the solution.
+
+### Inputs and discretization
+
+- `N` target nodes (one per visit) plus dummy anchor nodes `0` and `N+1` (no celestial location).
+- Per-node:
+  - `τ_exp,i` — exposure time at node `i`.
+  - `[t_e,i, t_l,i]` — earliest / latest *departure* times (i.e. when the observation must be complete).
+- Observing interval split into `M` slots with boundaries `[w_m, w_{m+1}]`. `M = 1` (constant slew approximation) is the recommended default per § 4 of the paper.
+- Pre-computed slew tensor `τ_slew,i,j,m` — slew time from node `i` to node `j` during slot `m`. Anchor rows/columns set to 0.
+
+### Decision variables
+
+```text
+X[i,j,m] ∈ {0,1}    arc i→j is traversed during slot m
+Y[i]     ∈ {0,1}    node i is visited
+t[i]     ≥ 0        continuous departure time from node i
+t[i,j,m] ≥ 0        = t[i] if tour leaves i toward j during slot m, else 0
+```
+
+`t[i,j,m]` is the linearization trick that lets the formulation behave like the product `t[i] · X[i,j,m]` while staying linear.
+
+### Objective (eq. 10)
+
+```text
+maximize    Σ_{i=1..N} Y[i]
+              − C · Σ_{i,j,m} τ_slew,i,j,m · X[i,j,m]
+```
+
+`C` is a small constant chosen so the slew penalty stays below 1 (primary reward is target count, ties broken by minimum slew). The numerical experiments in § 3.2 instead force `Y[i] = 1 ∀ i` (Constraint 9, eq. 12) and minimize slew alone.
+
+### Constraints (§ 2.4)
+
+```text
+C1 — Depart the start anchor  (eq. 2)
+  Σ_{j=1..N, m} X[0,j,m] = 1
+
+C2 — End at the end anchor  (eq. 3)
+  Σ_{i=1..N, m} X[i,N+1,m] = 1
+
+C3 — Visitation indicator  (eq. 4)
+  Σ_{j=1..N+1, m} X[i,j,m] = Y[i]                          ∀ i = 0..N
+
+C4 — Flow conservation at internal nodes  (eq. 5)
+  Σ_{i=0..N, m} X[i,k,m] − Σ_{j=1..N+1, m} X[k,j,m] = 0     ∀ k = 1..N
+```
+
+```text
+C5 — Linearize selection-time variable  (eq. 6)
+  t[i] = Σ_{j=1..N+1, m} t[i,j,m]                          ∀ i = 0..N
+
+C6 — Min passing time on each arc  (eq. 7)
+  t[j] ≥ Σ_{i=0..N, m} ( t[i,j,m] + (τ_slew,i,j,m + τ_exp,j) · X[i,j,m] )
+                                                            ∀ j = 1..N+1
+
+C7 — Slot bounds on departure  (eq. 8)
+  w_m · X[i,j,m]  ≤  t[i,j,m]  ≤  w_{m+1} · X[i,j,m]
+                                                            ∀ i, j, m
+
+C8 — Per-node accessibility  (eq. 9)
+  t_e,i · Y[i]  ≤  t[i]  ≤  t_l,i · Y[i]                    ∀ i = 1..N
+```
+
+### Multi-visit variant (Appendix B.2)
+
+For multi-visit requests, the target is duplicated into `n_exp` consecutive node indices `{κ, κ+1, …, κ+n_exp−1}` and (eq. B3):
+
+```text
+Σ_{j,m} t[i,j,m] ≥ Σ_{j,m} t[i−1,j,m] + Y[i] · τ_sep
+                                                            ∀ i = κ+1, …, κ+n_exp−1
+```
+
+i.e. exposure `i` cannot end until at least `τ_sep` after exposure `i−1` ended. This is the mechanism by which `tau_intra` from the semester request becomes an ordering constraint inside the night plan. The TTP paper also includes a back-to-back variant (Appendix B.1, eq. B1-B2) for science-plus-calibration pairs; AstroQ does not currently use it.
+
+### Paper ↔ code mapping
+
+The MILP itself lives in the external `ttp` package; AstroQ owns the translation. In [astroq/nplan.py](astroq/nplan.py) `NightPlanner.run_ttp`:
+
+- `target_list` of nodes → `formatting.theTTP(filename, observatory, observation_start_time, observation_stop_time)` with `filename = outputs/ttp_prepared.csv`.
+- Observatory + slew model → `telescope.Keck1()` (encodes Keck-I alt/az slew rates, cable wrap, Nasymth obstruction).
+- The MILP itself → `model.TTPModel(target_list, observers_path, runtime=self.max_solve_time, optgap=self.max_solve_gap)`.
+- Anchor nodes `0`, `N+1` → handled internally by `model.TTPModel`; AstroQ does not see them. `solution.N − 2` is the count of real targets.
+- `[t_e,i, t_l,i]` per target → `First Available` / `Last Available` columns in `ttp_prepared.csv`, computed by `NightPlanner.get_first_last_indices` from the semester-level `Access.is_observable` cube on tonight's row.
+- `τ_exp,i` → `Exposure Time` column (seconds) in `ttp_prepared.csv`.
+- Multi-visit duplication (Appendix B.2) → AstroQ does not duplicate rows itself; it relies on TTP's `Visits In Night` and `Intra_Night_Cadence` columns to expand the node list internally.
+- `Y[i]` and `X[i,j,m]` → exposed via `solution.plotly`, `solution.extras`, `solution.schedule`, `solution.stars` after solve. The `Gap N` scrubbing rule in `## Conventions` governs how AstroQ post-processes these.
+- Allocation gaps within a single night → handled by AstroQ, not TTP. Synthetic `Gap N` nodes are added to `target_list` with high priority and a fixed `[t_e, t_l]` window so the solver leaves real telescope time unallocated where required (see `__init__` `tonight_allocation_gaps` and `run_ttp` gap-row injection in [astroq/nplan.py](astroq/nplan.py)).
