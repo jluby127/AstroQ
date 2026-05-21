@@ -6,7 +6,11 @@ import os
 import astroq.splan as splan
 import astroq.plot as pl
 import astroq.nplan as nplan
+from astroq.ttp.model import TTPModel
 import unittest
+import pandas as pd
+import numpy as np
+from astropy.time import Time
 from pathlib import Path
 from io import BytesIO
 import imageio.v3 as iio
@@ -142,71 +146,31 @@ class TestClass(unittest.TestCase):
             value = getattr(night_planner, attr)
             self.assertIsNotNone(value, f"NightPlanner attribute {attr} is None")
         
-        # Validate solution exists
+        # Validate solution exists (schema v3: bare TTPModel, not [TTPModel])
         self.assertTrue(hasattr(night_planner, 'solution'), "NightPlanner missing attribute: solution")
         self.assertIsNotNone(night_planner.solution, "solution is None")
-        self.assertIsInstance(night_planner.solution, list, "solution is not a list")
-        self.assertGreater(len(night_planner.solution), 0, "solution list is empty")
-        
-        solution = night_planner.solution[0]
-        
-        # Validate solution attributes
-        self.assertTrue(hasattr(solution, 'plotly'), "solution missing attribute: plotly")
-        self.assertIsNotNone(solution.plotly, "solution.plotly is None")
-        self.assertIsInstance(solution.plotly, dict, "solution.plotly is not a dict")
-        self.assertGreater(len(solution.plotly), 0, "solution.plotly is empty")
-        # Check plotly has expected keys
-        expected_plotly_keys = ['Starname', 'Start Exposure', 'Minutes the from Start of the Night']
-        for key in expected_plotly_keys:
-            if key in solution.plotly:
-                self.assertIsNotNone(solution.plotly[key], f"solution.plotly['{key}'] is None")
-        
-        self.assertTrue(hasattr(solution, 'times'), "solution missing attribute: times")
-        self.assertIsNotNone(solution.times, "solution.times is None")
-        self.assertIsInstance(solution.times, list, "solution.times is not a list")
-        if len(solution.times) > 0:
-            self.assertIsInstance(solution.times[0], Time, "solution.times elements are not Time objects")
-        
-        self.assertTrue(hasattr(solution, 'nightstarts'), "solution missing attribute: nightstarts")
-        self.assertIsNotNone(solution.nightstarts, "solution.nightstarts is None")
-        self.assertIsInstance(solution.nightstarts, Time, "solution.nightstarts is not a Time object")
-        
-        self.assertTrue(hasattr(solution, 'nightends'), "solution missing attribute: nightends")
-        self.assertIsNotNone(solution.nightends, "solution.nightends is None")
-        self.assertIsInstance(solution.nightends, Time, "solution.nightends is not a Time object")
-        
-        self.assertTrue(hasattr(solution, 'schedule'), "solution missing attribute: schedule")
-        self.assertIsNotNone(solution.schedule, "solution.schedule is None")
-        self.assertIsInstance(solution.schedule, dict, "solution.schedule is not a dict")
-        
-        self.assertTrue(hasattr(solution, 'stars'), "solution missing attribute: stars")
-        self.assertIsNotNone(solution.stars, "solution.stars is None")
-        self.assertIsInstance(solution.stars, list, "solution.stars is not a list")
-        if len(solution.stars) > 0:
-            star = solution.stars[0]
-            self.assertTrue(hasattr(star, 'name'), "star missing attribute: name")
-            self.assertIsNotNone(star.name, "star.name is None")
-            self.assertTrue(hasattr(star, 'target'), "star missing attribute: target")
-            self.assertIsNotNone(star.target, "star.target is None")
-        
-        self.assertTrue(hasattr(solution, 'az_path'), "solution missing attribute: az_path")
-        self.assertIsNotNone(solution.az_path, "solution.az_path is None")
-        self.assertIsInstance(solution.az_path, np.ndarray, "solution.az_path is not a numpy array")
-        self.assertGreater(solution.az_path.size, 0, "solution.az_path is empty")
-        
-        self.assertTrue(hasattr(solution, 'alt_path'), "solution missing attribute: alt_path")
-        self.assertIsNotNone(solution.alt_path, "solution.alt_path is None")
-        self.assertIsInstance(solution.alt_path, np.ndarray, "solution.alt_path is not a numpy array")
-        self.assertGreater(solution.alt_path.size, 0, "solution.alt_path is empty")
-        
-        self.assertTrue(hasattr(solution, 'extras'), "solution missing attribute: extras")
-        self.assertIsNotNone(solution.extras, "solution.extras is None")
-        # extras can be DataFrame or dict, both are valid
-        self.assertTrue(isinstance(solution.extras, (pd.DataFrame, dict)), 
-                       f"solution.extras is not DataFrame or dict, got {type(solution.extras)}")
-        
-        self.assertTrue(hasattr(solution, 'observatory'), "solution missing attribute: observatory")
-        self.assertIsNotNone(solution.observatory, "solution.observatory is None")
+        solution = night_planner.solution
+        self.assertIsInstance(solution, TTPModel, "solution is not a TTPModel")
+
+        self.assertIsInstance(solution.night_start, Time)
+        self.assertIsInstance(solution.night_end, Time)
+
+        self.assertIsNotNone(solution.schedule)
+        self.assertIsInstance(solution.schedule, pd.DataFrame)
+        self.assertFalse(solution.schedule.empty)
+        for col in ('scheduled', 't_start', 't_end', 'unique_id', 'is_anchor'):
+            self.assertIn(col, solution.schedule.columns, f"schedule missing column: {col}")
+
+        self.assertIsNotNone(solution.stats)
+        self.assertIsInstance(solution.stats, dict)
+        for key in ('dur', 'n_requested', 'n_scheduled', 't_visit_sum', 't_slew_sum'):
+            self.assertIn(key, solution.stats, f"stats missing key: {key}")
+
+        on_sky = solution.schedule[~solution.schedule['is_anchor']]
+        scheduled = on_sky[on_sky['scheduled']]
+        if len(scheduled):
+            self.assertTrue(scheduled['order'].notna().all())
+            self.assertTrue((scheduled['t_end'] >= scheduled['t_start']).all())
         
         # Validate semester_planner reference
         self.assertTrue(hasattr(night_planner, 'semester_planner'), "NightPlanner missing attribute: semester_planner")

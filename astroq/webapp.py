@@ -280,7 +280,10 @@ def render_nightplan_page(band):
     
     script_table_df = pl.get_script_plan(night_planner)
     ladder_fig = pl.get_ladder(data_ttp, night_start_time)
-    slew_animation_fig = tplot.get_slew_animation_plotly(data_ttp, request_frame_path, animationStep=120)
+    slew_animation_fig = tplot.get_slew_animation_plotly(
+        data_ttp, request_frame_path, animationStep=120,
+        inaccessible_zones=night_planner.queue.inaccessible_zones,
+    )
     slew_path_fig = tplot.plot_path_2D_interactive(data_ttp, night_start_time=night_start_time)
     
     script_table_html = pl.nightplan_table_to_html(script_table_df, table_id='script-table', page_size=100)

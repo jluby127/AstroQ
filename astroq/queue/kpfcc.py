@@ -1000,7 +1000,7 @@ def update_allocation_file(allocation_df, current_date):
     
     return allocation_df
 
-def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars, current_day,
+def write_starlist(frame, schedule, night_start_time, filler_stars, current_day,
                     outputdir, version='nominal'):
     """
     Generate the nightly script in the format required by the Keck "Magiq" software. 
@@ -1008,9 +1008,8 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
 
     Args:
         frame (dataframe): the request_frame of just the targets that were selected to be observed tonight
-        solution_frame (dataframe): the solution attribute from the TTP model.plotly object
+        schedule (dataframe): TTP ``schedule`` DataFrame (parallel to ``nodes``)
         night_start_time (astropy time object): Beginning of observing interval
-        extras (array): starnames of "extra" stars (those not fit into the script)
         filler_stars (array): star names of the stars added in the bonus round
         current_day (str): today's date in format YYYY-MM-DD
         outputdir (str): the directory to save the script file
@@ -1019,53 +1018,49 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
     Returns:
         lines (str): the script file as a string
     """
-    # Cast starname column to strings to ensure proper matching
     frame['starname'] = frame['starname'].astype(str)
-    
-    # Cast extras star names to strings to ensure proper matching
-    if extras is not None and len(extras) > 0:
-        if hasattr(extras, 'astype'):
-            # If extras is a DataFrame
-            extras['Starname'] = extras['Starname'].astype(str)
-        else:
-            # If extras is a list, convert each star name to string
-            extras['Starname'] = [str(star) for star in extras['Starname']]
-    
+
+    on_sky = schedule[~schedule['is_anchor']]
+    scheduled_df = on_sky[on_sky['scheduled']].sort_values('order')
+    extras_df = on_sky[~on_sky['scheduled']]
+
     total_exptime = 0
     if not os.path.isdir(outputdir):
         os.mkdir(outputdir)
     script_file = os.path.join(outputdir,'script_{}_{}.txt'.format(current_day, version))
 
     lines = []
-    for i, item in enumerate(solution_frame['Starname']):
-        filler_flag = solution_frame['Starname'][i] in filler_stars
-        row = frame.loc[frame['unique_id'] == solution_frame['Starname'][i]]
+    for _, srow in scheduled_df.iterrows():
+        uid = str(srow['unique_id'])
+        filler_flag = uid in filler_stars
+        row = frame.loc[frame['unique_id'] == uid]
         row.reset_index(inplace=True)
         total_exptime += float(row['exptime'].iloc[0])
 
-        start_exposure_hst = str(TimeDelta(solution_frame['Start Exposure'][i]*60,format='sec') + \
-                                                night_start_time)[11:16]
-        first_available_hst = str(TimeDelta(solution_frame['First Available'][i]*60,format='sec')+ \
-                                                night_start_time)[11:16]
-        last_available_hst = str(TimeDelta(solution_frame['Last Available'][i]*60,format='sec') + \
-                                                night_start_time)[11:16]
+        start_exposure_hst = str(TimeDelta(srow['t_start'] * 60, format='sec') + night_start_time)[11:16]
+        first_available_hst = str(TimeDelta(srow['t_early'] * 60, format='sec') + night_start_time)[11:16]
+        last_available_hst = str(TimeDelta(srow['t_late'] * 60, format='sec') + night_start_time)[11:16]
 
-        lines.append(format_kpf_row(row, start_exposure_hst, first_available_hst,last_available_hst,
-                                    current_day, filler_flag = filler_flag))
+        lines.append(format_kpf_row(
+            row, start_exposure_hst, first_available_hst, last_available_hst,
+            current_day, filler_flag=filler_flag,
+        ))
 
     lines.append('')
     lines.append('X' * 45 + 'EXTRAS' + 'X' * 45)
     lines.append('')
 
-    for j in range(len(extras['Starname'])):
-        if extras['Starname'][j] in filler_stars:
-            filler_flag = True
-        else:
-            filler_flag = False
-        row = frame.loc[frame['unique_id'] == extras['Starname'][j]]
+    for _, erow in extras_df.iterrows():
+        uid = str(erow['unique_id'])
+        filler_flag = uid in filler_stars
+        row = frame.loc[frame['unique_id'] == uid]
         row.reset_index(inplace=True)
-        lines.append(format_kpf_row(row, '24:00', extras['First Available'][j],
-                    extras['Last Available'][j], current_day, filler_flag, True))
+        first_available_hst = str(TimeDelta(erow['t_early'] * 60, format='sec') + night_start_time)[11:16]
+        last_available_hst = str(TimeDelta(erow['t_late'] * 60, format='sec') + night_start_time)[11:16]
+        lines.append(format_kpf_row(
+            row, '24:00', first_available_hst, last_available_hst,
+            current_day, filler_flag, True,
+        ))
 
     # add buffer lines to end of file
     lines.append("")

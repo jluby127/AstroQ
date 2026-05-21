@@ -26,6 +26,47 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 
+def _as_model(data):
+    """Accept ``TTPModel`` or legacy ``[TTPModel]`` wrapper."""
+    return data[0] if isinstance(data, (list, tuple)) else data
+
+
+def schedule_to_ladder_frame(model):
+    """Build a ladder-plot frame from ``model.schedule`` (scheduled + extras)."""
+    sched = model.schedule
+    on_sky = sched[~sched['is_anchor']]
+    scheduled = on_sky[on_sky['scheduled']].sort_values('order')
+    extras = on_sky[~on_sky['scheduled']].sort_values('t_early')
+
+    def _pack(df, *, scheduled_rows):
+        starname = df.get('starname', df['unique_id'])
+        return pd.DataFrame({
+            'Starname': df['unique_id'],
+            'human_starname': starname,
+            'First Available': df['t_early'],
+            'Last Available': df['t_late'],
+            'Start Exposure': df['t_start'] if scheduled_rows else 0.0,
+            'Stop Exposure': df['t_end'] if scheduled_rows else df['t_visit'],
+            'Total Exp Time (min)': df['t_visit'],
+            'Exposure Time (min)': df['exptime'],
+            'N_shots': df['n_exp'],
+            'Priority': df['priority'],
+            'Slew to Next (min)': df['t_slew'].fillna(0.0),
+            'Minutes the from Start of the Night': (
+                (df['t_start'] + df['t_end']) / 2 if scheduled_rows else 0.0
+            ),
+        })
+
+    parts = []
+    if len(scheduled):
+        parts.append(_pack(scheduled, scheduled_rows=True))
+    if len(extras):
+        parts.append(_pack(extras, scheduled_rows=False))
+    if not parts:
+        return pd.DataFrame()
+    return pd.concat(parts, ignore_index=True)
+
+
 def createTelSlewPath(stamps, changes, pointings, animationStep=120):
     '''
     Correctly assign each frame of the animation to the telescope pointing at that time
@@ -90,44 +131,45 @@ def _inaccessible_zone_traces(inaccessible_zones):
     return traces
 
 
-def get_slew_animation_plotly(data, request_selected_path, animationStep=120):
+def get_slew_animation_plotly(data, request_selected_path, animationStep=120,
+                              inaccessible_zones=None):
     """Create a Plotly animated polar plot showing telescope slew path during observations.
 
     Args:
-        data: list whose first element is a ``TTPModel`` solution.
+        data: ``TTPModel`` or ``[TTPModel]`` solution.
         request_selected_path: Path to request_selected.csv (used only to map
             ``unique_id`` -> human-readable ``starname`` for the hover text).
         animationStep (int): the time, in seconds, between animation frames. Default 120s.
+        inaccessible_zones: optional list of obstruction boxes from ``Queue``.
 
     Returns:
         fig (plotly figure): an interactive animated figure with play/pause controls
     """
 
-    model = data[0]
+    model = _as_model(data)
 
     request_selected_df = pd.read_csv(request_selected_path)
 
     t = np.arange(model.night_start.jd, model.night_end.jd, TimeDelta(animationStep, format='sec').jd)
     t = Time(t, format='jd')
 
-    # Reorder per-target SkyCoords to the schedule order via fancy indexing.
-    unique_ids = list(model.requests_frame["unique_id"])
-    schedule_names = np.array(model.schedule['Starname'])
-    names = list(schedule_names)
-    order_idx = [unique_ids.index(n) for n in names]
-    list_targets = list(model.requests_frame.iloc[order_idx]["coord"])
+    on_sky = model.schedule[~model.schedule['is_anchor']]
+    scheduled = on_sky[on_sky['scheduled']].sort_values('order')
+    list_targets = scheduled['coord'].tolist()
+    names = scheduled['unique_id'].tolist()
 
     AZ = model.observer.altaz(t, list_targets, grid_times_targets=True)
     alt = np.round(AZ.az.rad, 2)
     az = 90 - np.round(AZ.alt.deg, 2)
 
+    schedule_times = model.night_start.jd + scheduled['t_start'].to_numpy() / (24 * 60)
+
     stamps = [0] * len(t)
-    slewPath = createTelSlewPath(stamps, model.schedule['Time'], list_targets)
+    slewPath = createTelSlewPath(stamps, schedule_times, list_targets)
     AZ1 = model.observer.altaz(t, slewPath, grid_times_targets=False)
     tel_az = np.round(AZ1.az.rad, 2)
     tel_zen = 90 - np.round(AZ1.alt.deg, 2)
 
-    schedule_times = np.array(model.schedule['Time'])
     names_array = np.array(names)
 
     unique_id_to_starname = dict(zip(request_selected_df['unique_id'].astype(str),
@@ -135,14 +177,12 @@ def get_slew_animation_plotly(data, request_selected_path, animationStep=120):
     human_starname_array = np.array([unique_id_to_starname.get(str(uid), str(uid))
                                       for uid in names_array])
 
-    zone_traces = _inaccessible_zone_traces(model.inaccessible_zones)
+    zone_traces = _inaccessible_zone_traces(inaccessible_zones)
     n_zones = len(zone_traces)
 
     frames = []
     for i in range(len(t)):
-        wasObserved = schedule_times <= float(t[i].jd)
-        observed_list = schedule_names[wasObserved]
-        is_observed = np.isin(names_array, observed_list)
+        is_observed = schedule_times <= float(t[i].jd)
 
         # Per-frame: rebuild zone traces so the (first-frame-only) legend flag
         # is on for frame 0 and off for subsequent frames.
@@ -307,27 +347,56 @@ def plot_path_2D_interactive(data, night_start_time=None):
     """Create an interactive Plotly plot showing telescope azimuth and altitude paths with UTC times and white background.
 
     Args:
-        data (list): a list containing the TTP model solution
+        data: ``TTPModel`` or ``[TTPModel]`` solution
         night_start_time: Astropy Time object representing the start of night (Minute 0) from allocation file
 
     Returns:
         fig (plotly figure): an interactive plot showing telescope azimuth and altitude paths with UTC times and white background.
     """
 
-    model = data[0]
-
-    names = list(model.plotly['human_starname'])
-    times = model.times
-    az_path = model.az_path
-    alt_path = model.alt_path
+    model = _as_model(data)
     wrap = model.wrap_limit
 
     if night_start_time is None:
-        night_start_jd = times[0].jd
-    else:
-        night_start_jd = night_start_time.jd
+        night_start_time = model.night_start
+    night_start_jd = night_start_time.jd
 
-    obs_time = np.array([t.jd for t in times])
+    on_sky = model.schedule[~model.schedule['is_anchor']]
+    scheduled = on_sky[on_sky['scheduled']].sort_values('order')
+    if scheduled.empty:
+        fig = make_subplots(
+            rows=2, cols=1,
+            shared_xaxes=True,
+            subplot_titles=("Azimuth Path", "Elevation Path"),
+            vertical_spacing=0.1,
+        )
+        fig.update_layout(height=600, width=1000, template="plotly_white")
+        return fig
+
+    starname = scheduled.get('starname', scheduled['unique_id'])
+    t_start = scheduled['t_start'].to_numpy()
+    t_end = scheduled['t_end'].to_numpy()
+    t_start_time = model.night_start + TimeDelta(t_start * 60, format='sec')
+    t_end_time = model.night_start + TimeDelta(t_end * 60, format='sec')
+    coords = scheduled['coord'].tolist()
+
+    aa_start = model.observer.altaz(t_start_time, coords)
+    aa_end = model.observer.altaz(t_end_time, coords)
+    az_start = np.atleast_1d(aa_start.az.deg)
+    alt_start = np.atleast_1d(aa_start.alt.deg)
+    az_end = np.atleast_1d(aa_end.az.deg)
+    alt_end = np.atleast_1d(aa_end.alt.deg)
+
+    obs_time = np.empty(2 * len(scheduled))
+    az_path = np.empty(2 * len(scheduled))
+    alt_path = np.empty(2 * len(scheduled))
+    names = []
+    for i in range(len(scheduled)):
+        obs_time[2 * i] = t_start_time[i].jd
+        obs_time[2 * i + 1] = t_end_time[i].jd
+        az_path[2 * i], az_path[2 * i + 1] = az_start[i], az_end[i]
+        alt_path[2 * i], alt_path[2 * i + 1] = alt_start[i], alt_end[i]
+        names.extend([starname.iloc[i], starname.iloc[i]])
 
     if len(obs_time) == 2 * len(names):
         expanded_names = []
@@ -406,9 +475,9 @@ def plot_path_2D_interactive(data, night_start_time=None):
         )
 
     # Shade Start-Exposure → Stop-Exposure intervals (minutes-from-night-start).
-    if hasattr(model, 'plotly') and 'Start Exposure' in model.plotly and 'Stop Exposure' in model.plotly:
-        start_exposures = model.plotly['Start Exposure']
-        stop_exposures = model.plotly['Stop Exposure']
+    if len(scheduled):
+        start_exposures = t_start
+        stop_exposures = t_end
 
         for i, (start_min, stop_min) in enumerate(zip(start_exposures, stop_exposures)):
             start_jd = night_start_jd + (start_min / 1440.0)

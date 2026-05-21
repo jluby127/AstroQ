@@ -97,7 +97,7 @@ class Queue:
         """Total duration of one visit (n_shots shots), in *minutes*.
 
         Canonical formula: ``(exptime_s * n_shots + readout_time * (n_shots - 1)) / 60``.
-        Consumed by ``TTPModel._visit_duration`` and the TTP plotly summary.
+        Consumed by ``TTPModel._visit_duration`` and ladder/script plot adapters.
         """
         return (exptime_s * n_shots + self.readout_time * (n_shots - 1)) / 60.0
 

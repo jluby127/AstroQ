@@ -1966,54 +1966,28 @@ def get_ladder(data, tonight_start_time):
         fig (plotly figure): a plotly figure illustrating the night plan solution.
     """
 
-    scheduled_df = pd.DataFrame.from_dict(data[0].plotly)
-    if 'Slew to Next (min)' not in scheduled_df.columns:
-        scheduled_df['Slew to Next (min)'] = 0.0
+    from astroq.ttp.plot import schedule_to_ladder_frame, _as_model
 
-    # Append unscheduled targets at the bottom of the plot. They use the same
-    # row schema as scheduled rows: Start Exposure = 0, Stop Exposure =
-    # Total Exp Time (min), Slew = 0. The lime accessibility band uses the
-    # numeric t_early/t_late fields emitted by astroq.ttp.model.
-    extras = getattr(data[0], 'extras', None)
-    if isinstance(extras, pd.DataFrame):
-        extras_dict = extras.to_dict('list')
-    elif isinstance(extras, dict):
-        extras_dict = extras
-    else:
-        extras_dict = None
+    model = _as_model(data)
+    orderData = schedule_to_ladder_frame(model)
+    if orderData.empty:
+        orderData = pd.DataFrame(columns=[
+            'Starname', 'human_starname', 'First Available', 'Last Available',
+            'Start Exposure', 'Stop Exposure', 'Total Exp Time (min)',
+            'Slew to Next (min)', 'Minutes the from Start of the Night',
+        ])
+    if 'Slew to Next (min)' not in orderData.columns:
+        orderData['Slew to Next (min)'] = 0.0
 
-    has_extras = bool(
-        extras_dict
-        and len(extras_dict.get('Starname', []))
-        and 't_early (min)' in extras_dict
-        and 'Total Exp Time (min)' in extras_dict
-    )
-    if has_extras:
-        n_extra = len(extras_dict['Starname'])
-        total_exp = list(extras_dict['Total Exp Time (min)'])
-        extras_df = pd.DataFrame({
-            'Starname':            list(extras_dict['Starname']),
-            'human_starname':      list(extras_dict.get('human_starname',
-                                                        extras_dict['Starname'])),
-            'First Available':     list(extras_dict['t_early (min)']),
-            'Last Available':      list(extras_dict['t_late (min)']),
-            'Start Exposure':      [0.0] * n_extra,
-            'Stop Exposure':       total_exp,
-            'Total Exp Time (min)': total_exp,
-            'Exposure Time (min)':  list(extras_dict.get('Exposure Time (min)',
-                                                         total_exp)),
-            'N_shots':              list(extras_dict.get('N_shots', [1] * n_extra)),
-            'Priority':             list(extras_dict['Priority']),
-            'Slew to Next (min)':   [0.0] * n_extra,
-            'UTC Start Time':       [''] * n_extra,
-            'Minutes the from Start of the Night': [0.0] * n_extra,
-        })
-        extras_df = extras_df.sort_values('First Available').reset_index(drop=True)
-        orderData = pd.concat([scheduled_df, extras_df], ignore_index=True)
-        n_unscheduled = len(extras_df)
-    else:
-        orderData = scheduled_df
-        n_unscheduled = 0
+    if model.night_start is not None and len(orderData):
+        orderData['UTC Start Time'] = [
+            (model.night_start + TimeDelta(se * 60, format='sec')).isot[11:16]
+            if se > 0 else ''
+            for se in orderData['Start Exposure']
+        ]
+
+    on_sky = model.schedule[~model.schedule['is_anchor']]
+    n_unscheduled = int((~on_sky['scheduled']).sum())
 
     # reverse so the plot flows top -> bottom with time; after reversal,
     # the lowest indices (bottom of plot) hold the unscheduled block.
@@ -2069,8 +2043,8 @@ def get_ladder(data, tonight_start_time):
         fig.add_hline(y=sep_y, line_color='black', line_width=1, line_dash='solid')
 
     x_min = 0
-    night_start = getattr(data[0], 'night_start', None)
-    night_end = getattr(data[0], 'night_end', None)
+    night_start = getattr(model, 'night_start', None)
+    night_end = getattr(model, 'night_end', None)
     if night_start is not None and night_end is not None:
         x_max = (night_end.jd - night_start.jd) * 24 * 60
     elif len(orderData) > 0:
@@ -2141,17 +2115,20 @@ def get_script_plan(night_planner):
     
     # Read the request_selected.csv file
     request_selected_df = pd.read_csv(request_selected_path)
-    solution = night_planner.solution[0]  # First index as specified
-    
-    # Extract the schedule from the solution and convert to a DataFrame
-    solution_schedule = solution.plotly
-    solution_df = pd.DataFrame(solution_schedule)
-    
-    # Merge the solution DataFrame with the request_selected dataframe
-    # Use starname as the key for merging
-    merged_df = pd.merge(request_selected_df, solution_df, 
-                         left_on='unique_id', right_on='Starname', 
-                         how='inner')
+    solution = night_planner.solution
+    on_sky = solution.schedule[~solution.schedule['is_anchor']]
+    scheduled = on_sky[on_sky['scheduled']].sort_values('order')
+
+    merged_df = request_selected_df.merge(
+        scheduled[['unique_id', 't_start', 't_early', 't_late']],
+        on='unique_id',
+        how='inner',
+    )
+    merged_df = merged_df.rename(columns={
+        't_start': 'Start Exposure',
+        't_early': 'First Available',
+        't_late': 'Last Available',
+    })
                              
     # Select and reorder only the specific columns requested
     # desired_columns = [
