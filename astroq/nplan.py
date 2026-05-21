@@ -612,12 +612,6 @@ class NightPlanner(object):
             ))
 
             solution.schedule = solution_schedule.reset_index(drop=True)
-            if 'ra' in solution.schedule.columns and 'dec' in solution.schedule.columns:
-                solution.schedule['coord'] = list(SkyCoord(
-                    solution.schedule.ra.values * u.deg,
-                    solution.schedule.dec.values * u.deg,
-                    frame='icrs',
-                ))
 
             # Re-attach queue-derived attributes (not serialized in HDF5).
             queue = instance.queue

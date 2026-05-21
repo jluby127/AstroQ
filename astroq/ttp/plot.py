@@ -21,7 +21,9 @@ import numpy as np
 import pandas as pd
 
 # Third-party imports
+from astropy.coordinates import SkyCoord
 from astropy.time import Time, TimeDelta
+import astropy.units as u
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
@@ -155,7 +157,9 @@ def get_slew_animation_plotly(data, request_selected_path, animationStep=120,
 
     on_sky = model.schedule[~model.schedule['is_anchor']]
     scheduled = on_sky[on_sky['scheduled']].sort_values('order')
-    list_targets = scheduled['coord'].tolist()
+    list_targets = SkyCoord(
+        scheduled.ra.values * u.deg, scheduled.dec.values * u.deg, frame='icrs',
+    )
     names = scheduled['unique_id'].tolist()
 
     AZ = model.observer.altaz(t, list_targets, grid_times_targets=True)
@@ -378,7 +382,9 @@ def plot_path_2D_interactive(data, night_start_time=None):
     t_end = scheduled['t_end'].to_numpy()
     t_start_time = model.night_start + TimeDelta(t_start * 60, format='sec')
     t_end_time = model.night_start + TimeDelta(t_end * 60, format='sec')
-    coords = scheduled['coord'].tolist()
+    coords = SkyCoord(
+        scheduled.ra.values * u.deg, scheduled.dec.values * u.deg, frame='icrs',
+    )
 
     aa_start = model.observer.altaz(t_start_time, coords)
     aa_end = model.observer.altaz(t_end_time, coords)

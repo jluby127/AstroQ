@@ -545,7 +545,10 @@ class TTPModel:
         ).sort_values(by='t_start',na_position='last')
         schedule['order'] = range(len(schedule))
 
-        self.schedule = schedule
+        # Drop the SkyCoord cache so the schedule round-trips cleanly through
+        # to_csv / to_hdf without object-dtype hazards. Plot adapters rebuild
+        # coords from ra/dec on demand; the solver no longer needs `coord`.
+        self.schedule = schedule.drop(columns=['coord'], errors='ignore')
         scheduled = self.schedule[self.schedule['scheduled']]
         self.stats = {
             "dur": self.dur,
