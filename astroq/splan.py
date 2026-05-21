@@ -221,7 +221,9 @@ class SemesterPlanner(object):
         self.slots_on_day_for_r = valid_s_for_rd.groupby(['unique_id','d'])[['s3']].agg(list)
         # Get all request id's that are valid on a given day
         self.unique_request_on_day_pairs = self.joiner.copy().drop_duplicates(['unique_id','d'])
-
+        
+        print(self.observability.groupby(["unique_id", "d", "s"], sort=False).size().loc[lambda s: s > 1])
+        
         # Define the Gurobi model
         self.model = gp.Model('Semester_Scheduler')
         # Yrds is technically a 1D matrix indexed by tuples.
@@ -328,7 +330,7 @@ class SemesterPlanner(object):
         for n, row in self.requests_frame.iterrows():
             starid = row['unique_id']
             exposure_time = float(row['exptime']*row['n_exp'])
-            overhead = 45*float(row['n_exp'] - 1) #+ 180*float(row['n_intra_max'])
+            overhead = 0*float(row['n_exp'] - 1) #+ 180*float(row['n_intra_max'])
             
             if always_round_up_flag:
                 slots_needed = int(np.ceil((exposure_time + overhead) / (self.slot_size * 60.0)))
@@ -555,7 +557,7 @@ class SemesterPlanner(object):
         rhs = self.model.objval + epsilon
         self.model.addConstr(lhs <= rhs, 'fix_previous_objective')
 
-    def set_objective_intra_program_priority(self):
+    def set_objective_intra_program_priority2(self):
         """
         Set intra-program priority objective:
 
@@ -575,14 +577,6 @@ class SemesterPlanner(object):
             for p in self.requests_frame['program_code'].unique()
         }
 
-        print('--------------------------------')
-        print('--------------------------------')
-        print("program_request_ids dictionary:")
-        print(program_request_ids)
-        print('--------------------------------')
-        print('--------------------------------')
-        
-        # N_p = sum over r in R_p of 2^{w_r} * t_visit,r * n_intra_max,r * n_inter_max,r
         N_p = {}
         for p in program_request_ids:
             total = 0.0
@@ -594,29 +588,89 @@ class SemesterPlanner(object):
                 total += tw * tv * ni * nj
             N_p[p] = total if total > 0 else 1.0
 
-        print('--------------------------------')
-        print('--------------------------------')
-        print("N_p dictionary:")
-        print(N_p)
-        print('--------------------------------')
-        print('--------------------------------')
-
-        # self.model.setObjective(
-        #     gp.quicksum(
-        #         (1.0 / N_p[p]) * gp.quicksum(
-        #             (2 ** int(weight_by_id.loc[r])) * self.Yrds[r, d, s]
-        #             for r, d, s in self.observability_tuples
-        #             if r in program_request_ids[p]
-        #         )
-        #         for p in program_request_ids
-        #     ),
-        #     GRB.MAXIMIZE
-        # )
-
         self.model.setObjective(
             gp.quicksum(
                 (1.0 / N_p[p]) * gp.quicksum(
                     (2 ** int(weight_by_id.loc[r])) * self.Yrds[r, d, s]
+                    for r, d, s in self.observability_tuples
+                    if r in program_request_ids[p]
+                )
+                for p in program_request_ids
+            ),
+            GRB.MAXIMIZE
+        )
+
+    def set_objective_intra_program_priority(self):
+        """
+        Set intra-program priority objective:
+
+          sum over programs p of (1/N_p) * ( sum over (r,d,s) with r in R_p of 2^{w_r} Y_{r,d,s} )
+
+        where N_p = sum over r in R_p of 2^{w_r} * t_{visit,r} * n_{intra,max,r} * n_{inter,max,r}
+        (normalization per program), w_r = weight of request r, Y_{r,d,s} = binary schedule variable.
+        """
+        logs.info("Objective: Intra-program priorities.")
+
+        w_lin_parts = []
+        for _, g in self.requests_frame.groupby("program_code", sort=False):
+            g2 = g.sort_values(["weight", "unique_id"], ascending=[True, True])
+            s = pd.Series(np.arange(1, len(g2) + 1, dtype=float), index=g2.index, name="w_lin")
+            w_lin_parts.append(s)
+        w_lin = pd.concat(w_lin_parts).reindex(self.requests_frame.index)
+        n_p = self.requests_frame.groupby("program_code")["unique_id"].transform("count")
+        N_ref = int(n_p.max())
+        w_lin = w_lin.astype(float)
+        n_pf = n_p.astype(float)
+
+        # 2) Affine map: w_lin=1 -> 1/N_ref, w_lin=n -> 1 (same as w/N_ref when n == N_ref)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            coeff = (1.0 / N_ref) + (w_lin - 1.0) * (1.0 - 1.0 / N_ref) / (n_pf - 1.0)
+        coeff = np.where(n_pf <= 1.0, 1.0, coeff)  # singleton program → top of scale
+        self.requests_frame["objective_coeff"] = coeff
+
+        # _s = self.requests_frame.groupby("program_code")["objective_coeff"].transform("sum")
+        # self.requests_frame["objective_coeff_norm"] = self.requests_frame["objective_coeff"] / _s.replace(0, np.nan)
+        # weight_by_id = self.requests_frame.set_index('unique_id')['objective_coeff_norm']
+
+        weight_by_id = self.requests_frame.set_index('unique_id')['objective_coeff']
+        t_visit_by_id = self.strategy.set_index('unique_id')['t_visit']
+        n_intra_by_id = self.requests_frame.set_index('unique_id')['n_intra_max']
+        n_inter_by_id = self.requests_frame.set_index('unique_id')['n_inter_max']
+
+        program_request_ids = {
+            p: set(self.requests_frame[self.requests_frame['program_code'] == p]['unique_id'])
+            for p in self.requests_frame['program_code'].unique()
+        }
+
+        # N_p = {}
+        # for p in program_request_ids:
+        #     total = 0.0
+        #     for r in program_request_ids[p]:
+        #         tw = weight_by_id.loc[r]
+        #         tv = int(t_visit_by_id.loc[r])
+        #         ni = int(n_intra_by_id.loc[r])
+        #         nj = int(n_inter_by_id.loc[r])
+        #         total += tw * tv * ni * nj
+        #     N_p[p] = total if total > 0 else 1.0
+
+        # N_p = {}
+        # for p in program_request_ids:
+        #     N_p[p] = 1.0
+
+        N_p = {
+            'Program0': 1.0,
+            'Program1': 0.2,
+            'Program2': 1.0,
+            'Program3': 1.0,
+            'Program4': 0.1,
+        }
+
+
+        self.model.setObjective(
+            gp.quicksum(
+                (1.0 / N_p[p]) * gp.quicksum(
+                # gp.quicksum(
+                    (weight_by_id.loc[r]) * self.Yrds[r, d, s]
                     for r, d, s in self.observability_tuples
                     if r in program_request_ids[p]
                 )
@@ -870,6 +924,7 @@ class SemesterPlanner(object):
         t1 = time.time()
         self.constraint_fix_previous_objective()
         self.set_objective_intra_program_priority()
+        # self.set_objective_intra_program_priority2()
         logs.info(f"Time to build constraints: {np.round(time.time()-t1,3):.3f}")
 
     def serialize_results_csv(self):

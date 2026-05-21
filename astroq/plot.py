@@ -7,6 +7,7 @@ From there, they can be used as is or saved as png files.
 from collections import defaultdict
 from datetime import datetime, timedelta
 import os
+import re
 import pickle
 import base64
 from io import BytesIO
@@ -44,8 +45,8 @@ np.random.seed(24)
 gray = 'rgb(210,210,210)'
 clear = 'rgba(255,255,255,1)'
 labelsize = 38
-slew_overhead = 180.
-readout_overhead = 45.
+slew_overhead = 0#180.
+readout_overhead = 0#45.
 hours_per_night = 12.
 
 class StarPlotter(object):
@@ -1101,6 +1102,160 @@ def get_rawobs(semester_planner, all_stars, use_program_colors=False):
     
     return fig
 
+
+def _request_observation_pct_complete(star):
+    """
+    Percent of requested observations delivered (past + scheduled), same basis as get_rawobs.
+    """
+    total = star.total_observations_requested
+    past_total = sum(star.observations_past.values()) if star.observations_past else 0
+    future_total = sum(star.observations_future.values()) if star.observations_future else 0
+    total_done = past_total + future_total
+    if total <= 0:
+        return 0.0
+    return (total_done / total) * 100.0
+
+
+def _starname_suffix_int(starname):
+    """Parse trailing digits from names like ``Star0001`` -> ``1``. Returns None if pattern does not match."""
+    m = re.match(r"^Star(\d+)$", str(starname).strip(), flags=re.IGNORECASE)
+    if not m:
+        return None
+    return int(m.group(1), 10)
+
+
+def get_completion_vs_star_number(all_stars, use_program_colors=False):
+    """
+    Scatter: x = integer parsed from ``Star####`` starname, y = request completion % (past + scheduled) / requested.
+
+    Stars whose names do not match ``^Star\\d+$`` are skipped.
+
+    Parameters:
+        all_stars: iterable of StarPlotter objects
+        use_program_colors: if True, color markers by program_color_rgb
+
+    Returns:
+        plotly.graph_objects.Figure
+    """
+    xs = []
+    ys = []
+    names = []
+    programs = []
+    colors = []
+    for star in all_stars:
+        sid = _starname_suffix_int(star.starname)
+        if sid is None:
+            continue
+        xs.append(sid)
+        ys.append(_request_observation_pct_complete(star))
+        names.append(star.starname)
+        programs.append(star.program)
+        if use_program_colors:
+            colors.append(star.program_color_rgb)
+        else:
+            colors.append(star.star_color_rgb)
+
+    fig = go.Figure()
+    fig.update_layout(plot_bgcolor=clear, paper_bgcolor=clear)
+
+    if not xs:
+        fig.update_layout(
+            title="Completion vs star index (no Star#### names in this list)",
+            template="plotly_white",
+            height=400,
+            width=900,
+        )
+        return fig
+
+    fig.add_trace(
+        go.Scatter(
+            x=xs,
+            y=ys,
+            mode="markers",
+            marker=dict(size=9, color=colors, opacity=0.75, line=dict(width=0.5, color="rgba(0,0,0,0.35)")),
+            text=names,
+            customdata=np.stack([names, programs], axis=1),
+            hovertemplate=(
+                "<b>%{customdata[0]}</b><br>"
+                "program: %{customdata[1]}<br>"
+                "star # (from name): %{x}<br>"
+                "% complete: %{y:.1f}%<extra></extra>"
+            ),
+            name="requests",
+            showlegend=False,
+        )
+    )
+
+    fig.add_hline(y=100, line_dash="solid", line_color="black", line_width=1)
+    fig.add_hline(y=80, line_dash="dash", line_color="gray", line_width=1)
+
+    fig.update_layout(
+        title="<b>Request completion vs star name index</b> (x from Star#### suffix)",
+        template="plotly_white",
+        xaxis_title="Star number (from name)",
+        yaxis_title="% complete (past + scheduled vs requested)",
+        height=640,
+        width=1200,
+        margin=dict(l=70, r=40, t=80, b=60),
+        yaxis=dict(rangemode="tozero", range=[0, max(105, max(ys) * 1.05 if ys else 105)]),
+        xaxis=dict(rangemode="tozero"),
+    )
+
+    return fig
+
+
+def build_program_completion_summary_df(programs_dict):
+    """
+    One row per program: request count and share of requests meeting completion thresholds.
+
+    Completion matches get_rawobs: (sum past visits + sum future visits) / total_observations_requested.
+
+    Parameters:
+        programs_dict: mapping program_code -> list of StarPlotter instances (e.g. data_astroq[0])
+
+    Returns:
+        pd.DataFrame: program name, # of requests, % at 100%, % at 80% (each % is 100 * count / n_requests).
+    """
+    rows = []
+    for program_code in sorted(programs_dict.keys()):
+        stars = programs_dict[program_code]
+        n_req = len(stars)
+        n_at_100 = 0
+        n_at_80 = 0
+        for star in stars:
+            total = star.total_observations_requested
+            past_total = sum(star.observations_past.values()) if star.observations_past else 0
+            future_total = sum(star.observations_future.values()) if star.observations_future else 0
+            total_done = past_total + future_total
+            if total > 0 and total_done >= total:
+                n_at_100 += 1
+            pct = _request_observation_pct_complete(star)
+            if pct >= 80.0:
+                n_at_80 += 1
+        if n_req > 0:
+            pct_100 = (n_at_100 / n_req) * 100.0
+            pct_80 = (n_at_80 / n_req) * 100.0
+        else:
+            pct_100 = 0.0
+            pct_80 = 0.0
+        rows.append(
+            {
+                "program name": program_code,
+                "# of requests": n_req,
+                "% of requests at 100% completion": round(pct_100, 1),
+                "% of requests at 80% completion": round(pct_80, 1),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def program_completion_summary_table_html(programs_dict, table_id="admin-program-completion"):
+    """HTML table (DataTables) for admin program completion summary."""
+    df = build_program_completion_summary_df(programs_dict)
+    n = max(len(df), 25)
+    return dataframe_to_html(df, sort_column=0, page_size=n, table_id=table_id)
+
+
 def get_timebar(semester_planner, all_stars, use_program_colors=False, prevent_negative=False):
     """
     Create a horizontal bar chart of the time used vs forecasted vs available
@@ -1921,15 +2076,18 @@ def get_request_frame(semester_planner, all_stars):
     return filtered_frame
 
 
-def add_star_links(request_df, semester_code, date, band):
+def add_star_links(request_df, semester_code, date, band, webapp_url_parts=None):
     """
     Convert starname column to links: /semester/date/band/program_code/starname
+    (or /.../program_code/starname when webapp_url_parts is a tuple of path segments).
 
     Args:
         request_df (pd.DataFrame): request frame with starname and program_code columns
-        semester_code (str): e.g. 2025B
+        semester_code (str): e.g. 2025B (ignored if webapp_url_parts is set)
         date (str): e.g. 2025-01-15
         band (str): e.g. band1
+        webapp_url_parts (tuple, optional): path segments under the host root for the webapp
+            (e.g. (\"my_outputs\",) for flat layout or (\"2025B\", \"2025-01-15\", \"band1\") nested).
 
     Returns:
         request_df (pd.DataFrame): df with starname as HTML links
@@ -1938,8 +2096,12 @@ def add_star_links(request_df, semester_code, date, band):
     if 'program_code' not in request_df.columns or 'starname' not in request_df.columns:
         return request_df.copy()
     df = request_df.copy()
+    if webapp_url_parts is not None:
+        prefix = '/'.join(quote(str(p)) for p in webapp_url_parts)
+    else:
+        prefix = f'{quote(str(semester_code))}/{quote(str(date))}/{quote(str(band))}'
     df['starname'] = df.apply(
-        lambda row: f'<a href="/{semester_code}/{date}/{band}/{quote(str(row["program_code"]))}/{quote(str(row["starname"]))}">{row["starname"]}</a>',
+        lambda row: f'<a href="/{prefix}/{quote(str(row["program_code"]))}/{quote(str(row["starname"]))}">{row["starname"]}</a>',
         axis=1
     )
     return df
@@ -2743,7 +2905,15 @@ REQUEST_FRAME_COLUMN_TOOLTIPS = {
 }
 
 
-def request_frame_to_html(request_df, semester_code=None, date=None, band=None, table_id='request-table', page_size=25):
+def request_frame_to_html(
+    request_df,
+    semester_code=None,
+    date=None,
+    band=None,
+    webapp_url_parts=None,
+    table_id='request-table',
+    page_size=25,
+):
     """
     Convert a request frame (from request.csv) to HTML for admin/program/star pages.
 
@@ -2753,9 +2923,11 @@ def request_frame_to_html(request_df, semester_code=None, date=None, band=None, 
 
     Args:
         request_df (pd.DataFrame): request frame, e.g. from get_request_frame
-        semester_code (str, optional): for star links
+        semester_code (str, optional): for star links (with date and band) if webapp_url_parts omitted
         date (str, optional): for star links
         band (str, optional): for star links
+        webapp_url_parts (tuple, optional): URL path prefix segments, e.g. (\"run_a\",) for flat layout or
+            (\"2025B\", \"2025-01-15\", \"band1\") for nested. When set, semester_code/date/band are not required for links.
         table_id (str): HTML table id
         page_size (int): rows per page
 
@@ -2776,7 +2948,13 @@ def request_frame_to_html(request_df, semester_code=None, date=None, band=None, 
             df[coord] = pd.to_numeric(df[coord], errors='coerce')
             df[coord] = df[coord].apply(lambda x: f'{x:.2f}' if pd.notna(x) else '')
     # Add star links if URL context provided
-    if semester_code and date and band and 'program_code' in df.columns and 'starname' in df.columns:
+    if webapp_url_parts and 'program_code' in df.columns and 'starname' in df.columns:
+        prefix = '/'.join(quote(str(p)) for p in webapp_url_parts)
+        df['starname'] = df.apply(
+            lambda row: f'<a href="/{prefix}/{quote(str(row["program_code"]))}/{quote(str(row["starname"]))}">{row["starname"]}</a>',
+            axis=1
+        )
+    elif semester_code and date and band and 'program_code' in df.columns and 'starname' in df.columns:
         df['starname'] = df.apply(
             lambda row: f'<a href="/{semester_code}/{date}/{band}/{quote(str(row["program_code"]))}/{quote(str(row["starname"]))}">{row["starname"]}</a>',
             axis=1

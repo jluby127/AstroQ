@@ -30,6 +30,15 @@ running_on_keck_machines = False
 
 app = Flask(__name__, template_folder="../templates")
 
+# ---------------------------------------------------------------------------
+# REVERT (restore original URL + disk layout): set to False.
+# False (default upstream):  disk = {uptree}/{semester}/{date}/{band}/outputs/
+#                            URL  = /{semester}/{date}/{band}/...
+# True (this branch):        disk = {uptree}/{outputs_folder_name}/outputs/
+#                            URL  = /{outputs_folder_name}/...  (no band segment)
+# ---------------------------------------------------------------------------
+WEBAPP_FLAT_OUTPUTS_UNDER_UPTREE = True
+
 # Global variables to store loaded data
 data_astroq = None
 data_ttp = None
@@ -38,23 +47,47 @@ night_planner = None
 uptree_path = None
 semester_planner_timestamp = None
 
-def load_data_for_path(semester_code, date, band, uptree_path):
+_VALID_BANDS = ('band1', 'band2', 'band3', 'full-band1', 'full-band2', 'full-band3')
+
+
+def _validate_band(band):
+    if band not in _VALID_BANDS:
+        abort(
+            400,
+            description="Band must be 'band1', 'band2', 'band3', 'full-band1', 'full-band2', or 'full-band3'",
+        )
+
+
+def _request_table_html(request_df, url_sem_or_folder, url_date, band):
+    """Build request table HTML with correct star links for flat vs nested webapp URLs."""
+    if WEBAPP_FLAT_OUTPUTS_UNDER_UPTREE:
+        return pl.request_frame_to_html(
+            request_df, webapp_url_parts=(url_sem_or_folder,)
+        )
+    return pl.request_frame_to_html(
+        request_df, semester_code=url_sem_or_folder, date=url_date, band=band
+    )
+
+
+def load_data_for_path(uptree_path, semester_code, date, band):
     """
-    Load data for a specific semester_code/date/band combination
-    
-    Args:
-        semester_code (str): the semester code
-        date (str): the date in YYYY-MM-DD format
-        band (str): the band
-        uptree_path (str): the path to the uptree directory
+    Load semester (and optionally night) planner data.
+
+    When WEBAPP_FLAT_OUTPUTS_UNDER_UPTREE is True:
+        semester_code = outputs folder name under uptree; date and band are ignored for disk paths.
+        Disk: {uptree}/{semester_code}/outputs/
+    Otherwise:
+        Disk: {uptree}/{semester_code}/{date}/{band}/outputs/
 
     Returns:
-        success (bool): True if data loaded successfully, False otherwise
+        success (bool), message (str)
     """
     global data_astroq, data_ttp, semester_planner, night_planner, request_frame_path, night_start_time
-    
-    # Construct the workdir path based on URL parameters
-    workdir = os.path.join(uptree_path, semester_code, date, band, "outputs")
+
+    if WEBAPP_FLAT_OUTPUTS_UNDER_UPTREE:
+        workdir = os.path.join(uptree_path, semester_code, "outputs")
+    else:
+        workdir = os.path.join(uptree_path, semester_code, date, band, "outputs")
     request_frame_path = os.path.join(workdir, 'request_selected.csv')
     
     # Check if the directory exists
@@ -105,7 +138,25 @@ def load_data_for_path(semester_code, date, band, uptree_path):
 # New homepage with navigation instructions
 @app.route("/", methods=["GET"])
 def index():
-    navigation_text = """
+    if WEBAPP_FLAT_OUTPUTS_UNDER_UPTREE:
+        navigation_text = """
+    Flat outputs layout (--uptree_path is the parent of each run folder):
+
+    url/{outputs_folder_name}/{page}
+
+    where:
+    - outputs_folder_name is the directory under uptree that contains outputs/ (change this to switch schedules)
+    - page is one of: {program_code}, {program_code}/{starname}, nightplan, or admin
+
+    Examples:
+    - /my_run_2025-01-15/admin
+    - /my_run_2025-01-15/2025B_N001
+    - /my_run_2025-01-15/2025B_N001/HD4614
+
+    Disk layout: {uptree_path}/{outputs_folder_name}/outputs/semester_planner.h5
+    """
+    else:
+        navigation_text = """
     To navigate, append to the URL in the following way:
     url/{semester_code}/{date}/{band}/{page}
 
@@ -125,39 +176,76 @@ def index():
     Note: You only have access to the programs and stars for which you are a PI or named Co-I on the proposal coversheet.
     Note: Access to nightplan pages is for observers.
     Note: Access to admin pages is for the queue manager and observatory staff.
+
+    Disk layout: {uptree_path}/{semester}/{date}/{band}/outputs/
     """
     return render_template("homepage.html", navigation_text=navigation_text)
 
-# Star page: /semester/date/band/program_code/starname (star under program)
-@app.route("/<semester_code>/<date>/<band>/<program_code>/<starname>")
-def star_page(semester_code, date, band, program_code, starname):
-    """Handle star page route: star is under program in URL."""
-    global uptree_path
-    if band not in ['band1', 'band2', 'band3', 'full-band1', 'full-band2', 'full-band3']:
-        abort(400, description="Band must be 'band1', 'band2', 'band3', 'full-band1', 'full-band2', or 'full-band3'")
-    success, message = load_data_for_path(semester_code, date, band, uptree_path)
-    if not success:
-        return f"Error: {message}", 404
-    return render_star_page(starname, program_code)
 
-# Dynamic route for program, admin, nightplan
-@app.route("/<semester_code>/<date>/<band>/<page>")
-def dynamic_page(semester_code, date, band, page):
-    """Handle program, admin, and nightplan routes."""
+def _dynamic_page_handler(semester_code, date, band, page):
+    """Shared handler; date may be None when WEBAPP_FLAT_OUTPUTS_UNDER_UPTREE (unused for load)."""
     global uptree_path
-    if band not in ['band1', 'band2', 'band3', 'full-band1', 'full-band2', 'full-band3']:
-        abort(400, description="Band must be 'band1', 'band2', 'band3', 'full-band1', 'full-band2', or 'full-band3'")
-    success, message = load_data_for_path(semester_code, date, band, uptree_path)
+    if WEBAPP_FLAT_OUTPUTS_UNDER_UPTREE:
+        success, message = load_data_for_path(uptree_path, semester_code, date, None)
+    else:
+        _validate_band(band)
+        success, message = load_data_for_path(uptree_path, semester_code, date, band)
     if not success:
         return f"Error: {message}", 404
     if page == "admin":
         return render_admin_page(semester_code, date, band)
     elif page == "nightplan":
-        return render_nightplan_page(band)
+        return render_nightplan_page(semester_code, date, band)
     elif page in data_astroq[0]:
         return render_program_page(semester_code, date, band, page)
     else:
         abort(404, description=f"Page '{page}' not found")
+
+
+def _star_page_handler(semester_code, date, band, program_code, starname):
+    global uptree_path
+    if WEBAPP_FLAT_OUTPUTS_UNDER_UPTREE:
+        success, message = load_data_for_path(uptree_path, semester_code, date, None)
+    else:
+        _validate_band(band)
+        success, message = load_data_for_path(uptree_path, semester_code, date, band)
+    if not success:
+        return f"Error: {message}", 404
+    return render_star_page(starname, program_code)
+
+
+if WEBAPP_FLAT_OUTPUTS_UNDER_UPTREE:
+
+    @app.route("/<semester_code>/download_nightplan", endpoint="download_nightplan_flat")
+    def download_nightplan_flat(semester_code):
+        return _download_nightplan_handler(semester_code, None, None)
+
+    @app.route("/<semester_code>/<program_code>/<starname>")
+    def star_page(semester_code, program_code, starname):
+        return _star_page_handler(semester_code, None, None, program_code, starname)
+
+    @app.route("/<semester_code>/<page>")
+    def dynamic_page(semester_code, page):
+        """Program, admin, nightplan (flat outputs path). semester_code = outputs folder name."""
+        return _dynamic_page_handler(semester_code, None, None, page)
+
+else:
+
+    @app.route("/<semester_code>/<date>/<band>/<page>")
+    def dynamic_page(semester_code, date, band, page):
+        """Program, admin, nightplan (nested outputs path)."""
+        return _dynamic_page_handler(semester_code, date, band, page)
+
+    @app.route("/<semester_code>/<date>/<band>/<program_code>/<starname>")
+    def star_page(semester_code, date, band, program_code, starname):
+        return _star_page_handler(semester_code, date, band, program_code, starname)
+
+    @app.route(
+        "/<semester_code>/<date>/<band>/download_nightplan",
+        endpoint="download_nightplan_nested",
+    )
+    def download_nightplan_nested(semester_code, date, band):
+        return _download_nightplan_handler(semester_code, date, band)
 
 def render_admin_page(semester_code, date, band):
     """Render the admin page"""
@@ -168,8 +256,9 @@ def render_admin_page(semester_code, date, band):
 
     # Get request frame table for all stars, with starname as links under program
     request_df = pl.get_request_frame(semester_planner, all_stars_from_all_programs)
-    request_table_html = pl.request_frame_to_html(request_df, semester_code, date, band)
-    
+    request_table_html = _request_table_html(request_df, semester_code, date, band)
+    program_completion_html = pl.program_completion_summary_table_html(data_astroq[0])
+
     fig_cof1 = pl.get_cof(semester_planner, list(data_astroq[1].values()))
     fig_cof2 = pl.get_cof(semester_planner, list(data_astroq[1].values()), use_time=True)
 
@@ -179,6 +268,9 @@ def render_admin_page(semester_code, date, band):
     fig_timebar = pl.get_timebar(semester_planner, all_stars_from_all_programs, use_program_colors=True)
     fig_timebar_by_program = pl.get_timebar_by_program(semester_planner, data_astroq[0])
     fig_rawobs = pl.get_rawobs(semester_planner, all_stars_from_all_programs, use_program_colors=True)
+    fig_completion_star = pl.get_completion_vs_star_number(
+        all_stars_from_all_programs, use_program_colors=True
+    )
 
     fig_cof_html1 = pio.to_html(fig_cof1, full_html=True, include_plotlyjs='cdn')
     fig_cof_html2 = pio.to_html(fig_cof2, full_html=True, include_plotlyjs='cdn')
@@ -188,10 +280,31 @@ def render_admin_page(semester_code, date, band):
     fig_timebar_html = pio.to_html(fig_timebar, full_html=True, include_plotlyjs='cdn')
     fig_timebar_by_program_html = pio.to_html(fig_timebar_by_program, full_html=True, include_plotlyjs='cdn')
     fig_rawobs_html = pio.to_html(fig_rawobs, full_html=True, include_plotlyjs='cdn')
+    fig_completion_star_html = pio.to_html(fig_completion_star, full_html=True, include_plotlyjs='cdn')
 
-    figures_html = [fig_timebar_html, fig_timebar_by_program_html, fig_cof_html1, fig_cof_html2, fig_birdseye_html, fig_rawobs_html, fig_tau_inter_line_html, fig_football_html]
+    program_completion_block = (
+        f'<div class="table-container">{program_completion_html}</div>'
+    )
 
-    return render_template("admin.html", tables_html=[request_table_html], figures_html=figures_html, timestamp=semester_planner_timestamp)
+    figures_html = [
+        fig_timebar_html,
+        fig_timebar_by_program_html,
+        fig_cof_html1,
+        fig_cof_html2,
+        program_completion_block,
+        fig_birdseye_html,
+        # fig_rawobs_html,
+        # fig_completion_star_html,
+        fig_tau_inter_line_html,
+        fig_football_html,
+    ]
+
+    return render_template(
+        "admin.html",
+        tables_html=[request_table_html],
+        figures_html=figures_html,
+        timestamp=semester_planner_timestamp,
+    )
 
 def render_program_page(semester_code, date, band, program_code):
     """Render the program overview page for a specific program"""
@@ -206,8 +319,8 @@ def render_program_page(semester_code, date, band, program_code):
     
     # Get request frame table for this program's stars, with starname as links
     request_df = pl.get_request_frame(semester_planner, program_stars)
-    request_table_html = pl.request_frame_to_html(request_df, semester_code, date, band)
-    
+    request_table_html = _request_table_html(request_df, semester_code, date, band)
+
     # Create overview figures for this program
     fig_cof = pl.get_cof(semester_planner, program_stars)
     fig_birdseye = pl.get_birdseye(semester_planner, data_astroq[2], program_stars)
@@ -215,6 +328,7 @@ def render_program_page(semester_code, date, band, program_code):
     fig_football = pl.get_football(semester_planner, program_stars)
     fig_timebar = pl.get_timebar(semester_planner, program_stars, use_program_colors=True)
     fig_rawobs = pl.get_rawobs(semester_planner, program_stars)
+    fig_completion_star = pl.get_completion_vs_star_number(program_stars, use_program_colors=True)
 
     fig_cof_html = pio.to_html(fig_cof, full_html=True, include_plotlyjs='cdn')
     fig_birdseye_html = pio.to_html(fig_birdseye, full_html=True, include_plotlyjs='cdn')
@@ -222,8 +336,17 @@ def render_program_page(semester_code, date, band, program_code):
     fig_football_html = pio.to_html(fig_football, full_html=True, include_plotlyjs='cdn')
     fig_timebar_html = pio.to_html(fig_timebar, full_html=True, include_plotlyjs='cdn')
     fig_rawobs_html = pio.to_html(fig_rawobs, full_html=True, include_plotlyjs='cdn')
+    fig_completion_star_html = pio.to_html(fig_completion_star, full_html=True, include_plotlyjs='cdn')
 
-    figures_html = [fig_timebar_html, fig_cof_html, fig_birdseye_html, fig_rawobs_html, fig_tau_inter_line_html, fig_football_html]
+    figures_html = [
+        fig_timebar_html,
+        fig_cof_html,
+        fig_birdseye_html,
+        fig_rawobs_html,
+        fig_completion_star_html,
+        fig_tau_inter_line_html,
+        fig_football_html,
+    ]
     
     return render_template("semesterplan.html", 
                          programname=program_code, 
@@ -265,51 +388,87 @@ def render_star_page(starname, program_code=None):
                 fig_rawobs_html = pio.to_html(fig_rawobs, full_html=True, include_plotlyjs='cdn')
 
                 tables_html = [request_table_html]
-                figures_html = [fig_cof_html, fig_birdseye_html, fig_rawobs_html, fig_tau_inter_line_html, fig_football_html]
+                figures_html = [
+                    fig_cof_html,
+                    fig_birdseye_html,
+                    fig_rawobs_html,
+                    fig_tau_inter_line_html,
+                    fig_football_html,
+                ]
 
                 return render_template("star.html", starname=true_starname, tables_html=tables_html, figures_html=figures_html, timestamp=semester_planner_timestamp)
     
-    return f"Error, star {starname} not found in programs {list(program_names)}"
+    return f"Error, star {starname} not found in programs {list(data_astroq[0].keys())}"
 
-def render_nightplan_page(band):
-    """Render the night plan page"""
+def render_nightplan_page(semester_code, date, band):
+    """Render the night plan page. semester_code is outputs folder name when flat layout."""
     if data_ttp is None:
         return "Error: No night planner data available", 404
-    
+
     plots = ['script_table', 'slewgif', 'ladder', 'slewpath']
-    
+
     script_table_df = pl.get_script_plan(night_planner)
     ladder_fig = pl.get_ladder(data_ttp, night_start_time)
     slew_animation_fig = pl.get_slew_animation_plotly(data_ttp, request_frame_path, animationStep=120)
     slew_path_fig = pl.plot_path_2D_interactive(data_ttp, night_start_time=night_start_time)
-    
+
     script_table_html = pl.nightplan_table_to_html(script_table_df, table_id='script-table', page_size=100)
     # Convert figures to HTML
     ladder_html = pio.to_html(ladder_fig, full_html=True, include_plotlyjs='cdn')
     slew_animation_html = pio.to_html(slew_animation_fig, full_html=True, include_plotlyjs='cdn')
     slew_path_html = pio.to_html(slew_path_fig, full_html=True, include_plotlyjs='cdn')
-    
+
     figure_html_list = [script_table_html, ladder_html, slew_animation_html, slew_path_html]
 
-    return render_template("nightplan.html", starname=None, figure_html_list=figure_html_list, 
-                         semester_planner=semester_planner, night_planner=night_planner, band=band)
+    if WEBAPP_FLAT_OUTPUTS_UNDER_UPTREE:
+        nightplan_download_endpoint = "download_nightplan_flat"
+        nightplan_download_kwargs = {"semester_code": semester_code}
+        band_display = (
+            "band3" if semester_planner.run_band3 else "band1"
+        )
+    else:
+        nightplan_download_endpoint = "download_nightplan_nested"
+        nightplan_download_kwargs = {
+            "semester_code": semester_code,
+            "date": date,
+            "band": band,
+        }
+        band_display = band
 
-@app.route("/<semester_code>/<date>/<band>/download_nightplan")
-def download_nightplan(semester_code, date, band):
+    return render_template(
+        "nightplan.html",
+        starname=None,
+        figure_html_list=figure_html_list,
+        semester_planner=semester_planner,
+        night_planner=night_planner,
+        band=band_display,
+        nightplan_download_endpoint=nightplan_download_endpoint,
+        nightplan_download_kwargs=nightplan_download_kwargs,
+    )
+
+def _download_nightplan_handler(semester_code, date, band):
     """Download the Magiq formatted night plan file"""
     global uptree_path, semester_planner, night_planner
-    
-    # Validate parameters
-    if band not in ['band1', 'band3']:
-        abort(400, description="Band must be 'band1' or 'band3'")
-    
-    # Load data for this path
-    success, message = load_data_for_path(semester_code, date, band, uptree_path)
+
+    if WEBAPP_FLAT_OUTPUTS_UNDER_UPTREE:
+        success, message = load_data_for_path(uptree_path, semester_code, date, None)
+    else:
+        if band not in ['band1', 'band3']:
+            abort(400, description="Band must be 'band1' or 'band3'")
+        success, message = load_data_for_path(uptree_path, semester_code, date, band)
     if not success:
         return f"Error: {message}", 404
-    
+
     if semester_planner is None or night_planner is None:
         return "Error: No planner data available", 404
+
+    if WEBAPP_FLAT_OUTPUTS_UNDER_UPTREE:
+        band = 'band3' if semester_planner.run_band3 else 'band1'
+    if band not in ['band1', 'band3']:
+        abort(
+            400,
+            description="Magiq night plan download is only available for band1 or band3 schedules",
+        )
     
     try:
         # Construct the path to the script file
