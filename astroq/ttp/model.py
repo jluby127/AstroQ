@@ -354,6 +354,22 @@ class TTPModel:
             range(N), vtype=GRB.CONTINUOUS, lb=0, name="ti",
         )
 
+        # Anchor visitation is always true
+        self.model.addConstr(self.Yi[0] == 1, "start_anchor_visit")
+        self.model.addConstr(self.Yi[N - 1] == 1, "end_anchor_visit")
+        self.model.addConstr(self.ti[0] == 0.0, "anchor_start_time")
+
+        # If arc 0->j in slot m is chosen, force visit j to start at t=0:
+        # ti[j] == t_visit_j
+        for j in range(1, N - 1):
+            t_visit_j = float(nodes.at[j, "t_visit"])
+            for m in range(M):
+                self.model.addGenConstrIndicator(
+                    self.Xijm[0, j, m], 1,
+                    self.ti[j], GRB.EQUAL, t_visit_j,
+                    name=f"first_exposure_at_start_{j}_{m}",
+                )
+
         # eq. 2 - exactly one arc out of the start anchor.
         self.model.addConstr(
             gp.quicksum(
