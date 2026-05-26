@@ -359,8 +359,9 @@ class TTPModel:
         self.model.addConstr(self.Yi[N - 1] == 1, "end_anchor_visit")
         self.model.addConstr(self.ti[0] == 0.0, "anchor_start_time")
 
-        # If arc 0->j in slot m is chosen, force visit j to start at t=0:
-        # ti[j] == t_visit_j
+        # This constraint does not appear in Handley et al.
+        # We force the first departure to occur at t_visit, which means
+        # it must start at the beginning of the night
         for j in range(1, N - 1):
             t_visit_j = float(nodes.at[j, "t_visit"])
             for m in range(M):
@@ -485,18 +486,29 @@ class TTPModel:
                 )
 
         # eq. 10 - objective: priority-weighted visit count minus slew tie-breaker.
-        self.model.setObjective(
-            gp.quicksum(
-                nodes.at[j, "priority"] * self.Yi[j]
-                for j in range(1, N - 1)
-            )
-            - self._SLEW_PENALTY * gp.quicksum(
-                arcs_lookup.get((i, j, m), 0.0) * self.Xijm[i, j, m]
-                for i in range(1, N - 1)
-                for j in range(1, N - 1)
-                for m in range(M)
-            ),
-            GRB.MAXIMIZE,
+        obj_sched = gp.quicksum(
+            nodes.at[j, "priority"] * self.Yi[j]
+            for j in range(1, N - 1)
+        )
+        obj_slew = gp.quicksum(
+            arcs_lookup.get((i, j, m), 0.0) * self.Xijm[i, j, m]
+            for i in range(1, N - 1)
+            for j in range(1, N - 1)
+            for m in range(M)
+        )
+        # Compactness proxy: end-of-night departure time
+        obj_compact = self.ti[N - 1]
+        # Level 1 (highest): maximize scheduled science value
+        self.model.setObjectiveN(
+            -obj_sched, index=0, priority=3, weight=1.0, name="max_sched",
+        )
+        # Level 2: minimize slew among equal sched counts
+        self.model.setObjectiveN(
+            obj_slew, index=1, priority=2, weight=1.0, name="min_slew",
+        )
+        # Level 3: minimize gaps / pack schedule (tie-break only)
+        self.model.setObjectiveN(
+            obj_compact, index=2, priority=1, weight=1.0, name="min_compact",
         )
 
         self.model.update()
