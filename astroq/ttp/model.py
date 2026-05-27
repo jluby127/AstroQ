@@ -97,7 +97,7 @@ class TTPModel:
     # Interpretation: if dropping the highest priority target saves this many minutes of slew time,
     # Drop it
     _SLEW_MINUTES_FOR_TOP_TARGET = 30
-    _END_PENALTY = 0.01   # start here; tune below
+    _SLEW_IDLE_PENALTY_RATIO = 0.5  # idle-between weight, as fraction of slew penalty
 
     def __init__(
         self,
@@ -136,7 +136,6 @@ class TTPModel:
         self.slew_sample_cadence_min = slew_sample_cadence_min
         self.M = self.n_slots
         self.schedule = None
-        self.selected_arcs = None
         self.stats = {}
 
 
@@ -267,6 +266,8 @@ class TTPModel:
                 ``slew_sample_cadence_min``.
 
         """
+        if not hasattr(self, "nodes"):
+            raise RuntimeError("call build_nodes() before build_arcs()")
         n_samples = int(max(
             self.dur / (self.M * self.slew_sample_cadence_min),
             samples_per_slot,
@@ -340,6 +341,8 @@ class TTPModel:
 
         Constraints are added in the order they appear in Handley+ 2024 §2.4.
         """
+        if not hasattr(self, "arcs"):
+            raise RuntimeError("call build_arcs() before build_model()")
         self.model = gp.Model("TTP")
 
         N, M = self.N, self.M
@@ -528,7 +531,7 @@ class TTPModel:
                 for j in range(1, N - 1)
             )
             - slew_penalty * self.t_slew
-            - slew_penalty * 0.5 * self.t_idle_between,
+            - slew_penalty * self._SLEW_IDLE_PENALTY_RATIO * self.t_idle_between,
             GRB.MAXIMIZE,
         )
 
@@ -541,6 +544,8 @@ class TTPModel:
         If Gurobi has no incumbent (``SolCount == 0``), logs a warning and
         leaves ``schedule`` as ``None``.
         """
+        if not hasattr(self, "model"):
+            raise RuntimeError("call build_model() before run_model()")
         logs.info(f"Solving TTP for {self.N - 2} visits")
         t0 = time.time()
         self.model.optimize()
@@ -561,12 +566,14 @@ class TTPModel:
     # ---------------------------------------------------------- post-process
 
     def build_schedule(self):
-        """Walk the chosen path and populate ``schedule`` + ``selected_arcs``.
+        """Walk the chosen path and populate ``schedule``.
 
         ``schedule`` is parallel to ``nodes`` (same index = node id ``i``),
         with ``scheduled``, ``t_slew``, and solve-time columns added.
         """
-        # extract selected arcs from gurobi solution
+        if not hasattr(self, "model"):
+            raise RuntimeError("call build_model() before build_schedule()")
+
         arcs_selected = []
         for (i, j, m), var in self.Xijm.items():
             if var.X > 0.5 and j != 0 and i != self.N - 1:
@@ -615,6 +622,8 @@ class TTPModel:
 
     def to_string(self, *, header="Stats for TTP Solution"):
         """Return a human-readable summary of the solve from ``self.stats``."""
+        if not self.stats:
+            raise RuntimeError("call build_schedule() before to_string()")
         s = self.stats
         rows = [
             ("Observations Requested:", s["n_requested"], "d"),
