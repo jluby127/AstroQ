@@ -92,7 +92,12 @@ class TTPModel:
 
     #: Slew tie-breaker weight in the objective. Same constant is used to
     #: recover total slew time inside :meth:`build_schedule`.
-    _SLEW_PENALTY = 1 / 100
+
+    # Constant that balances slew time vs. number of targets. 
+    # Interpretation: if dropping the highest priority target saves this many minutes of slew time,
+    # Drop it
+    _SLEW_MINUTES_FOR_TOP_TARGET = 30
+    _END_PENALTY = 0.01   # start here; tune below
 
     def __init__(
         self,
@@ -133,6 +138,8 @@ class TTPModel:
         self.schedule = None
         self.selected_arcs = None
         self.stats = {}
+
+
 
     # ---------------------------------------------------------- helpers
 
@@ -485,30 +492,44 @@ class TTPModel:
                     f"intra_sep_constr_{indices[k - 1]}_{indices[k]}",
                 )
 
+
+        self.t_slew = self.model.addVar(lb=0.0, name="t_slew")
+        self.model.addConstr(
+            self.t_slew == gp.quicksum(
+                arcs_lookup.get((i, j, m), 0.0) * self.Xijm[i, j, m]
+                for i in range(1, N - 1)
+                for j in range(1, N - 1)
+                for m in range(M)
+            ),
+            "t_slew_def",
+        )
+
+        self.t_visit = self.model.addVar(lb=0.0, name="t_visit")
+        self.model.addConstr(
+            self.t_visit == gp.quicksum(
+                nodes.at[j, "t_visit"] * self.Yi[j]
+                for j in range(1, N - 1)
+            ),
+            "t_visit_def",
+        )
+        
+        self.t_idle_between = self.model.addVar(lb=0.0, name="t_idle_between")
+        self.model.addConstr(
+            self.t_idle_between == self.ti[N - 1] - self.t_visit - self.t_slew, 
+            name="t_idle_between_def"
+        )
+
         # eq. 10 - objective: priority-weighted visit count minus slew tie-breaker.
-        obj_sched = gp.quicksum(
-            nodes.at[j, "priority"] * self.Yi[j]
-            for j in range(1, N - 1)
-        )
-        obj_slew = gp.quicksum(
-            arcs_lookup.get((i, j, m), 0.0) * self.Xijm[i, j, m]
-            for i in range(1, N - 1)
-            for j in range(1, N - 1)
-            for m in range(M)
-        )
-        # Compactness proxy: end-of-night departure time
-        obj_compact = self.ti[N - 1]
-        # Level 1 (highest): maximize scheduled science value
-        self.model.setObjectiveN(
-            -obj_sched, index=0, priority=3, weight=1.0, name="max_sched",
-        )
-        # Level 2: minimize slew among equal sched counts
-        self.model.setObjectiveN(
-            obj_slew, index=1, priority=2, weight=1.0, name="min_slew",
-        )
-        # Level 3: minimize gaps / pack schedule (tie-break only)
-        self.model.setObjectiveN(
-            obj_compact, index=2, priority=1, weight=1.0, name="min_compact",
+        P_max = float(self.nodes.loc[1:N - 1, "priority"].max())
+        slew_penalty = P_max / self._SLEW_MINUTES_FOR_TOP_TARGET
+        self.model.setObjective(
+            gp.quicksum(
+                nodes.at[j, "priority"] * self.Yi[j]
+                for j in range(1, N - 1)
+            )
+            - slew_penalty * self.t_slew
+            - slew_penalty * 0.5 * self.t_idle_between,
+            GRB.MAXIMIZE,
         )
 
         self.model.update()
@@ -578,28 +599,41 @@ class TTPModel:
         # coords from ra/dec on demand; the solver no longer needs `coord`.
         self.schedule = schedule.drop(columns=['coord'], errors='ignore')
         scheduled = self.schedule[self.schedule['scheduled']]
-        self.stats = {
+        stats = {
             "dur": self.dur,
             "n_requested": self.N - 2,
             "n_scheduled": len(scheduled),
+            "t_first_start": scheduled['t_start'].min(),
+            "t_last_end": scheduled['t_end'].max(),
             "t_visit_sum": scheduled['t_visit'].sum(),
             "t_slew_sum": scheduled['t_slew'].sum(),
             "t_idle_sum": self.dur - scheduled['t_visit'].sum() - scheduled['t_slew'].sum(),
         }
+        stats["t_idle_after_last"] = self.dur - stats["t_last_end"]
+        stats["t_idle_before_last"] = stats['t_idle_sum'] - stats["t_idle_after_last"]
+        self.stats = stats
 
     def to_string(self, *, header="Stats for TTP Solution"):
         """Return a human-readable summary of the solve from ``self.stats``."""
         s = self.stats
-        lines = [
-            header,
-            "------------------------------------",
-            f"     Observations Requested: {s['n_requested']}",
-            f"     Observations Scheduled: {s['n_scheduled']}",
-            "------------------------------------",
-            f"   Observing Duration (min): {s['dur']:.2f}",
-            f"  Time Spent Exposing (min): {s['t_visit_sum']:.2f}",
-            f"      Time Spent Idle (min): {s['t_idle_sum']:.2f}",
-            f"   Time Spent Slewing (min): {s['t_slew_sum']:.2f}",
-            "------------------------------------",
+        rows = [
+            ("Observations Requested:", s["n_requested"], "d"),
+            ("Observations Scheduled:", s["n_scheduled"], "d"),
+            ("Observing Duration (min):", s["dur"], ".1f"),
+            ("First Exposure Start (min):", s["t_first_start"], ".1f"),
+            ("Last Exposure End (min):", s["t_last_end"], ".1f"),
+            ("Visit Time (min):", s["t_visit_sum"], ".1f"),
+            ("Slew Time (min):", s["t_slew_sum"], ".1f"),
+            ("Idle Time (min):", s["t_idle_sum"], ".1f"),
+            ("Idle After Last (min):", s["t_idle_after_last"], ".1f"),
+            ("Idle Before Last (min):", s["t_idle_before_last"], ".1f"),
         ]
+        label_w = max(len(label) for label, _, _ in rows)
+        value_w = 7
+        divider = "-" * (2 + label_w + 1 + value_w)
+        fmt = f"  {{:<{label_w}}} {{:>{value_w}{{spec}}}}"
+
+        lines = [header, divider]
+        lines.extend(fmt.format(label, value, spec=spec) for label, value, spec in rows)
+        lines.append(divider)
         return "\n".join(lines) + "\n"

@@ -242,6 +242,8 @@ class NightPlanner(object):
         tm.model.params.MIPGap = self.max_solve_gap
         tm.model.params.OutputFlag = int(self.show_gurobi_output)
         tm.model.params.PreSolve = 2
+        tm.model.params.MIPFocus = 1
+        tm.model.params.Heuristics = 0.2   # default is 0.05
         tm.model.update()
         tm.run_model()
         if tm.model.SolCount == 0:
@@ -280,6 +282,10 @@ class NightPlanner(object):
             )
             tm.stats['n_scheduled'] = tm.stats['n_scheduled'] - gap_count
             tm.stats['n_requested'] = max(0, tm.N - 2 - n_gap_targets)
+            real_scheduled = tm.schedule[tm.schedule['scheduled']]
+            tm.stats.update(model.TTPModel._exposure_timing_stats(
+                real_scheduled, tm.stats['dur'],
+            ))
             logs.info("\n" + tm.to_string(
                 header="Stats for TTP Solution (Gap observations excluded)",
             ))

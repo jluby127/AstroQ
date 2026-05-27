@@ -163,7 +163,8 @@ class TestClass(unittest.TestCase):
 
         self.assertIsNotNone(solution.stats)
         self.assertIsInstance(solution.stats, dict)
-        for key in ('dur', 'n_requested', 'n_scheduled', 't_visit_sum', 't_slew_sum'):
+        for key in ('dur', 'n_requested', 'n_scheduled', 't_first_start', 't_last_end',
+                    't_visit_sum', 't_slew_sum'):
             self.assertIn(key, solution.stats, f"stats missing key: {key}")
 
         on_sky = solution.schedule[~solution.schedule['is_anchor']]
