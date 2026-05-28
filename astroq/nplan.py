@@ -1,25 +1,250 @@
 """
 Module for night-level observation planning and optimization.
-Uses the TTP package to optimize nightly observation sequences.
-See https://github.com/lukehandley/ttp/tree/main for more info about the TTP
+Uses the vendored TTP MILP solver (``astroq.ttp.model.TTPModel``) to optimize
+nightly observation sequences.
 """
 
 # Standard library imports
+import logging
 import os
+
+logs = logging.getLogger(__name__)
 
 # Third-party imports
 import numpy as np
 import pandas as pd
+from astropy.coordinates import SkyCoord
+import astropy.units as u
 from astropy.time import Time, TimeDelta
-        
+
 # Local imports
 from astroq.splan import SemesterPlanner
-import astroq.queue.hirescps as hirescps
+from astroq.ttp import model
 
-# TTP imports (assuming TTP is installed separately)
-import ttp.formatting as formatting
-import ttp.telescope as telescope
-import ttp.model as model
+# HDF5 schema version for night_planner.h5. Bumped when the layout changes so
+# stale files fail-fast with a clear message rather than silently misloading.
+NIGHT_PLANNER_H5_SCHEMA = 4
+
+# Astropy-typed columns stripped before HDF5 write (schema v4 adds scalar companions).
+_OBJECT_TYPED_COLUMNS = [
+    'coord', 'first_available', 'last_available', 't_visit', 'tau_intra',
+]
+_HDF5_SCALAR_COLUMNS = [
+    'ra', 'dec', 'first_available_jd', 'last_available_jd',
+    't_visit_min', 'tau_intra_hr',
+]
+
+
+def _quantity_series_to_value(series, target_unit):
+    """Convert a column of Quantity scalars (or plain floats) to *target_unit* values."""
+    if len(series) == 0:
+        return np.array([], dtype=float)
+    sample = series.iloc[0]
+    if isinstance(sample, u.Quantity):
+        return u.Quantity(series.values).to_value(target_unit)
+    return np.asarray(series, dtype=float)
+
+
+def _scalarize_requests_frame(rf):
+    """Copy *rf* with portable float columns for HDF5 (schema v4)."""
+    out = rf.drop(columns=_OBJECT_TYPED_COLUMNS, errors='ignore').copy()
+    if 'coord' not in rf.columns:
+        return out
+    out['ra'] = rf['coord'].apply(
+        lambda c: float(c.ra.deg) if c is not None else np.nan,
+    )
+    out['dec'] = rf['coord'].apply(
+        lambda c: float(c.dec.deg) if c is not None else np.nan,
+    )
+    if 'first_available' in rf.columns:
+        out['first_available_jd'] = rf['first_available'].apply(
+            lambda t: float(t.jd) if t is not None else np.nan,
+        )
+    if 'last_available' in rf.columns:
+        out['last_available_jd'] = rf['last_available'].apply(
+            lambda t: float(t.jd) if t is not None else np.nan,
+        )
+    if 't_visit' in rf.columns:
+        out['t_visit_min'] = _quantity_series_to_value(rf['t_visit'], u.min)
+    if 'tau_intra' in rf.columns:
+        out['tau_intra_hr'] = _quantity_series_to_value(rf['tau_intra'], u.hr)
+    return out
+
+
+def _restore_requests_frame_from_scalar_df(df):
+    """Rebuild TTPModel.REQUIRED_COLUMNS from schema-v4 scalar HDF5 columns."""
+    if 'ra' not in df.columns or 'dec' not in df.columns:
+        raise ValueError(
+            "night_planner.h5 requests_frame lacks ra/dec scalar columns; "
+            "re-run plan-night with a current AstroQ build."
+        )
+    priority = df['priority'].to_numpy() if 'priority' in df.columns else np.full(len(df), 10.0)
+    return pd.DataFrame({
+        'unique_id': df['unique_id'].to_numpy(),
+        'n_intra_max': df['n_intra_max'].to_numpy(),
+        'priority': priority,
+        'coord': SkyCoord(
+            df['ra'].to_numpy() * u.deg,
+            df['dec'].to_numpy() * u.deg,
+            frame='icrs',
+        ),
+        'first_available': Time(df['first_available_jd'].to_numpy(), format='jd'),
+        'last_available': Time(df['last_available_jd'].to_numpy(), format='jd'),
+        't_visit': df['t_visit_min'].to_numpy() * u.min,
+        'tau_intra': df['tau_intra_hr'].to_numpy() * u.hr,
+    })
+
+
+def _visit_duration_minutes(series):
+    """Normalize per-visit duration to plain minutes (float)."""
+    if len(series) == 0:
+        return np.array([], dtype=float)
+    sample = series.iloc[0]
+    if isinstance(sample, u.Quantity):
+        return u.Quantity(series.values).to_value(u.min)
+    return np.asarray(series, dtype=float)
+
+
+def _enrich_schedule_with_positions(sched, requests_frame):
+    """Add ra/dec columns for plot adapters (schedule may already have starname)."""
+    sched = sched.copy()
+    lookup = pd.DataFrame({
+        'unique_id': requests_frame['unique_id'],
+        'ra': requests_frame['coord'].apply(lambda c: float(c.ra.deg)),
+        'dec': requests_frame['coord'].apply(lambda c: float(c.dec.deg)),
+    }).drop_duplicates('unique_id')
+    for col in ('ra', 'dec'):
+        if col in sched.columns:
+            sched = sched.drop(columns=[col])
+    return sched.merge(lookup, on='unique_id', how='left').reset_index(drop=True)
+
+
+def _prepare_schedule_for_hdf5(sched):
+    """Portable schedule columns for HDF5 (keeps plot-critical scalars)."""
+    sched = sched.drop(columns=_OBJECT_TYPED_COLUMNS, errors='ignore').copy()
+    if 't_visit' in sched.columns:
+        sched['t_visit_min'] = _visit_duration_minutes(sched['t_visit'])
+    return sched
+
+
+def _schedule_request_metadata(output_directory, requests_frame):
+    """exptime (minutes) and n_exp keyed by unique_id for ladder plots."""
+    path = os.path.join(output_directory, 'request_selected.csv')
+    if os.path.exists(path):
+        meta = pd.read_csv(path)
+    else:
+        meta = requests_frame.copy()
+    if meta.empty or 'unique_id' not in meta.columns:
+        return pd.DataFrame(columns=['unique_id', 'exptime', 'n_exp'])
+    meta = meta[['unique_id', 'exptime', 'n_exp']].drop_duplicates('unique_id')
+    meta['exptime'] = pd.to_numeric(meta['exptime'], errors='coerce') / 60.0
+    meta['n_exp'] = pd.to_numeric(meta['n_exp'], errors='coerce')
+    return meta
+
+
+def _restore_schedule_for_plots(sched, requests_frame, *, output_directory=None):
+    """Rebuild schedule columns required by ``astroq.ttp.plot`` after HDF5 load."""
+    sched = sched.copy()
+    if 't_visit' not in sched.columns:
+        if 't_visit_min' in sched.columns:
+            sched['t_visit'] = sched['t_visit_min'].to_numpy(dtype=float)
+        else:
+            lookup = pd.DataFrame({
+                'unique_id': requests_frame['unique_id'],
+                't_visit': _visit_duration_minutes(requests_frame['t_visit']),
+            }).drop_duplicates('unique_id')
+            sched = sched.merge(lookup, on='unique_id', how='left')
+    if 'exptime' not in sched.columns or 'n_exp' not in sched.columns:
+        meta = _schedule_request_metadata(output_directory, requests_frame)
+        if not meta.empty:
+            for col in ('exptime', 'n_exp'):
+                if col in sched.columns:
+                    sched = sched.drop(columns=[col])
+            sched = sched.merge(meta, on='unique_id', how='left')
+    return sched.reset_index(drop=True)
+
+
+def _restore_requests_frame_legacy(thin_rf, *, night_planner_instance):
+    """Rebuild requests_frame from schema-v3 HDF5 (no scalar columns on disk).
+
+    Uses ``request_selected.csv`` when present (same source as ``run_ttp``), otherwise
+    falls back to ``semester_planner.requests_frame`` for positions and night bounds
+    for availability windows.
+    """
+    instance = night_planner_instance
+    queue = instance.queue
+    uids = set(thin_rf['unique_id'].astype(str))
+    selected_path = os.path.join(instance.output_directory, 'request_selected.csv')
+
+    if os.path.exists(selected_path):
+        selected_df = pd.read_csv(selected_path)
+        selected_df = selected_df[
+            selected_df['unique_id'].astype(str).isin(uids)
+        ].copy()
+        if selected_df.empty:
+            raise ValueError(
+                f"{selected_path} has no rows matching night_planner unique_id values."
+            )
+        first_available, last_available = instance.get_first_last_indices(selected_df)
+        selected_df['first_available'] = first_available
+        selected_df['last_available'] = last_available
+    else:
+        logs.warning(
+            "%s not found; rebuilding TTP requests from semester_planner.requests_frame.",
+            selected_path,
+        )
+        sem = instance.semester_planner.requests_frame
+        selected_df = sem[sem['unique_id'].astype(str).isin(uids)].copy()
+        if selected_df.empty:
+            raise ValueError(
+                "Cannot rebuild night_planner requests_frame: no matching unique_id "
+                "in semester_planner.requests_frame."
+            )
+        try:
+            ns, ne = get_nightly_times_from_allocation(
+                instance.allocation_file, instance.current_day,
+            )
+            fa_str = str(ns)[:19].replace('T', ' ')
+            la_str = str(ne)[:19].replace('T', ' ')
+        except ValueError:
+            fa_str = la_str = str(instance.current_day)
+        selected_df['first_available'] = fa_str
+        selected_df['last_available'] = la_str
+
+    if 'priority' in thin_rf.columns:
+        pri_map = thin_rf.set_index('unique_id')['priority']
+        selected_df['priority'] = selected_df['unique_id'].map(pri_map).fillna(10.0)
+    else:
+        selected_df['priority'] = 10.0
+
+    if 'n_intra_max' in thin_rf.columns:
+        n_map = thin_rf.set_index('unique_id')['n_intra_max']
+        selected_df['n_intra_max'] = selected_df['unique_id'].map(n_map)
+    selected_df['n_intra_max'] = selected_df['n_intra_max'].replace('None', np.nan).fillna(1)
+
+    visit = queue.visit_duration(
+        selected_df['exptime'].to_numpy(), selected_df['n_exp'].to_numpy(),
+    )
+    if isinstance(visit, u.Quantity):
+        t_visit_col = visit.to(u.min)
+    else:
+        t_visit_col = np.asarray(visit, dtype=float) * u.min
+    out = pd.DataFrame({
+        'unique_id': selected_df['unique_id'].to_numpy(),
+        'n_intra_max': selected_df['n_intra_max'].to_numpy(),
+        'first_available': Time(selected_df['first_available'].tolist()),
+        'last_available': Time(selected_df['last_available'].tolist()),
+    })
+    out['coord'] = SkyCoord(
+        selected_df['ra'].to_numpy() * u.deg,
+        selected_df['dec'].to_numpy() * u.deg,
+        frame='icrs',
+    )
+    out['t_visit'] = t_visit_col
+    out['tau_intra'] = selected_df['tau_intra'].replace('None', np.nan).fillna(0.0).to_numpy() * u.hr
+    out['priority'] = selected_df['priority'].to_numpy()
+    return out.reset_index(drop=True)
+
 
 class NightPlanner(object):
     """
@@ -81,7 +306,11 @@ class NightPlanner(object):
 
         semester_planner_h5 = os.path.join(workdir, 'semester_planner.h5')
         self.semester_planner = SemesterPlanner.from_hdf5(semester_planner_h5)
-        
+
+        # The night plan inherits the queue from the semester plan to guarantee
+        # they use identical telescope/instrument descriptions.
+        self.queue = self.semester_planner.queue
+
         # Pull properties from SemesterPlanner for consistency
         self.semester_start_date = self.semester_planner.semester_start_date
         self.semester_length = self.semester_planner.semester_length
@@ -148,37 +377,30 @@ class NightPlanner(object):
         """
 
         observers_path = os.path.join(self.semester_directory, 'outputs/')
-        check1 = os.path.isdir(observers_path)
-        if not check1:
+        if not os.path.isdir(observers_path):
             os.makedirs(observers_path)
 
-        observatory = telescope.Keck1()
-        # Get start/stop times from allocation file
         try:
             observation_start_time, observation_stop_time = get_nightly_times_from_allocation(self.allocation_file, self.current_day)
             total_time = np.round((observation_stop_time.jd-observation_start_time.jd)*24,3)
             print("Time in Night for Observations: " + str(total_time) + " hours.")
-        except ValueError as e:
+        except ValueError:
             print(f"No allocation times found for date {self.current_day}. Not running TTP. No night_planner.h5 file will be created.")
             return False
 
-        # Use only request_selected.csv as the source of scheduled targets
         selected_path = os.path.join(self.output_directory, 'request_selected.csv')
         if not os.path.exists(selected_path):
             raise FileNotFoundError(f"{selected_path} not found. Please run the scheduler first.")
         selected_df = pd.read_csv(selected_path)
-        # Gracefully fail if no targets are selected (useful on non-"full" bands when not allocated)
         if len(selected_df) == 0:
             print(f"No targets found in {selected_path}. Not running TTP. No night_planner.pkl file will be created.")
             return
 
-        # Add the first and last available columns to the selected_df for use by the TTP
         first_available, last_available = self.get_first_last_indices(selected_df)
         selected_df['first_available'] = first_available
         selected_df['last_available'] = last_available
-        
-        # Fill NaN values with defaults --- for now in early 2025B since we had issues with the webform.c
-        # Replace "None" strings with NaN first, then fill with defaults
+
+        # Webform data hygiene: coerce "None" strings to defaults.
         selected_df['n_intra_max'] = selected_df['n_intra_max'].replace('None', np.nan).fillna(1)
         selected_df['n_intra_min'] = selected_df['n_intra_min'].replace('None', np.nan).fillna(1)
         selected_df['tau_intra'] = selected_df['tau_intra'].replace('None', np.nan).fillna(0.0)
@@ -188,163 +410,144 @@ class NightPlanner(object):
         selected_df['pmdec'] = selected_df['pmdec'].replace('None', np.nan).fillna(0.0)
         selected_df['epoch'] = selected_df['epoch'].replace('None', np.nan).fillna(0.0)
 
-        # Prepare the TTP input DataFrame (matching the old prepare_for_ttp output)
+        # Build TTP input frame in AstroQ-native vocabulary
+        # (TTPModel.REQUIRED_COLUMNS). Astropy types (SkyCoord, Time, Quantity)
+        # are stored directly as object-dtype columns.
         to_ttp = pd.DataFrame({
-            "Starname": selected_df["unique_id"],
-            "RA": selected_df["ra"],
-            "Dec": selected_df["dec"],
-            "Exposure Time": selected_df["exptime"],
-            "Exposures Per Visit": selected_df["n_exp"],
-            "Visits In Night": selected_df["n_intra_max"],
-            "Intra_Night_Cadence": selected_df["tau_intra"],
-            "Priority": 10,  # Default priority, or you can add logic if needed
-            "First Available": selected_df["first_available"],
-            "Last Available": selected_df["last_available"],
+            "unique_id":       selected_df["unique_id"].to_numpy(),
+            "n_intra_max":     selected_df["n_intra_max"].to_numpy(),
+            "first_available": Time(selected_df["first_available"].tolist()),
+            "last_available":  Time(selected_df["last_available"].tolist()),
         })
+        to_ttp["coord"] = SkyCoord(
+            selected_df["ra"].to_numpy() * u.deg,
+            selected_df["dec"].to_numpy() * u.deg,
+            frame="icrs",
+        )
+        visit_minutes = self.queue.visit_duration(
+            selected_df["exptime"].to_numpy(), selected_df["n_exp"].to_numpy()
+        )
+        to_ttp["t_visit"]   = visit_minutes * u.min
+        to_ttp["tau_intra"] = selected_df["tau_intra"].to_numpy() * u.hr
+        to_ttp["priority"]  = 10  # default per-request priority
 
-        # Add dummy gap observations when there are unallocated gaps between allocated slots
+        # Synthetic "Gap N" rows block out unallocated gaps inside the night.
+        # The dummy unique_id prefix "Gap " is matched verbatim by
+        # `drop_gap_rows` below to scrub these from the user-facing outputs.
         if len(self.tonight_allocation_gaps) > 0:
             avg_ra = selected_df["ra"].mean()
             avg_dec = selected_df["dec"].mean()
             tonight_date = self.current_day
             gap_rows = []
             for i, gap in enumerate(self.tonight_allocation_gaps, start=1):
-                first_available = f"{tonight_date} {gap['gap_start_time']}"
-                last_available = f"{tonight_date} {gap['gap_stop_time']}"
-                # Exposure Time in TTP is seconds; gap_length is minutes
+                first_av = Time(f"{tonight_date} {gap['gap_start_time']}")
+                last_av = Time(f"{tonight_date} {gap['gap_stop_time']}")
                 exposure_time_sec = (gap['gap_length'] - self.semester_planner.slot_size) * 60
                 gap_rows.append({
-                    "Starname": f"Gap {i}",
-                    "RA": avg_ra,
-                    "Dec": avg_dec,
-                    "Exposure Time": exposure_time_sec,
-                    "Exposures Per Visit": 1,
-                    "Visits In Night": 1,
-                    "Intra_Night_Cadence": 0,
-                    "Priority": 20, #always very high priority to ensure it is scheduled 
-                    "First Available": first_available,
-                    "Last Available": last_available,
+                    "unique_id":       f"Gap {i}",
+                    "coord":           SkyCoord(avg_ra * u.deg, avg_dec * u.deg, frame="icrs"),
+                    "first_available": first_av,
+                    "last_available":  last_av,
+                    "t_visit":         exposure_time_sec * u.s,
+                    "n_intra_max":     1,
+                    "tau_intra":       0.0 * u.hr,
+                    "priority":        20,  # high enough to guarantee selection
                 })
             to_ttp = pd.concat([to_ttp, pd.DataFrame(gap_rows)], ignore_index=True)
 
-        filename = os.path.join(self.output_directory, 'ttp_prepared.csv')
-        to_ttp.to_csv(filename, index=False)
-    
-        target_list = formatting.theTTP(filename, observatory, observation_start_time, observation_stop_time)
-        solution = model.TTPModel(target_list, observers_path, runtime=self.max_solve_time, optgap=self.max_solve_gap)
+        tm = model.TTPModel(
+            requests_frame=to_ttp,
+            night_start=observation_start_time,
+            night_end=observation_stop_time,
+            slew_fn=self.queue.slew_fn,
+            n_slots=self.queue.nSlots,
+        )
+        tm.build_nodes()
+        tm.build_arcs()
+        tm.build_model()
+        tm.model.params.TimeLimit = self.max_solve_time
+        tm.model.params.MIPGap = self.max_solve_gap
+        tm.model.params.OutputFlag = int(self.show_gurobi_output)
+        tm.model.params.PreSolve = 2
+        tm.model.params.MIPFocus = 1
+        tm.model.params.Heuristics = 0.2   # default is 0.05
+        tm.model.update()
+        tm.run_model()
+        if tm.model.SolCount == 0:
+            logs.warning("TTP produced no schedule; skipping night-plan outputs.")
+            return False
+        tm.build_schedule()
+        logs.info("\n" + tm.to_string())
 
-        gurobi_model_backup = solution.gurobi_model  # backup the attribute, probably don't need this
-        del solution.gurobi_model                   # remove attribute so object is hdf5 compatable
+        del tm.model             # remove attribute so object is hdf5 compatable
+
+        id_to_name = dict(zip(selected_df['unique_id'], selected_df['starname']))
+        tm.schedule['starname'] = tm.schedule['unique_id'].map(
+            lambda uid: id_to_name.get(uid, "NO MATCHING NAME")
+        )
 
         # Compute gap stats BEFORE scrubbing (for adjusted TTP statistics)
-        gap_exposure_min = 0.0
-        gap_count = 0
-        if len(self.tonight_allocation_gaps) > 0:
-            plotly_exp = solution.plotly.get('Total Exp Time (min)', [])
-            for i, name in enumerate(solution.plotly.get('Starname', [])):
-                if str(name).startswith('Gap '):
-                    gap_count += 1
-                    gap_exposure_min += float(plotly_exp[i]) if i < len(plotly_exp) else 0
-            if solution.extras and solution.extras.get('Starname'):
-                extras_exp = solution.extras.get('Total Exp Time (min)', [])
-                for j, name in enumerate(solution.extras['Starname']):
-                    if str(name).startswith('Gap '):
-                        gap_count += 1
-                        gap_exposure_min += float(extras_exp[j]) if j < len(extras_exp) else 0
+        gap_mask = tm.schedule['unique_id'].astype(str).str.startswith('Gap ')
+        gap_scheduled = tm.schedule[gap_mask & tm.schedule['scheduled']]
+        gap_exposure_min = float(gap_scheduled['t_visit'].sum()) if len(gap_scheduled) else 0.0
+        gap_count = len(gap_scheduled)
         gap_total_min = self.tonight_gap_unallocated_minutes if len(self.tonight_allocation_gaps) > 0 else 0.0
         n_gap_targets = len(self.tonight_allocation_gaps)
 
-        # Remove dummy "Gap X" rows from the solution so they never appear in outputs
-        def drop_gap_rows(d):
-            keep = [i for i, s in enumerate(d['Starname']) if not str(s).startswith('Gap ')]
-            return {k: [v[i] for i in keep] for k, v in d.items()}
-        solution.plotly = drop_gap_rows(solution.plotly)
-        if solution.extras is not None:
-            if isinstance(solution.extras, pd.DataFrame):
-                solution.extras = solution.extras[
-                    ~solution.extras['Starname'].astype(str).str.startswith('Gap ')
-                ]
-            elif len(solution.extras.get('Starname', [])) > 0:
-                solution.extras = drop_gap_rows(solution.extras)
-        # Scrub Gap from other solution attributes so nothing references them
-        if getattr(solution, 'stars', None) is not None:
-            solution.stars = [s for s in solution.stars if not str(getattr(s, 'name', '')).startswith('Gap ')]
-        if getattr(solution, 'schedule', None) is not None and isinstance(solution.schedule, dict) and 'Starname' in solution.schedule:
-            solution.schedule = drop_gap_rows(solution.schedule)
+        # Scrub dummy "Gap N" rows from schedule and requests_frame.
+        keep = ~gap_mask
+        tm.schedule = tm.schedule.loc[keep].reset_index(drop=True)
+        tm.requests_frame = tm.requests_frame.loc[
+            ~tm.requests_frame['unique_id'].astype(str).str.startswith('Gap ')
+        ].reset_index(drop=True)
 
-        # Update TTP stats to exclude Gap observations (observing duration, exposing, idle)
         if gap_total_min > 0 or gap_exposure_min > 0:
-            solution.dur = max(0, solution.dur - gap_total_min)
-            solution.time_exposing = max(0, solution.time_exposing - gap_exposure_min)
-            solution.time_idle = max(0, solution.dur - solution.time_exposing - solution.time_slewing)
-            solution.num_scheduled = solution.num_scheduled - gap_count
-            # Re-print and overwrite TTPstatistics.txt with gap-adjusted stats
-            ttp_stats_path = os.path.join(observers_path, 'TTPstatistics.txt')
-            with open(ttp_stats_path, 'w') as f:
-                f.write("Stats for TTP Solution (Gap observations excluded)\n")
-                f.write("------------------------------------\n")
-                f.write(f'    Model ran for {solution.solve_time:.2f} seconds\n')
-                f.write(f'     Observations Requested: {solution.N - 2 - n_gap_targets}\n')
-                f.write(f'     Observations Scheduled: {solution.num_scheduled}\n')
-                f.write("------------------------------------\n")
-                f.write(f'   Observing Duration (min): {solution.dur:.2f}\n')
-                f.write(f'  Time Spent Exposing (min): {solution.time_exposing:.2f}\n')
-                f.write(f'      Time Spent Idle (min): {solution.time_idle:.2f}\n')
-                f.write(f'   Time Spent Slewing (min): {solution.time_slewing:.2f}\n')
-                f.write("------------------------------------\n")
-            print('\n------------------------------------')
-            print(' (Gap observations excluded from stats)')
-            print('------------------------------------')
-            print(f'     Observations Requested: {solution.N - 2 - n_gap_targets}')
-            print(f'     Observations Scheduled: {solution.num_scheduled}')
-            print('------------------------------------')
-            print(f'   Observing Duration (min): {solution.dur:.2f}')
-            print(f'  Time Spent Exposing (min): {solution.time_exposing:.2f}')
-            print(f'      Time Spent Idle (min): {solution.time_idle:.2f}')
-            print(f'   Time Spent Slewing (min): {solution.time_slewing:.2f}')
-            print('------------------------------------')
+            tm.stats['dur']         = max(0, tm.stats['dur'] - gap_total_min)
+            tm.stats['t_visit_sum'] = max(0, tm.stats['t_visit_sum'] - gap_exposure_min)
+            tm.stats['t_idle_sum']  = max(
+                0, tm.stats['dur'] - tm.stats['t_visit_sum'] - tm.stats['t_slew_sum']
+            )
+            tm.stats['n_scheduled'] = tm.stats['n_scheduled'] - gap_count
+            tm.stats['n_requested'] = max(0, tm.N - 2 - n_gap_targets)
+            real_scheduled = tm.schedule[tm.schedule['scheduled']]
+            tm.stats.update(model.TTPModel._exposure_timing_stats(
+                real_scheduled, tm.stats['dur'],
+            ))
+            logs.info("\n" + tm.to_string(
+                header="Stats for TTP Solution (Gap observations excluded)",
+            ))
 
-        # add human readable starname to the solution so that it can be used in the plotting functions
-        id_to_name = dict(zip(selected_df['unique_id'], selected_df['starname']))
-        solution.plotly['human_starname'] = [
-            id_to_name.get(uid, "NO MATCHING NAME") for uid in solution.plotly['Starname']
-        ]
-        self.solution = [solution]
+        self.solution = tm
 
-        solution.plotly['UTC Start Time'] = [0]*len(solution.plotly['Start Exposure'])
-        for i in range(len(solution.plotly['Start Exposure'])):
-            solution.plotly['UTC Start Time'][i] = str(TimeDelta(solution.plotly['Start Exposure'][i]*60,format='sec') + observation_start_time)[11:16]
-        numeric_columns = ['Start Exposure', 'First Available', 'Last Available', 'Minutes the from Start of the Night']
-        for col in numeric_columns:
-            if col in solution.plotly:
-                solution.plotly[col] = np.round(np.array(solution.plotly[col]), 2).tolist()
+        on_sky = tm.schedule[~tm.schedule['is_anchor']]
+        scheduled_df = on_sky[on_sky['scheduled']].sort_values('order')
+        extras_df = on_sky[~on_sky['scheduled']]
 
-        # Convert solution.plotly to a DataFrame for easier handling
         observe_order_file = os.path.join(observers_path, f"ObserveOrder_{self.current_day}.txt")
-        plotly_df = pd.DataFrame(solution.plotly)
         use_starnames = []
         use_star_ids = []
         use_start_exposures = []
-        for i in range(len(plotly_df)):
-            adjusted_timestamp = TimeDelta(plotly_df['Start Exposure'].iloc[i]*60,format='sec') + observation_start_time
+        for _, row in scheduled_df.iterrows():
+            adjusted_timestamp = TimeDelta(row['t_start'] * 60, format='sec') + observation_start_time
             use_start_exposures.append(str(adjusted_timestamp)[11:16])
-            use_starnames.append(selected_df[selected_df['unique_id'] == plotly_df['Starname'].iloc[i]]['starname'].iloc[0])
-            use_star_ids.append(str(plotly_df['Starname'].iloc[i]))
-
-        extras_df = pd.DataFrame(solution.extras)
-        for j in range(len(extras_df)):
+            use_starnames.append(row['starname'])
+            use_star_ids.append(str(row['unique_id']))
+        for _, row in extras_df.iterrows():
             use_start_exposures.append('24:00')
-            use_star_ids.append(str(extras_df['Starname'].iloc[j]))
-            use_starnames.append(selected_df[selected_df['unique_id'] == extras_df['Starname'].iloc[j]]['starname'].iloc[0])
-        use_frame = pd.DataFrame({'unique_id': use_star_ids, 'Target': use_starnames, 'StartExposure': use_start_exposures})
-        use_frame.to_csv(observe_order_file, index=False)
+            use_star_ids.append(str(row['unique_id']))
+            use_starnames.append(row['starname'])
+        pd.DataFrame({
+            'unique_id': use_star_ids,
+            'Target': use_starnames,
+            'StartExposure': use_start_exposures,
+        }).to_csv(observe_order_file, index=False)
 
-        hirescps.write_starlist(selected_df, solution.plotly, observation_start_time, solution.extras,
-                            [], str(self.current_day), observers_path,
-                            all_active_requests=self.semester_planner.requests_frame,
-                            past_history=self.past_history)
-        print("The optimal path through the sky for the selected stars is found. Clear skies!")
-
+        self.queue.write_starlist(
+            selected_df, tm.schedule, observation_start_time,
+            [], str(self.current_day), observers_path,
+            all_active_requests=self.semester_planner.requests_frame,
+            past_history=self.past_history,
+        )
         return True
 
     def get_first_last_indices(self, selected_df):
@@ -440,7 +643,7 @@ class NightPlanner(object):
         # Define serialization mappings
         # Format: (hdf5_key, object_path, data_type, conversion_func)
         # data_type: 'scalar', 'string', 'array', 'time', 'dict_json', 'dataframe', 'stars'
-        # object_path: attribute path like 'solution.plotly' or 'self.upstream_path'
+        # object_path: attribute path like 'solution.stats' or 'self.upstream_path'
         
         # NightPlanner scalar/string attributes
         nightplanner_attrs = [
@@ -457,43 +660,33 @@ class NightPlanner(object):
             ('custom_file', 'self.custom_file', 'string', None),
         ]
         
-        # Solution object attributes
-        solution = self.solution[0]
+        # Schema v4: TTPModel + portable scalar columns for astropy fields.
+        solution = self.solution
         solution_attrs = [
-            ('solution_plotly_json', 'solution.plotly', 'dict_json', None),
-            ('solution_times_jd', 'solution.times', 'time_list', None),
-            ('nightstarts_jd', 'solution.nightstarts', 'time', None),
-            ('nightends_jd', 'solution.nightends', 'time', None),
-            ('solution_schedule_json', 'solution.schedule', 'dict_json', None),
-            ('solution_star_names', 'solution.stars', 'stars', 'name'),
-            ('solution_star_ras', 'solution.stars', 'stars', 'ra'),
-            ('solution_star_decs', 'solution.stars', 'stars', 'dec'),
-            ('solution_az_path', 'solution.az_path', 'array', None),
-            ('solution_alt_path', 'solution.alt_path', 'array', None),
+            ('night_start_jd', 'solution.night_start', 'time', None),
+            ('night_end_jd', 'solution.night_end', 'time', None),
+            ('solution_stats_json', 'solution.stats', 'dict_json', None),
         ]
-        
-        # Save solution.extras first (special case - DataFrame or dict)
-        extras_is_dict = isinstance(solution.extras, dict)
-        if isinstance(solution.extras, pd.DataFrame):
-            # Save DataFrame (even if empty)
-            extras_df = solution.extras
-        elif isinstance(solution.extras, dict):
-            # Convert dict to DataFrame (handles empty dicts with empty lists)
-            # pd.DataFrame() creates empty DataFrame with columns when all lists are empty
-            extras_df = pd.DataFrame(solution.extras)
-        
-        # Always save, even if DataFrame is empty (0 rows)
-        # Use 'fixed' format for empty DataFrames, 'table' for non-empty
-        if extras_df.empty:
-            extras_df.to_hdf(hdf5_path, key='solution_extras', mode='a', format='fixed')
+
+        rf = _scalarize_requests_frame(solution.requests_frame)
+        sched = _enrich_schedule_with_positions(
+            _prepare_schedule_for_hdf5(solution.schedule),
+            solution.requests_frame,
+        )
+
+        if sched.empty:
+            sched.to_hdf(hdf5_path, key='solution_schedule', mode='a', format='fixed')
         else:
-            extras_df.to_hdf(hdf5_path, key='solution_extras', mode='a', format='table')
-        
-        # Save all attributes
+            sched.to_hdf(hdf5_path, key='solution_schedule', mode='a', format='table')
+
+        if rf.empty:
+            rf.to_hdf(hdf5_path, key='solution_requests_frame', mode='a', format='fixed')
+        else:
+            rf.to_hdf(hdf5_path, key='solution_requests_frame', mode='a', format='table')
+
         with h5py.File(hdf5_path, 'a') as f:
-            # Save extras type flag
-            f.attrs['extras_was_dict'] = extras_is_dict
-            
+            f.attrs['schema_version'] = NIGHT_PLANNER_H5_SCHEMA
+
             # Save solution attributes
             for hdf5_key, obj_path, data_type, extra in solution_attrs:
                 obj = solution
@@ -529,20 +722,7 @@ class NightPlanner(object):
                     f.attrs[hdf5_key] = obj.jd
                 
                 elif data_type == 'array':
-                    # Save as numpy array dataset
                     f.create_dataset(hdf5_key, data=np.array(obj))
-                
-                elif data_type == 'stars':
-                    # Extract star data (name, ra, or dec)
-                    if extra == 'name':
-                        star_data = [s.name for s in obj]
-                        f.create_dataset(hdf5_key, data=np.array(star_data, dtype='S'))
-                    elif extra == 'ra':
-                        star_data = [s.target.ra.deg for s in obj]
-                        f.create_dataset(hdf5_key, data=np.array(star_data))
-                    elif extra == 'dec':
-                        star_data = [s.target.dec.deg for s in obj]
-                        f.create_dataset(hdf5_key, data=np.array(star_data))
             
             # Save NightPlanner attributes
             for hdf5_key, obj_path, data_type, _ in nightplanner_attrs:
@@ -569,10 +749,7 @@ class NightPlanner(object):
         """
         import h5py
         import json
-        from astropy.coordinates import SkyCoord
-        import astropy.units as u
-        
-        # Create a new instance without calling __init__
+
         instance = cls.__new__(cls)
         
         # Define deserialization mappings (inverse of to_hdf5)
@@ -592,30 +769,28 @@ class NightPlanner(object):
         ]
         
         solution_attrs = [
-            ('solution_plotly_json', 'plotly', 'dict_json', None),
-            ('solution_times_jd', 'times', 'time_list', None),
-            ('nightstarts_jd', 'nightstarts', 'time', None),
-            ('nightends_jd', 'nightends', 'time', None),
-            ('solution_schedule_json', 'schedule', 'dict_json', None),
-            ('solution_az_path', 'az_path', 'array', None),
-            ('solution_alt_path', 'alt_path', 'array', None),
+            ('night_start_jd', 'night_start', 'time', None),
+            ('night_end_jd', 'night_end', 'time', None),
+            ('solution_stats_json', 'stats', 'dict_json', None),
         ]
-        
-        # Load solution.extras (special case - DataFrame or dict)
-        # Check that it exists first - if not, that's a problem
+
         with h5py.File(hdf5_path, 'r') as f:
-            if 'solution_extras' not in f:
-                raise AttributeError("solution.extras not found in HDF5 file")
-        
-        solution_extras_df = pd.read_hdf(hdf5_path, key='solution_extras')
-        
-        # Reconstruct solution object
-        class SolutionContainer:
-            pass
-        
-        solution = SolutionContainer()
+            schema = int(f.attrs.get('schema_version', 0))
+            if schema not in (3, NIGHT_PLANNER_H5_SCHEMA):
+                raise ValueError(
+                    f"night_planner.h5 schema_version={schema} is unsupported "
+                    f"(expected 3 or {NIGHT_PLANNER_H5_SCHEMA}). Re-run plan-night."
+                )
+            if 'solution_schedule' not in f:
+                raise AttributeError("solution.schedule not found in HDF5 file")
+
+        solution_schedule = pd.read_hdf(hdf5_path, key='solution_schedule')
+        solution_requests_disk = pd.read_hdf(hdf5_path, key='solution_requests_frame')
+
+        solution = model.TTPModel.__new__(model.TTPModel)
         
         with h5py.File(hdf5_path, 'r') as f:
+            schema = int(f.attrs.get('schema_version', 0))
             # Load NightPlanner attributes
             for hdf5_key, attr_name, data_type, _ in nightplanner_attrs:
                 setattr(instance, attr_name, f.attrs[hdf5_key])
@@ -635,12 +810,12 @@ class NightPlanner(object):
             instance.past_history = instance.semester_planner.past_history
             instance.slots_needed_for_exposure_dict = instance.semester_planner.slots_needed_for_exposure_dict
             instance.run_weather_loss = instance.semester_planner.run_weather_loss
+            instance.queue = instance.semester_planner.queue
             
             # Load solution attributes
             for hdf5_key, attr_name, data_type, extra in solution_attrs:
                 if data_type == 'dict_json':
                     data = json.loads(f.attrs[hdf5_key])
-                    # Convert lists back to numpy arrays
                     restored = {}
                     for key, value in data.items():
                         if isinstance(value, list):
@@ -660,51 +835,48 @@ class NightPlanner(object):
                 elif data_type == 'array':
                     data = f[hdf5_key][:]
                     setattr(solution, attr_name, data)
-            
-            # Load solution.stars (reconstruct star objects with targets)
-            star_names = [name.decode('utf-8') if isinstance(name, bytes) else name 
-                         for name in f['solution_star_names'][:]]
-            star_ras = f['solution_star_ras'][:]
-            star_decs = f['solution_star_decs'][:]
-            
-            solution.stars = []
-            for name, ra, dec in zip(star_names, star_ras, star_decs):
-                star = SolutionContainer()
-                star.name = name
-                star.target = SkyCoord(ra=ra*u.deg, dec=dec*u.deg)
-                solution.stars.append(star)
-            
-            # Load observatory (recreate Keck1 object)
-            import telescope
-            solution.observatory = telescope.Keck1()
-        
-        # Load solution.extras (convert back to dict if needed)
-        with h5py.File(hdf5_path, 'r') as f:
-            extras_was_dict = f.attrs['extras_was_dict']
-        
-        if extras_was_dict:
-            solution.extras = solution_extras_df.to_dict('list')
-        else:
-            solution.extras = solution_extras_df
 
-        # Scrub any "Gap X" entries from loaded data (handles HDF5 saved before run-time scrubbing)
-        def _drop_gap_from_dict(d):
-            if not isinstance(d, dict) or 'Starname' not in d:
-                return d
-            keep = [i for i, s in enumerate(d['Starname']) if not str(s).startswith('Gap ')]
-            return {k: ([v[i] for i in keep] if isinstance(v, (list, np.ndarray)) else v) for k, v in d.items()}
-        solution.plotly = _drop_gap_from_dict(solution.plotly)
-        solution.schedule = _drop_gap_from_dict(solution.schedule)
-        solution.stars = [s for s in solution.stars if not str(getattr(s, 'name', '')).startswith('Gap ')]
-        if solution.extras is not None:
-            if isinstance(solution.extras, pd.DataFrame):
-                solution.extras = solution.extras[
-                    ~solution.extras['Starname'].astype(str).str.startswith('Gap ')
-                ]
-            elif isinstance(solution.extras, dict) and solution.extras.get('Starname'):
-                solution.extras = _drop_gap_from_dict(solution.extras)
-        
-        instance.solution = [solution]
+            if schema >= 4 and 'ra' in solution_requests_disk.columns:
+                solution.requests_frame = _restore_requests_frame_from_scalar_df(
+                    solution_requests_disk,
+                )
+            else:
+                if schema < 4:
+                    logs.warning(
+                        "night_planner.h5 schema_version=%s: rebuilding requests_frame "
+                        "from on-disk fallbacks (request_selected.csv and/or semester_planner).",
+                        schema,
+                    )
+                solution.requests_frame = _restore_requests_frame_legacy(
+                    solution_requests_disk,
+                    night_planner_instance=instance,
+                )
+
+            solution.schedule = _restore_schedule_for_plots(
+                solution_schedule,
+                solution.requests_frame,
+                output_directory=instance.output_directory,
+            )
+            if 'ra' not in solution.schedule.columns:
+                solution.schedule = _enrich_schedule_with_positions(
+                    solution.schedule, solution.requests_frame,
+                )
+
+            queue = instance.queue
+            solution.observer = queue.observer
+            solution.slew_rate = queue.slew_rate
+            solution.wrap_limit = queue.wrap_limit
+            solution.readout_time = queue.readout_time
+            solution.n_slots = queue.nSlots
+
+        if solution.requests_frame is not None and 'unique_id' in solution.requests_frame.columns:
+            solution.requests_frame = solution.requests_frame[
+                ~solution.requests_frame['unique_id'].astype(str).str.startswith('Gap ')
+            ].reset_index(drop=True)
+            gap_mask = solution.schedule['unique_id'].astype(str).str.startswith('Gap ')
+            solution.schedule = solution.schedule.loc[~gap_mask].reset_index(drop=True)
+
+        instance.solution = solution
         
         return instance
 

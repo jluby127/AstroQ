@@ -1,0 +1,102 @@
+---
+description: Python style for AstroQ — terseness, vectorization
+globs: ["**/*.py"]
+alwaysApply: false
+---
+# Python Style
+## Vectorize first
+Default to vectorized pandas/numpy. Reach for an explicit Python loop only
+when the operation is genuinely sequential, has a per-row side effect, or the
+row count is small (< ~50) and a loop is materially clearer.
+**Stop and rewrite if you find yourself typing any of these in a hot path:**
+- `df.iterrows()`, `df.itertuples()`
+- `for i in range(len(df))`, `for i in df.index`
+- `df.at[i, col] = ...` or `df.loc[i, col] = ...` inside a loop
+- nested loops over `(i, j)` to build a pairwise table
+- `np.array([f(x) for x in arr])` where `f` is itself vectorizable
+`.apply` is a last resort, not a first one. If the lambda body is `x * 2`,
+write `df['col'] * 2`.
+### Examples (all from `astroq/ttp/model.py`)
+**Expanding rows: cross-join + filter, not a nested loop.**
+Good (`build_nodes`):
+    visit_seq_table = pd.DataFrame({"visit_seq": np.arange(max_intra)})
+    visits = (
+        reqs.merge(visit_seq_table, how="cross")
+            .query("visit_seq < n_intra_max")
+            .sort_values(["request_idx", "visit_seq"], kind="stable")
+            .reset_index(drop=True)
+    )
+Bad — what we *don't* want to see again:
+    visits_rows = []
+    for _, r in reqs.iterrows():
+        for k in range(r.n_intra_max):
+            row = r.to_dict()
+            row["visit_seq"] = k
+            visits_rows.append(row)
+    visits = pd.DataFrame(visits_rows)
+**Pairwise tables: self-merge, not a double loop.**
+Good (`build_arcs`):
+    node_samples = (
+        visit_samples
+        .merge(visit_samples, on=["m", "sample"], suffixes=("_i", "_j"))
+        .query("id_i != id_j")
+        .rename(columns={"id_i": "i", "id_j": "j"})
+    )
+Bad:
+    rows = []
+    for i in range(N):
+        for j in range(N):
+            if i == j: continue
+            rows.append({"i": i, "j": j, ...})
+**Cartesian grids: `np.mgrid` + reshape, not triple-nested loops.**
+Good (`build_arcs`):
+    id, m, sample = np.mgrid[1:self.N - 1, 0:self.M, 0:n_samples]
+    visit_samples = pd.DataFrame({
+        "id":     id.reshape(-1),
+        "m":      m.reshape(-1),
+        "sample": sample.reshape(-1),
+        ...
+    })
+**Per-pair reductions: `groupby(...).max()`, not dict accumulation.**
+Good (`build_arcs`):
+    agg = node_samples.groupby(["i", "j", "m"], sort=False)["tau_sample"].max()
+**Conditional element-wise math: `np.where` / `np.maximum`, not if/else.**
+Good (`_short_az_sep`, `_slew_minutes`):
+    return np.where(az_sep > 180, 360 - az_sep, az_sep)
+    return np.maximum(az_sep, alt_sep) / (60.0 * float(self.slew_rate))
+### Acceptable loop pattern (legitimate exception)
+Sparse iteration over a small set of solver variables is fine — the row count
+is tiny and the source isn't a DataFrame. From `build_schedule`:
+    arcs_selected = []
+    for (i, j, m), var in self.Xijm.items():
+        if var.X > 0.5 and j != 0 and i != self.N - 1:
+            arcs_selected.append({"i": i, "j": j, "m": m, "ti": self.ti[i].X})
+    arcs_selected = pd.DataFrame(arcs_selected)
+The "good" examples above are about *avoiding* this pattern when the data
+already lives in a frame.
+## Terseness
+- **No narrating comments.** Comments explain *why* (units, invariants,
+  workarounds), not *what* the next line does.
+  - Bad: `# loop over requests` / `# build the dataframe`
+  - Good: `# hours -> minutes` (`build_nodes` `tau_intra` line)
+  - Good: `# Drop the SkyCoord cache so the schedule round-trips cleanly
+    through to_csv / to_hdf without object-dtype hazards.` — the kind of
+    intent comment that actually helps a future reader.
+- **Table-driven formatting beats print-per-field.** See `to_string`: a list
+  of `(label, value, spec)` tuples plus one `fmt.format` line, rather than
+  ten `print(f"...{x:.1f}")` statements.
+- **Declarative constants at module scope**, not buried in functions. See
+  `REQUIRED_COLUMNS` at the top of `model.py` and the validate loop in
+  `__init__`.
+- **No defensive `try/except`** around code with no realistic failure mode.
+  Let it raise.
+- **Early return / early raise** over nested if/else pyramids.
+- **No single-use helpers** unless the body is > ~15 lines or the name
+  materially aids readability. Inline it.
+- **Don't restate type hints in docstrings.** If the signature says
+  `requests_frame: pd.DataFrame`, don't write "requests_frame (pd.DataFrame):
+  a dataframe".
+- **Don't preserve dead code as comments.** Delete it; git remembers.
+## When in doubt
+Match the style in `astroq/ttp/model.py` — it's the cleanest vectorized
+pandas/numpy code in the repo and the canonical reference.

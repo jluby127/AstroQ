@@ -2,7 +2,6 @@
 Module for preparing the benchmark test as used in Lubin et al. 2025. 
 """
 
-import matplotlib.pyplot as pt
 import numpy as np
 import pandas as pd
 
@@ -214,17 +213,26 @@ def build_toy_model_from_paper(ns, hours_per_program = 80, plot = False):
     requests_data['inactive'] = [False]*len(requests_data)
 
     if plot:
+        import plotly.graph_objects as go
+        fig = go.Figure()
         for i in range(len(all_programs), 0, -1):
             filt = requests_data[requests_data['program'] == 'Program' + str(i)]
             if i < 5 and i != 4:
-                c = 'b'
+                c = 'blue'
             elif i == 4:
-                c = 'r'
+                c = 'red'
             else:
-                c = 'g'
-            pt.plot(filt['ra'], filt['dec'], 'o', color=c)
-        pt.xlim(0,360)
-        pt.ylim(-40,90)
-        pt.show()
+                c = 'green'
+            fig.add_trace(go.Scatter(
+                x=filt['ra'], y=filt['dec'],
+                mode='markers',
+                marker=dict(color=c, size=6),
+                name=f'Program{i}',
+            ))
+        fig.update_layout(
+            xaxis=dict(range=[0, 360], title='RA (deg)'),
+            yaxis=dict(range=[-40, 90], title='Dec (deg)'),
+        )
+        fig.show()
 
     return requests_data

@@ -309,7 +309,7 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
 
     Args:
         frame (dataframe): the request.csv in dataframe format for just the targets that were selected to be observed tonight
-        solution_frame (dataframe): the solution attribute from the TTP model.plotly object
+        solution_frame (dataframe): scheduled rows from ``TTPModel.schedule`` (legacy path)
         night_start_time (astropy time object): Beginning of observing interval
         extras (array): starnames of "extra" stars (those not fit into the script)
         filler_stars (array): star names of the stars added in the bonus round

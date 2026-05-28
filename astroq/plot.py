@@ -19,7 +19,6 @@ import astropy as apy
 import astropy.units as u
 from astropy.coordinates import SkyCoord
 import astroplan as apl
-import imageio.v3 as iio
 import matplotlib
 import matplotlib.pyplot as plt
 import plotly.express as px
@@ -44,8 +43,6 @@ np.random.seed(24)
 gray = 'rgb(210,210,210)'
 clear = 'rgba(255,255,255,1)'
 labelsize = 38
-slew_overhead = 60.
-readout_overhead = 45.
 hours_per_night = 12.
 
 class StarPlotter(object):
@@ -66,13 +63,15 @@ class StarPlotter(object):
         """
         self.unique_id = unique_id
 
-    def get_stats(self, row, slot_size):
+    def get_stats(self, row, slot_size, queue):
         """
         Grab the observational stategy information for a given star from the requests.csv file.
 
         Args:
             row (pd.Series): A row from the requests.csv file as a DataFrame 
             slot_size (int): The slot size in minutes
+            queue (astroq.queue.base.Queue): provides ``slew_overhead_mean``
+                and ``readout_time`` for the per-request seconds accounting.
 
         Returns:
             expected_nobs_per_night (int): how many exposures we expect to take
@@ -95,7 +94,7 @@ class StarPlotter(object):
         self.n_inter_max = int(row['n_inter_max'])
         self.tau_inter = int(row['tau_inter'])
         self.total_observations_requested = self.n_exp * self.n_intra_max * self.n_inter_max
-        self.total_requested_seconds = self.total_observations_requested*self.exptime + readout_overhead*(self.n_exp-1)* self.n_inter_max + slew_overhead*self.n_intra_max*self.n_inter_max
+        self.total_requested_seconds = self.total_observations_requested*self.exptime + queue.readout_time*(self.n_exp-1)* self.n_inter_max + queue.slew_overhead_mean*self.n_intra_max*self.n_inter_max
         self.total_requested_hours = self.total_requested_seconds / 3600
         self.total_requested_nights = self.total_requested_hours / hours_per_night   
 
@@ -196,6 +195,11 @@ def process_stars(semester_planner):
     forecast_df = semester_planner.serialized_schedule # pd.read_csv(semester_planner.output_directory + semester_planner.future_forecast)
     forecast_df['r'] = forecast_df['r'].astype(str)  # Convert to string once
 
+    # Per-visit overhead scalars come from the queue (single source of truth).
+    queue = semester_planner.queue
+    slew_overhead = queue.slew_overhead_mean
+    readout_overhead = queue.readout_time
+
     # Previously, there was a unique call to star names, every row of the request frame will be unique already when we switch to "id"
     starnames = semester_planner.requests_frame_all['starname'].unique()
     programs = semester_planner.requests_frame_all['program_code'].unique()
@@ -211,7 +215,7 @@ def process_stars(semester_planner):
         # Create a StarPlotter object for each request, fill and compute relavant information
         newstar = StarPlotter(row['unique_id'])
         newstar.get_map(semester_planner, forecast_df)
-        newstar.get_stats(row, semester_planner.slot_size)
+        newstar.get_stats(row, semester_planner.slot_size, queue)
         if newstar.unique_id in list(semester_planner.past_history.keys()):
             newstar.observations_past = semester_planner.past_history[newstar.unique_id].n_visits_on_nights
             newstar.observations_past_exposures = semester_planner.past_history[newstar.unique_id].n_obs_on_nights
@@ -1116,6 +1120,10 @@ def get_timebar(semester_planner, all_stars, use_program_colors=False, prevent_n
     """
     programmatics = pd.read_csv(os.path.join(semester_planner.semester_directory, 'programs.csv'))
 
+    # Per-visit overhead scalars come from the queue (single source of truth).
+    slew_overhead = semester_planner.queue.slew_overhead_mean
+    readout_overhead = semester_planner.queue.readout_time
+
     # Accumulate total times across all stars
     total_past = 0
     total_future = 0
@@ -1318,7 +1326,11 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
         fig (plotly figure): a plotly figure showing time breakdown per program as a grid of horizontal bar charts
     """
     programmatics = pd.read_csv(os.path.join(semester_planner.semester_directory, 'programs.csv'))
-    
+
+    # Per-visit overhead scalars come from the queue (single source of truth).
+    slew_overhead = semester_planner.queue.slew_overhead_mean
+    readout_overhead = semester_planner.queue.readout_time
+
     # Get all programs from programs.csv
     all_programs_in_csv = set(programmatics['program'].unique())
     programs_with_requests = set(programs_dict.keys())
@@ -1954,11 +1966,32 @@ def get_ladder(data, tonight_start_time):
         fig (plotly figure): a plotly figure illustrating the night plan solution.
     """
 
-    orderData = data[0].plotly
-    # reverse the order so that the plot flows from top to bottom with time
-    orderData = pd.DataFrame.from_dict(orderData)
-    orderData = orderData.iloc[::-1]
-    orderData.reset_index(inplace=True)
+    from astroq.ttp.plot import schedule_to_ladder_frame, _as_model
+
+    model = _as_model(data)
+    orderData = schedule_to_ladder_frame(model)
+    if orderData.empty:
+        orderData = pd.DataFrame(columns=[
+            'Starname', 'human_starname', 'First Available', 'Last Available',
+            'Start Exposure', 'Stop Exposure', 'Total Exp Time (min)',
+            'Slew to Next (min)', 'Minutes the from Start of the Night',
+        ])
+    if 'Slew to Next (min)' not in orderData.columns:
+        orderData['Slew to Next (min)'] = 0.0
+
+    if model.night_start is not None and len(orderData):
+        orderData['UTC Start Time'] = [
+            (model.night_start + TimeDelta(se * 60, format='sec')).isot[11:16]
+            if se > 0 else ''
+            for se in orderData['Start Exposure']
+        ]
+
+    on_sky = model.schedule[~model.schedule['is_anchor']]
+    n_unscheduled = int((~on_sky['scheduled']).sum())
+
+    # reverse so the plot flows top -> bottom with time; after reversal,
+    # the lowest indices (bottom of plot) hold the unscheduled block.
+    orderData = orderData.iloc[::-1].reset_index(drop=True)
 
     # Each priority gets a different color. Make sure that each priority is actually included here or the plot will break. Recall bigger numbers are higher priorities.
     colordict = {'10':'red',
@@ -1973,38 +2006,58 @@ def get_ladder(data, tonight_start_time):
                  '2':'magenta',
                 '1':'blue'}
 
-    # build the outline of the plot, add dummy points that are not displyed within the x/y limits so as to fill in the legend
-    fig = px.scatter(orderData, x='Minutes the from Start of the Night', y='human_starname', hover_data=['First Available', 'Last Available', 'Exposure Time (min)', "N_shots", "Total Exp Time (min)", 'UTC Start Time'] ,title='Night Plan', width=800, height=1000) #color='Program'
-    # Hide the y-axis label
+    hover_cols = ['First Available', 'Last Available', 'Exposure Time (min)',
+                  "N_shots", "Total Exp Time (min)", 'Slew to Next (min)',
+                  'UTC Start Time']
+    fig = px.scatter(orderData, x='Minutes the from Start of the Night', y='human_starname', hover_data=hover_cols ,title='Night Plan', width=800, height=1000) #color='Program'
     fig.update_layout(yaxis_title='')
     fig.add_shape(type="rect", x0=-100, x1=-80, y0=-0.5, y1=0.5, fillcolor='red', showlegend=True, name='Exposure')
+    fig.add_shape(type="rect", x0=-100, x1=-80, y0=-0.5, y1=0.5, fillcolor='dimgray', showlegend=True, name='Slew')
     fig.add_shape(type="rect", x0=-100, x1=-80, y0=-0.5, y1=0.5, fillcolor='lime', opacity=0.3, showlegend=True, name='Accessible')
 
     new_already_processed = []
     ifixer = 0 # for multi-visit targets, it throws off the one row per target plotting...this fixes it
     for i in range(len(orderData['Starname'])):
         if orderData['Starname'][i] not in new_already_processed:
-            # find all the times in the night when the star is being visited
             indices = [k for k in range(len(orderData['Starname'])) if orderData['Starname'][k] == orderData['Starname'][i]]
             for j in range(len(indices)):
-                fig.add_shape(type="rect", x0=orderData['Start Exposure'][indices[j]], x1=orderData['Start Exposure'][indices[j]] + orderData["Total Exp Time (min)"][indices[j]], y0=i+ifixer-0.5, y1=i+ifixer+0.5, fillcolor=colordict[str(orderData['Priority'][indices[j]])])
                 if j == 0:
                     # only do this once, otherwise the green bar gets discolored compared to other rows
                     fig.add_shape(type="rect", x0=orderData['First Available'][indices[j]], x1=orderData['Last Available'][indices[j]], y0=i+ifixer-0.5, y1=i+ifixer+0.5, fillcolor='lime', opacity=0.3, showlegend=False)
+                fig.add_shape(type="rect", x0=orderData['Start Exposure'][indices[j]], x1=orderData['Start Exposure'][indices[j]] + orderData["Total Exp Time (min)"][indices[j]], y0=i+ifixer-0.5, y1=i+ifixer+0.5, fillcolor=colordict[str(orderData['Priority'][indices[j]])])
+                slew = float(orderData['Slew to Next (min)'][indices[j]])
+                if slew > 0:
+                    fig.add_shape(type="rect",
+                                  x0=orderData['Stop Exposure'][indices[j]],
+                                  x1=orderData['Stop Exposure'][indices[j]] + slew,
+                                  y0=i+ifixer-0.5, y1=i+ifixer+0.5,
+                                  fillcolor='dimgray',
+                                  line=dict(width=0))
             new_already_processed.append(orderData['Starname'][i])
         else:
             # if we already did this star, it is a multi-visit star and we need to adjust the row counter for plotting purposes
             ifixer -= 1
 
-    # Get the x-axis range
+    if n_unscheduled and n_unscheduled < len(orderData):
+        sep_y = n_unscheduled - 0.5
+        fig.add_hline(y=sep_y, line_color='black', line_width=1, line_dash='solid')
+
     x_min = 0
-    if len(orderData) > 0:
-        # Calculate the maximum end time (start + duration) across all observations
-        end_times = orderData['Start Exposure'] + orderData["Total Exp Time (min)"]
+    night_start = getattr(model, 'night_start', None)
+    night_end = getattr(model, 'night_end', None)
+    if night_start is not None and night_end is not None:
+        x_max = (night_end.jd - night_start.jd) * 24 * 60
+    elif len(orderData) > 0:
+        end_times = (orderData['Start Exposure']
+                     + orderData['Total Exp Time (min)']
+                     + orderData['Slew to Next (min)'])
         x_max = end_times.max()
     else:
         x_max = 600
     fig.update_layout(xaxis_range=[x_min, x_max])
+    for x_line, label in [(x_min, 'start'), (x_max, 'end')]:
+        fig.add_vline(x=x_line, line_color='black', line_width=1,
+                      annotation_text=label, annotation_position='top')
     # Add secondary x-axis with UTC time
     start_time = tonight_start_time.to_datetime()
     # Create tick positions (every 60 minutes or so, adjust as needed)
@@ -2040,314 +2093,6 @@ def get_ladder(data, tonight_start_time):
     
     return fig
 
-def createTelSlewPath(stamps, changes, pointings, animationStep=120):
-    '''
-    Correctly assign each frame of the animation to the telescope pointing at that time
-
-    stamps (list of zeros) - the list where each element represents a frame of the animation. We manipulate and return this at the end.
-    changes (list) - the times at which the telescope pointing changes (in order of the slew path)
-    poitings (list) - the astropy target objects of for the stars to be observed, in order of the slew path
-    animationStep (int) - the time, in seconds, between frames
-
-    return
-        stamps - now a list where element holds the pointing of the telescope (aka the star object) at that frame
-
-    '''
-    # determine how many minutes each frame of the animation represents
-    minPerStep = int(animationStep/60)
-    mins = int(60/minPerStep)
-
-    # offset the timestamps of the observations to a zero point
-    changes = (changes - changes[0])*24*mins
-    for c in range(len(changes)):
-        changes[c] = int(changes[c])
-
-    # determine telescope pointing at each frame
-    for i in range(len(changes)-1):
-        for j in range(len(stamps)):
-            if j >= changes[i] and j < changes[i+1]:
-                stamps[j] = pointings[i]
-
-    # Add edge cases of the first and last telescope pointing
-    if len(stamps) > 0:
-        k = 0
-        while k < len(stamps) and stamps[k] == 0:
-            stamps[k] = pointings[0]
-            k += 1
-        l = len(stamps)-1
-        while l >= 0 and stamps[l] == 0:
-            stamps[l] = pointings[-1]
-            l -= 1
-
-    return stamps
-
-def get_slew_animation_plotly(data, request_selected_path, animationStep=120):
-    """Create a Plotly animated polar plot showing telescope slew path during observations.
-
-    Args:
-        data: TTP data containing the schedule information
-        request_selected_path: Path to request_selected.csv file
-        animationStep (int): the time, in seconds, between animation frames. Default to 120s.
-        
-    Returns:
-        fig (plotly figure): an interactive animated figure with play/pause controls
-    """
-
-    model = data[0]
-
-    # Read the request_selected.csv file
-    request_selected_df = pd.read_csv(request_selected_path)
-
-    # Set up animation times
-    t = np.arange(model.nightstarts.jd, model.nightends.jd, TimeDelta(animationStep, format='sec').jd)
-    t = Time(t, format='jd')
-
-    # Get list of astropy target objects in scheduled order (OPTIMIZED - use dict lookup)
-    star_dict = {s.name: s.target for s in model.stars}
-    names = list(model.schedule['Starname'])
-    list_targets = [star_dict[name] for name in names]
-
-    # Compute alt/az of each target at each time
-    AZ = model.observatory.observer.altaz(t, list_targets, grid_times_targets=True)
-    alt = np.round(AZ.az.rad, 2)
-    az = 90 - np.round(AZ.alt.deg, 2)
-
-    # Telescope slew path
-    stamps = [0] * len(t)
-    slewPath = createTelSlewPath(stamps, model.schedule['Time'], list_targets)
-    AZ1 = model.observatory.observer.altaz(t, slewPath, grid_times_targets=False)
-    tel_az = np.round(AZ1.az.rad, 2)
-    tel_zen = 90 - np.round(AZ1.alt.deg, 2)
-
-    # Pre-compute arrays
-    schedule_times = np.array(model.schedule['Time'])
-    schedule_names = np.array(model.schedule['Starname'])
-    names_array = np.array(names)
-    
-    # Cross-match unique_id (names_array) with starname from request_selected_df
-    # Create a dictionary for fast lookup
-    unique_id_to_starname = dict(zip(request_selected_df['unique_id'].astype(str), 
-                                      request_selected_df['starname']))
-    # Map each unique_id in names_array to its human-readable starname
-    human_starname_array = np.array([unique_id_to_starname.get(str(uid), str(uid)) 
-                                      for uid in names_array])
-
-    # Create telescope limit zones (red areas) - matching matplotlib version exactly
-    # In polar plot: r represents zenith distance (90 - altitude), where 0 is zenith and 90 is horizon
-    plotlowlim = 90  # Plotting limit to match matplotlib version
-    
-    # Deck limit zone (specific azimuth range)
-    theta_deck = np.linspace(model.observatory.deckAzLim1, model.observatory.deckAzLim2, 100)
-    r_deck_lower = np.full(100, 90 - model.observatory.deckAltLim)
-    r_deck_upper = np.full(100, plotlowlim - model.observatory.vigLim)
-    
-    # Vignetting limit (all around)
-    theta_all = np.linspace(0, 360, 100)
-    r_vig_lower = np.full(100, 90 - model.observatory.vigLim)
-    r_vig_upper = np.full(100, plotlowlim)
-    
-    # Zenith limit (all around, near center)
-    r_zen_lower = np.full(100, 90 - model.observatory.zenLim)
-    r_zen_upper = np.full(100, 0)
-
-    # Create frames for animation
-    frames = []
-    for i in range(len(t)):
-        # Determine which stars have been observed
-        wasObserved = schedule_times <= float(t[i].jd)
-        observed_list = schedule_names[wasObserved]
-        is_observed = np.isin(names_array, observed_list)
-        
-        # Create frame data
-        frame_data = [
-            # Telescope limit zones (red areas) - using fill='toself' with closed paths
-            # Deck limit
-            go.Scatterpolar(
-                r=np.concatenate([r_deck_lower, r_deck_upper[::-1], [r_deck_lower[0]]]),
-                theta=np.concatenate([theta_deck, theta_deck[::-1], [theta_deck[0]]]),
-                fill='toself',
-                fillcolor='rgba(255, 0, 0, 0.7)',
-                line=dict(color='rgba(255, 0, 0, 0)'),
-                showlegend=(i==0),
-                name='Deck Limit',
-                hoverinfo='skip'
-            ),
-            # Vignetting limit
-            go.Scatterpolar(
-                r=np.concatenate([r_vig_lower, r_vig_upper[::-1], [r_vig_lower[0]]]),
-                theta=np.concatenate([theta_all, theta_all[::-1], [theta_all[0]]]),
-                fill='toself',
-                fillcolor='rgba(255, 0, 0, 0.7)',
-                line=dict(color='rgba(255, 0, 0, 0)'),
-                showlegend=(i==0),
-                name='Vignetting Limit',
-                hoverinfo='skip'
-            ),
-            # Zenith limit
-            go.Scatterpolar(
-                r=np.concatenate([r_zen_lower, r_zen_upper[::-1], [r_zen_lower[0]]]),
-                theta=np.concatenate([theta_all, theta_all[::-1], [theta_all[0]]]),
-                fill='toself',
-                fillcolor='rgba(255, 0, 0, 0.7)',
-                line=dict(color='rgba(255, 0, 0, 0)'),
-                showlegend=(i==0),
-                name='Zenith Limit',
-                hoverinfo='skip'
-            ),
-            # Stars - observed
-            go.Scatterpolar(
-                r=az[:, i][is_observed],
-                theta=np.degrees(alt[:, i][is_observed]),
-                mode='markers',
-                marker=dict(size=10, color='orange', symbol='star'),
-                name='Observed',
-                showlegend=(i==0),
-                text=human_starname_array[is_observed],
-                hovertemplate='<b>%{text}</b><br>Az: %{theta:.1f}°<br>ZD: %{r:.1f}°<extra></extra>'
-            ),
-            # Stars - not observed
-            go.Scatterpolar(
-                r=az[:, i][~is_observed],
-                theta=np.degrees(alt[:, i][~is_observed]),
-                mode='markers',
-                marker=dict(size=10, color='white', symbol='star'),
-                name='Scheduled',
-                showlegend=(i==0),
-                text=human_starname_array[~is_observed],
-                hovertemplate='<b>%{text}</b><br>Az: %{theta:.1f}°<br>ZD: %{r:.1f}°<extra></extra>'
-            ),
-            # Telescope path
-            go.Scatterpolar(
-                r=tel_zen[:i+1] if i > 0 else tel_zen[:1],
-                theta=np.degrees(tel_az[:i+1] if i > 0 else tel_az[:1]),
-                mode='lines',
-                line=dict(color='orange', width=2),
-                name='Telescope Path',
-                showlegend=(i==0)
-            )
-        ]
-        
-        frames.append(go.Frame(data=frame_data, name=str(i)))
-
-    # Create initial figure with first frame
-    fig = go.Figure(
-        data=frames[0].data if frames else [],
-        frames=frames
-    )
-
-    # Update layout for polar plot
-    fig.update_layout(
-        polar=dict(
-            radialaxis=dict(
-                range=[0, 90],  # 0=zenith (90° altitude), 90=horizon (0° altitude)
-                showticklabels=False,  # Hide altitude degree labels
-                ticks='',
-                showline=False,  # Hide the radial axis line
-                gridcolor='rgba(255, 255, 255, 0.2)',  # Soft white grid lines
-                gridwidth=1
-            ),
-            angularaxis=dict(
-                direction='counterclockwise',
-                rotation=90,
-                gridcolor='rgba(255, 255, 255, 0.2)',  # Soft white grid lines
-                gridwidth=1,
-                tickfont=dict(size=18, color='black'),  # Bigger azimuthal labels in black
-                showticklabels=True
-            ),
-            bgcolor='black'
-        ),
-        # Add cardinal direction annotations
-        annotations=[
-            dict(text='<b>N</b>', x=0.495, y=1.1, xref='paper', yref='paper', 
-                 showarrow=False, font=dict(size=22, color='black')),
-            dict(text='<b>W</b>', x=1.0, y=0.5, xref='paper', yref='paper', 
-                 showarrow=False, font=dict(size=22, color='black')),
-            dict(text='<b>S</b>', x=0.495, y=-0.1, xref='paper', yref='paper', 
-                 showarrow=False, font=dict(size=22, color='black')),
-            dict(text='<b>E</b>', x=-0.0, y=0.5, xref='paper', yref='paper', 
-                 showarrow=False, font=dict(size=22, color='black'))
-        ],
-        # Set default animation settings to match Play button
-        transition={'duration': 0},
-        updatemenus=[{
-            'type': 'buttons',
-            'showactive': False,
-            'direction': 'left',
-            'x': 0.35,
-            'y': -0.2,
-            'xanchor': 'left',
-            'yanchor': 'bottom',
-            'buttons': [
-                {
-                    'label': '  ▶ Play  ',
-                    'method': 'animate',
-                    'args': [None, {
-                        'frame': {'duration': 100, 'redraw': True},
-                        'fromcurrent': True,
-                        'mode': 'immediate',
-                        'transition': {'duration': 0}
-                    }]
-                },
-                {
-                    'label': '  ⏸ Pause  ',
-                    'method': 'animate',
-                    'args': [[None], {
-                        'frame': {'duration': 0, 'redraw': False},
-                        'mode': 'immediate',
-                        'transition': {'duration': 0}
-                    }]
-                }
-            ],
-            'bgcolor': 'white',
-            'bordercolor': 'black',
-            'borderwidth': 2,
-            'font': {'size': 16, 'color': 'black', 'family': 'Arial'},
-        }],
-        sliders=[{
-            'active': 0,
-            'yanchor': 'top',
-            'y': -0.15,
-            'xanchor': 'left',
-            'currentvalue': {
-                'prefix': 'Time: ',
-                'visible': True,
-                'xanchor': 'right',
-                'font': {'size': 14, 'color': 'black'}
-            },
-            'pad': {'b': 10, 't': 50},
-            'len': 0.9,
-            'x': 0.1,
-            'font': {'size': 12, 'color': 'black'},
-            'steps': [
-                {
-                    'args': [[f.name], {
-                        'frame': {'duration': 100, 'redraw': True},  # Match button duration
-                        'mode': 'immediate',
-                        'transition': {'duration': 0}
-                    }],
-                    'label': t[k].datetime.strftime('%H:%M'),  # HH:MM format only
-                    'method': 'animate'
-                }
-                for k, f in enumerate(frames)
-            ],
-            'transition': {'duration': 100}  # Match frame duration for consistent speed
-        }],
-        width=800,
-        height=800,
-        title=dict(
-            text='Telescope Slew Animation',
-            font=dict(color='black', size=20)
-        ),
-        template='plotly_white',
-        paper_bgcolor='white',
-        plot_bgcolor='white',
-        font=dict(color='black'),
-        # Configure animation behavior
-        hovermode='closest'
-    )
-
-    return fig
-
 def get_script_plan(night_planner):
     """Generate script plan DataFrame from semester planner and night planner objects.
     
@@ -2370,17 +2115,20 @@ def get_script_plan(night_planner):
     
     # Read the request_selected.csv file
     request_selected_df = pd.read_csv(request_selected_path)
-    solution = night_planner.solution[0]  # First index as specified
-    
-    # Extract the schedule from the solution and convert to a DataFrame
-    solution_schedule = solution.plotly
-    solution_df = pd.DataFrame(solution_schedule)
-    
-    # Merge the solution DataFrame with the request_selected dataframe
-    # Use starname as the key for merging
-    merged_df = pd.merge(request_selected_df, solution_df, 
-                         left_on='unique_id', right_on='Starname', 
-                         how='inner')
+    solution = night_planner.solution
+    on_sky = solution.schedule[~solution.schedule['is_anchor']]
+    scheduled = on_sky[on_sky['scheduled']].sort_values('order')
+
+    merged_df = request_selected_df.merge(
+        scheduled[['unique_id', 't_start', 't_early', 't_late']],
+        on='unique_id',
+        how='inner',
+    )
+    merged_df = merged_df.rename(columns={
+        't_start': 'Start Exposure',
+        't_early': 'First Available',
+        't_late': 'Last Available',
+    })
                              
     # Select and reorder only the specific columns requested
     # desired_columns = [
@@ -2470,247 +2218,6 @@ def get_script_plan(night_planner):
     
     return final_df
 
-def plot_path_2D_interactive(data, night_start_time=None):
-    """Create an interactive Plotly plot showing telescope azimuth and altitude paths with UTC times and white background.
-    
-    Args:
-        data (list): a list containing the TTP model solution
-        night_start_time: Astropy Time object representing the start of night (Minute 0) from allocation file
-
-    Returns:
-        fig (plotly figure): an interactive plot showing telescope azimuth and altitude paths with UTC times and white background.
-    """
-
-    model = data[0]
-
-    names = list(model.plotly['human_starname'])
-    times = model.times
-    az_path = model.az_path
-    alt_path = model.alt_path
-    wrap = model.observatory.wrapLimitAngle
-    
-    # Use night_start_time as "Minute 0" reference
-    if night_start_time is None:
-        # Fallback: use first time from model
-        night_start_jd = times[0].jd
-    else:
-        night_start_jd = night_start_time.jd
-
-    # Use times from model for telescope path (these are waypoints from TTP solver)
-    # These represent END of exposure times, so we need to subtract exposure duration
-    obs_time = np.array([t.jd for t in times])
-    
-    # Adjust times to represent START of exposure instead of END
-    # The times array has 2 points per observation (both at end of exposure)
-    if hasattr(model, 'plotly') and 'Total Exp Time (min)' in model.plotly:
-        total_exp_times = model.plotly['Total Exp Time (min)']
-        
-        # Subtract exposure time from each pair of points
-        for i in range(len(total_exp_times)):
-            idx1 = i * 2
-            idx2 = i * 2 + 1
-            if idx2 < len(obs_time):
-                duration_days = total_exp_times[i] / 1440.0
-                obs_time[idx1] -= duration_days
-                obs_time[idx2] -= duration_days
-    
-    # The times/az/alt arrays have 2 points per observation (start and end)
-    # but names only has one entry per observation. Expand names to match.
-    if len(obs_time) == 2 * len(names):
-        # Each name should appear twice (for start and end of observation)
-        expanded_names = []
-        for name in names:
-            expanded_names.append(name)  # Start point
-            expanded_names.append(name)  # End point
-        names = expanded_names
-    elif len(obs_time) != len(names):
-        # Repeat names to match the length
-        names = names * (len(obs_time) // len(names) + 1)
-        names = names[:len(obs_time)]
-    
-    # Ensure all arrays are the same length
-    min_len = min(len(obs_time), len(az_path), len(alt_path), len(names))
-    obs_time = obs_time[:min_len]
-    az_path = np.array(az_path[:min_len])
-    alt_path = np.array(alt_path[:min_len])
-    names = names[:min_len]
-    
-    # First, ensure all azimuth values are within 0-360 degrees using mod 360
-    # This prevents values like -10° or 370° from appearing
-    az_path = np.mod(az_path, 360)
-    
-    # Store original azimuth for hover text (0-360°)
-    az_path_original = az_path.copy()
-    
-    # For display: values above 270° should be shown as negative (subtract 360)
-    # e.g., 290° becomes -70°, 350° becomes -10°
-    az_path_display = az_path.copy()
-    az_path_display[az_path_display > 270] -= 360
-    
-    # For tick labels and hover, format as HH:MM
-    time_labels = [Time(t, format='jd').isot[11:16] for t in obs_time]
-    
-    # Create hover text arrays using ORIGINAL azimuth (0-360°)
-    hover_text_az = [f"Time: {time_labels[i]}<br>Target: {names[i]}<br>Az: {az_path_original[i]:.1f}°" 
-                     for i in range(len(obs_time))]
-    hover_text_alt = [f"Time: {time_labels[i]}<br>Target: {names[i]}<br>Alt: {alt_path[i]:.1f}°" 
-                      for i in range(len(obs_time))]
-
-    fig = make_subplots(
-        rows=2, cols=1,
-        shared_xaxes=True,
-        subplot_titles=("Azimuth Path", "Elevation Path"),
-        vertical_spacing=0.1
-    )
-
-    # Azimuth plot (use display values: >270° shown as negative)
-    fig.add_trace(go.Scatter(
-        x=obs_time, y=az_path_display,
-        mode='lines+markers',
-        marker=dict(color='indigo'),
-        name='Azimuth',
-        text=hover_text_az,
-        hovertemplate='%{text}<extra></extra>'
-    ), row=1, col=1)
-
-    # Elevation plot
-    fig.add_trace(go.Scatter(
-        x=obs_time, y=alt_path,
-        mode='lines+markers',
-        marker=dict(color='seagreen'),
-        name='Elevation',
-        text=hover_text_alt,
-        hovertemplate='%{text}<extra></extra>'
-    ), row=2, col=1)
-
-    # Add wrap limit line at the wrap position
-    # Apply same conversion as display values: if wrap > 270°, subtract 360
-    if wrap is not None:
-        # Normalize wrap to 0-360 range
-        wrap_normalized = wrap % 360
-        
-        # Apply same display conversion: if > 270°, show as negative
-        wrap_display = wrap_normalized
-        if wrap_display > 270:
-            wrap_display -= 360
-        
-        # Draw wrap limit line at the display position
-        fig.add_shape(
-            type="line",
-            x0=obs_time[0], x1=obs_time[-1],
-            y0=wrap_display, y1=wrap_display,
-            line=dict(color="red", dash="dash", width=2),
-            row=1, col=1
-        )
-        fig.add_annotation(
-            x=obs_time[-1], y=wrap_display,
-            text=f"Wrap = {wrap_normalized}°",
-            showarrow=False,
-            font=dict(color="red", size=10),
-            row=1, col=1
-        )
-
-    # Highlight observed intervals using Start/Stop Exposure times
-    # Shade from Start Exposure to Stop Exposure (both in minutes from night start)
-    if hasattr(model, 'plotly') and 'Start Exposure' in model.plotly and 'Stop Exposure' in model.plotly:
-        start_exposures = model.plotly['Start Exposure']  # Minutes from start of night
-        stop_exposures = model.plotly['Stop Exposure']    # Minutes from start of night
-        
-        for i, (start_min, stop_min) in enumerate(zip(start_exposures, stop_exposures)):
-            # Convert minutes from night start to JD
-            # 1 day = 1440 minutes, so minutes / 1440 = fraction of a day
-            start_jd = night_start_jd + (start_min / 1440.0)
-            stop_jd = night_start_jd + (stop_min / 1440.0)
-            
-            # Add yellow shaded region for this exposure
-            fig.add_vrect(
-                x0=start_jd, x1=stop_jd,
-                fillcolor="yellow", opacity=0.3,
-                layer="below", line_width=0,
-                row=1, col=1
-            )
-            fig.add_vrect(
-                x0=start_jd, x1=stop_jd,
-                fillcolor="yellow", opacity=0.3,
-                layer="below", line_width=0,
-                row=2, col=1
-            )
-
-    # Set x-axis tick labels as HH:MM with evenly spaced grid
-    # Create evenly spaced time ticks (e.g., every hour or every 30 minutes)
-    time_span = obs_time[-1] - obs_time[0]
-    # Determine appropriate interval based on time span
-    if time_span < 0.1:  # Less than ~2.4 hours
-        interval_hours = 0.5  # 30 minutes
-    elif time_span < 0.3:  # Less than ~7 hours  
-        interval_hours = 1.0  # 1 hour
-    else:
-        interval_hours = 2.0  # 2 hours
-    
-    # Convert interval to JD units (1 hour = 1/24 JD)
-    interval_jd = interval_hours / 24
-    
-    # Create evenly spaced tick positions
-    start_time = obs_time[0]
-    end_time = obs_time[-1]
-    num_ticks = int((end_time - start_time) / interval_jd) + 2
-    tick_positions = np.linspace(start_time, end_time, num_ticks)
-    
-    # Convert tick positions to time labels
-    tick_labels = [Time(t, format='jd').isot[11:16] for t in tick_positions]
-    
-    fig.update_xaxes(
-        tickmode='array',
-        tickvals=tick_positions,
-        ticktext=tick_labels,
-        title_text='Time (UTC)',
-        row=2, col=1
-    )
-
-    # Update y-axis for azimuth to always show consistent range with 270° at the top
-    # Values >270° are displayed as negative (by subtracting 360)
-    # Range goes from -95° to 275° with 5° buffer on both ends
-    az_y_min = -95
-    az_y_max = 275
-    
-    # Generate tick positions every 45 degrees from -90 to 270
-    tick_interval = 45
-    az_tick_positions = np.arange(-90, 271, tick_interval)  # -90, -45, 0, 45, 90, 135, 180, 225, 270
-    
-    # Create labels - convert negative angles to their 360° equivalents
-    # -90° → 270°, -45° → 315°, etc.
-    az_tick_labels = []
-    for pos in az_tick_positions:
-        if pos < 0:
-            # Convert negative to 360° equivalent
-            label = int(pos + 360)
-        else:
-            label = int(pos)
-        az_tick_labels.append(f"{label}°")
-    
-    fig.update_yaxes(
-        tickmode='array',
-        tickvals=az_tick_positions,
-        ticktext=az_tick_labels,
-        range=[az_y_min, az_y_max],
-        title_text="Azimuth (deg)",
-        row=1, col=1
-    )
-    
-    # Update y-axis for altitude to always show 0° to 90°
-    fig.update_yaxes(
-        range=[0, 90],
-        title_text="Altitude (deg)",
-        row=2, col=1
-    )
-    
-    fig.update_layout(
-        height=600,
-        width=1000,
-        template="plotly_white"
-    )
-    return fig
-
 REQUEST_FRAME_COLUMNS = [
     'starname', 'unique_id', 'program_code', 'ra', 'dec', 'exptime', 'n_exp',
     'n_inter_max', 'tau_inter', 'n_intra_max', 'n_intra_min', 'tau_intra',
@@ -2721,7 +2228,7 @@ REQUEST_FRAME_DISPLAY_NAMES = {
     'starname': 'Star', 'unique_id': 'ID', 'program_code': 'Program',
     'ra': 'RA', 'dec': 'Dec', 'exptime': 'ExpTime', 'comments': 'Comments',
 }
-# Tooltips shown when hovering over column headers (add your custom text here)
+# Tooltips shown when hovering over column headers.
 REQUEST_FRAME_COLUMN_TOOLTIPS = {
     'Star': 'Name of the star',
     'ID': 'Keck OB database unique ID',

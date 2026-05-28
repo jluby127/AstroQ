@@ -26,9 +26,49 @@ import re
 from bs4 import BeautifulSoup
 
 # Local imports
-from astroq.access import Access
+from astroq.queue.base import Queue
 
 logs = logging.getLogger(__name__)
+
+
+class HIRESCPS(Queue):
+    """HIRES-CPS on Keck-I.
+
+    HIRES is permanently installed on Keck-I, so the telescope/instrument
+    pairing is unique and this single class fully describes the queue.
+
+    Pointing geometry references the Keck-I limits page:
+    https://www2.keck.hawaii.edu/inst/common/TelLimits.html
+
+    The upper elevation limit (85 deg) matches AstroQ's accessibility policy
+    rather than TTP's historical Keck1 zenith limit (84 deg); the physical
+    zenith limit is 88.9 deg.
+    """
+
+    slew_rate = 0.6           # deg/s; matches TTP Keck1 (6./10.)
+    wrap_limit = 235.0        # deg azimuth
+    nSlots = 4                # TTP slew-slot granularity
+    readout_time = 45.0       # seconds; per-shot detector readout
+    slew_overhead_mean = 60.0  # seconds; mean per-visit slew + acquisition (splan-only estimate)
+
+    # Inaccessible (alt, az) boxes, degrees. (az_min, az_max, alt_min, alt_max).
+    # A sky point is excluded iff it lies inside ANY box. See Queue.is_accessible.
+    # Duplicated independently in HIRESCPS and KPFCC; the two queues may
+    # legitimately diverge on elevation policy.
+    inaccessible_zones = [
+        (5.3,   146.2, 0.0,  33.3),   # Nasmyth deck obstruction
+        (0.0,   360.0, 0.0,  18.0),   # below 18 deg elevation clamp
+        (0.0,   360.0, 85.0, 90.0),   # above 85 deg elevation clamp
+    ]
+
+    def __init__(self):
+        import astroplan as apl
+        self.observer = apl.Observer.at_site(
+            "Keck Observatory", name="Keck", timezone="US/Hawaii"
+        )
+
+    def write_starlist(self, *args, **kwargs):
+        return write_starlist(*args, **kwargs)
 
 # Shared request fields through ``priority`` (exptime/maxtime are seconds; Keck / MAGIQ convention).
 REQUEST_COLS_CORE = [
@@ -552,16 +592,15 @@ def get_hires_past_history(path_to_csv, semester_start_day=None):
     print("Data cleaned. Done.")
     
 
-def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars, current_day,
+def write_starlist(frame, schedule, night_start_time, filler_stars, current_day,
                     outputdir, version='nominal', all_active_requests=None, past_history=None):
     """
     Generate the nightly script in the correct format.
 
     Args:
         frame (dataframe): the request.csv in dataframe format for just the targets that were selected to be observed tonight
-        solution_frame (dataframe): the solution attribute from the TTP model.plotly object
+        schedule (dataframe): TTP ``schedule`` DataFrame (parallel to ``nodes``)
         night_start_time (astropy time object): Beginning of observing interval
-        extras (array): starnames of "extra" stars (those not fit into the script)
         filler_stars (array): star names of the stars added in the bonus round
         current_day (str): today's date in format YYYY-MM-DD
         outputdir (str): the directory to save the script file
@@ -576,47 +615,48 @@ def write_starlist(frame, solution_frame, night_start_time, extras, filler_stars
     Returns:
         list[str]: the lines written to the script file.
     """
-    # Cast starname column to strings to ensure proper matching
     frame['starname'] = frame['starname'].astype(str)
-    
-    # Cast extras star names to strings to ensure proper matching
-    extras['Starname'] = extras['Starname'].astype(str) if isinstance(extras, pd.DataFrame) else [str(star) for star in extras['Starname']]
-    
+
+    on_sky = schedule[~schedule['is_anchor']]
+    scheduled_df = on_sky[on_sky['scheduled']].sort_values('order')
+    extras_df = on_sky[~on_sky['scheduled']]
+
     total_exptime = 0
     if not os.path.isdir(outputdir):
         os.mkdir(outputdir)
     script_file = os.path.join(outputdir,'script_{}_{}.txt'.format(current_day, version))
 
     lines = []
-    for i, item in enumerate(solution_frame['Starname']):
-        filler_flag = solution_frame['Starname'][i] in filler_stars
-        row = frame.loc[frame['unique_id'] == solution_frame['Starname'][i]]
+    for _, srow in scheduled_df.iterrows():
+        uid = str(srow['unique_id'])
+        filler_flag = uid in filler_stars
+        row = frame.loc[frame['unique_id'] == uid]
         row.reset_index(inplace=True)
         total_exptime += float(row['exptime'].iloc[0])
 
-        start_exposure_hst = str(TimeDelta(solution_frame['Start Exposure'][i]*60,format='sec') + \
-                                                night_start_time)[11:16]
-        first_available_hst = str(TimeDelta(solution_frame['First Available'][i]*60,format='sec')+ \
-                                                night_start_time)[11:16]
-        last_available_hst = str(TimeDelta(solution_frame['Last Available'][i]*60,format='sec') + \
-                                                night_start_time)[11:16]
-        lines.append(format_hires_row(row, start_exposure_hst, first_available_hst,last_available_hst,
-                                        current_day, filler_flag = filler_flag))
+        start_exposure_hst = str(TimeDelta(srow['t_start'] * 60, format='sec') + night_start_time)[11:16]
+        first_available_hst = str(TimeDelta(srow['t_early'] * 60, format='sec') + night_start_time)[11:16]
+        last_available_hst = str(TimeDelta(srow['t_late'] * 60, format='sec') + night_start_time)[11:16]
+        lines.append(format_hires_row(
+            row, start_exposure_hst, first_available_hst, last_available_hst,
+            current_day, filler_flag=filler_flag,
+        ))
 
     lines.append('')
     lines.append('X' * 45 + 'EXTRAS' + 'X' * 45)
     lines.append('')
 
-    for j in range(len(extras['Starname'])):
-        if extras['Starname'][j] in filler_stars:
-            filler_flag = True
-        else:
-            filler_flag = False
-        row = frame.loc[frame['unique_id'] == extras['Starname'][j]]
+    for _, erow in extras_df.iterrows():
+        uid = str(erow['unique_id'])
+        filler_flag = uid in filler_stars
+        row = frame.loc[frame['unique_id'] == uid]
         row.reset_index(inplace=True)
-
-        lines.append(format_hires_row(row, '24:00', extras['First Available'][j],
-                    extras['Last Available'][j], current_day, filler_flag, True))
+        first_available_hst = str(TimeDelta(erow['t_early'] * 60, format='sec') + night_start_time)[11:16]
+        last_available_hst = str(TimeDelta(erow['t_late'] * 60, format='sec') + night_start_time)[11:16]
+        lines.append(format_hires_row(
+            row, '24:00', first_available_hst, last_available_hst,
+            current_day, filler_flag, True,
+        ))
 
     if all_active_requests is not None and past_history is not None:
         backup_df = all_active_requests.copy()
