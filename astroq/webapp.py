@@ -4,7 +4,10 @@ Web application module for AstroQ.
 
 # Standard library imports
 import base64
+import logging
 import os
+
+logs = logging.getLogger(__name__)
 import pickle
 import threading
 from configparser import ConfigParser
@@ -94,9 +97,10 @@ def load_data_for_path(semester_code, date, band, uptree_path):
             night_planner.current_day
         )
     except Exception as e:
-        print(f"No night planner found")
-        # import traceback
-        # traceback.print_exc()
+        logs.warning(
+            "Failed to load night planner from %s: %s",
+            night_planner_h5, e,
+        )
         night_planner = None
         data_ttp = None
     

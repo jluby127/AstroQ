@@ -701,7 +701,7 @@ class SemesterPlanner(object):
         self.model.Params.OutputFlag = self.gurobi_output
         # Allow stop at 5% gap to prevent from spending lots of time on marginally better solution
         self.model.params.MIPGap = self.solve_max_gap
-        self.model.params.Presolve = 1
+        self.model.params.Presolve = 2
         self.model.update()
         self.model.optimize()
 

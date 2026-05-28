@@ -10,6 +10,7 @@ from astroq.ttp.model import TTPModel
 import unittest
 import pandas as pd
 import numpy as np
+from astropy.coordinates import SkyCoord
 from astropy.time import Time
 from pathlib import Path
 from io import BytesIO
@@ -146,7 +147,7 @@ class TestClass(unittest.TestCase):
             value = getattr(night_planner, attr)
             self.assertIsNotNone(value, f"NightPlanner attribute {attr} is None")
         
-        # Validate solution exists (schema v3: bare TTPModel, not [TTPModel])
+        # Validate solution exists (schema v4: bare TTPModel with scalar HDF5 round-trip)
         self.assertTrue(hasattr(night_planner, 'solution'), "NightPlanner missing attribute: solution")
         self.assertIsNotNone(night_planner.solution, "solution is None")
         solution = night_planner.solution
@@ -160,6 +161,11 @@ class TestClass(unittest.TestCase):
         self.assertFalse(solution.schedule.empty)
         for col in ('scheduled', 't_start', 't_end', 'unique_id', 'is_anchor'):
             self.assertIn(col, solution.schedule.columns, f"schedule missing column: {col}")
+
+        self.assertIn('ra', solution.schedule.columns, "schedule missing ra (schema v4)")
+        self.assertIn('dec', solution.schedule.columns, "schedule missing dec (schema v4)")
+        self.assertIn('coord', solution.requests_frame.columns)
+        self.assertIsInstance(solution.requests_frame['coord'].iloc[0], SkyCoord)
 
         self.assertIsNotNone(solution.stats)
         self.assertIsInstance(solution.stats, dict)

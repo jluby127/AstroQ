@@ -23,7 +23,228 @@ from astroq.ttp import model
 
 # HDF5 schema version for night_planner.h5. Bumped when the layout changes so
 # stale files fail-fast with a clear message rather than silently misloading.
-NIGHT_PLANNER_H5_SCHEMA = 3
+NIGHT_PLANNER_H5_SCHEMA = 4
+
+# Astropy-typed columns stripped before HDF5 write (schema v4 adds scalar companions).
+_OBJECT_TYPED_COLUMNS = [
+    'coord', 'first_available', 'last_available', 't_visit', 'tau_intra',
+]
+_HDF5_SCALAR_COLUMNS = [
+    'ra', 'dec', 'first_available_jd', 'last_available_jd',
+    't_visit_min', 'tau_intra_hr',
+]
+
+
+def _quantity_series_to_value(series, target_unit):
+    """Convert a column of Quantity scalars (or plain floats) to *target_unit* values."""
+    if len(series) == 0:
+        return np.array([], dtype=float)
+    sample = series.iloc[0]
+    if isinstance(sample, u.Quantity):
+        return u.Quantity(series.values).to_value(target_unit)
+    return np.asarray(series, dtype=float)
+
+
+def _scalarize_requests_frame(rf):
+    """Copy *rf* with portable float columns for HDF5 (schema v4)."""
+    out = rf.drop(columns=_OBJECT_TYPED_COLUMNS, errors='ignore').copy()
+    if 'coord' not in rf.columns:
+        return out
+    out['ra'] = rf['coord'].apply(
+        lambda c: float(c.ra.deg) if c is not None else np.nan,
+    )
+    out['dec'] = rf['coord'].apply(
+        lambda c: float(c.dec.deg) if c is not None else np.nan,
+    )
+    if 'first_available' in rf.columns:
+        out['first_available_jd'] = rf['first_available'].apply(
+            lambda t: float(t.jd) if t is not None else np.nan,
+        )
+    if 'last_available' in rf.columns:
+        out['last_available_jd'] = rf['last_available'].apply(
+            lambda t: float(t.jd) if t is not None else np.nan,
+        )
+    if 't_visit' in rf.columns:
+        out['t_visit_min'] = _quantity_series_to_value(rf['t_visit'], u.min)
+    if 'tau_intra' in rf.columns:
+        out['tau_intra_hr'] = _quantity_series_to_value(rf['tau_intra'], u.hr)
+    return out
+
+
+def _restore_requests_frame_from_scalar_df(df):
+    """Rebuild TTPModel.REQUIRED_COLUMNS from schema-v4 scalar HDF5 columns."""
+    if 'ra' not in df.columns or 'dec' not in df.columns:
+        raise ValueError(
+            "night_planner.h5 requests_frame lacks ra/dec scalar columns; "
+            "re-run plan-night with a current AstroQ build."
+        )
+    priority = df['priority'].to_numpy() if 'priority' in df.columns else np.full(len(df), 10.0)
+    return pd.DataFrame({
+        'unique_id': df['unique_id'].to_numpy(),
+        'n_intra_max': df['n_intra_max'].to_numpy(),
+        'priority': priority,
+        'coord': SkyCoord(
+            df['ra'].to_numpy() * u.deg,
+            df['dec'].to_numpy() * u.deg,
+            frame='icrs',
+        ),
+        'first_available': Time(df['first_available_jd'].to_numpy(), format='jd'),
+        'last_available': Time(df['last_available_jd'].to_numpy(), format='jd'),
+        't_visit': df['t_visit_min'].to_numpy() * u.min,
+        'tau_intra': df['tau_intra_hr'].to_numpy() * u.hr,
+    })
+
+
+def _visit_duration_minutes(series):
+    """Normalize per-visit duration to plain minutes (float)."""
+    if len(series) == 0:
+        return np.array([], dtype=float)
+    sample = series.iloc[0]
+    if isinstance(sample, u.Quantity):
+        return u.Quantity(series.values).to_value(u.min)
+    return np.asarray(series, dtype=float)
+
+
+def _enrich_schedule_with_positions(sched, requests_frame):
+    """Add ra/dec columns for plot adapters (schedule may already have starname)."""
+    sched = sched.copy()
+    lookup = pd.DataFrame({
+        'unique_id': requests_frame['unique_id'],
+        'ra': requests_frame['coord'].apply(lambda c: float(c.ra.deg)),
+        'dec': requests_frame['coord'].apply(lambda c: float(c.dec.deg)),
+    }).drop_duplicates('unique_id')
+    for col in ('ra', 'dec'):
+        if col in sched.columns:
+            sched = sched.drop(columns=[col])
+    return sched.merge(lookup, on='unique_id', how='left').reset_index(drop=True)
+
+
+def _prepare_schedule_for_hdf5(sched):
+    """Portable schedule columns for HDF5 (keeps plot-critical scalars)."""
+    sched = sched.drop(columns=_OBJECT_TYPED_COLUMNS, errors='ignore').copy()
+    if 't_visit' in sched.columns:
+        sched['t_visit_min'] = _visit_duration_minutes(sched['t_visit'])
+    return sched
+
+
+def _schedule_request_metadata(output_directory, requests_frame):
+    """exptime (minutes) and n_exp keyed by unique_id for ladder plots."""
+    path = os.path.join(output_directory, 'request_selected.csv')
+    if os.path.exists(path):
+        meta = pd.read_csv(path)
+    else:
+        meta = requests_frame.copy()
+    if meta.empty or 'unique_id' not in meta.columns:
+        return pd.DataFrame(columns=['unique_id', 'exptime', 'n_exp'])
+    meta = meta[['unique_id', 'exptime', 'n_exp']].drop_duplicates('unique_id')
+    meta['exptime'] = pd.to_numeric(meta['exptime'], errors='coerce') / 60.0
+    meta['n_exp'] = pd.to_numeric(meta['n_exp'], errors='coerce')
+    return meta
+
+
+def _restore_schedule_for_plots(sched, requests_frame, *, output_directory=None):
+    """Rebuild schedule columns required by ``astroq.ttp.plot`` after HDF5 load."""
+    sched = sched.copy()
+    if 't_visit' not in sched.columns:
+        if 't_visit_min' in sched.columns:
+            sched['t_visit'] = sched['t_visit_min'].to_numpy(dtype=float)
+        else:
+            lookup = pd.DataFrame({
+                'unique_id': requests_frame['unique_id'],
+                't_visit': _visit_duration_minutes(requests_frame['t_visit']),
+            }).drop_duplicates('unique_id')
+            sched = sched.merge(lookup, on='unique_id', how='left')
+    if 'exptime' not in sched.columns or 'n_exp' not in sched.columns:
+        meta = _schedule_request_metadata(output_directory, requests_frame)
+        if not meta.empty:
+            for col in ('exptime', 'n_exp'):
+                if col in sched.columns:
+                    sched = sched.drop(columns=[col])
+            sched = sched.merge(meta, on='unique_id', how='left')
+    return sched.reset_index(drop=True)
+
+
+def _restore_requests_frame_legacy(thin_rf, *, night_planner_instance):
+    """Rebuild requests_frame from schema-v3 HDF5 (no scalar columns on disk).
+
+    Uses ``request_selected.csv`` when present (same source as ``run_ttp``), otherwise
+    falls back to ``semester_planner.requests_frame`` for positions and night bounds
+    for availability windows.
+    """
+    instance = night_planner_instance
+    queue = instance.queue
+    uids = set(thin_rf['unique_id'].astype(str))
+    selected_path = os.path.join(instance.output_directory, 'request_selected.csv')
+
+    if os.path.exists(selected_path):
+        selected_df = pd.read_csv(selected_path)
+        selected_df = selected_df[
+            selected_df['unique_id'].astype(str).isin(uids)
+        ].copy()
+        if selected_df.empty:
+            raise ValueError(
+                f"{selected_path} has no rows matching night_planner unique_id values."
+            )
+        first_available, last_available = instance.get_first_last_indices(selected_df)
+        selected_df['first_available'] = first_available
+        selected_df['last_available'] = last_available
+    else:
+        logs.warning(
+            "%s not found; rebuilding TTP requests from semester_planner.requests_frame.",
+            selected_path,
+        )
+        sem = instance.semester_planner.requests_frame
+        selected_df = sem[sem['unique_id'].astype(str).isin(uids)].copy()
+        if selected_df.empty:
+            raise ValueError(
+                "Cannot rebuild night_planner requests_frame: no matching unique_id "
+                "in semester_planner.requests_frame."
+            )
+        try:
+            ns, ne = get_nightly_times_from_allocation(
+                instance.allocation_file, instance.current_day,
+            )
+            fa_str = str(ns)[:19].replace('T', ' ')
+            la_str = str(ne)[:19].replace('T', ' ')
+        except ValueError:
+            fa_str = la_str = str(instance.current_day)
+        selected_df['first_available'] = fa_str
+        selected_df['last_available'] = la_str
+
+    if 'priority' in thin_rf.columns:
+        pri_map = thin_rf.set_index('unique_id')['priority']
+        selected_df['priority'] = selected_df['unique_id'].map(pri_map).fillna(10.0)
+    else:
+        selected_df['priority'] = 10.0
+
+    if 'n_intra_max' in thin_rf.columns:
+        n_map = thin_rf.set_index('unique_id')['n_intra_max']
+        selected_df['n_intra_max'] = selected_df['unique_id'].map(n_map)
+    selected_df['n_intra_max'] = selected_df['n_intra_max'].replace('None', np.nan).fillna(1)
+
+    visit = queue.visit_duration(
+        selected_df['exptime'].to_numpy(), selected_df['n_exp'].to_numpy(),
+    )
+    if isinstance(visit, u.Quantity):
+        t_visit_col = visit.to(u.min)
+    else:
+        t_visit_col = np.asarray(visit, dtype=float) * u.min
+    out = pd.DataFrame({
+        'unique_id': selected_df['unique_id'].to_numpy(),
+        'n_intra_max': selected_df['n_intra_max'].to_numpy(),
+        'first_available': Time(selected_df['first_available'].tolist()),
+        'last_available': Time(selected_df['last_available'].tolist()),
+    })
+    out['coord'] = SkyCoord(
+        selected_df['ra'].to_numpy() * u.deg,
+        selected_df['dec'].to_numpy() * u.deg,
+        frame='icrs',
+    )
+    out['t_visit'] = t_visit_col
+    out['tau_intra'] = selected_df['tau_intra'].replace('None', np.nan).fillna(0.0).to_numpy() * u.hr
+    out['priority'] = selected_df['priority'].to_numpy()
+    return out.reset_index(drop=True)
+
 
 class NightPlanner(object):
     """
@@ -439,7 +660,7 @@ class NightPlanner(object):
             ('custom_file', 'self.custom_file', 'string', None),
         ]
         
-        # Schema v3: solution is TTPModel with schedule DataFrame on disk.
+        # Schema v4: TTPModel + portable scalar columns for astropy fields.
         solution = self.solution
         solution_attrs = [
             ('night_start_jd', 'solution.night_start', 'time', None),
@@ -447,18 +668,17 @@ class NightPlanner(object):
             ('solution_stats_json', 'solution.stats', 'dict_json', None),
         ]
 
-        # Object-dtype columns carrying astropy types (SkyCoord, Time, Quantity)
-        # don't round-trip cleanly through HDF5 across astropy versions. Strip
-        # them before write; downstream consumers only need scalar fields.
-        OBJECT_TYPED_COLUMNS = ['coord', 'first_available', 'last_available', 't_visit', 'tau_intra']
+        rf = _scalarize_requests_frame(solution.requests_frame)
+        sched = _enrich_schedule_with_positions(
+            _prepare_schedule_for_hdf5(solution.schedule),
+            solution.requests_frame,
+        )
 
-        sched = solution.schedule.drop(columns=OBJECT_TYPED_COLUMNS, errors='ignore')
         if sched.empty:
             sched.to_hdf(hdf5_path, key='solution_schedule', mode='a', format='fixed')
         else:
             sched.to_hdf(hdf5_path, key='solution_schedule', mode='a', format='table')
 
-        rf = solution.requests_frame.drop(columns=OBJECT_TYPED_COLUMNS, errors='ignore')
         if rf.empty:
             rf.to_hdf(hdf5_path, key='solution_requests_frame', mode='a', format='fixed')
         else:
@@ -556,20 +776,21 @@ class NightPlanner(object):
 
         with h5py.File(hdf5_path, 'r') as f:
             schema = int(f.attrs.get('schema_version', 0))
-            if schema != NIGHT_PLANNER_H5_SCHEMA:
+            if schema not in (3, NIGHT_PLANNER_H5_SCHEMA):
                 raise ValueError(
-                    f"night_planner.h5 schema_version={schema} but this build "
-                    f"expects {NIGHT_PLANNER_H5_SCHEMA}. Re-run plan-night to regenerate."
+                    f"night_planner.h5 schema_version={schema} is unsupported "
+                    f"(expected 3 or {NIGHT_PLANNER_H5_SCHEMA}). Re-run plan-night."
                 )
             if 'solution_schedule' not in f:
                 raise AttributeError("solution.schedule not found in HDF5 file")
 
         solution_schedule = pd.read_hdf(hdf5_path, key='solution_schedule')
-        solution_requests_frame = pd.read_hdf(hdf5_path, key='solution_requests_frame')
+        solution_requests_disk = pd.read_hdf(hdf5_path, key='solution_requests_frame')
 
         solution = model.TTPModel.__new__(model.TTPModel)
         
         with h5py.File(hdf5_path, 'r') as f:
+            schema = int(f.attrs.get('schema_version', 0))
             # Load NightPlanner attributes
             for hdf5_key, attr_name, data_type, _ in nightplanner_attrs:
                 setattr(instance, attr_name, f.attrs[hdf5_key])
@@ -595,7 +816,6 @@ class NightPlanner(object):
             for hdf5_key, attr_name, data_type, extra in solution_attrs:
                 if data_type == 'dict_json':
                     data = json.loads(f.attrs[hdf5_key])
-                    # Convert lists back to numpy arrays
                     restored = {}
                     for key, value in data.items():
                         if isinstance(value, list):
@@ -615,19 +835,33 @@ class NightPlanner(object):
                 elif data_type == 'array':
                     data = f[hdf5_key][:]
                     setattr(solution, attr_name, data)
-            
-            # Rebuild solution.requests_frame; derive the `coord` cache from
-            # ra/dec to avoid serializing SkyCoord (astropy-version fragile).
-            solution.requests_frame = solution_requests_frame.reset_index(drop=True).copy()
-            solution.requests_frame['coord'] = list(SkyCoord(
-                solution.requests_frame.ra.values * u.deg,
-                solution.requests_frame.dec.values * u.deg,
-                frame='icrs',
-            ))
 
-            solution.schedule = solution_schedule.reset_index(drop=True)
+            if schema >= 4 and 'ra' in solution_requests_disk.columns:
+                solution.requests_frame = _restore_requests_frame_from_scalar_df(
+                    solution_requests_disk,
+                )
+            else:
+                if schema < 4:
+                    logs.warning(
+                        "night_planner.h5 schema_version=%s: rebuilding requests_frame "
+                        "from on-disk fallbacks (request_selected.csv and/or semester_planner).",
+                        schema,
+                    )
+                solution.requests_frame = _restore_requests_frame_legacy(
+                    solution_requests_disk,
+                    night_planner_instance=instance,
+                )
 
-            # Re-attach queue-derived attributes (not serialized in HDF5).
+            solution.schedule = _restore_schedule_for_plots(
+                solution_schedule,
+                solution.requests_frame,
+                output_directory=instance.output_directory,
+            )
+            if 'ra' not in solution.schedule.columns:
+                solution.schedule = _enrich_schedule_with_positions(
+                    solution.schedule, solution.requests_frame,
+                )
+
             queue = instance.queue
             solution.observer = queue.observer
             solution.slew_rate = queue.slew_rate
