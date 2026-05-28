@@ -20,15 +20,26 @@ from gurobipy import GRB
 logs = logging.getLogger(__name__)
 
 REQUIRED_COLUMNS = [
-    "unique_id", "ra", "dec",
-    "exptime",
-    "n_exp",
-    "n_intra_max",
-    "tau_intra",
-    "priority",
-    "first_available",
-    "last_available",
+    "unique_id",        # str, primary key
+    "coord",            # astropy.coordinates.SkyCoord scalar per row, ICRS
+    "first_available",  # astropy.time.Time scalar per row
+    "last_available",   # astropy.time.Time scalar per row
+    "t_visit",          # astropy.units.Quantity scalar per row, time units
+    "n_intra_max",      # int
+    "tau_intra",        # astropy.units.Quantity scalar per row, time units
+    "priority",         # float
 ]
+
+TYPED_COLUMNS = {
+    "coord": SkyCoord,
+    "first_available": Time,
+    "last_available": Time,
+}
+
+QUANTITY_COLUMNS = {
+    "t_visit":   u.s,
+    "tau_intra": u.s,
+}
 
 class TTPModel:
     """MILP solver for the Traveling Telescope Problem (Handley+ 2024).
@@ -36,26 +47,28 @@ class TTPModel:
     Args:
         requests_frame (pd.DataFrame): one row per request, required columns
 
-            unique_id        str            primary key
-            ra, dec          float, deg
-            exptime          float, seconds (single shot exposure time)
-            n_exp            int            shots per visit (multi-shot exposures)
-            n_intra_max      int            visits per night
-            tau_intra        float, hours   minimum spacing between visits within a night
-            priority         int            objective weight; higher = more important
-            first_available  str            ISO-8601 (caller computes; e.g. via Access)
-            last_available   str            ISO-8601
+            unique_id        str                            primary key
+            coord            astropy SkyCoord scalar        ICRS
+            first_available  astropy Time scalar            earliest start of accessibility window
+            last_available   astropy Time scalar            latest end of accessibility window
+            t_visit          astropy Quantity (time)        per-visit duration
+            n_intra_max      int                            max visits per night
+            tau_intra        astropy Quantity (time)        min spacing between visits within a night
+            priority         float                          objective weight; higher = more important
 
         night_start (astropy.time.Time): start of the observing interval.
         night_end (astropy.time.Time): end of the observing interval.
 
     Keyword Args:
-        observer (astroplan.Observer): site fixture for alt/az lookups in
-            :meth:`build_arcs`.
-        slew_rate (float): mean slew rate, degrees/second.
-        wrap_limit (float | None): azimuth wrap limit, degrees. ``None`` means
-            no wrap (any az difference > 180 wraps the short way).
-        readout_time (float): detector readout between shots of a visit, sec.
+        slew_fn (callable): ``slew_fn(coord_a, coord_b, time) -> np.ndarray``
+            of slew minutes on the cartesian grid ``(pairs, time)``. ``coord_a``
+            and ``coord_b`` are pair-aligned 1-D ``SkyCoord`` arrays of length
+            ``P`` (pair ``k`` is ``(coord_a[k], coord_b[k])``); ``time`` is a
+            1-D ``Time`` of length ``T``. The return has shape ``(P, T)`` and
+            its ``[k, t]`` entry is the slew time from ``coord_a[k]`` to
+            ``coord_b[k]`` evaluated at ``time[t]``. ``(P, T)`` matches
+            astroplan's ``Observer.altaz(..., grid_times_targets=True)``
+            convention.
         n_slots (int): number of TTP slew slots ``M`` (Handley+ 2024 §2.2).
             ``n_slots=1`` is the recommended default.
         slew_sample_cadence_min (int): max spacing in minutes at which to
@@ -105,33 +118,32 @@ class TTPModel:
         night_start,
         night_end,
         *,
-        observer,
-        slew_rate,
-        wrap_limit=None,
-        readout_time=0.0,
+        slew_fn,
         n_slots=1,
         slew_sample_cadence_min=30,
     ):
-
-        # Validate required columns.
         for col in REQUIRED_COLUMNS:
             if col not in requests_frame.columns:
                 raise ValueError(f"requests_frame missing required column: {col}")
 
-        # Attach per-row SkyCoord 
-        requests_frame["coord"] = SkyCoord(
-            requests_frame.ra * u.deg, 
-            requests_frame.dec.values * u.deg, 
-            frame="icrs",
-        )
+        if len(requests_frame) > 0:
+            for col, typ in TYPED_COLUMNS.items():
+                if not isinstance(requests_frame[col].iloc[0], typ):
+                    raise TypeError(
+                        f"`{col}` column must contain {typ.__name__} scalars"
+                    )
+            for col, ref_unit in QUANTITY_COLUMNS.items():
+                v = requests_frame[col].iloc[0]
+                if not isinstance(v, u.Quantity) or not v.unit.is_equivalent(ref_unit):
+                    raise TypeError(
+                        f"`{col}` column must contain Quantity scalars with units "
+                        f"equivalent to {ref_unit}"
+                    )
 
         self.requests_frame = requests_frame.reset_index(drop=True).copy()
         self.night_start = night_start
         self.night_end = night_end
-        self.observer = observer
-        self.slew_rate = slew_rate
-        self.wrap_limit = wrap_limit
-        self.readout_time = readout_time
+        self.slew_fn = slew_fn
         self.n_slots = n_slots
         self.slew_sample_cadence_min = slew_sample_cadence_min
         self.M = self.n_slots
@@ -141,44 +153,6 @@ class TTPModel:
 
 
     # ---------------------------------------------------------- helpers
-
-    def _visit_duration(self, exptime_s, n_shots):
-        """Total visit duration in *minutes* including readout between shots.
-
-        Same canonical formula as ``Queue.visit_duration``; duplicated here so
-        the model is queue-free.
-        """
-        return (exptime_s * n_shots + self.readout_time * (n_shots - 1)) / 60.0
-
-    def _wrap_az(self, angle_deg):
-        """Vectorized wrap-frame shift. ``wrap_limit=None`` means no shift."""
-        if not self.wrap_limit:
-            return np.asarray(angle_deg)
-        a = np.asarray(angle_deg) + (360 - self.wrap_limit)
-        return np.where(a > 360, a - 360, a)
-
-    def _short_az_sep(self, az_sep):
-        """If telescope has no wrap, az slews never exceed 180 deg."""
-        az_sep = np.asarray(az_sep)
-        if self.wrap_limit:
-            return az_sep
-        return np.where(az_sep > 180, 360 - az_sep, az_sep)
-
-    def _slew_minutes(self, alt_a, alt_b, az_a, az_b):
-        """Slew time in minutes for aligned alt/az inputs (broadcasted).
-
-        Returns an ndarray with the broadcast of the four inputs. Any
-        reduction (max over time samples, etc.) is the caller's
-        responsibility.
-        """
-        az_sep = self._short_az_sep(
-            np.abs(self._wrap_az(az_a) - self._wrap_az(az_b))
-        )
-        alt_sep = np.abs(
-            np.asarray(alt_a, dtype=np.float64)
-            - np.asarray(alt_b, dtype=np.float64)
-        )
-        return np.maximum(az_sep, alt_sep) / (60.0 * float(self.slew_rate))
 
     def _minutes_from_start(self, t):
         """``astropy.time.Time`` -> minutes since ``self.night_start``."""
@@ -200,13 +174,14 @@ class TTPModel:
         """
         self.dur = float(np.round(self._minutes_from_start(self.night_end), 0))
 
-        # Start from a copy of the requests frame and only add/modify the
         reqs = self.requests_frame.copy()
         reqs["request_idx"] = np.arange(len(reqs), dtype=np.int64)
         reqs["t_early"] = self._minutes_from_start(Time(reqs.first_available.tolist()))
         reqs["t_late"] = self._minutes_from_start(Time(reqs.last_available.tolist()))
-        reqs["t_visit"] = self._visit_duration(reqs.exptime, reqs.n_exp)
-        reqs["tau_intra"] = reqs.tau_intra.astype(float) * 60.0  # hours -> minutes
+        # `.values` returns the underlying Quantity ndarray; pandas stores
+        # Quantity columns natively because Quantity is an ndarray subclass.
+        reqs["t_visit"]   = u.Quantity(reqs["t_visit"].values).to_value(u.min)
+        reqs["tau_intra"] = u.Quantity(reqs["tau_intra"].values).to_value(u.min)
         reqs["is_anchor"] = False
 
         # Attach visit_seq via a simple cross-join + filter.
@@ -232,6 +207,8 @@ class TTPModel:
             "tau_intra": 0.0,
             "priority": 0,
             "coord": None,
+            "first_available": self.night_start,
+            "last_available": self.night_end,
         }
         anchor_df = pd.DataFrame([anchor_template, anchor_template])
 
@@ -253,87 +230,67 @@ class TTPModel:
     def build_arcs(self, *, samples_per_slot=3):
         """Build precomputed arc catalog ``self.arcs``.
 
-        Within slot ``m``, sample alt/az for every real (non-anchor) node at
-        least every ``slew_sample_cadence_min`` minutes (and at least
-        ``samples_per_slot`` times per slot; default 3); the worst-case slew
-        between any two real nodes is the maximum of ``max|delta_alt|`` and
-        ``max|delta_az|`` (wrap-aware), divided by ``slew_rate``.
+        For each ordered pair of real (non-anchor) nodes ``(i, j)`` and each
+        slew slot ``m``, evaluate ``self.slew_fn`` at ``n_samples`` time points
+        spread across the slot and store the worst-case slew. ``n_samples`` is
+        ``max(dur / (M * slew_sample_cadence_min), samples_per_slot)``.
 
         Args:
             samples_per_slot (int): floor on the number of temporal samples per
                 slew slot; the used count is ``int(max(...))`` of this and the
                 value implied by ``dur``, ``self.M``, and
                 ``slew_sample_cadence_min``.
-
         """
         if not hasattr(self, "nodes"):
             raise RuntimeError("call build_nodes() before build_arcs()")
+
         n_samples = int(max(
             self.dur / (self.M * self.slew_sample_cadence_min),
             samples_per_slot,
         ))
+        total_samples = self.M * n_samples
 
-        slot_bounds = Time(
-            np.linspace(self.night_start.jd, self.night_end.jd, self.M + 1, endpoint=True),
-            format="jd",
-        )
-        # Sample grid: shape (self.M, n_samples) -> flatten for one altaz call.
-        sample_jd = np.array([
-            np.linspace(slot_bounds[m].jd, slot_bounds[m + 1].jd, n_samples)
-            for m in range(self.M)
-        ])
-        times = Time(sample_jd.ravel(), format="jd")
-        altaz = self.observer.altaz(
-            times, 
-            self.nodes[~self.nodes.is_anchor].coord.to_list(),
-            grid_times_targets=True
-        )
+        fractions = np.linspace(0, 1, total_samples)
+        times = self.night_start + (self.night_end - self.night_start) * fractions
 
-        # Visit-sample table.
-        id, m, sample = np.mgrid[
-            1:self.N - 1, 0:self.M, 0:n_samples
-        ]
-        visit_samples = pd.DataFrame({
-            "id": id.reshape(-1),
-            "m":       m.reshape(-1),
-            "sample":  sample.reshape(-1),
-            "alt":     altaz.alt.deg.reshape(-1),
-            "az":      altaz.az.deg.reshape(-1),
-        })
+        # Convert coords in pandas column to array 
+        node_coords = SkyCoord(self.nodes.loc[~self.nodes.is_anchor, "coord"].tolist())
+        n_real = len(node_coords)
 
-        # Self-merge on (m, sample) to pair every visit with every other visit
-        # drop self-pairs. 
-        node_samples = (
-            visit_samples
-            .merge(visit_samples, on=["m", "sample"], suffixes=("_i", "_j"))
-            .query("id_i != id_j")
-            .rename(columns={"id_i": "i", "id_j": "j"})
-            [["i", "j", "m", "sample", "alt_i", "az_i", "alt_j", "az_j"]]
-        )
+        # Pair list: ordered (i, j) with i != j over real-node positions
+        # (0-based). `id` in self.nodes for real nodes is `position + 1`.
+        ii, jj = np.meshgrid(np.arange(n_real), np.arange(n_real), indexing="ij")
+        mask = ii != jj
+        i_pos = ii[mask] # starting node of arc
+        j_pos = jj[mask] # ending node of arc
+        n_pair = len(i_pos)
 
-        node_samples["tau_sample"] = self._slew_minutes(
-            node_samples["alt_i"].to_numpy(),
-            node_samples["alt_j"].to_numpy(),
-            node_samples["az_i"].to_numpy(),
-            node_samples["az_j"].to_numpy(),
-        )
+        # slew_fn returns shape (n_pair, T) = (n_pair, M*n_samples).
+        tau = self.slew_fn(node_coords[i_pos], node_coords[j_pos], times)
 
-        agg = node_samples.groupby(["i", "j", "m"], sort=False)["tau_sample"].max()
+        # Worst-case slew per slot: max over the n_samples axis -> shape (n_pair, M).
+        tau_per_slot = tau.reshape(-1, self.M, n_samples).max(axis=2)
+
+        p_idx, m_lev = np.mgrid[0:n_pair, 0:self.M]
+        i_id = i_pos[p_idx.ravel()] + 1 # account for anchor nodes
+        j_id = j_pos[p_idx.ravel()] + 1 # account for anchor nodes
 
         uid = self.nodes["unique_id"].to_numpy()
-        i_lev = agg.index.get_level_values("i").to_numpy(dtype=np.int64)
-        j_lev = agg.index.get_level_values("j").to_numpy(dtype=np.int64)
         self.arcs = pd.DataFrame(
             {
-                "i_id": uid[i_lev],
-                "j_id": uid[j_lev],
-                "t_slew": agg.to_numpy(dtype=np.float64),
+                "i_id":   uid[i_id],
+                "j_id":   uid[j_id],
+                "t_slew": tau_per_slot.ravel(),
             },
-            index=agg.index,
+            index=pd.MultiIndex.from_arrays(
+                [i_id, j_id, m_lev.ravel()], 
+                names=("i", "j", "m")
+            )
         )
 
-        # Slot bounds expressed as minutes from start.
-        self.w = (slot_bounds.jd - slot_bounds[0].jd) * 24 * 60
+        # Slot bounds (minutes from night_start) used by build_model.
+        slot_bound_fractions = np.linspace(0.0, 1.0, self.M + 1)
+        self.w = self.dur * slot_bound_fractions
 
     # ------------------------------------------------------------- MILP build
     def build_model(self):

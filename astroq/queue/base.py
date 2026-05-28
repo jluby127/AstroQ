@@ -97,9 +97,43 @@ class Queue:
         """Total duration of one visit (n_shots shots), in *minutes*.
 
         Canonical formula: ``(exptime_s * n_shots + readout_time * (n_shots - 1)) / 60``.
-        Consumed by ``TTPModel._visit_duration`` and ladder/script plot adapters.
+        Consumed by the night planner (which wraps the result in a Quantity for
+        ``TTPModel``) and ladder/script plot adapters.
         """
         return (exptime_s * n_shots + self.readout_time * (n_shots - 1)) / 60.0
+
+    def _wrap_az(self, angle_deg):
+        """Vectorized wrap-frame shift. ``wrap_limit=None`` means no shift."""
+        if not self.wrap_limit:
+            return np.asarray(angle_deg)
+        a = np.asarray(angle_deg) + (360 - self.wrap_limit)
+        return np.where(a > 360, a - 360, a)
+
+    def _short_az_sep(self, az_sep):
+        """If telescope has no wrap, az slews never exceed 180 deg."""
+        az_sep = np.asarray(az_sep)
+        if self.wrap_limit:
+            return az_sep
+        return np.where(az_sep > 180, 360 - az_sep, az_sep)
+
+    def slew_fn(self, coord_a, coord_b, time):
+        """Slew minutes on the cartesian grid ``(pairs, time)``.
+
+        Implements the ``TTPModel`` slew_fn contract: ``coord_a`` and ``coord_b``
+        are pair-aligned 1-D ``SkyCoord`` arrays of length ``P`` (pair ``k`` is
+        ``(coord_a[k], coord_b[k])``); ``time`` is a 1-D ``Time`` of length
+        ``T``. Returns an ``ndarray`` of shape ``(P, T)`` whose ``[k, t]`` entry
+        is the slew time (minutes) from ``coord_a[k]`` to ``coord_b[k]``
+        evaluated at ``time[t]``. ``(P, T)`` matches astroplan's
+        ``Observer.altaz(..., grid_times_targets=True)`` convention.
+        """
+        altaz_a = self.observer.altaz(time, coord_a, grid_times_targets=True)
+        altaz_b = self.observer.altaz(time, coord_b, grid_times_targets=True)
+        az_sep = self._short_az_sep(
+            np.abs(self._wrap_az(altaz_a.az.deg) - self._wrap_az(altaz_b.az.deg))
+        )
+        alt_sep = np.abs(altaz_a.alt.deg - altaz_b.alt.deg)
+        return np.maximum(az_sep, alt_sep) / (60.0 * float(self.slew_rate))
 
     def visit_seconds(self, exptime_s, n_exp, n_intra_max):
         """Splan-canonical per-visit seconds.

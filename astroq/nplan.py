@@ -189,15 +189,26 @@ class NightPlanner(object):
         selected_df['pmdec'] = selected_df['pmdec'].replace('None', np.nan).fillna(0.0)
         selected_df['epoch'] = selected_df['epoch'].replace('None', np.nan).fillna(0.0)
 
-        # Build TTP input frame directly in AstroQ-native vocabulary
-        # (TTPModel.REQUIRED_COLUMNS). No CSV intermediate; we hand the
-        # DataFrame to TTPModel directly.
-        to_ttp = selected_df[[
-            "unique_id", "ra", "dec", "exptime",
-            "n_exp", "n_intra_max", "tau_intra",
-            "first_available", "last_available",
-        ]].copy()
-        to_ttp["priority"] = 10  # default per-request priority
+        # Build TTP input frame in AstroQ-native vocabulary
+        # (TTPModel.REQUIRED_COLUMNS). Astropy types (SkyCoord, Time, Quantity)
+        # are stored directly as object-dtype columns.
+        to_ttp = pd.DataFrame({
+            "unique_id":       selected_df["unique_id"].to_numpy(),
+            "n_intra_max":     selected_df["n_intra_max"].to_numpy(),
+            "first_available": Time(selected_df["first_available"].tolist()),
+            "last_available":  Time(selected_df["last_available"].tolist()),
+        })
+        to_ttp["coord"] = SkyCoord(
+            selected_df["ra"].to_numpy() * u.deg,
+            selected_df["dec"].to_numpy() * u.deg,
+            frame="icrs",
+        )
+        visit_minutes = self.queue.visit_duration(
+            selected_df["exptime"].to_numpy(), selected_df["n_exp"].to_numpy()
+        )
+        to_ttp["t_visit"]   = visit_minutes * u.min
+        to_ttp["tau_intra"] = selected_df["tau_intra"].to_numpy() * u.hr
+        to_ttp["priority"]  = 10  # default per-request priority
 
         # Synthetic "Gap N" rows block out unallocated gaps inside the night.
         # The dummy unique_id prefix "Gap " is matched verbatim by
@@ -208,20 +219,18 @@ class NightPlanner(object):
             tonight_date = self.current_day
             gap_rows = []
             for i, gap in enumerate(self.tonight_allocation_gaps, start=1):
-                first_av = f"{tonight_date} {gap['gap_start_time']}"
-                last_av = f"{tonight_date} {gap['gap_stop_time']}"
+                first_av = Time(f"{tonight_date} {gap['gap_start_time']}")
+                last_av = Time(f"{tonight_date} {gap['gap_stop_time']}")
                 exposure_time_sec = (gap['gap_length'] - self.semester_planner.slot_size) * 60
                 gap_rows.append({
-                    "unique_id": f"Gap {i}",
-                    "ra": avg_ra,
-                    "dec": avg_dec,
-                    "exptime": exposure_time_sec,
-                    "n_exp": 1,
-                    "n_intra_max": 1,
-                    "tau_intra": 0.0,
-                    "priority": 20,  # high enough to guarantee selection
+                    "unique_id":       f"Gap {i}",
+                    "coord":           SkyCoord(avg_ra * u.deg, avg_dec * u.deg, frame="icrs"),
                     "first_available": first_av,
-                    "last_available": last_av,
+                    "last_available":  last_av,
+                    "t_visit":         exposure_time_sec * u.s,
+                    "n_intra_max":     1,
+                    "tau_intra":       0.0 * u.hr,
+                    "priority":        20,  # high enough to guarantee selection
                 })
             to_ttp = pd.concat([to_ttp, pd.DataFrame(gap_rows)], ignore_index=True)
 
@@ -229,10 +238,7 @@ class NightPlanner(object):
             requests_frame=to_ttp,
             night_start=observation_start_time,
             night_end=observation_stop_time,
-            observer=self.queue.observer,
-            slew_rate=self.queue.slew_rate,
-            wrap_limit=self.queue.wrap_limit,
-            readout_time=self.queue.readout_time,
+            slew_fn=self.queue.slew_fn,
             n_slots=self.queue.nSlots,
         )
         tm.build_nodes()
@@ -441,16 +447,18 @@ class NightPlanner(object):
             ('solution_stats_json', 'solution.stats', 'dict_json', None),
         ]
 
-        sched = solution.schedule.drop(columns=['coord'], errors='ignore')
+        # Object-dtype columns carrying astropy types (SkyCoord, Time, Quantity)
+        # don't round-trip cleanly through HDF5 across astropy versions. Strip
+        # them before write; downstream consumers only need scalar fields.
+        OBJECT_TYPED_COLUMNS = ['coord', 'first_available', 'last_available', 't_visit', 'tau_intra']
+
+        sched = solution.schedule.drop(columns=OBJECT_TYPED_COLUMNS, errors='ignore')
         if sched.empty:
             sched.to_hdf(hdf5_path, key='solution_schedule', mode='a', format='fixed')
         else:
             sched.to_hdf(hdf5_path, key='solution_schedule', mode='a', format='table')
 
-        # Persist solution.requests_frame, stripping the derived `coord` column
-        # (SkyCoord pickling inside HDF5 is fragile across astropy versions;
-        # we rebuild from ra/dec on load).
-        rf = solution.requests_frame.drop(columns=['coord'], errors='ignore')
+        rf = solution.requests_frame.drop(columns=OBJECT_TYPED_COLUMNS, errors='ignore')
         if rf.empty:
             rf.to_hdf(hdf5_path, key='solution_requests_frame', mode='a', format='fixed')
         else:
