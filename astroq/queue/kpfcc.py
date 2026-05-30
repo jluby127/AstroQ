@@ -1001,7 +1001,7 @@ def update_allocation_file(allocation_df, current_date):
     return allocation_df
 
 def write_starlist(frame, schedule, night_start_time, filler_stars, current_day,
-                    outputdir, version='nominal'):
+                    outputdir, version='nominal', all_active_requests=None, past_history=None):
     """
     Generate the nightly script in the format required by the Keck "Magiq" software. 
     Backwards compatable to pre-KPF-CC observing.
