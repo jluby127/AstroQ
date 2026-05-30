@@ -400,15 +400,12 @@ class NightPlanner(object):
         selected_df['first_available'] = first_available
         selected_df['last_available'] = last_available
 
-        # Webform data hygiene: coerce "None" strings to defaults.
+        # Webform data hygiene for columns consumed below (queue-specific metadata
+        # such as jmag/Vmag/gmag is passed through to write_starlist unchanged).
         selected_df['n_intra_max'] = selected_df['n_intra_max'].replace('None', np.nan).fillna(1)
-        selected_df['n_intra_min'] = selected_df['n_intra_min'].replace('None', np.nan).fillna(1)
+        if 'n_intra_min' in selected_df.columns:
+            selected_df['n_intra_min'] = selected_df['n_intra_min'].replace('None', np.nan).fillna(1)
         selected_df['tau_intra'] = selected_df['tau_intra'].replace('None', np.nan).fillna(0.0)
-        selected_df['jmag'] = selected_df['jmag'].replace('None', np.nan).fillna(0.0)
-        selected_df['Vmag'] = selected_df['Vmag'].replace('None', np.nan).fillna(0.0)
-        selected_df['pmra'] = selected_df['pmra'].replace('None', np.nan).fillna(0.0)
-        selected_df['pmdec'] = selected_df['pmdec'].replace('None', np.nan).fillna(0.0)
-        selected_df['epoch'] = selected_df['epoch'].replace('None', np.nan).fillna(0.0)
 
         # Build TTP input frame in AstroQ-native vocabulary
         # (TTPModel.REQUIRED_COLUMNS). Astropy types (SkyCoord, Time, Quantity)

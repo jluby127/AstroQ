@@ -11,7 +11,6 @@ import time
 import warnings
 from configparser import ConfigParser
 from datetime import datetime, timedelta
-import pickle
 import json
 import h5py
 
@@ -21,7 +20,6 @@ from gurobipy import GRB
 import numpy as np
 import pandas as pd
 from astropy.time import Time, TimeDelta
-import astroplan as apl
 
 # Local imports
 import astroq.access as ac

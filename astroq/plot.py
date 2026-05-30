@@ -5,9 +5,8 @@ From there, they can be used as is or saved as png files.
 
 # Standard library imports
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import timedelta
 import os
-import pickle
 import base64
 from io import BytesIO
 

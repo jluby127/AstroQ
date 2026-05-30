@@ -9,7 +9,6 @@ from collections import namedtuple
 
 # Third-party imports
 import pandas as pd
-import requests
 from astropy.time import Time, TimeDelta
 
 # Global timezone offset: hours difference between local time and UT
