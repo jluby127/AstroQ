@@ -4,13 +4,9 @@ Define the command line interface for running AstroQ. Each subcommand connects t
 
 # Standard library imports
 import argparse
-import os
 import sys
-from configparser import ConfigParser
 
 # Third-party imports
-import numpy as np
-import pandas as pd
 
 # Local imports
 import astroq

@@ -18,7 +18,6 @@ from astropy.coordinates import SkyCoord
 from astropy.time import Time, TimeDelta
 import astropy.units as u
 import astroplan as apl
-import astropy.coordinates as apy
 
 # Local imports
 from astroq.queue.base import Queue

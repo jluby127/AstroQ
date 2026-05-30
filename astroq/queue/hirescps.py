@@ -8,7 +8,6 @@ New observatories should write their own module to connect to a new "prep <your 
 import csv
 import hashlib
 import io
-import json
 import logging
 import os
 import urllib.parse
@@ -20,8 +19,6 @@ import requests
 from astropy.coordinates import SkyCoord
 from astropy.time import Time, TimeDelta
 import astropy.units as u
-import astroplan as apl
-import astropy.coordinates as apy
 import re
 from bs4 import BeautifulSoup
 

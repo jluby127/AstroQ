@@ -1,12 +1,6 @@
 import astroq.driver as dr
 import argparse
-import astroq.splan as splan
-import astroq.nplan as nplan
-from astroq.ttp.model import TTPModel
 import unittest
-from astropy.coordinates import SkyCoord
-import os
-from astroq.webapp import launch_app, app
 
 class TestClass(unittest.TestCase):
 

@@ -3,13 +3,10 @@ Module for the building and writing of reports for human readability and debuggi
 """
 
 # Standard library imports
-import math
 import os
-import re
-import time
 
 # Third-party imports
-from astropy.coordinates import Angle, SkyCoord
+from astropy.coordinates import SkyCoord
 from astropy.time import Time, TimeDelta
 from astropy import units as u
 import numpy as np
@@ -18,7 +15,6 @@ from jinja2 import Template
 
 # Local imports
 import astroq.history as hs
-import astroq.access as ac
 
 
 def validate_active_request_unique_ids(requests_frame, request_path):

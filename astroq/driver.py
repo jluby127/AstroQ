@@ -19,7 +19,6 @@ import astroq.benchmarking as bn
 import astroq.queue.kpfcc as kpfcc
 import astroq.queue.hirescps as hirescps
 import astroq.history as hs
-import astroq.io as io
 import astroq.nplan as nplan
 import astroq.plot as pl
 import astroq.splan as splan

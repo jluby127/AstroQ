@@ -14,7 +14,6 @@ from io import BytesIO
 import numpy as np
 import pandas as pd
 import seaborn as sns
-import astropy as apy
 import astropy.units as u
 from astropy.coordinates import SkyCoord
 import astroplan as apl
@@ -22,14 +21,11 @@ import matplotlib
 import matplotlib.pyplot as plt
 import plotly.express as px
 import plotly.graph_objects as go
-from matplotlib.figure import Figure
 from plotly.subplots import make_subplots
-from astropy.time import Time, TimeDelta
+from astropy.time import TimeDelta
 
 # Local imports
 import astroq.access as ac
-import astroq.io as io_mine
-import astroq.nplan
 DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)),'data')
 
 # Configure matplotlib for headless rendering
