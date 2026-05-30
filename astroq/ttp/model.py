@@ -107,8 +107,8 @@ class TTPModel:
     #: recover total slew time inside :meth:`build_schedule`.
 
     # Constant that balances slew time vs. number of targets. 
-    # Interpretation: if dropping the highest priority target saves this many minutes of slew time,
-    # Drop it
+    # Interpretation: if dropping the highest priority target saves this many 
+    # minutes of slew time, drop it
     _SLEW_MINUTES_FOR_TOP_TARGET = 30
     _SLEW_IDLE_PENALTY_RATIO = 0.5  # idle-between weight, as fraction of slew penalty
 
@@ -139,7 +139,12 @@ class TTPModel:
                         f"`{col}` column must contain Quantity scalars with units "
                         f"equivalent to {ref_unit}"
                     )
-
+        fa = Time(requests_frame["first_available"].tolist())
+        dfa = fa - night_start
+        if dfa.min() > 0:
+            logs.warning(
+                "min(first_available) is {:.1f} after night_start".format(dfa.min().to(u.min))
+            )
         self.requests_frame = requests_frame.reset_index(drop=True).copy()
         self.night_start = night_start
         self.night_end = night_end
@@ -304,7 +309,6 @@ class TTPModel:
 
         N, M = self.N, self.M
         nodes = self.nodes
-
         # O(1) slew lookup for hot loops (anchor arcs absent => .get(..., 0.0)).
         arcs_lookup = self.arcs["t_slew"].to_dict()
 
@@ -326,15 +330,17 @@ class TTPModel:
         self.model.addConstr(self.Yi[N - 1] == 1, "end_anchor_visit")
         self.model.addConstr(self.ti[0] == 0.0, "anchor_start_time")
 
-        # This constraint does not appear in Handley et al.
-        # We force the first departure to occur at t_visit, which means
-        # it must start at the beginning of the night
+        # Not in Handley et al. We wish to force the first exposure to occur at the
+        # start of the night or at the earliest feasible time, whichever is later.
+        # This prevents idle time from being at the front of underfilled schedules.
+        t_earliest = nodes[~nodes.is_anchor].t_early.min()
+        t_start = max(0.0, t_earliest)
         for j in range(1, N - 1):
             t_visit_j = float(nodes.at[j, "t_visit"])
             for m in range(M):
                 self.model.addGenConstrIndicator(
                     self.Xijm[0, j, m], 1,
-                    self.ti[j], GRB.EQUAL, t_visit_j,
+                    self.ti[j], GRB.EQUAL, t_start + t_visit_j,
                     name=f"first_exposure_at_start_{j}_{m}",
                 )
 
