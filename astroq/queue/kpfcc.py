@@ -38,9 +38,9 @@ class KPFCC(Queue):
     via a mixin: the two queues may legitimately diverge on elevation policy.
     """
 
-    slew_rate = 0.6           # deg/s
-    wrap_limit = 270.0        # deg azimuth
-    nSlots = 1                # TTP slew-slot granularity
+    slew_rate = 0.6  # deg/s
+    wrap_limit = 270.0  # deg azimuth
+    nSlots = 1  # TTP slew-slot granularity
     # Same readout/slew numbers as HIRES-CPS in production today; revisit if
     # KPF's measured detector readout or acquisition time diverges.
     readout_time = 45.0
@@ -49,9 +49,9 @@ class KPFCC(Queue):
     # Inaccessible (alt, az) boxes, degrees. (az_min, az_max, alt_min, alt_max).
     # See Queue.is_accessible. Duplicated from HIRESCPS; may diverge over time.
     inaccessible_zones = [
-        (5.3,   146.2, 0.0,  33.3),   # Nasmyth deck obstruction
-        (0.0,   360.0, 0.0,  18.0),   # below 18 deg elevation clamp
-        (0.0,   360.0, 85.0, 90.0),   # above 85 deg elevation clamp
+        (5.3, 146.2, 0.0, 33.3),  # Nasmyth deck obstruction
+        (0.0, 360.0, 0.0, 18.0),  # below 18 deg elevation clamp
+        (0.0, 360.0, 85.0, 90.0),  # above 85 deg elevation clamp
     ]
 
     def __init__(self):
@@ -62,39 +62,53 @@ class KPFCC(Queue):
     def write_starlist(self, *args, **kwargs):
         return write_starlist(*args, **kwargs)
 
+
 # Column definitions: mapping from original names to new names and data types
 column_definitions = {
-    '_id': {'new_name': 'unique_id', 'type': 'string'},
-    'metadata.semid': {'new_name': 'program_code', 'type': 'string'},
-    'target.target_name': {'new_name': 'starname', 'type': 'string'},
-    'target.ra': {'new_name': 'ra', 'type': 'string'},
-    'target.dec': {'new_name': 'dec', 'type': 'string'},
-    'observation.exposure_time': {'new_name': 'exptime', 'type': 'Int64'},
-    'observation.num_exposures': {'new_name': 'n_exp', 'type': 'Int64'},
-    'schedule.num_nights_per_semester': {'new_name': 'n_inter_max', 'type': 'Int64'},
-    'schedule.num_internight_cadence': {'new_name': 'tau_inter', 'type': 'Int64'},
-    'schedule.desired_num_visits_per_night': {'new_name': 'n_intra_max', 'type': 'Int64'},
-    'schedule.minimum_num_visits_per_night': {'new_name': 'n_intra_min', 'type': 'Int64'},
-    'schedule.num_intranight_cadence': {'new_name': 'tau_intra', 'type': 'Float64'},
-    'schedule.minimum_elevation': {'new_name': 'minimum_elevation', 'type': 'Float64'},
-    'schedule.minimum_moon_separation': {'new_name': 'minimum_moon_separation', 'type': 'Float64'},
-    'schedule.weather_band_1': {'new_name': 'weather_band_1', 'type': 'boolean'},
-    'schedule.weather_band_2': {'new_name': 'weather_band_2', 'type': 'boolean'},
-    'schedule.weather_band_3': {'new_name': 'weather_band_3', 'type': 'boolean'},
-    'target.gaia_id': {'new_name': 'gaia_id', 'type': 'string'},
-    'target.t_eff': {'new_name': 'teff', 'type': 'Float64'},
-    'target.j_mag': {'new_name': 'jmag', 'type': 'Float64'},
-    'target.g_mag': {'new_name': 'gmag', 'type': 'Float64'},
-    'target.pm_ra': {'new_name': 'pmra', 'type': 'Float64'},
-    'target.pm_dec': {'new_name': 'pmdec', 'type': 'Float64'},
-    'target.epoch': {'new_name': 'epoch', 'type': 'Float64'},
-    'observation.exp_meter_threshold': {'new_name': 'exp_meter_threshold', 'type': 'Float64'},
-    'metadata.ob_inactive': {'new_name': 'inactive', 'type': 'boolean'},
+    "_id": {"new_name": "unique_id", "type": "string"},
+    "metadata.semid": {"new_name": "program_code", "type": "string"},
+    "target.target_name": {"new_name": "starname", "type": "string"},
+    "target.ra": {"new_name": "ra", "type": "string"},
+    "target.dec": {"new_name": "dec", "type": "string"},
+    "observation.exposure_time": {"new_name": "exptime", "type": "Int64"},
+    "observation.num_exposures": {"new_name": "n_exp", "type": "Int64"},
+    "schedule.num_nights_per_semester": {"new_name": "n_inter_max", "type": "Int64"},
+    "schedule.num_internight_cadence": {"new_name": "tau_inter", "type": "Int64"},
+    "schedule.desired_num_visits_per_night": {
+        "new_name": "n_intra_max",
+        "type": "Int64",
+    },
+    "schedule.minimum_num_visits_per_night": {
+        "new_name": "n_intra_min",
+        "type": "Int64",
+    },
+    "schedule.num_intranight_cadence": {"new_name": "tau_intra", "type": "Float64"},
+    "schedule.minimum_elevation": {"new_name": "minimum_elevation", "type": "Float64"},
+    "schedule.minimum_moon_separation": {
+        "new_name": "minimum_moon_separation",
+        "type": "Float64",
+    },
+    "schedule.weather_band_1": {"new_name": "weather_band_1", "type": "boolean"},
+    "schedule.weather_band_2": {"new_name": "weather_band_2", "type": "boolean"},
+    "schedule.weather_band_3": {"new_name": "weather_band_3", "type": "boolean"},
+    "target.gaia_id": {"new_name": "gaia_id", "type": "string"},
+    "target.t_eff": {"new_name": "teff", "type": "Float64"},
+    "target.j_mag": {"new_name": "jmag", "type": "Float64"},
+    "target.g_mag": {"new_name": "gmag", "type": "Float64"},
+    "target.pm_ra": {"new_name": "pmra", "type": "Float64"},
+    "target.pm_dec": {"new_name": "pmdec", "type": "Float64"},
+    "target.epoch": {"new_name": "epoch", "type": "Float64"},
+    "observation.exp_meter_threshold": {
+        "new_name": "exp_meter_threshold",
+        "type": "Float64",
+    },
+    "metadata.ob_inactive": {"new_name": "inactive", "type": "boolean"},
 }
 
 # Required fields for OBs to be considered valid
 # All fields listed here must be present in the OB for it to pass validation
 required_fields = list(column_definitions.keys())
+
 
 def pull_OBs(semester):
     """
@@ -111,29 +125,39 @@ def pull_OBs(semester):
     params = {}
     params["semester"] = semester
     try:
-        data = requests.get(url, params=params, auth=(os.environ['KECK_OB_DATABASE_API_USERNAME'], os.environ['KECK_OB_DATABASE_API_PASSWORD']))
+        data = requests.get(
+            url,
+            params=params,
+            auth=(
+                os.environ["KECK_OB_DATABASE_API_USERNAME"],
+                os.environ["KECK_OB_DATABASE_API_PASSWORD"],
+            ),
+        )
         data = data.json()
         return data
     except:
         print("ERROR")
         return
 
+
 def _validate_datetime_format(datetime_str):
     """
     Validate that datetime string follows YYYY-MM-DDTHH:MM or YYYY-MM-DDTHH:MM:SS format.
-    
+
     Args:
         datetime_str (str): The datetime string to validate
-        
+
     Returns:
         bool: True if format is valid, False otherwise
     """
     import re
+
     if not isinstance(datetime_str, str):
         return False
     # Accept YYYY-MM-DDTHH:MM or YYYY-MM-DDTHH:MM:SS (Keck API returns the latter)
-    pattern = r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$'
+    pattern = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$"
     return bool(re.match(pattern, datetime_str))
+
 
 def format_custom_csv(OBs):
     """
@@ -146,42 +170,57 @@ def format_custom_csv(OBs):
         custom_frame (pandas DataFrame): a DataFrame with the custom information, equivalent to the custom.csv file.
     """
     rows = []
-    for ob in OBs['observing_blocks']:
-        if "custom_time_constraints" in ob.get('schedule', {}):
-            ctc = ob['schedule']['custom_time_constraints']
-            unique_id = ob['_id']
-            starname = ob['target']['target_name']
+    for ob in OBs["observing_blocks"]:
+        if "custom_time_constraints" in ob.get("schedule", {}):
+            ctc = ob["schedule"]["custom_time_constraints"]
+            unique_id = ob["_id"]
+            starname = ob["target"]["target_name"]
 
             if isinstance(ctc, list) and len(ctc) > 0:
                 for constraint in ctc:
                     if isinstance(constraint, dict):
-                        start = constraint.get('start_datetime', '')
-                        stop = constraint.get('end_datetime', '')
-                        if start and stop and _validate_datetime_format(start) and _validate_datetime_format(stop):
-                            rows.append({
-                                'unique_id': unique_id,
-                                'starname': starname,
-                                'start': start,
-                                'stop': stop
-                            })
+                        start = constraint.get("start_datetime", "")
+                        stop = constraint.get("end_datetime", "")
+                        if (
+                            start
+                            and stop
+                            and _validate_datetime_format(start)
+                            and _validate_datetime_format(stop)
+                        ):
+                            rows.append(
+                                {
+                                    "unique_id": unique_id,
+                                    "starname": starname,
+                                    "start": start,
+                                    "stop": stop,
+                                }
+                            )
             elif isinstance(ctc, dict):
-                start = ctc.get('start_datetime', '')
-                stop = ctc.get('end_datetime', '')
-                if start and stop and _validate_datetime_format(start) and _validate_datetime_format(stop):
-                    rows.append({
-                        'unique_id': unique_id,
-                        'starname': starname,
-                        'start': start,
-                        'stop': stop
-                    })
+                start = ctc.get("start_datetime", "")
+                stop = ctc.get("end_datetime", "")
+                if (
+                    start
+                    and stop
+                    and _validate_datetime_format(start)
+                    and _validate_datetime_format(stop)
+                ):
+                    rows.append(
+                        {
+                            "unique_id": unique_id,
+                            "starname": starname,
+                            "start": start,
+                            "stop": stop,
+                        }
+                    )
 
     if len(rows) > 0:
         custom_frame = pd.DataFrame(rows)
     else:
-        custom_frame = pd.DataFrame(columns=['unique_id', 'starname', 'start', 'stop'])
-    
-    return custom_frame 
-        
+        custom_frame = pd.DataFrame(columns=["unique_id", "starname", "start", "stop"])
+
+    return custom_frame
+
+
 def pull_allocation_info(start_date, numdays, instrument, conversion_ratio=12.0):
     """
     Pull the allocation information directly from the Keck Observatory's operations schedule via the API.
@@ -198,30 +237,43 @@ def pull_allocation_info(start_date, numdays, instrument, conversion_ratio=12.0)
         nights_by_program (dict): a dictionary mapping the program code to the total nights allocated to that program
     """
     params = {}
-    params['cmd'] = "getSchedule"
+    params["cmd"] = "getSchedule"
     params["date"] = start_date
     params["numdays"] = numdays
-    params["instrument"] = instrument 
+    params["instrument"] = instrument
     url = "https://www3.keck.hawaii.edu/api/schedule/getSchedule"
     try:
         data = requests.get(url, params=params)
         data_json = json.loads(data.text)
         df = pd.DataFrame(data_json)
-        awarded_programs = df['ProjCode'].unique()
-        df['start'] = pd.to_datetime(df['Date'] + ' ' + df['StartTime']).dt.strftime('%Y-%m-%dT%H:%M')
-        df['stop']  = pd.to_datetime(df['Date'] + ' ' + df['EndTime']).dt.strftime('%Y-%m-%dT%H:%M')
+        awarded_programs = df["ProjCode"].unique()
+        df["start"] = pd.to_datetime(df["Date"] + " " + df["StartTime"]).dt.strftime(
+            "%Y-%m-%dT%H:%M"
+        )
+        df["stop"] = pd.to_datetime(df["Date"] + " " + df["EndTime"]).dt.strftime(
+            "%Y-%m-%dT%H:%M"
+        )
 
-        allocation_frame = df[['start', 'stop']].copy() # TODO: add observer and comment
-        
-        nights_by_program = df.groupby('ProjCode')['FractionOfNight'].sum().round(3).to_dict()
-        hours_by_program = {k: round(v * conversion_ratio, 3) for k, v in nights_by_program.items()}
+        allocation_frame = df[
+            ["start", "stop"]
+        ].copy()  # TODO: add observer and comment
+
+        nights_by_program = (
+            df.groupby("ProjCode")["FractionOfNight"].sum().round(3).to_dict()
+        )
+        hours_by_program = {
+            k: round(v * conversion_ratio, 3) for k, v in nights_by_program.items()
+        }
     except:
-        print("ERROR: allocation information not found. Double check date and instrument. Saving an empty file.")
-        allocation_frame = pd.DataFrame(columns=['start', 'stop'])
+        print(
+            "ERROR: allocation information not found. Double check date and instrument. Saving an empty file."
+        )
+        allocation_frame = pd.DataFrame(columns=["start", "stop"])
         awarded_programs = []
         hours_by_program = {}
         nights_by_program = {}
     return allocation_frame, hours_by_program, nights_by_program
+
 
 def _parse_keck_schedule_time_cell(cell):
     """
@@ -260,13 +312,17 @@ def format_keck_allocation_info(allocation_file):
     """
     allocation = pd.read_csv(allocation_file)
     allocation.columns = allocation.columns.str.strip()
-    allocation = allocation.loc[:, ~allocation.columns.str.match(r'^Unnamed')]
-    if 'StartTime' not in allocation.columns and 'Time' in allocation.columns:
+    allocation = allocation.loc[:, ~allocation.columns.str.match(r"^Unnamed")]
+    if "StartTime" not in allocation.columns and "Time" in allocation.columns:
         allocation = expand_keck_ops_schedule_time_column(allocation)
-        
+
     # Convert start and stop times to datetime for hour calculation
-    allocation['start'] = pd.to_datetime(allocation['Date'] + ' ' + allocation['StartTime']).dt.strftime('%Y-%m-%dT%H:%M')
-    allocation['stop'] = pd.to_datetime(allocation['Date'] + ' ' + allocation['EndTime']).dt.strftime('%Y-%m-%dT%H:%M')
+    allocation["start"] = pd.to_datetime(
+        allocation["Date"] + " " + allocation["StartTime"]
+    ).dt.strftime("%Y-%m-%dT%H:%M")
+    allocation["stop"] = pd.to_datetime(
+        allocation["Date"] + " " + allocation["EndTime"]
+    ).dt.strftime("%Y-%m-%dT%H:%M")
 
     cols = set(allocation.columns)
 
@@ -278,11 +334,20 @@ def format_keck_allocation_info(allocation_file):
         allocation = allocation.copy()
         allocation["hours"] = (stop_times - start_times).dt.total_seconds() / 3600.0
         if "ProjCode" in cols:
-            hours_by_program = allocation.groupby("ProjCode")["hours"].sum().round(3).to_dict()
+            hours_by_program = (
+                allocation.groupby("ProjCode")["hours"].sum().round(3).to_dict()
+            )
             if "FractionOfNight" in cols:
-                nights_by_program = allocation.groupby("ProjCode")["FractionOfNight"].sum().round(3).to_dict()
+                nights_by_program = (
+                    allocation.groupby("ProjCode")["FractionOfNight"]
+                    .sum()
+                    .round(3)
+                    .to_dict()
+                )
             else:
-                nights_by_program = {k: round(v / 12.0, 3) for k, v in hours_by_program.items()}
+                nights_by_program = {
+                    k: round(v / 12.0, 3) for k, v in hours_by_program.items()
+                }
         else:
             hours_by_program = {}
             nights_by_program = {}
@@ -291,17 +356,25 @@ def format_keck_allocation_info(allocation_file):
     # (1) KOIP: separate Date / StartTime / EndTime
     if {"Date", "StartTime", "EndTime"}.issubset(cols):
         allocation["start"] = pd.to_datetime(
-            allocation["Date"].astype(str).str.strip() + " " + allocation["StartTime"].astype(str).str.strip()
+            allocation["Date"].astype(str).str.strip()
+            + " "
+            + allocation["StartTime"].astype(str).str.strip()
         ).dt.strftime("%Y-%m-%dT%H:%M")
         allocation["stop"] = pd.to_datetime(
-            allocation["Date"].astype(str).str.strip() + " " + allocation["EndTime"].astype(str).str.strip()
+            allocation["Date"].astype(str).str.strip()
+            + " "
+            + allocation["EndTime"].astype(str).str.strip()
         ).dt.strftime("%Y-%m-%dT%H:%M")
         start_times = pd.to_datetime(allocation["start"])
         stop_times = pd.to_datetime(allocation["stop"])
         allocation["hours"] = (stop_times - start_times).dt.total_seconds() / 3600.0
         allocation_frame = allocation[["start", "stop"]].copy()
-        hours_by_program = allocation.groupby("ProjCode")["hours"].sum().round(3).to_dict()
-        nights_by_program = allocation.groupby("ProjCode")["FractionOfNight"].sum().round(3).to_dict()
+        hours_by_program = (
+            allocation.groupby("ProjCode")["hours"].sum().round(3).to_dict()
+        )
+        nights_by_program = (
+            allocation.groupby("ProjCode")["FractionOfNight"].sum().round(3).to_dict()
+        )
         return allocation_frame, hours_by_program, nights_by_program
 
     # (2) Keck schedule: Date + single Time cell + ProjCode
@@ -310,7 +383,9 @@ def format_keck_allocation_info(allocation_file):
         allocation = allocation.copy()
         allocation["StartTime"] = [t[0] for t in triples]
         allocation["EndTime"] = [t[1] for t in triples]
-        allocation["FractionOfNight"] = [(t[2] if t[2] is not None else 0.5) for t in triples]
+        allocation["FractionOfNight"] = [
+            (t[2] if t[2] is not None else 0.5) for t in triples
+        ]
         allocation["start"] = pd.to_datetime(
             allocation["Date"].astype(str).str.strip() + " " + allocation["StartTime"]
         ).dt.strftime("%Y-%m-%dT%H:%M")
@@ -322,8 +397,12 @@ def format_keck_allocation_info(allocation_file):
         allocation["hours"] = (stop_times - start_times).dt.total_seconds() / 3600.0
         allocation_frame = allocation[["start", "stop"]].copy()
         allocation["ProjCode"] = allocation["ProjCode"].astype(str).str.strip()
-        hours_by_program = allocation.groupby("ProjCode")["hours"].sum().round(3).to_dict()
-        nights_by_program = allocation.groupby("ProjCode")["FractionOfNight"].sum().round(3).to_dict()
+        hours_by_program = (
+            allocation.groupby("ProjCode")["hours"].sum().round(3).to_dict()
+        )
+        nights_by_program = (
+            allocation.groupby("ProjCode")["FractionOfNight"].sum().round(3).to_dict()
+        )
         return allocation_frame, hours_by_program, nights_by_program
 
     raise ValueError(
@@ -351,18 +430,19 @@ def expand_keck_ops_schedule_time_column(df):
         pandas.DataFrame: Copy of ``df`` with ``StartTime``, ``EndTime``, and ``FractionOfNight`` added.
     """
     import re
-    required = {'Date', 'Time', 'ProjCode'}
+
+    required = {"Date", "Time", "ProjCode"}
     missing = required - set(df.columns)
     if missing:
         raise ValueError(
             f"expand_keck_ops_schedule_time_column: missing columns {sorted(missing)}"
         )
     pattern = re.compile(
-        r'^\s*(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\s*(?:\(\s*(\d+)\s*%\s*\))?\s*$',
+        r"^\s*(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\s*(?:\(\s*(\d+)\s*%\s*\))?\s*$",
         re.IGNORECASE,
     )
     starts, ends, fracs = [], [], []
-    for raw in df['Time'].astype(str):
+    for raw in df["Time"].astype(str):
         m = pattern.match(raw.strip())
         if not m:
             raise ValueError(
@@ -373,9 +453,9 @@ def expand_keck_ops_schedule_time_column(df):
         pct = m.group(3)
         fracs.append(int(pct) / 100.0 if pct is not None else 1.0)
     out = df.copy()
-    out['StartTime'] = starts
-    out['EndTime'] = ends
-    out['FractionOfNight'] = fracs
+    out["StartTime"] = starts
+    out["EndTime"] = ends
+    out["FractionOfNight"] = fracs
     return out
 
 
@@ -394,12 +474,20 @@ def pull_OB_histories(semester):
     params = {}
     params["semester"] = semester
     try:
-        data = requests.get(url, params=params, auth=(os.environ['KECK_OB_DATABASE_API_USERNAME'], os.environ['KECK_OB_DATABASE_API_PASSWORD']))
+        data = requests.get(
+            url,
+            params=params,
+            auth=(
+                os.environ["KECK_OB_DATABASE_API_USERNAME"],
+                os.environ["KECK_OB_DATABASE_API_PASSWORD"],
+            ),
+        )
         data = data.json()
         return data
     except:
         print("ERROR")
         return
+
 
 def get_request_sheet(OBs, awarded_programs, savepath):
     """
@@ -420,25 +508,34 @@ def get_request_sheet(OBs, awarded_programs, savepath):
     good_obs, bad_obs_values, bad_obs_hasFields = sort_good_bad(OBs, awarded_programs)
 
     # Filter bad OBs to only those in awarded programs
-    if 'metadata.semid' in bad_obs_values.columns:
-        mask = bad_obs_values['metadata.semid'].isin(awarded_programs)
+    if "metadata.semid" in bad_obs_values.columns:
+        mask = bad_obs_values["metadata.semid"].isin(awarded_programs)
         bad_obs_values = bad_obs_values[mask].reset_index(drop=True)
         bad_obs_hasFields = bad_obs_hasFields[mask].reset_index(drop=True)
 
-    bad_obs_count_by_semid, bad_field_histogram = analyze_bad_obs(good_obs, bad_obs_values, bad_obs_hasFields, awarded_programs)
-    good_obs.sort_values(by='program_code', inplace=True)
+    bad_obs_count_by_semid, bad_field_histogram = analyze_bad_obs(
+        good_obs, bad_obs_values, bad_obs_hasFields, awarded_programs
+    )
+    good_obs.sort_values(by="program_code", inplace=True)
     good_obs.reset_index(inplace=True, drop=True)
 
     # good_obs['active'] = [True] * len(good_obs)
-    
-    # Cast starname column to strings to ensure proper matching
-    if 'starname' in good_obs.columns:
-        good_obs['starname'] = good_obs['starname'].astype(str)
-    
-    os.makedirs(os.path.dirname(savepath), exist_ok=True)
-    return good_obs, bad_obs_values, bad_obs_hasFields, bad_obs_count_by_semid, bad_field_histogram
 
-def flatten(d, parent_key='', sep='.'):
+    # Cast starname column to strings to ensure proper matching
+    if "starname" in good_obs.columns:
+        good_obs["starname"] = good_obs["starname"].astype(str)
+
+    os.makedirs(os.path.dirname(savepath), exist_ok=True)
+    return (
+        good_obs,
+        bad_obs_values,
+        bad_obs_hasFields,
+        bad_obs_count_by_semid,
+        bad_field_histogram,
+    )
+
+
+def flatten(d, parent_key="", sep="."):
     """
     Flatten a dictionary into a single level.
 
@@ -459,6 +556,7 @@ def flatten(d, parent_key='', sep='.'):
             items[new_key] = v
     return items
 
+
 def apply_safety_valves(value_df, presence_df):
     """
     Apply safety valve defaults to fill in missing or empty values for certain fields.
@@ -474,24 +572,24 @@ def apply_safety_valves(value_df, presence_df):
     """
     # Define default values for safety valves
     safety_valve_defaults = {
-        'target.gaia_id': 'NoGaiaName',
-        'target.t_eff': -1000.0,
-        'observation.exp_meter_threshold': 50000.0, #absurdly high so that it is not used in the computation of exposure times
-        'schedule.num_intranight_cadence': 0,
-        'schedule.num_intranight_cadence': 0,
-        'schedule.num_inter_cadence': 0,
-        'schedule.n_inter_max': 0,
-        'schedule.n_intra_max': 1,
-        'schedule.n_inter_min': 1,
-        'schedule.n_exp': 1,
-        'schedule.minimum_elevation': 33,
-        'schedule.minimum_moon_separation': 33,
-        'schedule.weather_band_1': True,
-        'schedule.weather_band_2': True,
-        'schedule.weather_band_3': False,
-        'metadata.ob_inactive': False,
+        "target.gaia_id": "NoGaiaName",
+        "target.t_eff": -1000.0,
+        "observation.exp_meter_threshold": 50000.0,  # absurdly high so that it is not used in the computation of exposure times
+        "schedule.num_intranight_cadence": 0,
+        "schedule.num_intranight_cadence": 0,
+        "schedule.num_inter_cadence": 0,
+        "schedule.n_inter_max": 0,
+        "schedule.n_intra_max": 1,
+        "schedule.n_inter_min": 1,
+        "schedule.n_exp": 1,
+        "schedule.minimum_elevation": 33,
+        "schedule.minimum_moon_separation": 33,
+        "schedule.weather_band_1": True,
+        "schedule.weather_band_2": True,
+        "schedule.weather_band_3": False,
+        "metadata.ob_inactive": False,
     }
-    
+
     # Apply safety valves using a loop
     for col_name, default_value in safety_valve_defaults.items():
         if col_name not in value_df.columns:
@@ -503,24 +601,25 @@ def apply_safety_valves(value_df, presence_df):
             value_df[col_name] = value_df[col_name].fillna(default_value)
             # Also handle empty strings for string columns
             if isinstance(default_value, str):
-                value_df[col_name] = value_df[col_name].replace('', default_value)
+                value_df[col_name] = value_df[col_name].replace("", default_value)
             presence_df[col_name] = presence_df[col_name] | value_df[col_name].notna()
-            
+
     # Special case for weather bands based on metadata.semid
     # this was only for 2025B while weather bands were being developed
-    if 'metadata.semid' in value_df.columns:
+    if "metadata.semid" in value_df.columns:
         # Check for 2025B_E473 semid and set opposite weather band values
-        mask_2025B_E473 = value_df['metadata.semid'] == '2025B_E473'
+        mask_2025B_E473 = value_df["metadata.semid"] == "2025B_E473"
         if mask_2025B_E473.any():
             # Set weather bands to opposite values for 2025B_E473
-            if 'schedule.weather_band_1' in value_df.columns:
-                value_df.loc[mask_2025B_E473, 'schedule.weather_band_1'] = False
-            if 'schedule.weather_band_2' in value_df.columns:
-                value_df.loc[mask_2025B_E473, 'schedule.weather_band_2'] = False
-            if 'schedule.weather_band_3' in value_df.columns:
-                value_df.loc[mask_2025B_E473, 'schedule.weather_band_3'] = True
+            if "schedule.weather_band_1" in value_df.columns:
+                value_df.loc[mask_2025B_E473, "schedule.weather_band_1"] = False
+            if "schedule.weather_band_2" in value_df.columns:
+                value_df.loc[mask_2025B_E473, "schedule.weather_band_2"] = False
+            if "schedule.weather_band_3" in value_df.columns:
+                value_df.loc[mask_2025B_E473, "schedule.weather_band_3"] = True
 
     return value_df, presence_df
+
 
 def create_checks_dataframes(OBs, required_fields):
     """
@@ -533,13 +632,13 @@ def create_checks_dataframes(OBs, required_fields):
     Returns:
         value_df (pandas DataFrame): a DataFrame with the values of the OBs
         presence_df (pandas DataFrame): a DataFrame with the indication of fields existing or not for the OBs
-        all_true_mask (pandas Series): a mask indicating which OBs in the list are good. 
+        all_true_mask (pandas Series): a mask indicating which OBs in the list are good.
     """
     # Store flattened rows and collect all keys
     flat_value_rows = []
     flat_presence_rows = []
     all_keys = set()
-    for entry in OBs['observing_blocks']:
+    for entry in OBs["observing_blocks"]:
         flat = flatten(entry)
         flat_value_rows.append(flat)
         presence_row = {k: True for k in flat}
@@ -548,18 +647,18 @@ def create_checks_dataframes(OBs, required_fields):
 
     columns = sorted(all_keys)
 
-    value_df = pd.DataFrame([
-        [row.get(col, np.nan) for col in columns]
-        for row in flat_value_rows
-    ], columns=columns)
+    value_df = pd.DataFrame(
+        [[row.get(col, np.nan) for col in columns] for row in flat_value_rows],
+        columns=columns,
+    )
 
-    presence_df = pd.DataFrame([
-        [row.get(col, False) for col in columns]
-        for row in flat_presence_rows
-    ], columns=columns)
+    presence_df = pd.DataFrame(
+        [[row.get(col, False) for col in columns] for row in flat_presence_rows],
+        columns=columns,
+    )
 
     # Optional: add row labels
-    index_labels = [f"entry_{i+1}" for i in range(len(value_df))]
+    index_labels = [f"entry_{i + 1}" for i in range(len(value_df))]
     value_df.index = index_labels
     presence_df.index = index_labels
 
@@ -575,6 +674,7 @@ def create_checks_dataframes(OBs, required_fields):
 
     return value_df, presence_df
 
+
 def cast_columns(df):
     """
     Cast columns to their appropriate data types based on the column_definitions dictionary.
@@ -588,17 +688,20 @@ def cast_columns(df):
     df = df.copy()
     for col, col_info in column_definitions.items():
         if col in df.columns:
-            dtype = col_info['type']
-            if dtype in ['Int64', 'Float64']:
-                df[col] = pd.to_numeric(df[col], errors='coerce').astype(dtype)
-            elif dtype == 'string':
-                df[col] = df[col].astype('string')
-            elif dtype == 'boolean':
+            dtype = col_info["type"]
+            if dtype in ["Int64", "Float64"]:
+                df[col] = pd.to_numeric(df[col], errors="coerce").astype(dtype)
+            elif dtype == "string":
+                df[col] = df[col].astype("string")
+            elif dtype == "boolean":
                 # Convert to boolean, handling various representations
-                df[col] = df[col].astype('boolean')
+                df[col] = df[col].astype("boolean")
             else:
-                raise ValueError(f"Unsupported dtype: {dtype}. Only 'Int64', 'Float64', 'string', and 'boolean' are allowed.")
+                raise ValueError(
+                    f"Unsupported dtype: {dtype}. Only 'Int64', 'Float64', 'string', and 'boolean' are allowed."
+                )
     return df
+
 
 def validate_and_convert_coordinates(df):
     """
@@ -611,13 +714,13 @@ def validate_and_convert_coordinates(df):
     Returns:
         df (pandas DataFrame): DataFrame with valid coordinates converted to degrees, invalid rows removed
     """
-    ra_list = df['ra'].astype(str).tolist()
-    dec_list = df['dec'].astype(str).tolist()
-    
+    ra_list = df["ra"].astype(str).tolist()
+    dec_list = df["dec"].astype(str).tolist()
+
     # Try to create SkyCoord and handle invalid coordinates
     valid_indices = []
     invalid_targets = []
-    
+
     for i, (ra, dec) in enumerate(zip(ra_list, dec_list)):
         try:
             # Test if this coordinate pair is valid
@@ -625,40 +728,47 @@ def validate_and_convert_coordinates(df):
             valid_indices.append(i)
         except Exception as e:
             # Get the target info for reporting (using renamed column names)
-            target_id = df.iloc[i].get('unique_id', 'Unknown ID')
-            target_name = df.iloc[i].get('starname', 'Unknown Name')
-            invalid_targets.append({
-                'id': target_id,
-                'starname': target_name,
-                'ra': ra,
-                'dec': dec,
-                'error': str(e)
-            })
-    
+            target_id = df.iloc[i].get("unique_id", "Unknown ID")
+            target_name = df.iloc[i].get("starname", "Unknown Name")
+            invalid_targets.append(
+                {
+                    "id": target_id,
+                    "starname": target_name,
+                    "ra": ra,
+                    "dec": dec,
+                    "error": str(e),
+                }
+            )
+
     # Print information about invalid targets
     if invalid_targets:
-        print(f"Warning: {len(invalid_targets)} targets have invalid coordinates and will be removed:")
+        print(
+            f"Warning: {len(invalid_targets)} targets have invalid coordinates and will be removed:"
+        )
         for target in invalid_targets:
-            print(f"  ID: {target['id']}, Star: {target['starname']}, RA: {target['ra']}, Dec: {target['dec']}")
+            print(
+                f"  ID: {target['id']}, Star: {target['starname']}, RA: {target['ra']}, Dec: {target['dec']}"
+            )
             print(f"    Error: {target['error']}")
-    
+
     # Filter to only valid coordinates
     if len(valid_indices) < len(df):
         df = df.iloc[valid_indices].reset_index(drop=True)
         ra_list = [ra_list[i] for i in valid_indices]
         dec_list = [dec_list[i] for i in valid_indices]
-    
+
     # Now create SkyCoord with only valid coordinates
     coords = SkyCoord(ra=ra_list, dec=dec_list, unit=(u.hourangle, u.deg))
-    df['ra'] = coords.ra.deg
-    df['dec'] = coords.dec.deg
-    
+    df["ra"] = coords.ra.deg
+    df["dec"] = coords.dec.deg
+
     return df
+
 
 def sort_good_bad(OBs, awarded_programs):
     """
     Sort the OBs into good and bad buckets.
-    
+
     Args:
         OBs (json): the OB information in json format
         awarded_programs (list): a list of the awarded programs
@@ -671,47 +781,50 @@ def sort_good_bad(OBs, awarded_programs):
 
     # Create the dataframes
     OB_values, OB_hasFields = create_checks_dataframes(OBs, required_fields)
-    
+
     # Apply safety valves
     run_safety_valves = True
     if run_safety_valves:
         OB_values, OB_hasFields = apply_safety_valves(OB_values, OB_hasFields)
-    
+
     # Create masks considering only the required fields
     def row_is_good(row):
         # Check that all required fields are present
         # If a required field is missing from the dataframe, row.get returns False (default)
-        return all(
-            row.get(col, False) for col in required_fields
-        )
-    
+        return all(row.get(col, False) for col in required_fields)
+
     # Apply the good/bad row determination
     pass_OBs_mask = OB_hasFields.apply(row_is_good, axis=1)
 
     bad_OBs_values = OB_values[~pass_OBs_mask]
-    bad_OBs_values.reset_index(inplace=True, drop='True')
+    bad_OBs_values.reset_index(inplace=True, drop="True")
     bad_OBs_hasFields = OB_hasFields[~pass_OBs_mask]
-    bad_OBs_hasFields.reset_index(inplace=True, drop='True')
+    bad_OBs_hasFields.reset_index(inplace=True, drop="True")
 
-    mask = bad_OBs_values['metadata.semid'].isin(awarded_programs)
+    mask = bad_OBs_values["metadata.semid"].isin(awarded_programs)
     bad_OBs_values = bad_OBs_values[mask].reset_index(drop=True)
     bad_OBs_hasFields = bad_OBs_hasFields[mask].reset_index(drop=True)
 
     good_OB_values = OB_values[pass_OBs_mask]
-    good_OB_values.reset_index(inplace=True, drop='True')
+    good_OB_values.reset_index(inplace=True, drop="True")
     good_OBs = cast_columns(good_OB_values)
 
-    good_OBs_awarded = good_OBs[good_OBs['metadata.semid'].isin(awarded_programs)]
-    good_OBs_awarded.reset_index(inplace=True, drop='True')
-    
+    good_OBs_awarded = good_OBs[good_OBs["metadata.semid"].isin(awarded_programs)]
+    good_OBs_awarded.reset_index(inplace=True, drop="True")
+
     # Create column mapping from column_definitions
-    new_column_names = {col: col_info['new_name'] for col, col_info in column_definitions.items()}
-    trimmed_good = good_OBs_awarded[list(column_definitions.keys())].rename(columns=new_column_names)
+    new_column_names = {
+        col: col_info["new_name"] for col, col_info in column_definitions.items()
+    }
+    trimmed_good = good_OBs_awarded[list(column_definitions.keys())].rename(
+        columns=new_column_names
+    )
 
     # Validate and convert coordinates
     trimmed_good = validate_and_convert_coordinates(trimmed_good)
 
     return trimmed_good, bad_OBs_values, bad_OBs_hasFields
+
 
 def recompute_exposure_times(request_frame, slowdown_factor):
     """
@@ -722,30 +835,47 @@ def recompute_exposure_times(request_frame, slowdown_factor):
         slowdown_factor (float): the slowdown factor to apply to the exposure times
 
     Returns:
-        new_exptimes (list): a list of the new exposure times based on slowdown. 
+        new_exptimes (list): a list of the new exposure times based on slowdown.
     """
-    # These values determined emperically using KPF data spanning a year. 
+    # These values determined emperically using KPF data spanning a year.
     # Do not change unless you have good reason.
     factor = 40
     slope_median = -0.362
     intercept_median = 8.889
 
-    rate = slope_median*request_frame['gmag'] + intercept_median
-    time = (request_frame['exp_meter_threshold']*factor*10**6)/(10**rate)
+    rate = slope_median * request_frame["gmag"] + intercept_median
+    time = (request_frame["exp_meter_threshold"] * factor * 10**6) / (10**rate)
     time = time.clip(lower=12)
     if slowdown_factor > 1:
-        newtime = (time * slowdown_factor).clip(upper=request_frame["exptime"]).round().astype("Int64")
+        newtime = (
+            (time * slowdown_factor)
+            .clip(upper=request_frame["exptime"])
+            .round()
+            .astype("Int64")
+        )
     else:
-        newtime = (time * slowdown_factor).clip(lower=request_frame["exptime"]).round().astype("Int64")
+        newtime = (
+            (time * slowdown_factor)
+            .clip(lower=request_frame["exptime"])
+            .round()
+            .astype("Int64")
+        )
     return newtime
 
-def analyze_bad_obs(trimmed_good, bad_OBs_values, bad_OBs_hasFields, awarded_programs, required_fields=required_fields):
+
+def analyze_bad_obs(
+    trimmed_good,
+    bad_OBs_values,
+    bad_OBs_hasFields,
+    awarded_programs,
+    required_fields=required_fields,
+):
     """
     Analyze the bad OBs and produce a count of bad OBs by semester and a histogram of bad OBs by field.
 
     Args:
-        trimmed_good (pandas DataFrame): the good OBs 
-        bad_OBs_values (pandas DataFrame): the values of the fields in the bad OBs 
+        trimmed_good (pandas DataFrame): the good OBs
+        bad_OBs_values (pandas DataFrame): the values of the fields in the bad OBs
         bad_OBs_hasFields (pandas DataFrame): the existence of the fields in the bad OBs
         awarded_programs (list): a list of the awarded programs
         required_fields (list): a list of the required fields
@@ -755,8 +885,10 @@ def analyze_bad_obs(trimmed_good, bad_OBs_values, bad_OBs_hasFields, awarded_pro
         - bad_field_histogram: dict {field: count of times field was missing in a bad OB}
     """
     # 1. Count bad OBs per metadata.semid
-    if 'metadata.semid' in bad_OBs_values.columns:
-        bad_obs_count_by_semid = bad_OBs_values['metadata.semid'].value_counts().to_dict()
+    if "metadata.semid" in bad_OBs_values.columns:
+        bad_obs_count_by_semid = (
+            bad_OBs_values["metadata.semid"].value_counts().to_dict()
+        )
     else:
         bad_obs_count_by_semid = {}
     # Ensure all awarded_programs are present as keys
@@ -766,13 +898,16 @@ def analyze_bad_obs(trimmed_good, bad_OBs_values, bad_OBs_hasFields, awarded_pro
                 bad_obs_count_by_semid[semid] = 0
 
     # 2. Histogram of missing fields (reasons for bad OBs) - only check required fields
-    bad_field_histogram = {col: 0 for col in required_fields if col in bad_OBs_hasFields.columns}
+    bad_field_histogram = {
+        col: 0 for col in required_fields if col in bad_OBs_hasFields.columns
+    }
     for idx, row in bad_OBs_hasFields.iterrows():
         for col in bad_field_histogram:
             if not bool(row.get(col, False)):
                 bad_field_histogram[col] += 1
 
     return bad_obs_count_by_semid, bad_field_histogram
+
 
 def plot_bad_obs_histograms(bad_obs_count_by_semid, bad_field_histogram):
     """
@@ -788,31 +923,38 @@ def plot_bad_obs_histograms(bad_obs_count_by_semid, bad_field_histogram):
     """
     import plotly.graph_objects as go
 
-    fig1 = go.Figure(go.Bar(
-        x=list(bad_obs_count_by_semid.keys()),
-        y=list(bad_obs_count_by_semid.values()),
-    ))
+    fig1 = go.Figure(
+        go.Bar(
+            x=list(bad_obs_count_by_semid.keys()),
+            y=list(bad_obs_count_by_semid.values()),
+        )
+    )
     fig1.update_layout(
-        title='Number of Bad OBs per Program',
-        xaxis_title='Program (metadata.semid)',
-        yaxis_title='Number of Bad OBs',
+        title="Number of Bad OBs per Program",
+        xaxis_title="Program (metadata.semid)",
+        yaxis_title="Number of Bad OBs",
         xaxis=dict(tickangle=-45),
-        width=900, height=400,
+        width=900,
+        height=400,
     )
     fig1.show()
 
-    fig2 = go.Figure(go.Bar(
-        x=list(bad_field_histogram.keys()),
-        y=list(bad_field_histogram.values()),
-    ))
+    fig2 = go.Figure(
+        go.Bar(
+            x=list(bad_field_histogram.keys()),
+            y=list(bad_field_histogram.values()),
+        )
+    )
     fig2.update_layout(
-        title='Frequency of Each Field as Reason for Bad OB',
-        xaxis_title='Field',
-        yaxis_title='Count as Reason for Bad OB',
+        title="Frequency of Each Field as Reason for Bad OB",
+        xaxis_title="Field",
+        yaxis_title="Count as Reason for Bad OB",
         xaxis=dict(tickangle=-90),
-        width=1100, height=400,
+        width=1100,
+        height=400,
     )
     fig2.show()
+
 
 def inspect_row(df_exists, df_values, row_num, required_fields=required_fields):
     """
@@ -845,12 +987,13 @@ def inspect_row(df_exists, df_values, row_num, required_fields=required_fields):
                 lines.append(f"{col:<40}")
 
     email_body = email_template.format(
-    semid=row_values['metadata.semid'],
-    starname=row_values['target.target_name'],
-    _id=row_values['_id'],
-    badparams="\n".join(lines)
+        semid=row_values["metadata.semid"],
+        starname=row_values["target.target_name"],
+        _id=row_values["_id"],
+        badparams="\n".join(lines),
     )
     return email_body
+
 
 email_template = """
 Hello,
@@ -877,7 +1020,7 @@ Jack
 """
 
 # This portion not ready yet, but saving for future use.
-#---------------------------------------------------------
+# ---------------------------------------------------------
 # import smtplib
 # from email.mime.multipart import MIMEMultipart
 # from email.mime.text import MIMEText
@@ -930,79 +1073,97 @@ Jack
 #     )
 #     return email_address, email_body
 
+
 def filter_request_csv(request_df, weather_band_num):
     """
     Filter request.csv file to only keep rows where weather_band_X = True
-    
+
     Args:
         request_file_path (str): Path to the request.csv file
         weather_band_num (int): Weather band number to filter by
-        
+
     Returns:
         bool: True if filtering was successful, False otherwise
     """
-    weather_band_col = f'weather_band_{weather_band_num}'
-    
+    weather_band_col = f"weather_band_{weather_band_num}"
+
     if weather_band_col in request_df.columns:
         filtered_df = request_df[request_df[weather_band_col] == True]
     else:
-        print(f'Warning: Column {weather_band_col} not found in request.csv. No filtering applied.')
+        print(
+            f"Warning: Column {weather_band_col} not found in request.csv. No filtering applied."
+        )
     return filtered_df
-    
+
+
 def update_allocation_file(allocation_df, current_date):
     """
     Update allocation.csv file with today's 12-degree twilight times
-    
+
     Args:
         allocation_file_path (str): Path to the allocation.csv file
         current_date (str): Current date in YYYY-MM-DD format
-        
+
     Returns:
         bool: True if update was successful, False otherwise
     """
     date_exists = False
     date_idx = -1
-    
+
     # Check if current date exists in allocation file
     for idx, row in allocation_df.iterrows():
-        row_date = str(row['start'])[:10]  # Get YYYY-MM-DD portion
+        row_date = str(row["start"])[:10]  # Get YYYY-MM-DD portion
         if row_date == current_date:
             date_exists = True
             date_idx = idx
             break
-    
+
     # Get 12-degree twilight times for current date
-    observatory = 'Keck Observatory'
+    observatory = "Keck Observatory"
     keck = apl.Observer.at_site(observatory)
-    day = Time(current_date, format='isot', scale='utc')
-    
-    evening_12 = keck.twilight_evening_nautical(day, which='next')
-    morning_12 = keck.twilight_morning_nautical(day, which='next')
-    
+    day = Time(current_date, format="isot", scale="utc")
+
+    evening_12 = keck.twilight_evening_nautical(day, which="next")
+    morning_12 = keck.twilight_morning_nautical(day, which="next")
+
     if not date_exists:
-        print(f'Adding allocation row for current_day: {current_date}')
+        print(f"Adding allocation row for current_day: {current_date}")
         # Add new row at the bottom
-        new_row = pd.DataFrame({
-            'start': [evening_12.strftime('%Y-%m-%dT%H:%M')],
-            'stop': [morning_12.strftime('%Y-%m-%dT%H:%M')]
-        })
+        new_row = pd.DataFrame(
+            {
+                "start": [evening_12.strftime("%Y-%m-%dT%H:%M")],
+                "stop": [morning_12.strftime("%Y-%m-%dT%H:%M")],
+            }
+        )
         allocation_df = pd.concat([allocation_df, new_row], ignore_index=True)
-        allocation_df.loc[len(allocation_df)-1, 'comment'] = 'added as part of full-band processing'
-        print(f'Added allocation: {evening_12.iso} to {morning_12.iso}')
+        allocation_df.loc[len(allocation_df) - 1, "comment"] = (
+            "added as part of full-band processing"
+        )
+        print(f"Added allocation: {evening_12.iso} to {morning_12.iso}")
     else:
-        print(f'Updating existing allocation row for current_day: {current_date}')
+        print(f"Updating existing allocation row for current_day: {current_date}")
         # Update existing row
-        allocation_df.loc[date_idx, 'start'] = evening_12.strftime('%Y-%m-%dT%H:%M')
-        allocation_df.loc[date_idx, 'stop'] = morning_12.strftime('%Y-%m-%dT%H:%M')
-        allocation_df.loc[date_idx, 'comment'] = 'added as part of full-band processing'
-        print(f'Updated allocation: {evening_12.iso} to {morning_12.iso}')
-    
+        allocation_df.loc[date_idx, "start"] = evening_12.strftime("%Y-%m-%dT%H:%M")
+        allocation_df.loc[date_idx, "stop"] = morning_12.strftime("%Y-%m-%dT%H:%M")
+        allocation_df.loc[date_idx, "comment"] = "added as part of full-band processing"
+        print(f"Updated allocation: {evening_12.iso} to {morning_12.iso}")
+
     return allocation_df
 
-def write_starlist(frame, schedule, night_start_time, filler_stars, current_day,
-                    outputdir, version='nominal', all_active_requests=None, past_history=None):
+
+def write_starlist(
+    frame,
+    schedule,
+    night_start_time,
+    filler_stars,
+    current_day,
+    outputdir,
+    version="nominal",
+    all_active_requests=None,
+    past_history=None,
+):
     """
-    Generate the nightly script in the format required by the Keck "Magiq" software. 
+    Generate the nightly script in the format required by the Keck "Magiq" software.
     Backwards compatable to pre-KPF-CC observing.
 
     Args:
@@ -1017,61 +1178,98 @@ def write_starlist(frame, schedule, night_start_time, filler_stars, current_day,
     Returns:
         lines (str): the script file as a string
     """
-    frame['starname'] = frame['starname'].astype(str)
+    frame["starname"] = frame["starname"].astype(str)
 
-    on_sky = schedule[~schedule['is_anchor']]
-    scheduled_df = on_sky[on_sky['scheduled']].sort_values('order')
-    extras_df = on_sky[~on_sky['scheduled']]
+    on_sky = schedule[~schedule["is_anchor"]]
+    scheduled_df = on_sky[on_sky["scheduled"]].sort_values("order")
+    extras_df = on_sky[~on_sky["scheduled"]]
 
     total_exptime = 0
     if not os.path.isdir(outputdir):
         os.mkdir(outputdir)
-    script_file = os.path.join(outputdir,'script_{}_{}.txt'.format(current_day, version))
+    script_file = os.path.join(
+        outputdir, "script_{}_{}.txt".format(current_day, version)
+    )
 
     lines = []
     for _, srow in scheduled_df.iterrows():
-        uid = str(srow['unique_id'])
+        uid = str(srow["unique_id"])
         filler_flag = uid in filler_stars
-        row = frame.loc[frame['unique_id'] == uid]
+        row = frame.loc[frame["unique_id"] == uid]
         row.reset_index(inplace=True)
-        total_exptime += float(row['exptime'].iloc[0])
+        total_exptime += float(row["exptime"].iloc[0])
 
-        start_exposure_hst = str(TimeDelta(srow['t_start'] * 60, format='sec') + night_start_time)[11:16]
-        first_available_hst = str(TimeDelta(srow['t_early'] * 60, format='sec') + night_start_time)[11:16]
-        last_available_hst = str(TimeDelta(srow['t_late'] * 60, format='sec') + night_start_time)[11:16]
+        start_exposure_hst = str(
+            TimeDelta(srow["t_start"] * 60, format="sec") + night_start_time
+        )[11:16]
+        first_available_hst = str(
+            TimeDelta(srow["t_early"] * 60, format="sec") + night_start_time
+        )[11:16]
+        last_available_hst = str(
+            TimeDelta(srow["t_late"] * 60, format="sec") + night_start_time
+        )[11:16]
 
-        lines.append(format_kpf_row(
-            row, start_exposure_hst, first_available_hst, last_available_hst,
-            current_day, filler_flag=filler_flag,
-        ))
+        lines.append(
+            format_kpf_row(
+                row,
+                start_exposure_hst,
+                first_available_hst,
+                last_available_hst,
+                current_day,
+                filler_flag=filler_flag,
+            )
+        )
 
-    lines.append('')
-    lines.append('X' * 45 + 'EXTRAS' + 'X' * 45)
-    lines.append('')
+    lines.append("")
+    lines.append("X" * 45 + "EXTRAS" + "X" * 45)
+    lines.append("")
 
     for _, erow in extras_df.iterrows():
-        uid = str(erow['unique_id'])
+        uid = str(erow["unique_id"])
         filler_flag = uid in filler_stars
-        row = frame.loc[frame['unique_id'] == uid]
+        row = frame.loc[frame["unique_id"] == uid]
         row.reset_index(inplace=True)
-        first_available_hst = str(TimeDelta(erow['t_early'] * 60, format='sec') + night_start_time)[11:16]
-        last_available_hst = str(TimeDelta(erow['t_late'] * 60, format='sec') + night_start_time)[11:16]
-        lines.append(format_kpf_row(
-            row, '24:00', first_available_hst, last_available_hst,
-            current_day, filler_flag, True,
-        ))
+        first_available_hst = str(
+            TimeDelta(erow["t_early"] * 60, format="sec") + night_start_time
+        )[11:16]
+        last_available_hst = str(
+            TimeDelta(erow["t_late"] * 60, format="sec") + night_start_time
+        )[11:16]
+        lines.append(
+            format_kpf_row(
+                row,
+                "24:00",
+                first_available_hst,
+                last_available_hst,
+                current_day,
+                filler_flag,
+                True,
+            )
+        )
 
     # add buffer lines to end of file
     lines.append("")
     lines.append("")
 
-    with open(script_file, 'w') as f:
-        f.write('\n'.join(lines))
-    print("Total Open Shutter Time Scheduled: " + str(np.round((total_exptime/3600),2)) + " hours")
+    with open(script_file, "w") as f:
+        f.write("\n".join(lines))
+    print(
+        "Total Open Shutter Time Scheduled: "
+        + str(np.round((total_exptime / 3600), 2))
+        + " hours"
+    )
     return lines
 
-def format_kpf_row(row, obs_time, first_available, last_available, current_day,
-                    filler_flag = False, extra=False):
+
+def format_kpf_row(
+    row,
+    obs_time,
+    first_available,
+    last_available,
+    current_day,
+    filler_flag=False,
+    extra=False,
+):
     """
     Format request data in the specific way needed for the script (relates to the Keck "Magiq"
     software's data ingestion requirements).
@@ -1091,58 +1289,67 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
         line (str): the properly formatted string to be included in the script file
     """
 
-    equinox = '2000'
+    equinox = "2000"
     # Handle missing pmra/pmdec columns with default values
-    pmra = row.get('pmra', pd.Series([0.0])).iloc[0] if 'pmra' in row else 0.0
-    pmdec = row.get('pmdec', pd.Series([0.0])).iloc[0] if 'pmdec' in row else 0.0
-    updated_ra, updated_dec = pm_correcter(row['ra'].iloc[0], row['dec'].iloc[0],
-                                pmra, pmdec, current_day, equinox=equinox)
+    pmra = row.get("pmra", pd.Series([0.0])).iloc[0] if "pmra" in row else 0.0
+    pmdec = row.get("pmdec", pd.Series([0.0])).iloc[0] if "pmdec" in row else 0.0
+    updated_ra, updated_dec = pm_correcter(
+        row["ra"].iloc[0], row["dec"].iloc[0], pmra, pmdec, current_day, equinox=equinox
+    )
     if updated_dec[0] != "-":
         updated_dec = "+" + updated_dec
 
-    starname_str = str(row['starname'].iloc[0])
-    namestring = ' '*(16-len(starname_str[:16])) + starname_str[:16]
+    starname_str = str(row["starname"].iloc[0])
+    namestring = " " * (16 - len(starname_str[:16])) + starname_str[:16]
 
     # Handle missing columns with default values
-    jmag_val = row.get('jmag', [15.0])[0] if 'jmag' in row else 15.0
-    gmag_val = row.get('gmag', [15.0])[0] if 'gmag' in row else 15.0
-    teff_val = row.get('teff', [5000])[0] if 'teff' in row else 5000
-    gaia_id_val = row.get('gaia_id', ['UNKNOWN'])[0] if 'gaia_id' in row else 'UNKNOWN'
-    
+    jmag_val = row.get("jmag", [15.0])[0] if "jmag" in row else 15.0
+    gmag_val = row.get("gmag", [15.0])[0] if "gmag" in row else 15.0
+    teff_val = row.get("teff", [5000])[0] if "teff" in row else 5000
+    gaia_id_val = row.get("gaia_id", ["UNKNOWN"])[0] if "gaia_id" in row else "UNKNOWN"
+
     # Convert to float safely, with fallback to defaults
     try:
         jmag_val = float(jmag_val) if jmag_val is not None else 15.0
     except (ValueError, TypeError):
         jmag_val = 25.0
-    
+
     try:
         gmag_val = float(gmag_val) if gmag_val is not None else 15.0
     except (ValueError, TypeError):
         gmag_val = 25.0
-    
+
     try:
         teff_val = float(teff_val) if teff_val is not None else 5000
     except (ValueError, TypeError):
         teff_val = 0.0
-    
-    jmagstring = ('jmag=' + str(np.round(float(jmag_val),1)) + ' '* \
-        (4-len(str(np.round(float(jmag_val),1)))))
-    exposurestring = (' '*(4-len(str(int(row['exptime'].iloc[0])))) + \
-        str(int(row['exptime'].iloc[0])) + '/' + \
-        str(int(row['exptime'].iloc[0])) + ' '* \
-        (4-len(str(int(row['exptime'].iloc[0])))))
 
-    ofstring = ('1of' + str(int(row['n_intra_max'].iloc[0])))
-    scstring = 'sc=' + 'T'
+    jmagstring = (
+        "jmag="
+        + str(np.round(float(jmag_val), 1))
+        + " " * (4 - len(str(np.round(float(jmag_val), 1))))
+    )
+    exposurestring = (
+        " " * (4 - len(str(int(row["exptime"].iloc[0]))))
+        + str(int(row["exptime"].iloc[0]))
+        + "/"
+        + str(int(row["exptime"].iloc[0]))
+        + " " * (4 - len(str(int(row["exptime"].iloc[0]))))
+    )
 
-    numstring = str(int(row['n_exp'].iloc[0])) + "x"
-    gmagstring = 'gmag=' + str(np.round(float(gmag_val),1)) + \
-                                                ' '*(4-len(str(np.round(float(gmag_val),1))))
-    teffstr = 'Teff=' + str(int(teff_val)) + \
-                                    ' '*(4-len(str(int(teff_val))))
+    ofstring = "1of" + str(int(row["n_intra_max"].iloc[0]))
+    scstring = "sc=" + "T"
 
-    gaiastring = str(gaia_id_val) + ' '*(25-len(str(gaia_id_val)))
-    programstring = row['program_code'].iloc[0]
+    numstring = str(int(row["n_exp"].iloc[0])) + "x"
+    gmagstring = (
+        "gmag="
+        + str(np.round(float(gmag_val), 1))
+        + " " * (4 - len(str(np.round(float(gmag_val), 1))))
+    )
+    teffstr = "Teff=" + str(int(teff_val)) + " " * (4 - len(str(int(teff_val))))
+
+    gaiastring = str(gaia_id_val) + " " * (25 - len(str(gaia_id_val)))
+    programstring = row["program_code"].iloc[0]
 
     if filler_flag:
         # All targets added in round 2 bonus round are lower priority
@@ -1156,18 +1363,51 @@ def format_kpf_row(row, obs_time, first_available, last_available, current_day,
         # designate a nonsense time
         timestring2 = "24:00"
 
-    line = (namestring + ' ' + updated_ra + ' ' + updated_dec + ' ' + str(equinox) + ' '
-                + jmagstring + ' ' + exposurestring + ' ' + ofstring + ' ' + scstring +  ' '
-                + numstring + ' '+ gmagstring + ' ' + teffstr + ' ' + gaiastring + ' CC '
-                        + priostring + ' ' + programstring + ' ' + timestring2 +
-                         ' ' + first_available  + ' ' + last_available )
+    line = (
+        namestring
+        + " "
+        + updated_ra
+        + " "
+        + updated_dec
+        + " "
+        + str(equinox)
+        + " "
+        + jmagstring
+        + " "
+        + exposurestring
+        + " "
+        + ofstring
+        + " "
+        + scstring
+        + " "
+        + numstring
+        + " "
+        + gmagstring
+        + " "
+        + teffstr
+        + " "
+        + gaiastring
+        + " CC "
+        + priostring
+        + " "
+        + programstring
+        + " "
+        + timestring2
+        + " "
+        + first_available
+        + " "
+        + last_available
+    )
 
     # Handle missing Observing Notes column
-    observing_notes = row.get('Observing Notes', [''])[0] if 'Observing Notes' in row else ''
+    observing_notes = (
+        row.get("Observing Notes", [""])[0] if "Observing Notes" in row else ""
+    )
     if observing_notes and not pd.isnull(observing_notes):
-        line += (' ' + str(observing_notes))
+        line += " " + str(observing_notes)
 
     return line
+
 
 def pm_correcter(ra, dec, pmra, pmdec, current_day, equinox="2000"):
     """
@@ -1184,17 +1424,19 @@ def pm_correcter(ra, dec, pmra, pmdec, current_day, equinox="2000"):
     Returns:
         formatted_ra (str), formatted_dec (str): updated coordinates as strings
     """
-    start_time = Time(f'J{equinox}')
+    start_time = Time(f"J{equinox}")
     current_time = Time(current_day)
     coord = SkyCoord(
         ra=ra * u.deg,
         dec=dec * u.deg,
-        pm_ra_cosdec=pmra * u.mas/u.yr,
-        pm_dec=pmdec * u.mas/u.yr,
-        obstime=start_time
+        pm_ra_cosdec=pmra * u.mas / u.yr,
+        pm_dec=pmdec * u.mas / u.yr,
+        obstime=start_time,
     )
     new_coord = coord.apply_space_motion(new_obstime=current_time)
-    formatted_ra = new_coord.ra.to_string(unit=u.hourangle, sep=' ', pad=True, precision=1)
-    formatted_dec = new_coord.dec.to_string(unit=u.deg, sep=' ', pad=True, precision=0)
+    formatted_ra = new_coord.ra.to_string(
+        unit=u.hourangle, sep=" ", pad=True, precision=1
+    )
+    formatted_dec = new_coord.dec.to_string(unit=u.deg, sep=" ", pad=True, precision=0)
 
     return formatted_ra, formatted_dec

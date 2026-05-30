@@ -88,8 +88,7 @@ class Queue:
         excluded = np.zeros(np.broadcast(alt, az).shape, dtype=bool)
         for az_min, az_max, alt_min, alt_max in self.inaccessible_zones:
             excluded |= (
-                (az >= az_min) & (az <= az_max)
-                & (alt >= alt_min) & (alt <= alt_max)
+                (az >= az_min) & (az <= az_max) & (alt >= alt_min) & (alt <= alt_max)
             )
         return ~excluded
 

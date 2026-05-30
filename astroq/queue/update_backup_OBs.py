@@ -79,9 +79,7 @@ def _add_if_missing(ob: dict, dotted_path: str, value: object) -> bool:
             parent[p] = {}
         child = parent[p]
         if not isinstance(child, dict):
-            raise ValueError(
-                f"Cannot add under {dotted_path!r}: {p!r} is not a dict"
-            )
+            raise ValueError(f"Cannot add under {dotted_path!r}: {p!r} is not a dict")
         parent = child
     key = parts[-1]
     if key in parent:
@@ -174,7 +172,7 @@ def _parse_args() -> argparse.Namespace:
         "--updates-json",
         type=Path,
         metavar="PATH",
-        help="Path to JSON file with update dict, e.g. {\"Semid\": \"2026A_E476\", \"Semester\": \"2026A\"}.",
+        help='Path to JSON file with update dict, e.g. {"Semid": "2026A_E476", "Semester": "2026A"}.',
     )
     parser.add_argument(
         "-s",

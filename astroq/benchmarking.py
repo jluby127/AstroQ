@@ -1,5 +1,5 @@
 """
-Module for preparing the benchmark test as used in Lubin et al. 2025. 
+Module for preparing the benchmark test as used in Lubin et al. 2025.
 """
 
 import numpy as np
@@ -8,8 +8,9 @@ import pandas as pd
 # In the paper, we used random seed = 24.
 np.random.seed(24)
 
+
 def getDec(maxDec=90, minDec=-20):
-    '''
+    """
     Randomly draw a declination from cosine i distribution between two values.
     The default min/max declination values are chosen based on favorable viewing from Hawaii.
 
@@ -19,33 +20,35 @@ def getDec(maxDec=90, minDec=-20):
 
     Returns:
         dec (float): the randomly drawn declination
-    '''
-    mincosdec = np.cos((90+maxDec)*(np.pi/180.))
-    maxcosdec = np.cos((90+minDec)*(np.pi/180.))
+    """
+    mincosdec = np.cos((90 + maxDec) * (np.pi / 180.0))
+    maxcosdec = np.cos((90 + minDec) * (np.pi / 180.0))
     cosdec = np.random.uniform(mincosdec, maxcosdec)
-    dec = (np.arccos(cosdec)*(180./np.pi))-90
+    dec = (np.arccos(cosdec) * (180.0 / np.pi)) - 90
     return dec
 
+
 def stars_in_program(program, total_hours):
-    '''
+    """
     Determine how many stars should be in a program based on that program's observing strategy
     and its awarded time.
 
     Args:
         program (list): a list containing the strategy of all stars in the program [tau_inter, t_exp [seconds], n_inter_max, n_intra_max]
-        total_hours (float): the total number of hours to allocate to the program. 
+        total_hours (float): the total number of hours to allocate to the program.
 
     Returns:
         n_stars (int): the number of stars to allocate to the program
-    '''
+    """
     e = program[1]
     n = program[2]
     v = program[3]
-    total_time = (e*n*v)/3600
-    n_stars = int(np.round(total_hours/total_time,0))
+    total_time = (e * n * v) / 3600
+    n_stars = int(np.round(total_hours / total_time, 0))
     return n_stars
 
-def build_toy_model_from_paper(ns, hours_per_program = 80, plot = False):
+
+def build_toy_model_from_paper(ns, hours_per_program=80, plot=False):
     """
     Generate the nominal set of requests used for performance testing in Lubin et al. 2025.
 
@@ -59,12 +62,12 @@ def build_toy_model_from_paper(ns, hours_per_program = 80, plot = False):
     """
     # Define programs with their characteristics
     # [tau_inter, t_exp [seconds], n_inter_max, n_intra_max]
-    program1 = [1, 300, 40, 1]    # APF-50
-    program2 = [3, 600, 20, 1]    # TKS
+    program1 = [1, 300, 40, 1]  # APF-50
+    program2 = [3, 600, 20, 1]  # TKS
     program3 = [10, 1200, 10, 1]  # bi-weekly
-    program4 = [1, 300, 8, 5]     # Multi-visit
-    program5 = [1, 300, 40, 1]    # RA Constrained
-    dynamic_exptime = ns*300
+    program4 = [1, 300, 8, 5]  # Multi-visit
+    program5 = [1, 300, 40, 1]  # RA Constrained
+    dynamic_exptime = ns * 300
     program6 = [0, dynamic_exptime, 1, 1]  # Single shots
     all_programs = [program1, program2, program3, program4, program5, program6]
 
@@ -75,7 +78,7 @@ def build_toy_model_from_paper(ns, hours_per_program = 80, plot = False):
         stars_per_program.append(n_stars)
         all_programs[p].append(n_stars)
 
-   # Compute stats for the paper's table
+    # Compute stats for the paper's table
     stars_per_program = []
     total_stars = 0
     prog_numb = []
@@ -108,25 +111,28 @@ def build_toy_model_from_paper(ns, hours_per_program = 80, plot = False):
 
         n_stars = stars_in_program(all_programs[p], hours_per_program)
         prog_nstars.append(n_stars)
-        prog_nexpos.append(n_stars*viz*nights)
-        prog_nslots.append(n_stars*viz*nights*int(exptime/300))
-        prog_award.append(np.round((n_stars*viz*nights*exptime)/3600,1))
+        prog_nexpos.append(n_stars * viz * nights)
+        prog_nslots.append(n_stars * viz * nights * int(exptime / 300))
+        prog_award.append(np.round((n_stars * viz * nights * exptime) / 3600, 1))
         all_programs[p].append(n_stars)
         total_stars += n_stars
 
     # Metadata about toy model, currently not returned
-    prog_info = pd.DataFrame({"Program #":prog_numb,
-                            "# Nights":prog_nobs,
-                            "Inter Cadence":prog_inter,
-                            "# Visits":prog_visits,
-                            "Intra Cadence":prog_intra,
-                            "# Exposures":prog_nexp,
-                            "Exp Time":prog_exptime,
-                            "# Stars":prog_nstars,
-                            "Total Exposures":prog_nexpos,
-                            "Total Slots":prog_nslots,
-                            "Award":prog_award,
-                            })
+    prog_info = pd.DataFrame(
+        {
+            "Program #": prog_numb,
+            "# Nights": prog_nobs,
+            "Inter Cadence": prog_inter,
+            "# Visits": prog_visits,
+            "Intra Cadence": prog_intra,
+            "# Exposures": prog_nexp,
+            "Exp Time": prog_exptime,
+            "# Stars": prog_nstars,
+            "Total Exposures": prog_nexpos,
+            "Total Slots": prog_nslots,
+            "Award": prog_award,
+        }
+    )
     # Generate request data
     starname = []
     program_code = []
@@ -148,17 +154,24 @@ def build_toy_model_from_paper(ns, hours_per_program = 80, plot = False):
         n_stars = program[4]  # Number of stars for this program
         for s in range(n_stars):
             starname.append(f"Star{star_idx:04d}")
-            program_code.append(f"Program{p+1}")
+            program_code.append(f"Program{p + 1}")
 
             # Generate RA/Dec following original logic
             if p == 4:  # Constrained to Kepler field
-                tmpra = np.random.uniform(19*15, 19.66*15)  # RA between 285-295 degrees
-                tmpdec = np.random.uniform(40, 50)          # Dec between 40-50 degrees
+                tmpra = np.random.uniform(
+                    19 * 15, 19.66 * 15
+                )  # RA between 285-295 degrees
+                tmpdec = np.random.uniform(40, 50)  # Dec between 40-50 degrees
             else:
                 # only allow RAs that are somewhat favorable to a B semester, exclude hour anges between 12 and 18
-                exclude_start = 12*15
-                exclude_end = 18*15
-                tmpra = np.random.uniform(0, exclude_start) if np.random.random() < (exclude_start / (360 - (exclude_end - exclude_start))) else np.random.uniform(exclude_end, 360)
+                exclude_start = 12 * 15
+                exclude_end = 18 * 15
+                tmpra = (
+                    np.random.uniform(0, exclude_start)
+                    if np.random.random()
+                    < (exclude_start / (360 - (exclude_end - exclude_start)))
+                    else np.random.uniform(exclude_end, 360)
+                )
                 tmpdec = getDec()  # Uses cosine distribution
             RA.append(tmpra)
             Dec.append(tmpdec)
@@ -168,9 +181,13 @@ def build_toy_model_from_paper(ns, hours_per_program = 80, plot = False):
             intranight_cadences.append(0 if program[3] == 1 else 1)
             visits_per_night_max.append(program[3])
             if program[3] == 5:
-                visits_per_night_min.append(program[3]-2) # make min visits equal to 3 when max visits is 5
+                visits_per_night_min.append(
+                    program[3] - 2
+                )  # make min visits equal to 3 when max visits is 5
             else:
-                visits_per_night_min.append(program[3]) # make min visits equal to max visists
+                visits_per_night_min.append(
+                    program[3]
+                )  # make min visits equal to max visists
             unique_nights.append(program[2])
             exposures_per_visit.append(1)
             n_intra_max.append(program[3])
@@ -180,58 +197,66 @@ def build_toy_model_from_paper(ns, hours_per_program = 80, plot = False):
 
     # Create DataFrame
     requests_data = {
-        'starname': starname,
-        'program_code': program_code,
-        'ra': RA,
-        'dec': Dec,
-        'exptime': exposure_times,
-        'n_exp': exposures_per_visit,
-        'n_intra_max': visits_per_night_max,
-        'n_intra_min': visits_per_night_min,
-        'n_inter_max': unique_nights,
-        'tau_inter': internight_cadences,
-        'tau_intra': intranight_cadences,
+        "starname": starname,
+        "program_code": program_code,
+        "ra": RA,
+        "dec": Dec,
+        "exptime": exposure_times,
+        "n_exp": exposures_per_visit,
+        "n_intra_max": visits_per_night_max,
+        "n_intra_min": visits_per_night_min,
+        "n_inter_max": unique_nights,
+        "tau_inter": internight_cadences,
+        "tau_intra": intranight_cadences,
     }
     requests_data = pd.DataFrame(requests_data)
-    requests_data['weather_band_1'] = [True]*len(requests_data)
-    requests_data['weather_band_2'] = [True]*len(requests_data)
-    requests_data['weather_band_3'] = [True]*len(requests_data)
-    requests_data['unique_id'] = requests_data['starname'] #[np.random.randint(1, 1000000) for _ in range(len(requests_data))]
-    requests_data['jmag'] = [10.0]*len(requests_data)
-    requests_data['gmag'] = [10.0]*len(requests_data)
-    requests_data['teff'] = [5800]*len(requests_data)
-    requests_data['pmra'] = [0.00]*len(requests_data)
-    requests_data['pmdec'] = [0.00]*len(requests_data)
-    requests_data['epoch'] = [2000.0]*len(requests_data)
-    requests_data['gaia_id'] = [np.random.randint(1, 1000000) for _ in range(len(requests_data))]
-    requests_data['minimum_elevation'] = [33.0]*len(requests_data)
-    requests_data['minimum_moon_separation'] = [33.0]*len(requests_data)
-    requests_data['exp_meter_threshold'] = [1.6]*len(requests_data)
-    requests_data['weather_band_1'] = [True]*len(requests_data)
-    requests_data['weather_band_2'] = [True]*len(requests_data)
-    requests_data['weather_band_3'] = [True]*len(requests_data)
-    requests_data['inactive'] = [False]*len(requests_data)
+    requests_data["weather_band_1"] = [True] * len(requests_data)
+    requests_data["weather_band_2"] = [True] * len(requests_data)
+    requests_data["weather_band_3"] = [True] * len(requests_data)
+    requests_data["unique_id"] = requests_data[
+        "starname"
+    ]  # [np.random.randint(1, 1000000) for _ in range(len(requests_data))]
+    requests_data["jmag"] = [10.0] * len(requests_data)
+    requests_data["gmag"] = [10.0] * len(requests_data)
+    requests_data["teff"] = [5800] * len(requests_data)
+    requests_data["pmra"] = [0.00] * len(requests_data)
+    requests_data["pmdec"] = [0.00] * len(requests_data)
+    requests_data["epoch"] = [2000.0] * len(requests_data)
+    requests_data["gaia_id"] = [
+        np.random.randint(1, 1000000) for _ in range(len(requests_data))
+    ]
+    requests_data["minimum_elevation"] = [33.0] * len(requests_data)
+    requests_data["minimum_moon_separation"] = [33.0] * len(requests_data)
+    requests_data["exp_meter_threshold"] = [1.6] * len(requests_data)
+    requests_data["weather_band_1"] = [True] * len(requests_data)
+    requests_data["weather_band_2"] = [True] * len(requests_data)
+    requests_data["weather_band_3"] = [True] * len(requests_data)
+    requests_data["inactive"] = [False] * len(requests_data)
 
     if plot:
         import plotly.graph_objects as go
+
         fig = go.Figure()
         for i in range(len(all_programs), 0, -1):
-            filt = requests_data[requests_data['program'] == 'Program' + str(i)]
+            filt = requests_data[requests_data["program"] == "Program" + str(i)]
             if i < 5 and i != 4:
-                c = 'blue'
+                c = "blue"
             elif i == 4:
-                c = 'red'
+                c = "red"
             else:
-                c = 'green'
-            fig.add_trace(go.Scatter(
-                x=filt['ra'], y=filt['dec'],
-                mode='markers',
-                marker=dict(color=c, size=6),
-                name=f'Program{i}',
-            ))
+                c = "green"
+            fig.add_trace(
+                go.Scatter(
+                    x=filt["ra"],
+                    y=filt["dec"],
+                    mode="markers",
+                    marker=dict(color=c, size=6),
+                    name=f"Program{i}",
+                )
+            )
         fig.update_layout(
-            xaxis=dict(range=[0, 360], title='RA (deg)'),
-            yaxis=dict(range=[-40, 90], title='Dec (deg)'),
+            xaxis=dict(range=[0, 360], title="RA (deg)"),
+            yaxis=dict(range=[-40, 90], title="Dec (deg)"),
         )
         fig.show()
 

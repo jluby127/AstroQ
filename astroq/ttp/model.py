@@ -20,14 +20,14 @@ from gurobipy import GRB
 logs = logging.getLogger(__name__)
 
 REQUIRED_COLUMNS = [
-    "unique_id",        # str, primary key
-    "coord",            # astropy.coordinates.SkyCoord scalar per row, ICRS
+    "unique_id",  # str, primary key
+    "coord",  # astropy.coordinates.SkyCoord scalar per row, ICRS
     "first_available",  # astropy.time.Time scalar per row
-    "last_available",   # astropy.time.Time scalar per row
-    "t_visit",          # astropy.units.Quantity scalar per row, time units
-    "n_intra_max",      # int
-    "tau_intra",        # astropy.units.Quantity scalar per row, time units
-    "priority",         # float
+    "last_available",  # astropy.time.Time scalar per row
+    "t_visit",  # astropy.units.Quantity scalar per row, time units
+    "n_intra_max",  # int
+    "tau_intra",  # astropy.units.Quantity scalar per row, time units
+    "priority",  # float
 ]
 
 TYPED_COLUMNS = {
@@ -37,9 +37,10 @@ TYPED_COLUMNS = {
 }
 
 QUANTITY_COLUMNS = {
-    "t_visit":   u.s,
+    "t_visit": u.s,
     "tau_intra": u.s,
 }
+
 
 class TTPModel:
     """MILP solver for the Traveling Telescope Problem (Handley+ 2024).
@@ -106,8 +107,8 @@ class TTPModel:
     #: Slew tie-breaker weight in the objective. Same constant is used to
     #: recover total slew time inside :meth:`build_schedule`.
 
-    # Constant that balances slew time vs. number of targets. 
-    # Interpretation: if dropping the highest priority target saves this many 
+    # Constant that balances slew time vs. number of targets.
+    # Interpretation: if dropping the highest priority target saves this many
     # minutes of slew time, drop it
     _SLEW_MINUTES_FOR_TOP_TARGET = 30
     _SLEW_IDLE_PENALTY_RATIO = 0.5  # idle-between weight, as fraction of slew penalty
@@ -143,7 +144,9 @@ class TTPModel:
         dfa = fa - night_start
         if dfa.min() > 0:
             logs.warning(
-                "min(first_available) is {:.1f} after night_start".format(dfa.min().to(u.min))
+                "min(first_available) is {:.1f} after night_start".format(
+                    dfa.min().to(u.min)
+                )
             )
         self.requests_frame = requests_frame.reset_index(drop=True).copy()
         self.night_start = night_start
@@ -154,8 +157,6 @@ class TTPModel:
         self.M = self.n_slots
         self.schedule = None
         self.stats = {}
-
-
 
     # ---------------------------------------------------------- helpers
 
@@ -185,20 +186,22 @@ class TTPModel:
         reqs["t_late"] = self._minutes_from_start(Time(reqs.last_available.tolist()))
         # `.values` returns the underlying Quantity ndarray; pandas stores
         # Quantity columns natively because Quantity is an ndarray subclass.
-        reqs["t_visit"]   = u.Quantity(reqs["t_visit"].values).to_value(u.min)
+        reqs["t_visit"] = u.Quantity(reqs["t_visit"].values).to_value(u.min)
         reqs["tau_intra"] = u.Quantity(reqs["tau_intra"].values).to_value(u.min)
         reqs["is_anchor"] = False
 
         # Attach visit_seq via a simple cross-join + filter.
         max_intra = int(reqs.n_intra_max.max())
-        visit_seq_table = pd.DataFrame({
-            "visit_seq": np.arange(max_intra, dtype=np.int64),
-        })
+        visit_seq_table = pd.DataFrame(
+            {
+                "visit_seq": np.arange(max_intra, dtype=np.int64),
+            }
+        )
         visits = (
             reqs.merge(visit_seq_table, how="cross")
-                .query("visit_seq < n_intra_max")
-                .sort_values(["request_idx", "visit_seq"], kind="stable")
-                .reset_index(drop=True)
+            .query("visit_seq < n_intra_max")
+            .sort_values(["request_idx", "visit_seq"], kind="stable")
+            .reset_index(drop=True)
         )
 
         anchor_template = {
@@ -249,16 +252,18 @@ class TTPModel:
         if not hasattr(self, "nodes"):
             raise RuntimeError("call build_nodes() before build_arcs()")
 
-        n_samples = int(max(
-            self.dur / (self.M * self.slew_sample_cadence_min),
-            samples_per_slot,
-        ))
+        n_samples = int(
+            max(
+                self.dur / (self.M * self.slew_sample_cadence_min),
+                samples_per_slot,
+            )
+        )
         total_samples = self.M * n_samples
 
         fractions = np.linspace(0, 1, total_samples)
         times = self.night_start + (self.night_end - self.night_start) * fractions
 
-        # Convert coords in pandas column to array 
+        # Convert coords in pandas column to array
         node_coords = SkyCoord(self.nodes.loc[~self.nodes.is_anchor, "coord"].tolist())
         n_real = len(node_coords)
 
@@ -266,8 +271,8 @@ class TTPModel:
         # (0-based). `id` in self.nodes for real nodes is `position + 1`.
         ii, jj = np.meshgrid(np.arange(n_real), np.arange(n_real), indexing="ij")
         mask = ii != jj
-        i_pos = ii[mask] # starting node of arc
-        j_pos = jj[mask] # ending node of arc
+        i_pos = ii[mask]  # starting node of arc
+        j_pos = jj[mask]  # ending node of arc
         n_pair = len(i_pos)
 
         # slew_fn returns shape (n_pair, T) = (n_pair, M*n_samples).
@@ -276,21 +281,20 @@ class TTPModel:
         # Worst-case slew per slot: max over the n_samples axis -> shape (n_pair, M).
         tau_per_slot = tau.reshape(-1, self.M, n_samples).max(axis=2)
 
-        p_idx, m_lev = np.mgrid[0:n_pair, 0:self.M]
-        i_id = i_pos[p_idx.ravel()] + 1 # account for anchor nodes
-        j_id = j_pos[p_idx.ravel()] + 1 # account for anchor nodes
+        p_idx, m_lev = np.mgrid[0:n_pair, 0 : self.M]
+        i_id = i_pos[p_idx.ravel()] + 1  # account for anchor nodes
+        j_id = j_pos[p_idx.ravel()] + 1  # account for anchor nodes
 
         uid = self.nodes["unique_id"].to_numpy()
         self.arcs = pd.DataFrame(
             {
-                "i_id":   uid[i_id],
-                "j_id":   uid[j_id],
+                "i_id": uid[i_id],
+                "j_id": uid[j_id],
                 "t_slew": tau_per_slot.ravel(),
             },
             index=pd.MultiIndex.from_arrays(
-                [i_id, j_id, m_lev.ravel()], 
-                names=("i", "j", "m")
-            )
+                [i_id, j_id, m_lev.ravel()], names=("i", "j", "m")
+            ),
         )
 
         # Slot bounds (minutes from night_start) used by build_model.
@@ -313,16 +317,29 @@ class TTPModel:
         arcs_lookup = self.arcs["t_slew"].to_dict()
 
         self.Yi = self.model.addVars(
-            range(N), vtype=GRB.BINARY, name="Yi",
+            range(N),
+            vtype=GRB.BINARY,
+            name="Yi",
         )
         self.Xijm = self.model.addVars(
-            range(N), range(N), range(M), vtype=GRB.BINARY, name="Xijm",
+            range(N),
+            range(N),
+            range(M),
+            vtype=GRB.BINARY,
+            name="Xijm",
         )
         self.tijm = self.model.addVars(
-            range(N), range(N), range(M), vtype=GRB.CONTINUOUS, name="tijm",
+            range(N),
+            range(N),
+            range(M),
+            vtype=GRB.CONTINUOUS,
+            name="tijm",
         )
         self.ti = self.model.addVars(
-            range(N), vtype=GRB.CONTINUOUS, lb=0, name="ti",
+            range(N),
+            vtype=GRB.CONTINUOUS,
+            lb=0,
+            name="ti",
         )
 
         # Anchor visitation is always true
@@ -339,65 +356,50 @@ class TTPModel:
             t_visit_j = float(nodes.at[j, "t_visit"])
             for m in range(M):
                 self.model.addGenConstrIndicator(
-                    self.Xijm[0, j, m], 1,
-                    self.ti[j], GRB.EQUAL, t_start + t_visit_j,
+                    self.Xijm[0, j, m],
+                    1,
+                    self.ti[j],
+                    GRB.EQUAL,
+                    t_start + t_visit_j,
                     name=f"first_exposure_at_start_{j}_{m}",
                 )
 
         # eq. 2 - exactly one arc out of the start anchor.
         self.model.addConstr(
-            gp.quicksum(
-                self.Xijm[0, j, m]
-                for j in range(1, N)
-                for m in range(M)
-            ) == 1,
+            gp.quicksum(self.Xijm[0, j, m] for j in range(1, N) for m in range(M)) == 1,
             "start_anchor",
         )
 
         # eq. 3 - exactly one arc into the end anchor.
         self.model.addConstr(
-            gp.quicksum(
-                self.Xijm[i, N - 1, m]
-                for i in range(N - 1)
-                for m in range(M)
-            ) == 1,
+            gp.quicksum(self.Xijm[i, N - 1, m] for i in range(N - 1) for m in range(M))
+            == 1,
             "end_anchor",
         )
 
         # eq. 4 - visit indicator (one constraint per non-start node).
         for j in range(1, N):
             self.model.addConstr(
-                gp.quicksum(
-                    self.Xijm[i, j, m]
-                    for i in range(N - 1)
-                    for m in range(M)
-                ) == self.Yi[j],
+                gp.quicksum(self.Xijm[i, j, m] for i in range(N - 1) for m in range(M))
+                == self.Yi[j],
                 f"visit_once_{j}",
             )
 
         # eq. 5 - flow conservation (one constraint per real node).
         for k in range(1, N - 1):
             self.model.addConstr(
-                gp.quicksum(
-                    self.Xijm[i, k, m]
-                    for i in range(N - 1)
-                    for m in range(M)
-                )
-                - gp.quicksum(
-                    self.Xijm[k, j, m]
-                    for j in range(1, N)
-                    for m in range(M)
-                ) == 0,
+                gp.quicksum(self.Xijm[i, k, m] for i in range(N - 1) for m in range(M))
+                - gp.quicksum(self.Xijm[k, j, m] for j in range(1, N) for m in range(M))
+                == 0,
                 f"flow_constr_{k}",
             )
 
         # eq. 6 - link ti to tijm (one constraint per non-end node).
         for i in range(N - 1):
             self.model.addConstr(
-                self.ti[i] == gp.quicksum(
-                    self.tijm[i, j, m]
-                    for j in range(1, N)
-                    for m in range(M)
+                self.ti[i]
+                == gp.quicksum(
+                    self.tijm[i, j, m] for j in range(1, N) for m in range(M)
                 ),
                 f"tijm_def_{i}",
             )
@@ -408,7 +410,8 @@ class TTPModel:
         for j in range(1, N):
             t_visit_j = nodes.at[j, "t_visit"]
             self.model.addConstr(
-                self.ti[j] >= gp.quicksum(
+                self.ti[j]
+                >= gp.quicksum(
                     self.tijm[i, j, m]
                     + (arcs_lookup.get((i, j, m), 0.0) + t_visit_j) * self.Xijm[i, j, m]
                     for i in range(N - 1)
@@ -458,10 +461,10 @@ class TTPModel:
                     f"intra_sep_constr_{indices[k - 1]}_{indices[k]}",
                 )
 
-
         self.t_slew = self.model.addVar(lb=0.0, name="t_slew")
         self.model.addConstr(
-            self.t_slew == gp.quicksum(
+            self.t_slew
+            == gp.quicksum(
                 arcs_lookup.get((i, j, m), 0.0) * self.Xijm[i, j, m]
                 for i in range(1, N - 1)
                 for j in range(1, N - 1)
@@ -472,27 +475,24 @@ class TTPModel:
 
         self.t_visit = self.model.addVar(lb=0.0, name="t_visit")
         self.model.addConstr(
-            self.t_visit == gp.quicksum(
-                nodes.at[j, "t_visit"] * self.Yi[j]
-                for j in range(1, N - 1)
+            self.t_visit
+            == gp.quicksum(
+                nodes.at[j, "t_visit"] * self.Yi[j] for j in range(1, N - 1)
             ),
             "t_visit_def",
         )
-        
+
         self.t_idle_between = self.model.addVar(lb=0.0, name="t_idle_between")
         self.model.addConstr(
-            self.t_idle_between == self.ti[N - 1] - self.t_visit - self.t_slew, 
-            name="t_idle_between_def"
+            self.t_idle_between == self.ti[N - 1] - self.t_visit - self.t_slew,
+            name="t_idle_between_def",
         )
 
         # eq. 10 - objective: priority-weighted visit count minus slew tie-breaker.
-        P_max = float(self.nodes.loc[1:N - 1, "priority"].max())
+        P_max = float(self.nodes.loc[1 : N - 1, "priority"].max())
         slew_penalty = P_max / self._SLEW_MINUTES_FOR_TOP_TARGET
         self.model.setObjective(
-            gp.quicksum(
-                nodes.at[j, "priority"] * self.Yi[j]
-                for j in range(1, N - 1)
-            )
+            gp.quicksum(nodes.at[j, "priority"] * self.Yi[j] for j in range(1, N - 1))
             - slew_penalty * self.t_slew
             - slew_penalty * self._SLEW_IDLE_PENALTY_RATIO * self.t_idle_between,
             GRB.MAXIMIZE,
@@ -540,47 +540,49 @@ class TTPModel:
         arcs_selected = []
         for (i, j, m), var in self.Xijm.items():
             if var.X > 0.5 and j != 0 and i != self.N - 1:
-                arcs_selected.append({"i": i, "j": j, "m": m, "ti":self.ti[i].X})
+                arcs_selected.append({"i": i, "j": j, "m": m, "ti": self.ti[i].X})
         arcs_selected = pd.DataFrame(arcs_selected)
 
         # merge selected arcs with nodes, unvisited nodes will have NaN for ti
         schedule = pd.merge(
-            self.nodes.query('~is_anchor'), 
-            arcs_selected, 
-            left_index=True, 
+            self.nodes.query("~is_anchor"),
+            arcs_selected,
+            left_index=True,
             right_on=["i"],
-            how="left"
+            how="left",
         )
-        schedule['t_start'] = schedule['ti'] - schedule['t_visit']
-        schedule['t_end'] = schedule['ti']
-        schedule['scheduled'] = ~schedule['ti'].isna()
+        schedule["t_start"] = schedule["ti"] - schedule["t_visit"]
+        schedule["t_end"] = schedule["ti"]
+        schedule["scheduled"] = ~schedule["ti"].isna()
 
         schedule = pd.merge(
             schedule,
-            self.arcs['t_slew'],
-            left_on=["i","j","m"],
+            self.arcs["t_slew"],
+            left_on=["i", "j", "m"],
             right_index=True,
-            how="left"
-        ).sort_values(by='t_start',na_position='last')
-        schedule['order'] = range(len(schedule))
+            how="left",
+        ).sort_values(by="t_start", na_position="last")
+        schedule["order"] = range(len(schedule))
 
         # Drop the SkyCoord cache so the schedule round-trips cleanly through
         # to_csv / to_hdf without object-dtype hazards. Plot adapters rebuild
         # coords from ra/dec on demand; the solver no longer needs `coord`.
-        self.schedule = schedule.drop(columns=['coord'], errors='ignore')
-        scheduled = self.schedule[self.schedule['scheduled']]
+        self.schedule = schedule.drop(columns=["coord"], errors="ignore")
+        scheduled = self.schedule[self.schedule["scheduled"]]
         stats = {
             "dur": self.dur,
             "n_requested": self.N - 2,
             "n_scheduled": len(scheduled),
-            "t_first_start": scheduled['t_start'].min(),
-            "t_last_end": scheduled['t_end'].max(),
-            "t_visit_sum": scheduled['t_visit'].sum(),
-            "t_slew_sum": scheduled['t_slew'].sum(),
-            "t_idle_sum": self.dur - scheduled['t_visit'].sum() - scheduled['t_slew'].sum(),
+            "t_first_start": scheduled["t_start"].min(),
+            "t_last_end": scheduled["t_end"].max(),
+            "t_visit_sum": scheduled["t_visit"].sum(),
+            "t_slew_sum": scheduled["t_slew"].sum(),
+            "t_idle_sum": self.dur
+            - scheduled["t_visit"].sum()
+            - scheduled["t_slew"].sum(),
         }
         stats["t_idle_after_last"] = self.dur - stats["t_last_end"]
-        stats["t_idle_before_last"] = stats['t_idle_sum'] - stats["t_idle_after_last"]
+        stats["t_idle_before_last"] = stats["t_idle_sum"] - stats["t_idle_after_last"]
         self.stats = stats
 
     def to_string(self, *, header="Stats for TTP Solution"):
