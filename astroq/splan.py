@@ -708,6 +708,145 @@ class SemesterPlanner(object):
                 rhs3 = row.n_intra_max
                 self.model.addConstr(lhs3 <= rhs3, 'enforce_min_visits_' + row.unique_id + "_" + str(row.d) + "d_" + str(row.s) + "s")
 
+    def build_model_round2_priority(self):
+        """
+        Implement the constraints and objective function for Round 2. Not described in Lubin et al. 2025.
+
+        Returns:
+            None
+        """
+        t1 = time.time()
+        self.constraint_fix_previous_objective()
+        self.set_objective_priorities()
+        logs.info(f"Time to build constraints: {np.round(time.time()-t1,3):.3f}")
+    
+    def checkProgramWeights(self, program_requests, rng=None):
+        """
+        Fix intra-program weights for a single program's request rows.
+
+        Guarantees:
+        - 'weight' column exists
+        - every row has a weight
+        - weights are positive integers 1..N
+        - each value 1..N appears exactly once (N = number of rows)
+
+        Rules:
+        - No column: assign a random permutation of 1..N.
+        - Otherwise: order rows by existing weight ascending (missing/invalid
+            treated as largest); ties among present weights broken by unique_id;
+            ties among missing broken randomly; then assign 1..N in that order.
+        """
+        if rng is None:
+            rng = np.random.default_rng()
+
+        out = program_requests.copy()
+        n = len(out)
+        if n == 0:
+            return out
+
+        if "weight" not in out.columns:
+            out["weight"] = rng.permutation(n) + 1
+            return out
+
+        sort_key = pd.to_numeric(out["weight"], errors="coerce")
+
+        # blank strings -> NaN
+        if out["weight"].dtype == object:
+            blank = out["weight"].astype(str).str.strip() == ""
+            sort_key = sort_key.mask(blank, np.nan)
+
+        missing = sort_key.isna()
+        invalid = (~missing) & ((sort_key <= 0) | (sort_key % 1 != 0))
+        missing = missing | invalid
+
+        sort_key = sort_key.astype(float)
+        sort_key = sort_key.where(~missing, np.inf)
+
+        work = out.copy()
+        work["_sort_key"] = sort_key
+        work["_missing"] = missing.astype(int)
+
+        if missing.any():
+            work.loc[missing, "_rand"] = rng.permutation(int(missing.sum()))
+        else:
+            work["_rand"] = 0.0
+
+        if "unique_id" in work.columns:
+            work["_uid"] = work["unique_id"].astype(str)
+        else:
+            work["_uid"] = work.index.astype(str)
+
+        work = work.sort_values(
+            ["_sort_key", "_missing", "_rand", "_uid"],
+            ascending=[True, True, True, True],
+        )
+
+        new_weights = pd.Series(np.arange(1, n + 1, dtype=int), index=work.index)
+        out["weight"] = new_weights.reindex(out.index).to_numpy()
+        return out
+
+    def set_objective_priorities(self):
+        """
+        Set intra-program priority objective:
+
+          sum over programs p of (1/N_p) * ( sum over (r,d,s) with r in R_p of 2^{w_r} Y_{r,d,s} )
+
+        where N_p = sum over r in R_p of 2^{w_r} * t_{visit,r} * n_{intra,max,r} * n_{inter,max,r}
+        (normalization per program), w_r = weight of request r, Y_{r,d,s} = binary schedule variable.
+        """
+        logs.info("Objective: Intra-program priorities.")
+
+        fixed_parts = []
+        for _, g in self.requests_frame.groupby("program_code", sort=False):
+            fixed_parts.append(self.checkProgramWeights(g))
+        self.requests_frame = pd.concat(fixed_parts).sort_index()
+
+        w_lin_parts = []
+        for _, g in self.requests_frame.groupby("program_code", sort=False):
+            g2 = g.sort_values(["weight", "unique_id"], ascending=[True, True])
+            s = pd.Series(np.arange(1, len(g2) + 1, dtype=float), index=g2.index, name="w_lin")
+            w_lin_parts.append(s)
+        w_lin = pd.concat(w_lin_parts).reindex(self.requests_frame.index)
+        n_p = self.requests_frame.groupby("program_code")["unique_id"].transform("count")
+        N_ref = int(n_p.max())
+        w_lin = w_lin.astype(float)
+        n_pf = n_p.astype(float)
+
+        # 2) Affine map: w_lin=1 -> 1/N_ref, w_lin=n -> 1 (same as w/N_ref when n == N_ref)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            coeff = (1.0 / N_ref) + (w_lin - 1.0) * (1.0 - 1.0 / N_ref) / (n_pf - 1.0)
+        coeff = np.where(n_pf <= 1.0, 1.0, coeff)  # singleton program → top of scale
+        self.requests_frame["objective_coeff"] = coeff
+
+        weight_by_id = self.requests_frame.set_index('unique_id')['objective_coeff']
+        program_request_ids = {
+            p: set(self.requests_frame[self.requests_frame['program_code'] == p]['unique_id'])
+            for p in self.requests_frame['program_code'].unique()
+        }
+
+        program_frame = pd.read_csv(self.programs_file)
+        if "priority" not in program_frame.columns:
+            logs.warning(
+                f"{self.programs_file} has no 'priority' column; using priority 1.0 for all programs."
+            )
+            N_p = {p: 1.0 for p in program_request_ids}
+        else:
+            priority_by_program = program_frame.set_index("program")["priority"].astype(float).to_dict()
+            N_p = {p: priority_by_program[p] for p in program_request_ids}
+
+        self.model.setObjective(
+            gp.quicksum(
+                (1.0 / N_p[p]) * gp.quicksum(
+                # gp.quicksum(
+                    (weight_by_id.loc[r]) * self.Yrds[r, d, s]
+                    for r, d, s in self.observability_tuples
+                    if r in program_request_ids[p]
+                )
+                for p in program_request_ids
+            ),
+            GRB.MAXIMIZE
+        )
+
     def optimize_model(self):
         """
         Solve the Gurobi model.
@@ -755,7 +894,8 @@ class SemesterPlanner(object):
         self.serialize_results_csv()
         if self.run_bonus_round:
             self.round_info = 'Round2'
-            self.build_model_round2()
+            # self.build_model_round2()
+            self.build_model_round2_priority()
             self.optimize_model()
             self.serialize_results_csv()
         logs.info("Scheduling complete, clear skies!")
