@@ -56,7 +56,7 @@ See [README.md](README.md) and [docs/getting_started.rst](docs/getting_started.r
 - `splan` filters `requests_frame_all['inactive'] == False` before building the model. Downstream code consumes `semester_planner.requests_frame` (active) or `requests_frame_all` (everything).
 - `unique_id` is the join key everywhere; before creating Gurobi vars, validate with `io.validate_active_request_unique_ids` to avoid the cryptic `Duplicate keys in Model.addVars()` failure.
 - Persistence: paired `to_hdf5(self, ...)` / `from_hdf5(cls, ...)` using `h5py` for scalars/strings/JSON-encoded dicts and `pd.read_hdf` for DataFrames. `solution.gurobi_model` is deleted before save.
-- TTP "Gap" invariant (legacy engine only): synthetic `Gap N` rows added to keep the solver out of unallocated gaps must be scrubbed from `solution.plotly`, `solution.extras`, `solution.stars`, `solution.schedule` and from `dur` / `time_exposing` / `num_scheduled` / `TTPstatistics.txt`. See `drop_gap_rows` in [astroq/nplan.py](astroq/nplan.py). The `ilp` engine's `Access.is_allocated` already gates unallocated slots, so no gap injection is needed.
+- Night TTP windows: `Access.nightly_availability_windows` maps `observability` slot indices to `slotmidpoints` (`Time` scalars) for `NightPlanner.run_ttp`; no synthetic gap rows.
 - Engine switch: `[night] engine = ilp | ttp` in `config.ini` (default `ilp`). `astroq.driver.plan_night` branches on it; both paths write the same `outputs/{ttp_prepared.csv, ObserveOrder_<date>.txt, script_<date>_nominal.txt, TTPstatistics.txt, night_planner.h5}`.
 - `requests_vs_schedule` in [astroq/driver.py](astroq/driver.py) encodes the constraint invariants — useful regression check after any schedule-related change.
 

@@ -42,6 +42,34 @@ QUANTITY_COLUMNS = {
 }
 
 
+def _quantity_series_to_minutes(series):
+    """Normalize a ``t_visit`` / ``tau_intra`` column to plain minutes (float64)."""
+    if len(series) == 0:
+        return np.array([], dtype=float)
+    vals = series.values
+    if isinstance(vals, u.Quantity):
+        return np.asarray(vals.to_value(u.min), dtype=float)
+    return np.array(
+        [
+            (x.to_value(u.min) if isinstance(x, u.Quantity) else float(x))
+            for x in series
+        ],
+        dtype=float,
+    )
+
+
+def _snapshot_requests_frame(requests_frame):
+    """Store durations as float minutes without pandas Quantity block consolidation."""
+    data = {}
+    for col in requests_frame.columns:
+        if col in QUANTITY_COLUMNS:
+            data[col] = _quantity_series_to_minutes(requests_frame[col])
+        else:
+            series = requests_frame[col]
+            data[col] = list(series) if series.dtype == object else series.to_numpy()
+    return pd.DataFrame(data)
+
+
 class TTPModel:
     """MILP solver for the Traveling Telescope Problem (Handley+ 2024).
 
@@ -148,7 +176,7 @@ class TTPModel:
                     dfa.min().to(u.min)
                 )
             )
-        self.requests_frame = requests_frame.reset_index(drop=True).copy()
+        self.requests_frame = _snapshot_requests_frame(requests_frame)
         self.night_start = night_start
         self.night_end = night_end
         self.slew_fn = slew_fn
@@ -184,10 +212,8 @@ class TTPModel:
         reqs["request_idx"] = np.arange(len(reqs), dtype=np.int64)
         reqs["t_early"] = self._minutes_from_start(Time(reqs.first_available.tolist()))
         reqs["t_late"] = self._minutes_from_start(Time(reqs.last_available.tolist()))
-        # `.values` returns the underlying Quantity ndarray; pandas stores
-        # Quantity columns natively because Quantity is an ndarray subclass.
-        reqs["t_visit"] = u.Quantity(reqs["t_visit"].values).to_value(u.min)
-        reqs["tau_intra"] = u.Quantity(reqs["tau_intra"].values).to_value(u.min)
+        reqs["t_visit"] = reqs["t_visit"].to_numpy(dtype=float)
+        reqs["tau_intra"] = reqs["tau_intra"].to_numpy(dtype=float)
         reqs["is_anchor"] = False
 
         # Attach visit_seq via a simple cross-join + filter.

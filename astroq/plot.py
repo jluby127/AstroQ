@@ -2422,7 +2422,7 @@ def get_ladder(data, tonight_start_time):
     # the lowest indices (bottom of plot) hold the unscheduled block.
     orderData = orderData.iloc[::-1].reset_index(drop=True)
 
-    # Each priority gets a different color. Make sure that each priority is actually included here or the plot will break. Recall bigger numbers are higher priorities.
+    # Each priority gets a different color. Keys are integer tiers (1–10); values may be float.
     colordict = {
         "10": "red",
         "9": "tomato",
@@ -2436,6 +2436,10 @@ def get_ladder(data, tonight_start_time):
         "2": "magenta",
         "1": "blue",
     }
+
+    def _priority_color(priority):
+        key = str(int(round(float(priority))))
+        return colordict.get(key, "gray")
 
     hover_cols = [
         "First Available",
@@ -2517,7 +2521,7 @@ def get_ladder(data, tonight_start_time):
                     + orderData["Total Exp Time (min)"][indices[j]],
                     y0=i + ifixer - 0.5,
                     y1=i + ifixer + 0.5,
-                    fillcolor=colordict[str(orderData["Priority"][indices[j]])],
+                    fillcolor=_priority_color(orderData["Priority"][indices[j]]),
                 )
                 slew = float(orderData["Slew to Next (min)"][indices[j]])
                 if slew > 0:

@@ -281,7 +281,7 @@ class Access:
                 (self.ntargets, self.nnights, self.nslots), dtype=bool
             )
 
-    def produce_ultimate_map(self, running_backup_stars=False):
+    def produce_ultimate_map(self):
         """
         Compute boolean mask of is_observable for all targets according to the ultimate map.
         """
@@ -304,24 +304,22 @@ class Access:
                 self.is_clear,
             ]
         )
-
         # the target does not violate any of the observability limits in that specific slot, but
         # it does not mean it can be started at the slot. retroactively grow mask to accomodate multishot exposures.
         # Is observable now,
         self.is_observable = self.is_observable_now.copy()
-        if running_backup_stars == False:
-            for itarget in range(self.ntargets):
-                e_val = self.slots_needed_for_exposure_dict[
-                    self.request_frame.iloc[itarget]["unique_id"]
+        for itarget in range(self.ntargets):
+            e_val = self.slots_needed_for_exposure_dict[
+                self.request_frame.iloc[itarget]["unique_id"]
+            ]
+            if e_val == 1:
+                continue
+            for shift in range(1, e_val):
+                # shifts the is_observable_now array to the left by shift
+                # for is_observable to be true, it must be true for all shifts
+                self.is_observable[itarget, :, :-shift] &= self.is_observable_now[
+                    itarget, :, shift:
                 ]
-                if e_val == 1:
-                    continue
-                for shift in range(1, e_val):
-                    # shifts the is_observable_now array to the left by shift
-                    # for is_observable to be true, it must be true for all shifts
-                    self.is_observable[itarget, :, :-shift] &= self.is_observable_now[
-                        itarget, :, shift:
-                    ]
 
         access = {
             "is_altaz": self.is_altaz,
@@ -339,7 +337,7 @@ class Access:
         )
         return access_record
 
-    def observability(self, requests_frame, access=None):
+    def observability(self, access=None):
         """
         Extract a dictionary of the available indices from the record array returned by produce_ultimate_map
 
@@ -351,7 +349,7 @@ class Access:
             df (dict): Dictionary where keys are target names and values are lists of available slots per night
         """
         if access is None:
-            access = self.produce_ultimate_map(requests_frame)
+            access = self.produce_ultimate_map()
         ntargets, nnights, nslots = access.shape
 
         # specify indeces of 3D observability array
@@ -367,7 +365,7 @@ class Access:
         )
         df["is_observable"] = access.is_observable.flatten()
         df = pd.merge(
-            requests_frame[["unique_id"]].reset_index(drop=True),
+            self.request_frame[["unique_id"]].reset_index(drop=True),
             df,
             left_index=True,
             right_on="itarget",
