@@ -181,7 +181,7 @@ class TestClass(unittest.TestCase):
         self.assertIsInstance(first_available, Time)
         self.assertIsInstance(last_available, Time)
 
-        obs = sp.access_obj.observability(access=access_record)
+        obs = sp.access_obj.observability(access_record.is_observable)
         night = obs.loc[obs["d"] == night_d]
         for k, uid in enumerate(uids):
             if not has_obs[k]:
@@ -202,14 +202,13 @@ class TestClass(unittest.TestCase):
 
     def test12_webapp(self):
         """Drive every webapp route via Flask's test client against the hello_world
-        fixture. Cache dirs are redirected to a tmp dir so the cache-miss branches
-        of build_twilight_allocation_file and compute_seasonality actually run.
-        Rendered HTML is dumped to the same tmp dir for visual inspection.
+        fixture. The plot cache dir is redirected to a tmp dir so the cache-miss
+        branch of get_football's seasonality grid actually runs. Rendered HTML
+        is dumped to the same tmp dir for visual inspection.
         """
         import tempfile
         from unittest.mock import patch
 
-        import astroq.access as ac
         import astroq.plot as pl
         import astroq.webapp as wa
 
@@ -226,9 +225,9 @@ class TestClass(unittest.TestCase):
         program_code = str(row["program_code"])
         starname = str(row["starname"])
 
-        # Redirect on-disk cache locations so the test does not write into the
-        # committed data/ directory and so cache-miss branches execute.
-        with patch.object(ac, "DATADIR", tmp), patch.object(pl, "DATADIR", tmp):
+        # Redirect get_football's on-disk cache so the test does not write into
+        # the committed data/ directory and so the cache-miss branch executes.
+        with patch.object(pl, "DATADIR", tmp):
             wa.uptree_path = "examples/hello_world"
             client = wa.app.test_client()
 

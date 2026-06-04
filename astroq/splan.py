@@ -442,7 +442,7 @@ class SemesterPlanner(object):
             observability (dict): a dictionary where keys are the star names and values are the indices of the slots where the target is observable
         """
         self.access_record = self.access_obj.build_access()
-        observability = self.access_obj.observability(access=self.access_record)
+        observability = self.access_obj.observability(self.access_record.is_observable)
         return observability
 
     def _compute_slots_required_for_exposure(

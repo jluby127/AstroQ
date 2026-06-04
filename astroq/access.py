@@ -105,7 +105,7 @@ class Access:
     #: ``Access`` actually computes via ``Queue.access_constraints``;
     #: unlisted names default to all-True cubes.
     SUPPORTED_CONSTRAINTS = (
-        "altaz", "future", "moon", "custom", "inter", "allocated", "clear",
+        "altaz", "future", "moon", "night", "custom", "inter", "allocated", "clear",
     )
 
     def __init__(
@@ -279,6 +279,15 @@ class Access:
         ok_per_night = ang_dist.to(u.deg) > min_sep[:, np.newaxis]
         return np.broadcast_to(
             ok_per_night[:, :, np.newaxis], self._access_shape
+        ).copy()
+
+    def compute_night(self):
+        """Per-slot dark mask (sun below -12 deg, nautical twilight)."""
+        sun_below = self.observatory.is_night(
+            self.slotmidpoints, horizon=-12 * u.deg
+        )  # (nnights, nslots)
+        return np.broadcast_to(
+            sun_below[np.newaxis, :, :], self._access_shape
         ).copy()
 
     def compute_inter(self):
@@ -472,42 +481,22 @@ class Access:
         ]
         self.last_available[mask] = self.slotmidpoints[night_idx[mask], last_idx[mask]]
 
-    def observability(self, access=None):
-        """Long-form table of observable ``(unique_id, d, s)`` triples.
+    def observability(self, is_observable):
+        """Long-form (unique_id, d, s) triples for every observable cell.
 
         Args:
-            access: Optional recarray from :meth:`build_access` (built on the
-                fly if ``None``).
+            is_observable: bool cube of shape ``(ntargets, nnights, nslots)``
+                aligned with ``self.request_frame`` row order. Pass
+                ``access.is_observable`` from :meth:`build_access`, or any
+                equivalently-shaped mask (e.g. the slot-clearance variant).
 
         Returns:
-            pandas.DataFrame with columns ``unique_id``, ``d`` (night index),
-            ``s`` (slot index). One row per observable cell.
+            pandas.DataFrame with columns ``unique_id``, ``d``, ``s``. One row
+            per True cell, ordered ascending by ``(itarget, d, s)``.
         """
-        if access is None:
-            access = self.build_access()
-        ntargets, nnights, nslots = access.shape
-
-        # specify indeces of 3D observability array
-        itarget, inight, islot = np.mgrid[:ntargets, :nnights, :nslots]
-
-        # define flat table to access maps
-        df = pd.DataFrame(
-            {
-                "itarget": itarget.flatten(),
-                "inight": inight.flatten(),
-                "islot": islot.flatten(),
-            }
-        )
-        df["is_observable"] = access.is_observable.flatten()
-        df = pd.merge(
-            self.request_frame[["unique_id"]].reset_index(drop=True),
-            df,
-            left_index=True,
-            right_on="itarget",
-        )
-        namemap = {"starid": "unique_id", "inight": "d", "islot": "s"}
-        df = df.query("is_observable").rename(columns=namemap)[namemap.values()]
-        return df
+        itarget, d, s = np.nonzero(is_observable)
+        uid = self.request_frame["unique_id"].to_numpy()[itarget]
+        return pd.DataFrame({"unique_id": uid, "d": d, "s": s})
 
     def get_loss_stats(self, weather_loss_file):
         """
@@ -554,54 +543,3 @@ class Access:
             f"Total nights simulated as weathered out: {np.sum(~np.any(is_clear, axis=1))} of {len(is_clear)} nights remaining."
         )
         return is_clear
-
-
-def build_twilight_allocation_file(semester_planner):
-    """
-    Build an allocation.csv file where every night of the semester is allocated
-    from evening to morning 12-degree twilight times. This is used exclusively
-    by the football plot in the webapp.
-
-    Args:
-        semester_planner (SemesterPlanner): a semester planner object from
-        splan.py
-
-    Returns:
-        twilight_file (str): Path to the created allocation.csv file
-    """
-
-    # Create the filename based on semester
-    semester = (
-        semester_planner.semester_start_date[:4] + semester_planner.semester_letter
-    )
-    twilight_file = os.path.join(DATADIR, f"{semester}_twilights.csv")
-
-    # Check if file already exists
-    if os.path.exists(twilight_file):
-        return twilight_file
-
-    # Create data directory if it doesn't exist
-    os.makedirs(DATADIR, exist_ok=True)
-
-    # Use the planner's queue's observatory (already an apl.Observer)
-    observatory = semester_planner.queue.observatory
-
-    # Create allocation data
-    allocation_data = []
-
-    for date_str in semester_planner.all_dates_dict.keys():
-        # Parse the date
-        date = Time(date_str, format="iso", scale="utc")
-
-        # Get 12-degree twilight times for this night
-        evening_12 = observatory.twilight_evening_nautical(date, which="next")
-        morning_12 = observatory.twilight_morning_nautical(date, which="next")
-
-        # Add to allocation data
-        allocation_data.append({"start": evening_12.isot, "stop": morning_12.isot})
-
-    # Create DataFrame and save to CSV
-    twilight_df = pd.DataFrame(allocation_data)
-    twilight_df.to_csv(twilight_file, index=False)
-
-    return twilight_file

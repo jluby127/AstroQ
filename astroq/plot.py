@@ -23,6 +23,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from astropy.time import TimeDelta
+from scipy.interpolate import griddata
 
 # Local imports
 import astroq.access as ac
@@ -1946,135 +1947,13 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
     return fig
 
 
-def compute_seasonality(semester_planner, starnames, ras, decs):
-    """
-    Compute the number of days a RA/Dec point is observable in the semester using Access object
-
-    Args:
-        semester_planner (SemesterPlanner): the semester planner object containing configuration
-        starnames (list): list of star names
-        ras (array): right ascension values in degrees
-        decs (array): declination values in degrees
-    Returns:
-        available_nights_onsky (list): number of observable nights for each target
-
-    """
-    # Create a temporary requests frame from the input parameters
-    temp_requests_frame = pd.DataFrame(
-        {
-            "starname": starnames,
-            "unique_id": starnames,
-            "ra": ras,
-            "dec": decs,
-            "exptime": [300] * len(starnames),  # Default values
-            "n_exp": [1] * len(starnames),
-            "n_intra_max": [1] * len(starnames),
-            "n_intra_min": [1] * len(starnames),
-            "n_inter_max": [1] * len(starnames),
-            "tau_inter": [1] * len(starnames),
-            "tau_intra": [1] * len(starnames),
-            "minimum_elevation": [30.0] * len(starnames),
-            "minimum_moon_separation": [30.0] * len(starnames),
-        }
-    )
-
-    # Build or get the twilight allocation file
-    twilight_allocation_file = ac.build_twilight_allocation_file(semester_planner)
-
-    # Temporarily override the allocation file path and request frame in the access object
-    original_allocation_file = semester_planner.access_obj.allocation_file
-    original_request_frame = semester_planner.access_obj.request_frame
-    original_targets = semester_planner.access_obj.targets
-    original_ntargets = semester_planner.access_obj.ntargets
-    original_access_shape = semester_planner.access_obj._access_shape
-    original_slots_needed = semester_planner.access_obj.slots_needed_for_exposure_dict
-
-    semester_planner.access_obj.allocation_file = twilight_allocation_file
-    semester_planner.access_obj.request_frame = temp_requests_frame
-    # Recompute targets and ntargets for the new request frame
-    coords = SkyCoord(
-        temp_requests_frame.ra * u.deg, temp_requests_frame.dec * u.deg, frame="icrs"
-    )
-    semester_planner.access_obj.targets = apl.FixedTarget(
-        name=temp_requests_frame.unique_id, coord=coords
-    )
-    semester_planner.access_obj.ntargets = len(temp_requests_frame)
-    # _access_shape is cached at __init__; keep it consistent with the new ntargets
-    # so the per-target compute_* methods broadcast correctly.
-    _, _nnights, _nslots = original_access_shape
-    semester_planner.access_obj._access_shape = (
-        len(temp_requests_frame),
-        _nnights,
-        _nslots,
-    )
-    # The dict is keyed by the original unique_ids; build a fresh one for the
-    # synthetic grid uids (single-slot exposures are fine for seasonality).
-    semester_planner.access_obj.slots_needed_for_exposure_dict = {
-        uid: 1 for uid in temp_requests_frame["unique_id"]
-    }
-
-    # Create dummy allocation for if the try statement fails.
-    is_allocated = np.ones(
-        (
-            len(starnames),
-            semester_planner.semester_length,
-            semester_planner.n_slots_in_night,
-        ),
-        dtype=bool,
-    )
-    try:
-        # Use Access object to produce the ultimate map with our custom requests frame
-        access_record = semester_planner.access_obj.build_access()
-        is_allocated = access_record.is_allocated
-    finally:
-        # Restore the original allocation file path and request frame
-        semester_planner.access_obj.allocation_file = original_allocation_file
-        semester_planner.access_obj.request_frame = original_request_frame
-        semester_planner.access_obj.targets = original_targets
-        semester_planner.access_obj.ntargets = original_ntargets
-        semester_planner.access_obj._access_shape = original_access_shape
-        semester_planner.access_obj.slots_needed_for_exposure_dict = (
-            original_slots_needed
-        )
-
-    # Extract is_altaz and is_moon arrays
-    is_altaz = access_record.is_altaz
-    is_moon = access_record.is_moon
-
-    ntargets = len(starnames)
-    nnights = semester_planner.semester_length
-    nslots = semester_planner.n_slots_in_night
-
-    # Create the combined observability mask
-    is_observable_now = np.logical_and.reduce([is_altaz, is_moon, is_allocated])
-
-    # specify indeces of 3D observability array
-    itarget, inight, islot = np.mgrid[:ntargets, :nnights, :nslots]
-
-    # define flat table to access maps
-    df = pd.DataFrame(
-        {
-            "itarget": itarget.flatten(),
-            "inight": inight.flatten(),
-            "islot": islot.flatten(),
-        }
-    )
-    available_nights_onsky = []
-    for itarget in range(ntargets):
-        onskycount = 0
-        for inight in range(nnights):
-            temp = list(islot[itarget, inight, is_observable_now[itarget, inight, :]])
-            if len(temp) > 0:
-                onskycount += 1
-
-        available_nights_onsky.append(onskycount)
-
-    return available_nights_onsky
-
-
 def get_football(semester_planner, all_stars, use_program_colors=False):
     """
-    Produce a plotly figure showing the sky map of the locations of requests with a static heatmap background and interactive star points.
+    Mollweide sky map: per-target scatter points layered on top of a
+    semester-wide observability heatmap (nights per (ra, dec) for which at
+    least one slot is dark, above the horizon, and outside the moon-avoidance
+    zone). The heatmap is computed on a coarse RA/Dec grid via a fresh
+    `Access` instance and cached per semester to disk.
 
     Parameters:
         semester_planner: the semester planner object
@@ -2082,93 +1961,76 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
         use_program_colors (bool): If True, use program_color_rgb; if False, use star_color_rgb (default: False)
 
     Returns:
-        fig (plotly figure): a plotly figure showing the sky map of the locations of requests with a static heatmap background and interactive star points.
+        fig (plotly figure): the assembled Mollweide sky map.
     """
 
-    starnames = [all_stars[r].starname for r in range(len(all_stars))]
-    programs = [all_stars[r].program for r in range(len(all_stars))]
-    ras = [all_stars[r].ra for r in range(len(all_stars))]
-    decs = [all_stars[r].dec for r in range(len(all_stars))]
-    # Choose color based on flag
+    star_ras = [s.ra for s in all_stars]
+    star_decs = [s.dec for s in all_stars]
+    starnames = [s.starname for s in all_stars]
+    programs = [s.program for s in all_stars]
     if use_program_colors:
-        colors = [all_stars[r].program_color_rgb for r in range(len(all_stars))]
+        colors = [s.program_color_rgb for s in all_stars]
     else:
-        colors = [all_stars[r].star_color_rgb for r in range(len(all_stars))]
+        colors = [s.star_color_rgb for s in all_stars]
     program_frame = pd.DataFrame(
         {
             "starname": starnames,
             "program_code": programs,
             "color": colors,
-            "ra": ras,
-            "dec": decs,
+            "ra": star_ras,
+            "dec": star_decs,
         }
     )
 
+    # Equal-area-in-dec sky grid (uniform in sin(dec)).
     n_ra = 90
-    ras = np.linspace(0, 360, n_ra)
     n_dec = 90
-    start_deg = -90
-    stop_deg = 90
-    # Split number of points proportionally between negative and positive ranges
-    neg_points = int(
-        n_dec * (0 - start_deg) / (stop_deg - start_deg)
-    )  # points from -30 to 0
-    pos_points = n_dec - neg_points  # points from 0 to 90
-    # Negative part: from -30 to 0 deg
-    neg_deg = np.linspace(start_deg, 0, neg_points, endpoint=False)
-    neg_cos = np.cos(np.radians(neg_deg))
-    # Positive part: from 0 to 90 deg
-    pos_deg = np.linspace(0, stop_deg, pos_points)
-    pos_cos = np.cos(np.radians(pos_deg))
-    cos_vals = np.concatenate([neg_cos, pos_cos])
-    angles_rad = np.arccos(cos_vals)
-    # Assign negative sign to angles that came from the negative part
-    angles_rad[:neg_points] *= -1
-    decs = np.degrees(angles_rad)
-    RA_grid, DEC_grid = np.meshgrid(ras, decs)
+    grid_ra_axis = np.linspace(0, 360, n_ra)
+    grid_dec_axis = np.degrees(np.arcsin(np.linspace(-1, 1, n_dec)))
+    RA_grid, DEC_grid = np.meshgrid(grid_ra_axis, grid_dec_axis)
 
     n_points = n_dec * n_ra
-    grid_stars = {
-        "starname": [f"noname_{i}" for i in range(n_points)],
-        "program_code": [f"noprog_{i}" for i in range(n_points)],
-        "ra": RA_grid.flatten(),
-        "dec": DEC_grid.flatten(),
-        "exptime": np.full(n_points, 300),
-        "n_exp": np.full(n_points, 1),
-        "n_intra_max": np.full(n_points, 1),
-        "n_intra_min": np.full(n_points, 1),
-        "n_inter_max": np.full(n_points, 1),
-        "tau_inter": np.full(n_points, 1),
-        "tau_intra": np.full(n_points, 1),
-    }
-    grid_frame = pd.DataFrame(grid_stars)
+    grid_frame = pd.DataFrame(
+        {
+            "starname": [f"noname_{i}" for i in range(n_points)],
+            "ra": RA_grid.flatten(),
+            "dec": DEC_grid.flatten(),
+        }
+    )
 
-    # Check if cached grid data AND background image exist
     semester = (
         semester_planner.semester_start_date[:4] + semester_planner.semester_letter
     )
     cache_grids_file = f"{DATADIR}/{semester}_sky_grids.npz"
     cache_image_file = f"{DATADIR}/{semester}_sky_availability_image.txt"
+    semester_length = semester_planner.semester_length
 
-    # Try to load cached grid arrays (RA_grid, DEC_grid, NIGHTS_grid)
     if os.path.exists(cache_grids_file):
-        # Load pre-computed grids from cache (FAST - skips griddata interpolation)
         cached_data = np.load(cache_grids_file)
         RA_grid = cached_data["RA_grid"]
         DEC_grid = cached_data["DEC_grid"]
         NIGHTS_grid = cached_data["NIGHTS_grid"]
     else:
-        # Need to compute the grids from scratch
-        # First compute seasonality for the grid points
-        grid_frame["nights_observable"] = compute_seasonality(
-            semester_planner,
-            grid_frame["starname"],
-            grid_frame["ra"],
-            grid_frame["dec"],
+        # Seasonality for the sky-grid points. A fresh Access scoped to the
+        # grid keeps the planner's real access_obj pristine. Bare defaults
+        # give all-True cubes for future / custom / inter / allocated /
+        # clear; only altaz, moon, and night actually gate.
+        seasonality_frame = grid_frame[["starname", "ra", "dec"]].copy()
+        seasonality_frame["unique_id"] = seasonality_frame["starname"]
+        grid_access = ac.Access(
+            queue=semester_planner.queue,
+            request_frame=seasonality_frame,
+            semester_start_date=semester_planner.semester_start_date,
+            semester_length=semester_length,
+            slot_size=semester_planner.slot_size,
         )
-
-        # Perform griddata interpolation
-        from scipy.interpolate import griddata
+        record = grid_access.build_access()
+        is_observable_now = np.logical_and.reduce(
+            [record.is_altaz, record.is_moon, grid_access.compute_night()]
+        )
+        grid_frame["nights_observable"] = (
+            is_observable_now.any(axis=2).sum(axis=1).astype(int)
+        )
 
         NIGHTS_grid = griddata(
             points=(grid_frame.ra, grid_frame.dec),
@@ -2177,7 +2039,6 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
             method="linear",
         )
 
-        # Cache the grid arrays for next time
         np.savez(
             cache_grids_file,
             RA_grid=RA_grid,
@@ -2185,12 +2046,10 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
             NIGHTS_grid=NIGHTS_grid,
         )
 
-    # Try to load cached image (fastest path - skips matplotlib rendering)
     if os.path.exists(cache_image_file):
         with open(cache_image_file, "r") as f:
             img_base64 = f.read()
     else:
-        # Need to generate and cache the matplotlib image
         RA_shifted = np.radians(RA_grid - 180)
         DEC_rad = np.radians(DEC_grid)
 
@@ -2204,22 +2063,19 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
             cmap="gray",
             shading="nearest",
             vmin=70,
-            vmax=184,
+            vmax=semester_length,
         )
         ax.axis("off")
 
-        # Save to buffer
         buf = BytesIO()
         plt.savefig(buf, format="png", bbox_inches="tight", pad_inches=0, dpi=150)
         plt.close()
         buf.seek(0)
         img_base64 = base64.b64encode(buf.read()).decode()
 
-        # Cache the base64 image for next time
         with open(cache_image_file, "w") as f:
             f.write(img_base64)
 
-    # Step 2: Create Plotly figure with static background image
     fig = go.Figure()
 
     fig.add_layout_image(
@@ -2239,7 +2095,9 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
         )
     )
 
-    # Step 3: Add dummy contour for colorbar
+    # Invisible Contour trace whose sole purpose is to carry the colorbar.
+    # plotly has no first-class colorbar-only object; opacity=0 keeps the
+    # contour itself hidden while still rendering the legend strip.
     fig.add_trace(
         go.Contour(
             z=NIGHTS_grid,
@@ -2247,32 +2105,27 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
             y=DEC_grid[:, 0],
             showscale=True,
             colorscale="gray",
-            contours=dict(start=70, end=184, size=10),
-            opacity=0,  # Hide contour but keep colorbar
+            contours=dict(start=70, end=semester_length, size=10),
+            opacity=0,
             colorbar=dict(
                 title="Observable<br>Nights",
                 titleside="top",
-                x=-0.15,  # Place on left of plot
+                x=-0.15,
                 len=0.75,
                 thickness=15,
             ),
         )
     )
 
-    # Step 4: Add interactive points grouped by program
     if not program_frame.empty:
+        marker = "star"
+        size = 20 if len(all_stars) == 1 else 10
         grouped = program_frame.groupby("program_code")
         for program, group in grouped:
             group.reset_index(inplace=True, drop=True)
             hover = [f"{name} in {program}" for name in group["starname"]]
-            color = group["color"].tolist()  # Use individual star colors
+            color = group["color"].tolist()
 
-            if len(all_stars) == 1:
-                size = 20
-                marker = "star"
-            else:
-                size = 10
-                marker = "star"
             fig.add_trace(
                 go.Scattergeo(
                     lon=group["ra"] - 180,
