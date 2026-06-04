@@ -321,6 +321,8 @@ class Access:
                     itarget, :, shift:
                 ]
 
+        self.compute_available_windows()
+
         access = {
             "is_altaz": self.is_altaz,
             "is_future": self.is_future,
@@ -336,6 +338,58 @@ class Access:
             list(access.values()), names=list(access.keys())
         )
         return access_record
+
+    def compute_available_windows(self):
+        """Compute first/last observable slot midpoints per (target, night).
+
+        Sets the following attributes, each shape ``(ntargets, nnights)``:
+
+        - ``has_observable``: bool, True where at least one slot is observable.
+        - ``first_available``: astropy ``Time``, midpoint of the earliest
+          observable slot. JD is a sentinel ``0.0`` where ``has_observable`` is
+          False; callers must gate on ``has_observable``.
+        - ``last_available``: astropy ``Time``, midpoint of the latest
+          observable slot. JD is a sentinel ``0.0`` where ``has_observable`` is
+          False; callers must gate on ``has_observable``.
+
+        Requires :attr:`is_observable` to be populated; intended to run at the
+        end of :meth:`produce_ultimate_map`.
+        """
+        obs = self.is_observable  # (ntargets, nnights, nslots)
+        ntargets, nnights, nslots = obs.shape
+
+        self.has_observable = obs.any(axis=2)
+        first_idx = np.argmax(obs, axis=2)
+        last_idx = nslots - 1 - np.argmax(obs[..., ::-1], axis=2)
+
+        # Prefill with a sentinel JD (0.0). astropy.Time rejects NaN on
+        # older versions, so we use a finite-but-clearly-invalid value.
+        # has_observable is the single source of truth for masking.
+        # Location must match slotmidpoints' so item-assignment is allowed.
+        prefill_jd = np.zeros((ntargets, nnights))
+        self.first_available = Time(
+            prefill_jd,
+            format="jd",
+            scale="utc",
+            location=self.observatory.location,
+        )
+        self.last_available = Time(
+            prefill_jd.copy(),
+            format="jd",
+            scale="utc",
+            location=self.observatory.location,
+        )
+
+        # Plug in valid (target, night) cells with a direct Time-space copy
+        # from the (nnights, nslots) slotmidpoints grid.
+        mask = self.has_observable
+        night_idx = np.broadcast_to(np.arange(nnights), (ntargets, nnights))
+        self.first_available[mask] = self.slotmidpoints[
+            night_idx[mask], first_idx[mask]
+        ]
+        self.last_available[mask] = self.slotmidpoints[
+            night_idx[mask], last_idx[mask]
+        ]
 
     def observability(self, access=None):
         """

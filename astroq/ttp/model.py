@@ -14,76 +14,67 @@ import pandas as pd
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 from astropy.time import Time, TimeDelta
+from astropy.table import QTable
 import gurobipy as gp
 from gurobipy import GRB
 
 logs = logging.getLogger(__name__)
 
-REQUIRED_COLUMNS = [
-    "unique_id",  # str, primary key
-    "coord",  # astropy.coordinates.SkyCoord scalar per row, ICRS
-    "first_available",  # astropy.time.Time scalar per row
-    "last_available",  # astropy.time.Time scalar per row
-    "t_visit",  # astropy.units.Quantity scalar per row, time units
-    "n_intra_max",  # int
-    "tau_intra",  # astropy.units.Quantity scalar per row, time units
-    "priority",  # float
-]
-
-TYPED_COLUMNS = {
-    "coord": SkyCoord,
-    "first_available": Time,
-    "last_available": Time,
-}
-
-QUANTITY_COLUMNS = {
-    "t_visit": u.s,
-    "tau_intra": u.s,
-}
+#: Columns required on the ``requests`` QTable passed to :class:`TTPModel`.
+REQUIRED_COLUMNS = (
+    "unique_id",       # str, primary key
+    "coord",           # SkyCoord column (ICRS)
+    "first_available", # Time column
+    "last_available",  # Time column
+    "t_visit",         # Quantity column with time units
+    "n_intra_max",     # int column
+    "tau_intra",       # Quantity column with time units
+    "priority",        # float column
+)
 
 
-def _quantity_series_to_minutes(series):
-    """Normalize a ``t_visit`` / ``tau_intra`` column to plain minutes (float64)."""
-    if len(series) == 0:
-        return np.array([], dtype=float)
-    vals = series.values
-    if isinstance(vals, u.Quantity):
-        return np.asarray(vals.to_value(u.min), dtype=float)
-    return np.array(
-        [
-            (x.to_value(u.min) if isinstance(x, u.Quantity) else float(x))
-            for x in series
-        ],
-        dtype=float,
-    )
-
-
-def _snapshot_requests_frame(requests_frame):
-    """Store durations as float minutes without pandas Quantity block consolidation."""
-    data = {}
-    for col in requests_frame.columns:
-        if col in QUANTITY_COLUMNS:
-            data[col] = _quantity_series_to_minutes(requests_frame[col])
-        else:
-            series = requests_frame[col]
-            data[col] = list(series) if series.dtype == object else series.to_numpy()
-    return pd.DataFrame(data)
+def _validate_requests(requests):
+    """Type-check the input ``requests`` QTable."""
+    if not isinstance(requests, QTable):
+        raise TypeError(
+            "`requests` must be an astropy.table.QTable; got "
+            f"{type(requests).__name__}"
+        )
+    missing = [col for col in REQUIRED_COLUMNS if col not in requests.colnames]
+    if missing:
+        raise ValueError(f"`requests` missing required columns: {missing}")
+    if len(requests) == 0:
+        return
+    if not isinstance(requests["coord"], SkyCoord):
+        raise TypeError("`coord` column must be an astropy SkyCoord")
+    if not isinstance(requests["first_available"], Time):
+        raise TypeError("`first_available` column must be an astropy Time")
+    if not isinstance(requests["last_available"], Time):
+        raise TypeError("`last_available` column must be an astropy Time")
+    for col in ("t_visit", "tau_intra"):
+        unit = requests[col].unit
+        if unit is None or not unit.is_equivalent(u.s):
+            raise TypeError(
+                f"`{col}` column must be a Quantity with time units; "
+                f"got unit={unit}"
+            )
 
 
 class TTPModel:
     """MILP solver for the Traveling Telescope Problem (Handley+ 2024).
 
     Args:
-        requests_frame (pd.DataFrame): one row per request, required columns
+        requests (astropy.table.QTable): one row per request, with native
+            astropy-typed columns:
 
             unique_id        str                            primary key
-            coord            astropy SkyCoord scalar        ICRS
-            first_available  astropy Time scalar            earliest start of accessibility window
-            last_available   astropy Time scalar            latest end of accessibility window
-            t_visit          astropy Quantity (time)        per-visit duration
-            n_intra_max      int                            max visits per night
-            tau_intra        astropy Quantity (time)        min spacing between visits within a night
-            priority         float                          objective weight; higher = more important
+            coord            SkyCoord column                ICRS
+            first_available  Time column                    earliest start of accessibility window
+            last_available   Time column                    latest end of accessibility window
+            t_visit          Quantity column (time)         per-visit duration
+            n_intra_max      int column                     max visits per night
+            tau_intra        Quantity column (time)         min spacing between visits within a night
+            priority         float column                   objective weight; higher = more important
 
         night_start (astropy.time.Time): start of the observing interval.
         night_end (astropy.time.Time): end of the observing interval.
@@ -103,13 +94,17 @@ class TTPModel:
         slew_sample_cadence_min (int): max spacing in minutes at which to
             sample arcs within a slot.
 
-    The class is structured around four DataFrames:
+    The input QTable ``self.requests`` is the single source of truth for
+    the per-request inputs (native astropy / numpy types). Downstream
+    relational state lives in three DataFrames built by the solver:
 
-    * ``self.requests_frame`` -- one row per request
-    * ``self.nodes`` -- one row per MILP node (:meth:`build_nodes`)
-    * ``self.arcs`` -- precomputed arc catalog ``(i, j, m)`` (:meth:`build_arcs`)
-    * ``self.schedule`` -- post-solve output parallel to ``nodes`` (:meth:`build_schedule`);
-      ``None`` if Gurobi finds no incumbent within the time limit
+    * ``self.nodes`` -- one row per MILP node (:meth:`build_nodes`).
+      Scalar-only dtypes (no object columns) so it is round-trip-safe
+      through ``to_hdf``/``to_csv``.
+    * ``self.arcs`` -- precomputed arc catalog ``(i, j, m)`` (:meth:`build_arcs`).
+    * ``self.schedule`` -- post-solve output parallel to ``nodes``
+      (:meth:`build_schedule`); ``None`` if Gurobi finds no incumbent
+      within the time limit.
 
     Notes:
         Internal naming is aligned with Handley+ 2024 (``N``, ``M``, ``Yi``,
@@ -143,7 +138,7 @@ class TTPModel:
 
     def __init__(
         self,
-        requests_frame,
+        requests,
         night_start,
         night_end,
         *,
@@ -151,34 +146,20 @@ class TTPModel:
         n_slots=1,
         slew_sample_cadence_min=30,
     ):
-        for col in REQUIRED_COLUMNS:
-            if col not in requests_frame.columns:
-                raise ValueError(f"requests_frame missing required column: {col}")
-
-        if len(requests_frame) > 0:
-            for col, typ in TYPED_COLUMNS.items():
-                if not isinstance(requests_frame[col].iloc[0], typ):
-                    raise TypeError(
-                        f"`{col}` column must contain {typ.__name__} scalars"
-                    )
-            for col, ref_unit in QUANTITY_COLUMNS.items():
-                v = requests_frame[col].iloc[0]
-                if not isinstance(v, u.Quantity) or not v.unit.is_equivalent(ref_unit):
-                    raise TypeError(
-                        f"`{col}` column must contain Quantity scalars with units "
-                        f"equivalent to {ref_unit}"
-                    )
-        fa = Time(requests_frame["first_available"].tolist())
-        dfa = fa - night_start
-        if dfa.min() > 0:
-            logs.warning(
-                "min(first_available) is {:.1f} after night_start".format(
-                    dfa.min().to(u.min)
-                )
-            )
-        self.requests_frame = _snapshot_requests_frame(requests_frame)
+        _validate_requests(requests)
+        self.requests = requests
         self.night_start = night_start
         self.night_end = night_end
+
+        if len(self.requests) > 0:
+            dfa = self.requests["first_available"] - night_start
+            if dfa.min().to_value(u.s) > 0:
+                logs.warning(
+                    "min(first_available) is {:.1f} after night_start".format(
+                        dfa.min().to(u.min)
+                    )
+                )
+
         self.slew_fn = slew_fn
         self.n_slots = n_slots
         self.slew_sample_cadence_min = slew_sample_cadence_min
@@ -204,20 +185,38 @@ class TTPModel:
         Sets attributes:
             N, M, dur, nodes, multi_visit_groups.
 
-        All times in ``self.nodes`` are in minutes from ``night_start``.
+        ``self.nodes`` carries only scalar dtypes. All times are in minutes
+        from ``night_start``; sky coordinates appear as ``ra`` / ``dec``
+        degrees. The :class:`~astropy.coordinates.SkyCoord` array used for
+        slew evaluation is read from ``self.requests["coord"]`` and indexed
+        by ``request_idx``.
         """
         self.dur = float(np.round(self._minutes_from_start(self.night_end), 0))
 
-        reqs = self.requests_frame.copy()
-        reqs["request_idx"] = np.arange(len(reqs), dtype=np.int64)
-        reqs["t_early"] = self._minutes_from_start(Time(reqs.first_available.tolist()))
-        reqs["t_late"] = self._minutes_from_start(Time(reqs.last_available.tolist()))
-        reqs["t_visit"] = reqs["t_visit"].to_numpy(dtype=float)
-        reqs["tau_intra"] = reqs["tau_intra"].to_numpy(dtype=float)
-        reqs["is_anchor"] = False
+        # Local scratch DataFrame: scalar-only projection of self.requests
+        # for the relational joins below. Built fresh here so the QTable
+        # remains the single source of truth on the model.
+        r = self.requests
+        t_early = (r["first_available"] - self.night_start).to_value(u.min).astype(float)
+        t_late = (r["last_available"] - self.night_start).to_value(u.min).astype(float)
+        reqs = pd.DataFrame(
+            {
+                "unique_id": np.asarray(r["unique_id"], dtype=object),
+                "ra": np.asarray(r["coord"].ra.deg, dtype=float),
+                "dec": np.asarray(r["coord"].dec.deg, dtype=float),
+                "t_early": t_early,
+                "t_late": t_late,
+                "t_visit": np.asarray(r["t_visit"].to_value(u.min), dtype=float),
+                "n_intra_max": np.asarray(r["n_intra_max"], dtype=int),
+                "tau_intra": np.asarray(r["tau_intra"].to_value(u.min), dtype=float),
+                "priority": np.asarray(r["priority"], dtype=float),
+                "request_idx": np.arange(len(r), dtype=np.int64),
+                "is_anchor": False,
+            }
+        )
 
         # Attach visit_seq via a simple cross-join + filter.
-        max_intra = int(reqs.n_intra_max.max())
+        max_intra = int(reqs.n_intra_max.max()) if len(reqs) else 0
         visit_seq_table = pd.DataFrame(
             {
                 "visit_seq": np.arange(max_intra, dtype=np.int64),
@@ -239,10 +238,10 @@ class TTPModel:
             "t_late": self.dur,
             "t_visit": 0.0,
             "tau_intra": 0.0,
-            "priority": 0,
-            "coord": None,
-            "first_available": self.night_start,
-            "last_available": self.night_end,
+            "priority": 0.0,
+            "n_intra_max": 0,
+            "ra": np.nan,
+            "dec": np.nan,
         }
         anchor_df = pd.DataFrame([anchor_template, anchor_template])
 
@@ -289,8 +288,9 @@ class TTPModel:
         fractions = np.linspace(0, 1, total_samples)
         times = self.night_start + (self.night_end - self.night_start) * fractions
 
-        # Convert coords in pandas column to array
-        node_coords = SkyCoord(self.nodes.loc[~self.nodes.is_anchor, "coord"].tolist())
+        # Index the per-request SkyCoord array by the real-node request_idx.
+        non_anchor = self.nodes[~self.nodes.is_anchor]
+        node_coords = self.requests["coord"][non_anchor["request_idx"].to_numpy()]
         n_real = len(node_coords)
 
         # Pair list: ordered (i, j) with i != j over real-node positions
@@ -590,10 +590,9 @@ class TTPModel:
         ).sort_values(by="t_start", na_position="last")
         schedule["order"] = range(len(schedule))
 
-        # Drop the SkyCoord cache so the schedule round-trips cleanly through
-        # to_csv / to_hdf without object-dtype hazards. Plot adapters rebuild
-        # coords from ra/dec on demand; the solver no longer needs `coord`.
-        self.schedule = schedule.drop(columns=["coord"], errors="ignore")
+        # self.nodes has only scalar columns (ra/dec as floats, no SkyCoord);
+        # schedule inherits that and is round-trip-safe through to_csv/to_hdf.
+        self.schedule = schedule
         scheduled = self.schedule[self.schedule["scheduled"]]
         stats = {
             "dur": self.dur,

@@ -17,21 +17,14 @@ import pandas as pd
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 from astropy.time import Time, TimeDelta
+from astropy.table import QTable
 
 from astroq.splan import SemesterPlanner
 from astroq.ttp import model
 
 logs = logging.getLogger(__name__)
 
-NIGHT_PLANNER_H5_SCHEMA = 5
-
-_OBJECT_TYPED_COLUMNS = [
-    "coord",
-    "first_available",
-    "last_available",
-    "t_visit",
-    "tau_intra",
-]
+NIGHT_PLANNER_H5_SCHEMA = 6
 
 _SOLUTION_ATTRS = (
     ("night_start_jd", "night_start", "time"),
@@ -67,135 +60,68 @@ def _json_to_native(x):
     return x
 
 
-def _quantity_series_to_value(series, target_unit):
-    if len(series) == 0:
-        return np.array([], dtype=float)
-    sample = series.iloc[0]
-    if isinstance(sample, u.Quantity):
-        return u.Quantity(series.values).to_value(target_unit)
-    return np.asarray(series, dtype=float)
-
-
-def _scalarize_requests_frame(rf):
-    out = rf.drop(columns=_OBJECT_TYPED_COLUMNS, errors="ignore").copy()
-    if "coord" not in rf.columns:
-        return out
-    out["ra"] = rf["coord"].apply(
-        lambda c: float(c.ra.deg) if c is not None else np.nan,
-    )
-    out["dec"] = rf["coord"].apply(
-        lambda c: float(c.dec.deg) if c is not None else np.nan,
-    )
-    if "first_available" in rf.columns:
-        out["first_available_jd"] = rf["first_available"].apply(
-            lambda t: float(t.jd) if t is not None else np.nan,
-        )
-    if "last_available" in rf.columns:
-        out["last_available_jd"] = rf["last_available"].apply(
-            lambda t: float(t.jd) if t is not None else np.nan,
-        )
-    if "t_visit" in rf.columns:
-        out["t_visit_min"] = _quantity_series_to_value(rf["t_visit"], u.min)
-    if "tau_intra" in rf.columns:
-        out["tau_intra_hr"] = _quantity_series_to_value(rf["tau_intra"], u.hr)
-    return out
-
-
-def _restore_requests_frame_from_scalar_df(df):
-    if "ra" not in df.columns or "dec" not in df.columns:
-        raise ValueError(
-            "night_planner.h5 requests_frame lacks ra/dec scalar columns; "
-            "re-run plan-night with a current AstroQ build."
-        )
-    priority = (
-        df["priority"].to_numpy()
-        if "priority" in df.columns
-        else np.full(len(df), 10.0)
-    )
+def _solution_to_requests_dataframe(solution: "model.TTPModel") -> pd.DataFrame:
+    """Flatten ``solution.requests`` (QTable) into a scalar h5 frame."""
+    r = solution.requests
     return pd.DataFrame(
         {
-            "unique_id": df["unique_id"].to_numpy(),
-            "n_intra_max": df["n_intra_max"].to_numpy(),
-            "priority": priority,
-            "coord": SkyCoord(
-                df["ra"].to_numpy() * u.deg,
-                df["dec"].to_numpy() * u.deg,
-                frame="icrs",
-            ),
-            "first_available": Time(df["first_available_jd"].to_numpy(), format="jd"),
-            "last_available": Time(df["last_available_jd"].to_numpy(), format="jd"),
-            "t_visit": df["t_visit_min"].to_numpy() * u.min,
-            "tau_intra": df["tau_intra_hr"].to_numpy() * u.hr,
+            "unique_id": np.asarray(r["unique_id"], dtype=object),
+            "ra_deg": np.asarray(r["coord"].ra.deg, dtype=float),
+            "dec_deg": np.asarray(r["coord"].dec.deg, dtype=float),
+            "first_available_jd": np.asarray(r["first_available"].jd, dtype=float),
+            "last_available_jd": np.asarray(r["last_available"].jd, dtype=float),
+            "t_visit_min": np.asarray(r["t_visit"].to_value(u.min), dtype=float),
+            "tau_intra_min": np.asarray(r["tau_intra"].to_value(u.min), dtype=float),
+            "n_intra_max": np.asarray(r["n_intra_max"], dtype=int),
+            "priority": np.asarray(r["priority"], dtype=float),
         }
     )
 
 
-def _visit_duration_minutes(series):
-    if len(series) == 0:
-        return np.array([], dtype=float)
-    sample = series.iloc[0]
-    if isinstance(sample, u.Quantity):
-        return u.Quantity(series.values).to_value(u.min)
-    return np.asarray(series, dtype=float)
-
-
-def _enrich_schedule_with_positions(sched, requests_frame):
-    sched = sched.copy()
-    lookup = pd.DataFrame(
+def _requests_dataframe_to_qtable(df: pd.DataFrame) -> QTable:
+    """Rehydrate an h5 requests frame back to the QTable boundary shape."""
+    return QTable(
         {
-            "unique_id": requests_frame["unique_id"],
-            "ra": requests_frame["coord"].apply(lambda c: float(c.ra.deg)),
-            "dec": requests_frame["coord"].apply(lambda c: float(c.dec.deg)),
-        }
-    ).drop_duplicates("unique_id")
-    for col in ("ra", "dec"):
-        if col in sched.columns:
-            sched = sched.drop(columns=[col])
-    return sched.merge(lookup, on="unique_id", how="left").reset_index(drop=True)
+            "unique_id": np.asarray(df["unique_id"].to_numpy(), dtype=object),
+            "coord": SkyCoord(
+                df["ra_deg"].to_numpy() * u.deg,
+                df["dec_deg"].to_numpy() * u.deg,
+                frame="icrs",
+            ),
+            "first_available": Time(
+                df["first_available_jd"].to_numpy(), format="jd", scale="utc"
+            ),
+            "last_available": Time(
+                df["last_available_jd"].to_numpy(), format="jd", scale="utc"
+            ),
+            "t_visit": df["t_visit_min"].to_numpy() * u.min,
+            "n_intra_max": df["n_intra_max"].to_numpy(dtype=int),
+            "tau_intra": df["tau_intra_min"].to_numpy() * u.min,
+            "priority": df["priority"].to_numpy(dtype=float),
+        },
+        copy=False,
+    )
 
 
-def _prepare_schedule_for_hdf5(sched):
-    sched = sched.drop(columns=_OBJECT_TYPED_COLUMNS, errors="ignore").copy()
-    if "t_visit" in sched.columns:
-        sched["t_visit_min"] = _visit_duration_minutes(sched["t_visit"])
-    return sched
-
-
-def _schedule_request_metadata(output_directory, requests_frame):
+def _attach_request_metadata_to_schedule(
+    sched: pd.DataFrame, output_directory: str | None
+) -> pd.DataFrame:
+    """Merge ``exptime`` (min) and ``n_exp`` into the schedule for plot adapters."""
+    if output_directory is None:
+        return sched.reset_index(drop=True)
     path = os.path.join(output_directory, "request_selected.csv")
-    if os.path.exists(path):
-        meta = pd.read_csv(path)
-    else:
-        meta = requests_frame.copy()
+    if not os.path.exists(path):
+        return sched.reset_index(drop=True)
+    meta = pd.read_csv(path)
     if meta.empty or "unique_id" not in meta.columns:
-        return pd.DataFrame(columns=["unique_id", "exptime", "n_exp"])
+        return sched.reset_index(drop=True)
     meta = meta[["unique_id", "exptime", "n_exp"]].drop_duplicates("unique_id")
     meta["exptime"] = pd.to_numeric(meta["exptime"], errors="coerce") / 60.0
     meta["n_exp"] = pd.to_numeric(meta["n_exp"], errors="coerce")
-    return meta
-
-
-def _restore_schedule_for_plots(sched, requests_frame, *, output_directory=None):
-    sched = sched.copy()
-    if "t_visit" not in sched.columns:
-        if "t_visit_min" in sched.columns:
-            sched["t_visit"] = sched["t_visit_min"].to_numpy(dtype=float)
-        else:
-            lookup = pd.DataFrame(
-                {
-                    "unique_id": requests_frame["unique_id"],
-                    "t_visit": _visit_duration_minutes(requests_frame["t_visit"]),
-                }
-            ).drop_duplicates("unique_id")
-            sched = sched.merge(lookup, on="unique_id", how="left")
-    if "exptime" not in sched.columns or "n_exp" not in sched.columns:
-        meta = _schedule_request_metadata(output_directory, requests_frame)
-        if not meta.empty:
-            for col in ("exptime", "n_exp"):
-                if col in sched.columns:
-                    sched = sched.drop(columns=[col])
-            sched = sched.merge(meta, on="unique_id", how="left")
-    return sched.reset_index(drop=True)
+    sched = sched.drop(
+        columns=[c for c in ("exptime", "n_exp") if c in sched.columns]
+    )
+    return sched.merge(meta, on="unique_id", how="left").reset_index(drop=True)
 
 
 def _hygiene_selected_df(selected_df: pd.DataFrame) -> pd.DataFrame:
@@ -325,51 +251,48 @@ class NightPlanner:
         bounds = self._night_bounds()
         observation_start_time, observation_stop_time = bounds
 
-        # grab first and last available slots for each target
         sp = self.semester_planner
-        obs = sp.access_obj.observability()
-        obs = obs[obs.d == self._night_index()]
-        times = pd.DataFrame(
-            {
-                "s": np.arange(sp.access_obj.slotmidpoints.shape[1]),
-                "time": sp.access_obj.slotmidpoints[self._night_index()],
-            }
-        )
-        obs = pd.merge(obs, times, on="s")
-        obs = (
-            obs.sort_values(["unique_id", "s"])
-            .groupby("unique_id", as_index=False)
-            .agg(
-                first_available=("time", "first"),
-                last_available=("time", "last"),
-            )
-        )
-
+        d = self._night_index()
         selected_df = self._load_selected()
-        merged = pd.merge(selected_df, obs, on="unique_id")
+
+        # SemesterPlanner.from_hdf5 only instantiates Access; populate the
+        # accessibility cubes (and the derived first/last_available arrays)
+        # before we slice them.
+        if not hasattr(sp.access_obj, "first_available"):
+            sp.access_obj.produce_ultimate_map()
+
+        # Look up the row index of each selected target in the access
+        # request_frame, then slice the precomputed (ntargets, nnights) Time
+        # arrays for tonight.
+        req_index = sp.access_obj.request_frame.set_index("unique_id").index
+        row_idx = req_index.get_indexer(selected_df["unique_id"])
+        first_available = sp.access_obj.first_available[row_idx, d]
+        last_available = sp.access_obj.last_available[row_idx, d]
+
         visit_min = self.queue.visit_duration(
-            merged["exptime"].to_numpy(),
-            merged["n_exp"].to_numpy(),
+            selected_df["exptime"].to_numpy(),
+            selected_df["n_exp"].to_numpy(),
         )
-        reqs = pd.DataFrame(
+        requests = QTable(
             {
-                "unique_id": merged["unique_id"].to_numpy(),
-                "n_intra_max": merged["n_intra_max"].to_numpy(dtype=int),
-                "first_available": merged["first_available"].tolist(),
-                "last_available": merged["last_available"].tolist(),
-                "priority": np.full(len(merged), 10.0),
-            }
+                "unique_id": selected_df["unique_id"].to_numpy(dtype=object),
+                "coord": SkyCoord(
+                    selected_df["ra"].to_numpy() * u.deg,
+                    selected_df["dec"].to_numpy() * u.deg,
+                    frame="icrs",
+                ),
+                "first_available": first_available,
+                "last_available": last_available,
+                "t_visit": np.asarray(visit_min, dtype=float) * u.min,
+                "n_intra_max": selected_df["n_intra_max"].to_numpy(dtype=int),
+                "tau_intra": selected_df["tau_intra"].to_numpy(dtype=float) * u.hr,
+                "priority": np.full(len(selected_df), 10.0),
+            },
+            copy=False,
         )
-        reqs["coord"] = SkyCoord(
-            merged["ra"].to_numpy() * u.deg,
-            merged["dec"].to_numpy() * u.deg,
-            frame="icrs",
-        )
-        reqs["t_visit"] = visit_min * u.min
-        reqs["tau_intra"] = merged["tau_intra"].to_numpy(dtype=float) * u.hr
 
         tm = model.TTPModel(
-            requests_frame=reqs,
+            requests=requests,
             night_start=observation_start_time,
             night_end=observation_stop_time,
             slew_fn=self.queue.slew_fn,
@@ -409,15 +332,14 @@ class NightPlanner:
             os.remove(hdf5_path)
 
         solution = self.solution
-        rf = _scalarize_requests_frame(solution.requests_frame)
-        sched = _enrich_schedule_with_positions(
-            _prepare_schedule_for_hdf5(solution.schedule),
-            solution.requests_frame,
-        )
+        # solution.schedule already has only scalar dtypes (no object cols).
+        sched = solution.schedule.reset_index(drop=True)
         fmt = "fixed" if sched.empty else "table"
         sched.to_hdf(hdf5_path, key="solution_schedule", mode="a", format=fmt)
+
+        rf = _solution_to_requests_dataframe(solution)
         rf_fmt = "fixed" if rf.empty else "table"
-        rf.to_hdf(hdf5_path, key="solution_requests_frame", mode="a", format=rf_fmt)
+        rf.to_hdf(hdf5_path, key="solution_requests", mode="a", format=rf_fmt)
 
         with h5py.File(hdf5_path, "a") as f:
             f.attrs["schema_version"] = NIGHT_PLANNER_H5_SCHEMA
@@ -469,7 +391,7 @@ class NightPlanner:
         instance.queue = instance.semester_planner.queue
 
         solution_schedule = pd.read_hdf(hdf5_path, key="solution_schedule")
-        solution_requests_disk = pd.read_hdf(hdf5_path, key="solution_requests_frame")
+        solution_requests_disk = pd.read_hdf(hdf5_path, key="solution_requests")
 
         solution = model.TTPModel.__new__(model.TTPModel)
         for hdf5_key, attr_name, dtype in _SOLUTION_ATTRS:
@@ -478,24 +400,18 @@ class NightPlanner:
                 data = json.loads(raw)
                 restored = {}
                 for key, value in data.items():
-                    restored[key] = np.array(value) if isinstance(value, list) else value
+                    restored[key] = (
+                        np.array(value) if isinstance(value, list) else value
+                    )
                 setattr(solution, attr_name, restored)
             elif dtype == "time":
                 setattr(solution, attr_name, Time(raw, format="jd"))
 
-        solution.requests_frame = _restore_requests_frame_from_scalar_df(
-            solution_requests_disk,
+        solution.requests = _requests_dataframe_to_qtable(solution_requests_disk)
+
+        solution.schedule = _attach_request_metadata_to_schedule(
+            solution_schedule, instance.output_directory
         )
-        solution.schedule = _restore_schedule_for_plots(
-            solution_schedule,
-            solution.requests_frame,
-            output_directory=instance.output_directory,
-        )
-        if "ra" not in solution.schedule.columns:
-            solution.schedule = _enrich_schedule_with_positions(
-                solution.schedule,
-                solution.requests_frame,
-            )
 
         queue = instance.queue
         solution.observer = queue.observer
