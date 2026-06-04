@@ -94,7 +94,7 @@ def serialize_schedule(Yrds, semester_planner):
     dense2 = dense1.copy()
     # Use the stored access record from the first run (no need to recompute)
     access = semester_planner.access_record
-    isAlloc = access["is_alloc"].flatten()
+    isAlloc = access["is_allocated"].flatten()
     isClear = access["is_clear"].flatten()
     # have to go backwards otherwise you're adding stars into slots and then testing if the star is in the next slot
     for slot in range(semester_planner.n_slots_in_semester - 1, -1, -1):
@@ -280,11 +280,11 @@ def build_fullness_report(semester_planner, round_info):
 
     # Get access record data
     access = semester_planner.access_record
-    is_alloc = access["is_alloc"]
+    is_allocated = access["is_allocated"]
 
     # Calculate statistics
-    # is_alloc is 3D array, but all 2D arrays are the same, so use the first one
-    is_alloc_2d = is_alloc[0]  # Take the first 2D array
+    # is_allocated is 3D array, but all 2D arrays are the same, so use the first one
+    is_alloc_2d = is_allocated[0]  # Take the first 2D array
     total_slots_in_semester = (
         is_alloc_2d.shape[0] * is_alloc_2d.shape[1]
     )  # Total slots = n_nights * n_slots_per_night

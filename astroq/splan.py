@@ -428,7 +428,7 @@ class SemesterPlanner(object):
         Returns:
             observability (dict): a dictionary where keys are the star names and values are the indices of the slots where the target is observable
         """
-        self.access_record = self.access_obj.produce_ultimate_map()
+        self.access_record = self.access_obj.build_access()
         observability = self.access_obj.observability(access=self.access_record)
         return observability
 

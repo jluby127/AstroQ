@@ -259,7 +259,7 @@ class NightPlanner:
         # accessibility cubes (and the derived first/last_available arrays)
         # before we slice them.
         if not hasattr(sp.access_obj, "first_available"):
-            sp.access_obj.produce_ultimate_map()
+            sp.access_obj.build_access()
 
         # Look up the row index of each selected target in the access
         # request_frame, then slice the precomputed (ntargets, nnights) Time

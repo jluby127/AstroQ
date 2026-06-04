@@ -54,6 +54,13 @@ class KPFCC(Queue):
         (0.0, 360.0, 85.0, 90.0),  # above 85 deg elevation clamp
     ]
 
+    # Constraints `Access` should compute for KPF-CC. Full set including
+    # weather; `run_weather_loss` still gates whether ``compute_clear`` actually
+    # samples losses or returns all-True.
+    access_constraints = (
+        "altaz", "future", "moon", "custom", "inter", "allocated", "clear",
+    )
+
     def __init__(self):
         self.observer = apl.Observer.at_site(
             "Keck Observatory", name="Keck", timezone="US/Hawaii"

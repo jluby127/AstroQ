@@ -61,6 +61,12 @@ class HIRESCPS(Queue):
         (0.0, 360.0, 85.0, 90.0),  # above 85 deg elevation clamp
     ]
 
+    # Constraints `Access` should compute for HIRES-CPS. Omits ``"clear"``;
+    # weather loss is handled separately and the cube defaults to all-True.
+    access_constraints = (
+        "altaz", "future", "moon", "custom", "inter", "allocated",
+    )
+
     def __init__(self):
         import astroplan as apl
 

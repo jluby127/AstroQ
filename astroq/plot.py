@@ -188,7 +188,7 @@ def process_stars(semester_planner):
     Returns:
         program_dict (dict): a dictionary of program names and their corresponding StarPlotter objects
         programs_as_stars (dict): a dictionary of program names and their corresponding StarPlotter objects
-        nulltime (array): a 2D array of N_slots by N_nights, binary 1/0, it is the intersection of is_alloc and is_night
+        nulltime (array): a 2D array of N_slots by N_nights, binary 1/0, it is the intersection of is_allocated and is_night
     """
 
     # Create a starmap of the times when we cannot observe due to twilight and allocation constraints
@@ -196,7 +196,7 @@ def process_stars(semester_planner):
 
     # Use the stored access record from the semester planner instead of recomputing
     access = semester_planner.access_record
-    nulltime = access["is_alloc"][0]
+    nulltime = access["is_allocated"][0]
     nulltime = 1 - nulltime
     nulltime = np.array(nulltime).T
 
@@ -351,7 +351,7 @@ def process_stars(semester_planner):
             newstar.star_color_rgb = rgb_strings[0]
         newstar.draw_lines = False
         newstar.maps_names = [
-            "is_alloc",
+            "is_allocated",
             "is_custom",
             "is_altaz",
             "is_moon",
@@ -850,7 +850,7 @@ def get_birdseye(semester_planner, availablity, all_stars):
 
     Args:
         semester_planner (obj): a SemesterPlanner object from splan.py
-        availability (array): a 2D array of N_slots by N_nights, binary 1/0, it is the intersection of is_alloc and is_night
+        availability (array): a 2D array of N_slots by N_nights, binary 1/0, it is the intersection of is_allocated and is_night
         all_stars (array): a array of StarPlotter objects
 
     Returns:
@@ -862,7 +862,7 @@ def get_birdseye(semester_planner, availablity, all_stars):
     fig.update_layout(plot_bgcolor=clear, paper_bgcolor=clear)
 
     # when multiple StarPlotter obects are submitted or a programmatic StarPlotter object,
-    # show the grayed out slots from the intersection of is_alloc and is_night
+    # show the grayed out slots from the intersection of is_allocated and is_night
     if len(all_stars) > 1 or all_stars[0].allow_mapview == False:
         fig.add_trace(
             go.Heatmap(
@@ -2000,7 +2000,7 @@ def compute_seasonality(semester_planner, starnames, ras, decs):
     semester_planner.access_obj.ntargets = len(temp_requests_frame)
 
     # Create dummy allocation for if the try statement fails.
-    is_alloc = np.ones(
+    is_allocated = np.ones(
         (
             len(starnames),
             semester_planner.semester_length,
@@ -2010,10 +2010,8 @@ def compute_seasonality(semester_planner, starnames, ras, decs):
     )
     try:
         # Use Access object to produce the ultimate map with our custom requests frame
-        access_record = semester_planner.access_obj.produce_ultimate_map(
-            running_backup_stars=True
-        )
-        is_alloc = access_record.is_alloc
+        access_record = semester_planner.access_obj.build_access()
+        is_allocated = access_record.is_allocated
     finally:
         # Restore the original allocation file path and request frame
         semester_planner.access_obj.allocation_file = original_allocation_file
@@ -2030,7 +2028,7 @@ def compute_seasonality(semester_planner, starnames, ras, decs):
     nslots = semester_planner.n_slots_in_night
 
     # Create the combined observability mask
-    is_observable_now = np.logical_and.reduce([is_altaz, is_moon, is_alloc])
+    is_observable_now = np.logical_and.reduce([is_altaz, is_moon, is_allocated])
 
     # specify indeces of 3D observability array
     itarget, inight, islot = np.mgrid[:ntargets, :nnights, :nslots]

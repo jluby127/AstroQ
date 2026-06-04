@@ -151,10 +151,10 @@ class TestClass(unittest.TestCase):
         sp = splan.SemesterPlanner.from_hdf5(
             os.path.join(outputs_dir, "semester_planner.h5"),
         )
-        # produce_ultimate_map populates is_observable, first_available,
-        # last_available, has_observable. Not done by from_hdf5; trigger
-        # explicitly so the test does not depend on h5 contents.
-        access_record = sp.access_obj.produce_ultimate_map()
+        # build_access populates first_available, last_available,
+        # has_observable. Not done by from_hdf5; trigger explicitly so
+        # the test does not depend on h5 contents.
+        access_record = sp.access_obj.build_access()
 
         night_d = sp.all_dates_dict[sp.current_day]
         uids = sp.requests_frame["unique_id"].iloc[:3]
