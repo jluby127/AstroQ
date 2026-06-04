@@ -361,31 +361,14 @@ class SemesterPlanner(object):
         logs.debug("Initializing complete.")
 
     def _build_date_dictionary(self):
-        """
-        Construct useful data structures that are used throughout the semester planner.
+        """Delegate to :func:`astroq.access.build_date_dictionary`.
 
-        Returns:
-            all_dates_dict (dict): a dictionary where keys are the dates in the semester and values are the day index
-            all_dates_array (list): a list of the dates in the semester
+        Returns the dicts in ``(dict, array)`` order to preserve the existing
+        unpacking at the caller site (``self.all_dates_dict, self.all_dates_array = ...``).
         """
-        start_date = datetime.strptime(self.semester_start_date, "%Y-%m-%d")
-        end_date = datetime.strptime(self.semester_start_date, "%Y-%m-%d") + timedelta(
-            days=self.semester_length - 1
+        all_dates_array, all_dates_dict = ac.build_date_dictionary(
+            self.semester_start_date, self.semester_length
         )
-
-        all_dates_dict = {}
-        all_dates_array = []
-
-        current_date = start_date
-        day_index = 0
-
-        while current_date <= end_date:
-            date_str = current_date.strftime("%Y-%m-%d")
-            all_dates_dict[date_str] = day_index
-            all_dates_array.append(date_str)
-            current_date += timedelta(days=1)
-            day_index += 1
-
         return all_dates_dict, all_dates_array
 
     def _calculate_slot_info(self):
@@ -444,7 +427,7 @@ class SemesterPlanner(object):
         Returns:
             observability (dict): a dictionary where keys are the star names and values are the indices of the slots where the target is observable
         """
-        self.access_obj = ac.Access(self)
+        self.access_obj = ac.Access.from_planner(self)
         self.access_record = self.access_obj.produce_ultimate_map()
         observability = self.access_obj.observability(access=self.access_record)
         return observability
@@ -1357,7 +1340,7 @@ class SemesterPlanner(object):
                     setattr(instance, attr_name, struct_array.view(np.recarray))
 
         # Recreate access_obj using the rehydrated planner
-        instance.access_obj = ac.Access(instance)
+        instance.access_obj = ac.Access.from_planner(instance)
         logs.info(f"SemesterPlanner loaded from HDF5: {hdf5_path}")
         return instance
 

@@ -14,6 +14,8 @@ The Access class is saved as an attribute of the splan object and used again in 
 
 # Standard library imports
 import logging
+from datetime import datetime, timedelta
+from functools import cached_property
 
 # Third-party imports
 from astropy.utils.iers import conf
@@ -32,52 +34,121 @@ DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 logs = logging.getLogger(__name__)
 
 
-class Access:
+def build_date_dictionary(semester_start_date, semester_length):
+    """Single source of truth for the semester date grid.
+
+    Args:
+        semester_start_date (str): ``'YYYY-MM-DD'`` ISO date of night 0.
+        semester_length (int): number of nights in the semester.
+
     """
-    The Access class encapsulates all the parameters needed for accessibility computation
-    and provides an object-oriented interface to the accessibility computation.
+    start = datetime.strptime(semester_start_date, "%Y-%m-%d")
+    all_dates_array = [
+        (start + timedelta(days=i)).strftime("%Y-%m-%d")
+        for i in range(semester_length)
+    ]
+    all_dates_dict = {d: i for i, d in enumerate(all_dates_array)}
+    return all_dates_array, all_dates_dict
+
+
+class Access:
+    """Accessibility maps for a collection of targets across a semester.
+
+    The constructor takes a tiny required core (``queue`` for telescope
+    geometry, ``request_frame`` for the target list, and three time-grid
+    scalars). Every constraint beyond pointing/moon/altaz is opt-in via
+    keyword argument; pass ``None`` (or omit) and that constraint's mask
+    defaults to all-True. This lets ``Access`` be instantiated standalone
+    in a notebook for ad-hoc accessibility studies, without a
+    :class:`~astroq.splan.SemesterPlanner`, allocation file, or past history.
 
     Hard telescope geometry (deck/nasmyth obstruction, elevation clamps, wrap)
-    lives on the :class:`~astroq.queue.base.Queue` passed in at construction
-    time. ``Access`` snapshots the planner's relevant fields (it does not hold
-    a reference to the planner) and uses ``queue.is_accessible`` as the single
-    per-cell pointing gate inside :meth:`compute_altaz`.
+    lives on the :class:`~astroq.queue.base.Queue` passed at construction
+    time; ``Access`` uses ``queue.is_accessible`` as the single per-cell
+    pointing gate inside :meth:`compute_altaz`. The PI-supplied
+    ``minimum_elevation`` overlay is applied here (Access-side) because it
+    depends on ``request_frame``.
+
+    Derived fields are exposed as :class:`functools.cached_property` so they
+    stay tied to their canonical inputs. If you mutate a backing input
+    (``semester_start_date``, ``semester_length``, ``slot_size``, or
+    ``request_frame``) post-construction, invalidate the affected caches
+    with ``del self.<field>``.
+
+    Required columns on ``request_frame``: ``unique_id``, ``ra``, ``dec``.
+    Optional columns with sensible defaults if missing: ``minimum_elevation``
+    (0.0), ``minimum_moon_separation`` (0.0), ``tau_inter`` (0).
+
+    Example (standalone):
+
+        >>> import pandas as pd
+        >>> from astroq.queue.hirescps import HiresQueue
+        >>> from astroq.access import Access
+        >>> df = pd.DataFrame({
+        ...     "unique_id": ["a", "b"],
+        ...     "ra": [10.0, 200.0],
+        ...     "dec": [20.0, -10.0],
+        ... })
+        >>> acc = Access(HiresQueue(), df, "2026-02-01", 184, 5)
+        >>> acc.compute_altaz()
+        >>> acc.compute_moon()
     """
 
-    def __init__(self, planner, *, queue=None):
-        """Initialize Access from a SemesterPlanner.
+    def __init__(
+        self,
+        queue,
+        request_frame,
+        semester_start_date,
+        semester_length,
+        slot_size,
+        *,
+        current_day=None,
+        slots_needed_for_exposure=None,
+        allocation_file=None,
+        custom_file=None,
+        past_history=None,
+        run_weather_loss=False,
+        weather_loss_file=None,
+    ):
+        self.queue = queue
+        self.observatory = queue.observer
 
-        ``planner`` is consumed for its current state and is not retained;
-        this avoids any circular references between planner and access.
+        if 1440 % slot_size != 0:
+            raise ValueError(
+                f"slot_size={slot_size} must evenly divide 1440 minutes/day."
+            )
 
-        ``queue`` defaults to ``planner.queue``; pass it explicitly only when
-        rehydrating from h5 before the planner's queue is populated.
-        """
-        self.queue = queue if queue is not None else planner.queue
-        self.observatory = self.queue.observer
+        self.semester_start_date = semester_start_date
+        self.semester_length = int(semester_length)
+        self.slot_size = int(slot_size)
+        self.current_day = current_day if current_day is not None else semester_start_date
 
-        # Snapshot fields from planner (planner is not retained)
-        self.semester_start_date = planner.semester_start_date
-        self.semester_length = planner.semester_length
-        self.n_nights_in_semester = planner.n_nights_in_semester
-        self.today_starting_night = planner.today_starting_night
-        self.current_day = planner.current_day
-        self.all_dates_dict = planner.all_dates_dict
-        self.all_dates_array = planner.all_dates_array
-        self.slot_size = planner.slot_size
-        self.slots_needed_for_exposure_dict = planner.slots_needed_for_exposure_dict
-        self.custom_file = planner.custom_file
-        self.allocation_file = planner.allocation_file
-        self.past_history = planner.past_history
-        self.output_directory = planner.output_directory
-        self.run_weather_loss = planner.run_weather_loss
-        self.run_band3 = planner.run_band3
-        self.request_frame = planner.requests_frame
+        # Fill optional per-row columns so downstream compute_* code can assume
+        # they exist. Copy to avoid mutating caller's frame.
+        rf = request_frame.copy()
+        for col, default in (
+            ("minimum_elevation", 0.0),
+            ("minimum_moon_separation", 0.0),
+            ("tau_inter", 0),
+        ):
+            if col not in rf.columns:
+                rf[col] = default
+        self.request_frame = rf
 
-        self.start_date = Time(self.semester_start_date, format="iso", scale="utc")
-        self.ntargets = len(self.request_frame)
-        self.nnights = self.semester_length
-        self.nslots = int((24 * 60) / self.slot_size)
+        # Opt-in constraint inputs. None == constraint is a no-op.
+        self.allocation_file = allocation_file
+        self.custom_file = custom_file
+        self.past_history = past_history if past_history is not None else {}
+        self.run_weather_loss = run_weather_loss
+
+        # Multishot dilation: per-target slot counts. Default 1 per target
+        # (no dilation) so a standalone caller can skip exposure accounting.
+        if slots_needed_for_exposure is None:
+            slots_needed_for_exposure = {
+                uid: 1 for uid in self.request_frame["unique_id"]
+            }
+        self.slots_needed_for_exposure_dict = slots_needed_for_exposure
+
         self.slot_size_time = TimeDelta(self.slot_size * u.min)
         coords = apy.coordinates.SkyCoord(
             self.request_frame.ra * u.deg, self.request_frame.dec * u.deg, frame="icrs"
@@ -106,8 +177,71 @@ class Access:
         self.DATADIR = DATADIR
         # Default historical-loss CSV for Keck/Mauna Kea. compute_clear only
         # uses this when run_weather_loss is True; harmless otherwise.
-        self.weather_loss_file = os.path.join(
+        self.weather_loss_file = weather_loss_file if weather_loss_file is not None else os.path.join(
             self.DATADIR, "maunakea_weather_loss_data.csv"
+        )
+
+    # ------------------------------------------------------------------
+    # Derived fields (cached_property: computed on first access, cached on
+    # the instance). Invalidate with ``del self.<field>`` if you mutate
+    # one of the backing inputs.
+    # ------------------------------------------------------------------
+
+    @cached_property
+    def start_date(self):
+        return Time(self.semester_start_date, format="iso", scale="utc")
+
+    @cached_property
+    def nnights(self):
+        return self.semester_length
+
+    @cached_property
+    def nslots(self):
+        return int(1440 / self.slot_size)
+
+    @cached_property
+    def ntargets(self):
+        return len(self.request_frame)
+
+    @cached_property
+    def _date_dicts(self):
+        return build_date_dictionary(self.semester_start_date, self.semester_length)
+
+    @cached_property
+    def all_dates_array(self):
+        return self._date_dicts[0]
+
+    @cached_property
+    def all_dates_dict(self):
+        return self._date_dicts[1]
+
+    # ------------------------------------------------------------------
+    # Adapter for the planner pipeline. Wires SemesterPlanner attributes
+    # into the standalone constructor.
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def from_planner(cls, planner, *, queue=None):
+        """Construct an ``Access`` from a :class:`SemesterPlanner` instance.
+
+        The planner is consumed for its current state and is not retained;
+        this avoids any circular references between planner and access.
+
+        ``queue`` defaults to ``planner.queue``; pass it explicitly only when
+        rehydrating from h5 before the planner's queue is populated.
+        """
+        return cls(
+            queue=queue if queue is not None else planner.queue,
+            request_frame=planner.requests_frame,
+            semester_start_date=planner.semester_start_date,
+            semester_length=planner.semester_length,
+            slot_size=planner.slot_size,
+            current_day=planner.current_day,
+            slots_needed_for_exposure=planner.slots_needed_for_exposure_dict,
+            allocation_file=planner.allocation_file,
+            custom_file=planner.custom_file,
+            past_history=planner.past_history,
+            run_weather_loss=planner.run_weather_loss,
         )
 
     def compute_altaz(self):
@@ -201,6 +335,8 @@ class Access:
         Compute boolean mask of is_custom for all targets according to the custom times.
         """
         self.is_custom = np.ones((self.ntargets, self.nnights, self.nslots), dtype=bool)
+        if self.custom_file is None:
+            return
         # Handle case where custom file doesn't exist
         if os.path.exists(self.custom_file):
             custom_times_frame = pd.read_csv(self.custom_file)
@@ -230,27 +366,33 @@ class Access:
                     else:  # Otherwise, union with OR
                         self.is_custom[star_ind] = current_map | mask
         else:
-            print(
-                f"Custom times file not found: {self.custom_file}. Using no custom constraints."
+            logs.warning(
+                "Custom times file not found: %s. Using no custom constraints.",
+                self.custom_file,
             )
 
     def compute_allocated(self):
         """
         Compute boolean mask of is_allocated for all targets according to the allocated times.
-        """
-        allocated_times_frame = pd.read_csv(self.allocation_file)
-        allocated_times_frame["start"] = allocated_times_frame["start"].apply(Time)
-        allocated_times_frame["stop"] = allocated_times_frame["stop"].apply(Time)
 
-        allocated_times_map = []
-        allocated_mask = np.zeros((self.nnights, self.nslots), dtype=bool)
-        for i in range(len(allocated_times_frame)):
-            start_time = allocated_times_frame["start"].iloc[i]
-            stop_time = allocated_times_frame["stop"].iloc[i]
-            mask = (self.slotmidpoints >= start_time) & (
-                self.slotmidpoints <= stop_time
-            )
-            allocated_mask |= mask
+        If ``self.allocation_file is None`` (standalone-Access use case), every
+        slot is treated as allocated.
+        """
+        if self.allocation_file is None:
+            allocated_mask = np.ones((self.nnights, self.nslots), dtype=bool)
+        else:
+            allocated_times_frame = pd.read_csv(self.allocation_file)
+            allocated_times_frame["start"] = allocated_times_frame["start"].apply(Time)
+            allocated_times_frame["stop"] = allocated_times_frame["stop"].apply(Time)
+
+            allocated_mask = np.zeros((self.nnights, self.nslots), dtype=bool)
+            for i in range(len(allocated_times_frame)):
+                start_time = allocated_times_frame["start"].iloc[i]
+                stop_time = allocated_times_frame["stop"].iloc[i]
+                mask = (self.slotmidpoints >= start_time) & (
+                    self.slotmidpoints <= stop_time
+                )
+                allocated_mask |= mask
         self.is_allocated_mask = allocated_mask
         self.is_allocated = (
             np.ones_like(self.is_altaz, dtype=bool)
