@@ -1,15 +1,9 @@
 """
-Module for computing the intersection of the various accessibility maps for all targets for the following constraints:
-    - telescope pointing
-    - telescope allocation
-    - sky brightness
-    - moon separation
-    - internight cadence from past history
-    - PI custom windows
-    - simulated weather loss
-    - enough time to complete the exposure tonight
+Module for computing per-target, per-(night, slot) accessibility maps.
 
-The Access class is saved as an attribute of the splan object and used again in plotting.
+See ``Access.SUPPORTED_CONSTRAINTS`` and the ``compute_<name>`` methods for the
+authoritative list of constraints actually applied. The ``Access`` instance is
+stored on ``SemesterPlanner`` and reused for plotting.
 """
 
 import logging
@@ -52,7 +46,19 @@ class Access:
 
     Optional inputs (``allocation_file``, ``custom_file``, ``past_history``,
     ``slots_needed_for_exposure``, weather) are opt-in via keyword. Passing
-    ``None`` (or omitting them) makes the corresponding constraint a no-op,
+    ``None`` (or omitting them) makes the corresponding constraint a no-op.
+
+    Attributes set by :meth:`build_access` / :meth:`build_windows`:
+        first_available (astropy.time.Time): shape ``(ntargets, nnights)``,
+            slot midpoint of the earliest observable slot per (target, night).
+            JD ``0.0`` is a sentinel where ``has_observable`` is False; callers
+            must gate on ``has_observable``. Consumed by ``nplan.run_ttp``.
+        last_available (astropy.time.Time): same shape and sentinel convention;
+            slot midpoint of the latest observable slot. Consumed by
+            ``nplan.run_ttp``.
+        has_observable (np.ndarray[bool]): shape ``(ntargets, nnights)``, True
+            where at least one slot is observable. Consumed by
+            ``nplan.run_ttp`` and ``test_sample``.
 
     Args:
         queue (astroq.queue.base.Queue): instrument/telescope queue.
@@ -119,7 +125,7 @@ class Access:
         weather_loss_file=None,
     ):
         self.queue = queue
-        self.observatory = queue.observer
+        self.observatory = queue.observatory
 
         if 1440 % slot_size != 0:
             raise ValueError(
@@ -194,14 +200,9 @@ class Access:
             self.slotmidpoints_oneday[np.newaxis, :] + days[:, np.newaxis]
         )
 
-        self.DATADIR = DATADIR
-        # Default historical-loss CSV for Keck/Mauna Kea. compute_clear only
-        # uses this when run_weather_loss is True; harmless otherwise.
-        self.weather_loss_file = (
-            weather_loss_file
-            if weather_loss_file is not None
-            else os.path.join(self.DATADIR, "maunakea_weather_loss_data.csv")
-        )
+        # compute_clear reads weather_loss_file only when run_weather_loss
+        # is True; otherwise the cube is unconditionally all-True.
+        self.weather_loss_file = weather_loss_file
 
     # ------------------------------------------------------------------
     # Adapter for the planner pipeline. Wires SemesterPlanner attributes
@@ -209,17 +210,14 @@ class Access:
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_planner(cls, planner, *, queue=None):
+    def from_planner(cls, planner):
         """Construct an ``Access`` from a :class:`SemesterPlanner` instance.
 
-        The planner is consumed for its current state and is not retained;
-        this avoids any circular references between planner and access.
-
-        ``queue`` defaults to ``planner.queue``; pass it explicitly only when
-        rehydrating from h5 before the planner's queue is populated.
+        The planner is consumed for its current state and is not retained,
+        avoiding any circular references between planner and access.
         """
         return cls(
-            queue=queue if queue is not None else planner.queue,
+            queue=planner.queue,
             request_frame=planner.requests_frame,
             semester_start_date=planner.semester_start_date,
             semester_length=planner.semester_length,
@@ -230,6 +228,7 @@ class Access:
             custom_file=planner.custom_file,
             past_history=planner.past_history,
             run_weather_loss=planner.run_weather_loss,
+            weather_loss_file=planner.weather_loss_file,
         )
 
     # ------------------------------------------------------------------
@@ -362,6 +361,10 @@ class Access:
         if not self.run_weather_loss:
             logs.info("Pretending weather is always clear!")
             return np.ones(self._access_shape, dtype=bool)
+        if self.weather_loss_file is None:
+            raise ValueError(
+                "run_weather_loss=True requires weather_loss_file to be set explicitly."
+            )
 
         logs.info("Running weather loss model.")
         self.get_loss_stats(weather_loss_file or self.weather_loss_file)
@@ -380,15 +383,17 @@ class Access:
         Dispatches ``compute_<name>`` for every ``name`` in
         ``self.queue.access_constraints``; unlisted names default to all-True.
         Side effect: calls :meth:`build_windows`, setting
-        ``self.first_available``, ``self.last_available``, ``self.has_observable``.
+        ``self.first_available``, ``self.last_available``,
+        ``self.has_observable``.
 
         Returns:
             np.recarray of shape ``(ntargets, nnights, nslots)`` per field, with
             fields ``is_<name>`` for ``name in SUPPORTED_CONSTRAINTS`` plus
             ``is_observable_now`` (slot-level clearance, AND-reduce of all
             constraint cubes) and ``is_observable`` (start-of-exposure mask
-            narrowed so a multislot exposure of ``slots_needed_for_exposure_dict[uid]``
-            slots fits before night-end).
+            narrowed so a multislot exposure of
+            ``slots_needed_for_exposure_dict[uid]`` slots fits before
+            night-end).
         """
         cubes = {
             name: np.ones(self._access_shape, dtype=bool)
@@ -431,7 +436,8 @@ class Access:
 
         Sets, each shape ``(ntargets, nnights)``:
 
-        - ``self.has_observable``: bool, True where at least one slot is observable.
+        - ``self.has_observable``: bool, True where at least one slot is
+          observable.
         - ``self.first_available``: astropy ``Time`` at the earliest observable
           slot midpoint. JD is a sentinel ``0.0`` where ``has_observable`` is
           False; callers must gate on ``has_observable``.
@@ -450,11 +456,14 @@ class Access:
         # Sentinel JD 0.0; has_observable is the truth source for masking.
         # Time's location must match slotmidpoints' so item-assignment works.
         prefill = np.zeros((ntargets, nnights))
-        make_time = lambda jd: Time(
-            jd, format="jd", scale="utc", location=self.observatory.location
+        self.first_available = Time(
+            prefill, format="jd", scale="utc",
+            location=self.observatory.location,
         )
-        self.first_available = make_time(prefill)
-        self.last_available = make_time(prefill.copy())
+        self.last_available = Time(
+            prefill.copy(), format="jd", scale="utc",
+            location=self.observatory.location,
+        )
 
         mask = self.has_observable
         night_idx = np.broadcast_to(np.arange(nnights), (ntargets, nnights))
@@ -520,10 +529,12 @@ class Access:
         Simulate nights totally lost to weather using historical data
 
         Args:
-            covariance (float): the added percent chance that tomorrow will be lost if today is lost
+            covariance (float): the added percent chance that tomorrow will be
+            lost if today is lost
 
         Returns:
-            is_clear (array): Trues represent clear nights, Falses represent weathered nights
+            is_clear (array): Trues represent clear nights, Falses represent
+            weathered nights
         """
         previous_day_was_lost = False
         is_clear = np.ones(self._access_shape[1:], dtype=bool)
@@ -548,11 +559,12 @@ class Access:
 def build_twilight_allocation_file(semester_planner):
     """
     Build an allocation.csv file where every night of the semester is allocated
-    from evening to morning 12-degree twilight times.
-    This is used exclusively by the football plot in the webapp.
+    from evening to morning 12-degree twilight times. This is used exclusively
+    by the football plot in the webapp.
 
     Args:
-        semester_planner (SemesterPlanner): a semester planner object from splan.py
+        semester_planner (SemesterPlanner): a semester planner object from
+        splan.py
 
     Returns:
         twilight_file (str): Path to the created allocation.csv file
@@ -572,8 +584,8 @@ def build_twilight_allocation_file(semester_planner):
     # Create data directory if it doesn't exist
     os.makedirs(data_dir, exist_ok=True)
 
-    # Use the planner's queue's observer (already an apl.Observer)
-    observatory = semester_planner.queue.observer
+    # Use the planner's queue's observatory (already an apl.Observer)
+    observatory = semester_planner.queue.observatory
 
     # Create allocation data
     allocation_data = []

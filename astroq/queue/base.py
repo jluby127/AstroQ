@@ -64,7 +64,7 @@ class Queue:
             generic and reads from this list.
     """
 
-    observer = None
+    observatory = None
     slew_rate: float
     wrap_limit: float | None = None
     nSlots: int = 1
@@ -154,8 +154,8 @@ class Queue:
         times_grid = window_start[:, None] + delta[:, None] * fracs[None, :]
         times = times_grid.ravel()
 
-        altaz_a = self.observer.altaz(times, coord_a, grid_times_targets=True)
-        altaz_b = self.observer.altaz(times, coord_b, grid_times_targets=True)
+        altaz_a = self.observatory.altaz(times, coord_a, grid_times_targets=True)
+        altaz_b = self.observatory.altaz(times, coord_b, grid_times_targets=True)
         az_sep = self._short_az_sep(
             np.abs(self._wrap_az(altaz_a.az.deg) - self._wrap_az(altaz_b.az.deg))
         )

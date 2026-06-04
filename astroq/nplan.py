@@ -414,7 +414,7 @@ class NightPlanner:
         )
 
         queue = instance.queue
-        solution.observer = queue.observer
+        solution.observer = queue.observatory
         solution.slew_rate = queue.slew_rate
         solution.wrap_limit = queue.wrap_limit
         solution.readout_time = queue.readout_time

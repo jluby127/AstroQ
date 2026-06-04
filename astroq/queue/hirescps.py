@@ -70,7 +70,7 @@ class HIRESCPS(Queue):
     def __init__(self):
         import astroplan as apl
 
-        self.observer = apl.Observer.at_site(
+        self.observatory = apl.Observer.at_site(
             "Keck Observatory", name="Keck", timezone="US/Hawaii"
         )
 

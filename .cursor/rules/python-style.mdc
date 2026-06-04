@@ -4,6 +4,181 @@ globs: ["**/*.py"]
 alwaysApply: false
 ---
 # Python Style
+
+## 1. Code Layout & Formatting
+
+Always adhere to PEP 8. Use an auto-formatter like `Black` or `Ruff` to enforce consistency.
+
+*   **Indentation**: Use 4 spaces. Never tabs.
+*   **Line Length**: Limit lines to 88 characters. Docstrings and comments should ideally wrap at 72 characters.
+*   **Blank Lines**:
+    *   Two blank lines between top-level functions and classes.
+    *   One blank line between methods within a class.
+    *   One blank line to separate logical sections within functions/methods.
+
+
+## 2. Imports
+
+Organize imports for clarity and to prevent circular dependencies. Use `isort` to automate this.
+
+*   **Grouping**:
+    1.  Standard library imports.
+    2.  Third-party library imports.
+    3.  Local application/project-specific imports.
+*   **Alphabetical Order**: Sort imports alphabetically within each group.
+*   **Absolute Imports**: Prefer absolute imports over relative imports.
+
+❌ BAD:
+```python
+import os, sys
+from my_package.sub_module import some_function
+import requests
+from .another_module import another_function
+```
+
+✅ GOOD:
+```python
+import os
+import sys
+
+import requests
+
+from my_package.sub_module import some_function
+from my_package.another_module import another_function
+```
+
+
+## 3. Naming Conventions
+
+Follow PEP 8 naming conventions strictly.
+
+*   **Modules**: `lowercase_with_underscores`
+*   **Packages**: `lowercase_with_underscores`
+*   **Classes**: `CamelCase`
+*   **Functions/Methods**: `lowercase_with_underscores`
+*   **Variables**: `lowercase_with_underscores`
+*   **Constants**: `UPPERCASE_WITH_UNDERSCORES`
+*   **Protected Members**: `_single_leading_underscore` (internal use)
+*   **Private Members**: `__double_leading_underscore` (name mangling, avoid unless necessary for mixins)
+
+❌ BAD:
+```python
+class myClass: # Class name not CamelCase
+    def Get_Data(self): # Method name not lowercase_with_underscores
+        MY_VAR = 10 # Variable name not lowercase_with_underscores
+        return MY_VAR
+```
+
+✅ GOOD:
+```python
+class MyClass:
+    def get_data(self):
+        my_var = 10
+        return my_var
+
+GLOBAL_CONSTANT = 100
+```
+
+## 4. Docstrings & Comments
+
+Document all public modules, classes, and functions using PEP 257 docstring conventions. Use reStructuredText format for Sphinx compatibility.
+
+*   **Module Docstrings**: Top of the file, after `__future__` imports.
+*   **Class Docstrings**: First line after the class definition.
+*   **Function/Method Docstrings**: First line after the `def` statement.
+*   **Comments**: Use sparingly for *why* code exists, not *what* it does.
+
+❌ BAD:
+```python
+def calculate_sum(a, b): # This function adds two numbers
+    return a + b
+```
+
+✅ GOOD:
+```python
+def calculate_sum(a: int, b: int) -> int:
+    """Calculate the sum of two integers.
+
+    :param a: The first integer.
+    :param b: The second integer.
+    :return: The sum of a and b.
+    :raises TypeError: If a or b are not integers.
+    """
+    if not isinstance(a, int) or not isinstance(b, int):
+        raise TypeError("Inputs must be integers.")
+    return a + b
+```
+## 5. Common Patterns & Anti-patterns
+
+*   **Context Managers**: Use `with` statements for resource management.
+
+    ❌ BAD:
+    ```python
+    f = open("file.txt", "r")
+    data = f.read()
+    f.close() # Easy to forget or miss on error
+    ```
+
+    ✅ GOOD:
+    ```python
+    with open("file.txt", "r") as f:
+        data = f.read()
+    # File is automatically closed
+    ```
+
+*   **List Comprehensions/Generator Expressions**: For concise data transformations.
+
+    ❌ BAD:
+    ```python
+    squares = []
+    for i in range(10):
+        squares.append(i * i)
+    ```
+
+    ✅ GOOD:
+    ```python
+    squares = [i * i for i in range(10)]
+    ```
+
+*   **F-strings**: Prefer `f-strings` for string formatting.
+
+    ❌ BAD:
+    ```python
+    name = "Alice"
+    age = 30
+    print("Hello, %s. You are %d years old." % (name, age))
+    print("Hello, {}. You are {} years old.".format(name, age))
+    ```
+
+    ✅ GOOD:
+    ```python
+    name = "Alice"
+    age = 30
+    print(f"Hello, {name}. You are {age} years old.")
+    ```
+    *   **Caveat**: Avoid complex expressions or function calls inside f-strings. Assign to a variable first.
+
+*   **Enums**: Use `enum.Enum` for symbolic constants.
+
+*   **Catch Specific Exceptions**: Never use bare `except:`.
+
+    ❌ BAD:
+    ```python
+    try:
+        # risky operation
+    except: # Catches ALL exceptions, including SystemExit, KeyboardInterrupt
+        print("An error occurred.")
+    ```
+
+    ✅ GOOD:
+    ```python
+    try:
+        result = 1 / 0
+    except ZeroDivisionError:
+        print("Cannot divide by zero.")
+    except Exception as e: # Catching a broader base for unexpected errors
+        print(f"An unexpected error occurred: {e}")
+
 ## Vectorize first
 Default to vectorized pandas/numpy. Reach for an explicit Python loop only
 when the operation is genuinely sequential, has a per-row side effect, or the
@@ -34,6 +209,7 @@ Bad — what we *don't* want to see again:
             row["visit_seq"] = k
             visits_rows.append(row)
     visits = pd.DataFrame(visits_rows)
+
 **Pairwise tables: self-merge, not a double loop.**
 Good (`build_arcs`):
     node_samples = (
@@ -48,6 +224,7 @@ Bad:
         for j in range(N):
             if i == j: continue
             rows.append({"i": i, "j": j, ...})
+
 **Cartesian grids: `np.mgrid` + reshape, not triple-nested loops.**
 Good (`build_arcs`):
     id, m, sample = np.mgrid[1:self.N - 1, 0:self.M, 0:n_samples]
@@ -57,13 +234,16 @@ Good (`build_arcs`):
         "sample": sample.reshape(-1),
         ...
     })
+
 **Per-pair reductions: `groupby(...).max()`, not dict accumulation.**
 Good (`build_arcs`):
     agg = node_samples.groupby(["i", "j", "m"], sort=False)["tau_sample"].max()
+
 **Conditional element-wise math: `np.where` / `np.maximum`, not if/else.**
 Good (`_short_az_sep`, `_slew_minutes`):
     return np.where(az_sep > 180, 360 - az_sep, az_sep)
     return np.maximum(az_sep, alt_sep) / (60.0 * float(self.slew_rate))
+
 ### Acceptable loop pattern (legitimate exception)
 Sparse iteration over a small set of solver variables is fine — the row count
 is tiny and the source isn't a DataFrame. From `build_schedule`:
@@ -74,6 +254,7 @@ is tiny and the source isn't a DataFrame. From `build_schedule`:
     arcs_selected = pd.DataFrame(arcs_selected)
 The "good" examples above are about *avoiding* this pattern when the data
 already lives in a frame.
+
 ## Terseness
 - **No narrating comments.** Comments explain *why* (units, invariants,
   workarounds), not *what* the next line does.
@@ -97,6 +278,7 @@ already lives in a frame.
   `requests_frame: pd.DataFrame`, don't write "requests_frame (pd.DataFrame):
   a dataframe".
 - **Don't preserve dead code as comments.** Delete it; git remembers.
+
 ## When in doubt
 Match the style in `astroq/ttp/model.py` — it's the cleanest vectorized
 pandas/numpy code in the repo and the canonical reference.

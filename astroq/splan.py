@@ -81,6 +81,9 @@ class SemesterPlanner(object):
         # Get semester parameters from semester section
         self.slot_size = config.getint("semester", "slot_size")
         self.run_weather_loss = config.getboolean("semester", "run_weather_loss")
+        self.weather_loss_file = config.get(
+            "semester", "weather_loss_file", fallback=None
+        )
         self.solve_time_limit = config.getint("semester", "max_solve_time")
         self.gurobi_output = config.getboolean("semester", "show_gurobi_output")
         self.solve_max_gap = config.getfloat("semester", "max_solve_gap")
@@ -1113,6 +1116,9 @@ class SemesterPlanner(object):
                 value = getattr(self, attr_name)
                 f.attrs[hdf5_key] = value
 
+            # Nullable string: store as empty string when unset.
+            f.attrs["weather_loss_file"] = self.weather_loss_file or ""
+
             # Save dictionary attributes
             for hdf5_key, attr_name, data_type, _ in dict_attrs:
                 if data_type == "past_history_dict":
@@ -1249,6 +1255,12 @@ class SemesterPlanner(object):
             instance.throttle_grace = float(f.attrs.get("throttle_grace", 1.25))
             instance.hours_per_night = float(f.attrs.get("hours_per_night", 12.0))
 
+            # Nullable weather_loss_file: empty string means "not set"
+            wlf = f.attrs.get("weather_loss_file", "")
+            if isinstance(wlf, bytes):
+                wlf = wlf.decode("utf-8")
+            instance.weather_loss_file = wlf or None
+
             # Queue: prefer the new 'queue' attr; fall back to inferring from
             # legacy ('observatory', 'instrument') attrs for h5 files written
             # before the queue refactor.
@@ -1349,7 +1361,7 @@ class SemesterPlanner(object):
 
     def add_twilights(self):
         """Add 20-minute buffer to allocation times that match 12-degree twilight."""
-        keck = self.queue.observer
+        keck = self.queue.observatory
         allocation_df = pd.read_csv(self.allocation_file)
 
         for idx, row in allocation_df.iterrows():
