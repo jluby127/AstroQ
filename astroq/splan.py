@@ -446,9 +446,7 @@ class SemesterPlanner(object):
         """
         self.access_obj = ac.Access(self)
         self.access_record = self.access_obj.produce_ultimate_map()
-        observability = self.access_obj.observability(
-            self.requests_frame, access=self.access_record
-        )
+        observability = self.access_obj.observability(access=self.access_record)
         return observability
 
     def _compute_slots_required_for_exposure(

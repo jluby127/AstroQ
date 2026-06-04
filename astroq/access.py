@@ -392,15 +392,15 @@ class Access:
         ]
 
     def observability(self, access=None):
-        """
-        Extract a dictionary of the available indices from the record array returned by produce_ultimate_map
+        """Long-form table of observable ``(unique_id, d, s)`` triples.
 
         Args:
-            requests_frame: DataFrame containing request information
-            access: Optional record array from produce_ultimate_map (if None, this function will compute it)
+            access: Optional record array from :meth:`produce_ultimate_map`
+                (computed on the fly if ``None``).
 
         Returns:
-            df (dict): Dictionary where keys are target names and values are lists of available slots per night
+            pandas.DataFrame with columns ``unique_id``, ``d`` (night index),
+            ``s`` (slot index). One row per observable cell.
         """
         if access is None:
             access = self.produce_ultimate_map()

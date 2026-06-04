@@ -31,6 +31,7 @@ from __future__ import annotations
 
 # Third-party imports
 import numpy as np
+import astropy.units as u
 
 
 class Queue:
@@ -115,24 +116,53 @@ class Queue:
             return az_sep
         return np.where(az_sep > 180, 360 - az_sep, az_sep)
 
-    def slew_fn(self, coord_a, coord_b, time):
-        """Slew minutes on the cartesian grid ``(pairs, time)``.
+    #: Per-window sampling policy for :meth:`slew_fn`.
+    _SLEW_SAMPLE_CADENCE_MIN = 30
+    _SLEW_SAMPLES_PER_WINDOW_FLOOR = 3
 
-        Implements the ``TTPModel`` slew_fn contract: ``coord_a`` and ``coord_b``
-        are pair-aligned 1-D ``SkyCoord`` arrays of length ``P`` (pair ``k`` is
-        ``(coord_a[k], coord_b[k])``); ``time`` is a 1-D ``Time`` of length
-        ``T``. Returns an ``ndarray`` of shape ``(P, T)`` whose ``[k, t]`` entry
-        is the slew time (minutes) from ``coord_a[k]`` to ``coord_b[k]``
-        evaluated at ``time[t]``. ``(P, T)`` matches astroplan's
-        ``Observer.altaz(..., grid_times_targets=True)`` convention.
+    def slew_fn(self, coord_a, coord_b, window_start, window_end):
+        """Worst-case slew minutes per (pair, window).
+
+        Implements the ``TTPModel`` slew_fn contract: ``coord_a`` and
+        ``coord_b`` are pair-aligned 1-D ``SkyCoord`` arrays of length
+        ``P`` (pair ``k`` is ``(coord_a[k], coord_b[k])``);
+        ``window_start`` and ``window_end`` are 1-D ``Time`` arrays of
+        length ``M`` giving the bounds of each slew slot. Returns an
+        ``ndarray`` of shape ``(P, M)`` whose ``[k, m]`` entry is the
+        worst-case slew time (minutes) from ``coord_a[k]`` to
+        ``coord_b[k]`` over ``[window_start[m], window_end[m]]``.
+
+        Each window is sampled internally at a cadence of
+        :attr:`_SLEW_SAMPLE_CADENCE_MIN` minutes (floor:
+        :attr:`_SLEW_SAMPLES_PER_WINDOW_FLOOR`) and reduced with ``max``.
+
+        Assumes all windows have equal duration (TTPModel splits the
+        night uniformly). For unequal windows this would need per-row
+        sampling.
         """
-        altaz_a = self.observer.altaz(time, coord_a, grid_times_targets=True)
-        altaz_b = self.observer.altaz(time, coord_b, grid_times_targets=True)
+        M = len(window_start)
+        win_dur_min = (window_end[0] - window_start[0]).to_value(u.min)
+        n_samples = int(max(
+            win_dur_min / self._SLEW_SAMPLE_CADENCE_MIN,
+            self._SLEW_SAMPLES_PER_WINDOW_FLOOR,
+        ))
+
+        # Build a flat Time array of length M*n_samples by sampling each
+        # window uniformly between its start and end.
+        fracs = np.linspace(0.0, 1.0, n_samples)
+        delta = window_end - window_start
+        times_grid = window_start[:, None] + delta[:, None] * fracs[None, :]
+        times = times_grid.ravel()
+
+        altaz_a = self.observer.altaz(times, coord_a, grid_times_targets=True)
+        altaz_b = self.observer.altaz(times, coord_b, grid_times_targets=True)
         az_sep = self._short_az_sep(
             np.abs(self._wrap_az(altaz_a.az.deg) - self._wrap_az(altaz_b.az.deg))
         )
         alt_sep = np.abs(altaz_a.alt.deg - altaz_b.alt.deg)
-        return np.maximum(az_sep, alt_sep) / (60.0 * float(self.slew_rate))
+        tau = np.maximum(az_sep, alt_sep) / (60.0 * float(self.slew_rate))
+        # tau shape: (P, M*n_samples). Reduce per window.
+        return tau.reshape(-1, M, n_samples).max(axis=2)
 
     def visit_seconds(self, exptime_s, n_exp, n_intra_max):
         """Splan-canonical per-visit seconds.

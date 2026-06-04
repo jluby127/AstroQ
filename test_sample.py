@@ -142,37 +142,48 @@ class TestClass(unittest.TestCase):
         self.assertIsInstance(solution.night_start, Time)
         self.assertIsInstance(solution.night_end, Time)
         self.assertFalse(solution.schedule.empty)
-        self.assertIsInstance(solution.requests_frame["coord"].iloc[0], SkyCoord)
-        self.assertIsInstance(solution.requests_frame["first_available"].iloc[0], Time)
+        self.assertIsInstance(solution.requests["coord"], SkyCoord)
+        self.assertIsInstance(solution.requests["first_available"], Time)
 
     def test10_nightly_availability_windows(self):
-        """Access helper returns Time scalars from slotmidpoints."""
+        """Access exposes first/last_available as Time arrays from slotmidpoints."""
         outputs_dir = "examples/hello_world/2018B/2018-08-05/band1/outputs"
         sp = splan.SemesterPlanner.from_hdf5(
             os.path.join(outputs_dir, "semester_planner.h5"),
         )
+        # produce_ultimate_map populates is_observable, first_available,
+        # last_available, has_observable. Not done by from_hdf5; trigger
+        # explicitly so the test does not depend on h5 contents.
+        access_record = sp.access_obj.produce_ultimate_map()
+
         night_d = sp.all_dates_dict[sp.current_day]
         uids = sp.requests_frame["unique_id"].iloc[:3]
-        windows = sp.access_obj.nightly_availability_windows(
-            night_d,
-            uids,
-            sp.access_record,
-        )
-        self.assertEqual(len(windows), 3)
-        self.assertIsInstance(windows["first_available"].iloc[0], Time)
-        self.assertIsInstance(windows["last_available"].iloc[0], Time)
 
-        obs = sp.access_obj.observability(
-            sp.requests_frame,
-            access=sp.access_record,
-        )
+        # Cross-check first/last_available against the long-form observability
+        # table for each observable uid tonight.
+        req_index = sp.access_obj.request_frame.set_index("unique_id").index
+        row_idx = req_index.get_indexer(uids)
+        first_available = sp.access_obj.first_available[row_idx, night_d]
+        last_available = sp.access_obj.last_available[row_idx, night_d]
+        has_obs = sp.access_obj.has_observable[row_idx, night_d]
+
+        self.assertEqual(len(first_available), 3)
+        self.assertIsInstance(first_available, Time)
+        self.assertIsInstance(last_available, Time)
+
+        obs = sp.access_obj.observability(access=access_record)
         night = obs.loc[obs["d"] == night_d]
-        uid = uids.iloc[0]
-        s_min = night.loc[night["unique_id"] == uid, "s"].min()
-        s_max = night.loc[night["unique_id"] == uid, "s"].max()
-        row = windows.loc[windows["unique_id"] == uid].iloc[0]
-        self.assertEqual(row["first_available"], sp.access_obj.slotmidpoints[night_d, s_min])
-        self.assertEqual(row["last_available"], sp.access_obj.slotmidpoints[night_d, s_max])
+        for k, uid in enumerate(uids):
+            if not has_obs[k]:
+                continue
+            slots = night.loc[night["unique_id"] == uid, "s"]
+            s_min, s_max = int(slots.min()), int(slots.max())
+            self.assertEqual(
+                first_available[k], sp.access_obj.slotmidpoints[night_d, s_min]
+            )
+            self.assertEqual(
+                last_available[k], sp.access_obj.slotmidpoints[night_d, s_max]
+            )
 
     def test11_get_nightly_times_missing_day(self):
         allo = "examples/hello_world/2018B/2018-08-05/band1/allocation.csv"
