@@ -69,11 +69,12 @@ class Access:
     ``minimum_elevation`` overlay is applied here (Access-side) because it
     depends on ``request_frame``.
 
-    Derived fields are exposed as :class:`functools.cached_property` so they
-    stay tied to their canonical inputs. If you mutate a backing input
-    (``semester_start_date``, ``semester_length``, ``slot_size``, or
-    ``request_frame``) post-construction, invalidate the affected caches
-    with ``del self.<field>``.
+    The semester date grid (``all_dates_array`` / ``all_dates_dict``) is
+    exposed as a :class:`functools.cached_property` so a standalone caller
+    that only uses ``compute_altaz`` / ``compute_moon`` never pays the
+    datetime-loop cost. If you mutate ``semester_start_date`` or
+    ``semester_length`` post-construction, invalidate with
+    ``del self.all_dates_array`` (and likewise for ``all_dates_dict``).
 
     Required columns on ``request_frame``: ``unique_id``, ``ra``, ``dec``.
     Optional columns with sensible defaults if missing: ``minimum_elevation``
@@ -123,6 +124,9 @@ class Access:
         self.slot_size = int(slot_size)
         self.current_day = current_day if current_day is not None else semester_start_date
 
+        self.start_date = Time(self.semester_start_date, format="iso", scale="utc")
+
+
         # Fill optional per-row columns so downstream compute_* code can assume
         # they exist. Copy to avoid mutating caller's frame.
         rf = request_frame.copy()
@@ -134,6 +138,11 @@ class Access:
             if col not in rf.columns:
                 rf[col] = default
         self.request_frame = rf
+
+        self.ntargets = len(self.request_frame)
+        self.nnights = self.semester_length
+        self.nslots = int(1440 / self.slot_size)
+        self._access_shape = (self.ntargets, self.nnights, self.nslots)
 
         # Opt-in constraint inputs. None == constraint is a no-op.
         self.allocation_file = allocation_file
@@ -182,26 +191,11 @@ class Access:
         )
 
     # ------------------------------------------------------------------
-    # Derived fields (cached_property: computed on first access, cached on
-    # the instance). Invalidate with ``del self.<field>`` if you mutate
-    # one of the backing inputs.
+    # Date-grid derivation: cached_property so a standalone user who only
+    # calls compute_altaz / compute_moon never pays the datetime-loop cost,
+    # and so the dicts stay tied to semester_start_date / semester_length.
+    # Invalidate with ``del self.<field>`` if you mutate those inputs.
     # ------------------------------------------------------------------
-
-    @cached_property
-    def start_date(self):
-        return Time(self.semester_start_date, format="iso", scale="utc")
-
-    @cached_property
-    def nnights(self):
-        return self.semester_length
-
-    @cached_property
-    def nslots(self):
-        return int(1440 / self.slot_size)
-
-    @cached_property
-    def ntargets(self):
-        return len(self.request_frame)
 
     @cached_property
     def _date_dicts(self):
@@ -251,6 +245,16 @@ class Access:
         the Access class has no instrument-specific knowledge. The PI-supplied
         ``minimum_elevation`` overlay is applied here (Access-side) because it
         depends on ``request_frame``.
+
+        Notes:
+            
+            Accessibility booleans are computed for first day of semester. Then
+            and a look-up table relating LST to accessibility is created. Then 
+            subsequent slot midpoints are converted to LST and we query the look-up 
+            table to get the accessibility boolean.
+
+            Does not work for non-sidereal targets
+
         """
         altazes = self.observatory.altaz(
             self.timegrid, self.targets, grid_times_targets=True
@@ -260,9 +264,7 @@ class Access:
 
         is_altaz0 = self.queue.is_accessible(alts, azes)
 
-        # PI-supplied per-target minimum elevation overlay. queue.is_accessible
-        # already enforces the lower-elevation clamp via inaccessible_zones, so
-        # no np.maximum needed here.
+        # Apply PI-supplied per-target minimum elevation
         pi_elev = self.request_frame["minimum_elevation"].values
         is_altaz0 &= alts >= pi_elev[:, np.newaxis]
 
@@ -275,13 +277,10 @@ class Access:
 
     def compute_future(self):
         """
-        Compute boolean mask of is_future for all targets according to today's current_day.
-
-        Args:
-        Returns:
-            is_altaz (array): boolean mask of is_altaz for targets
+        Compute boolean mask of is_future for all targets according to today's
+        current_day.
         """
-        self.is_future = np.ones((self.ntargets, self.nnights, self.nslots), dtype=bool)
+        self.is_future = np.ones(self._access_shape, dtype=bool)
         today_daynumber = self.all_dates_dict[self.current_day]
         self.is_future[:, :today_daynumber, :] = False
 
@@ -314,7 +313,7 @@ class Access:
         Compute boolean mask of is_inter for all targets according to the internight cadence.
         """
         # Set to False if internight cadence is violated
-        self.is_inter = np.ones((self.ntargets, self.nnights, self.nslots), dtype=bool)
+        self.is_inter = np.ones(self._access_shape, dtype=bool)
         for itarget in range(self.ntargets):
             name = self.request_frame.iloc[itarget]["unique_id"]
             if (
@@ -334,7 +333,7 @@ class Access:
         """
         Compute boolean mask of is_custom for all targets according to the custom times.
         """
-        self.is_custom = np.ones((self.ntargets, self.nnights, self.nslots), dtype=bool)
+        self.is_custom = np.ones(self._access_shape, dtype=bool)
         if self.custom_file is None:
             return
         # Handle case where custom file doesn't exist
@@ -379,13 +378,13 @@ class Access:
         slot is treated as allocated.
         """
         if self.allocation_file is None:
-            allocated_mask = np.ones((self.nnights, self.nslots), dtype=bool)
+            allocated_mask = np.ones(self._access_shape[1:], dtype=bool)
         else:
             allocated_times_frame = pd.read_csv(self.allocation_file)
             allocated_times_frame["start"] = allocated_times_frame["start"].apply(Time)
             allocated_times_frame["stop"] = allocated_times_frame["stop"].apply(Time)
 
-            allocated_mask = np.zeros((self.nnights, self.nslots), dtype=bool)
+            allocated_mask = np.zeros(self._access_shape[1:], dtype=bool)
             for i in range(len(allocated_times_frame)):
                 start_time = allocated_times_frame["start"].iloc[i]
                 stop_time = allocated_times_frame["stop"].iloc[i]
@@ -415,13 +414,11 @@ class Access:
             self.get_loss_stats(weather_loss_file)
             self.is_clear = self.simulate_weather_losses(covariance=0.14)
             self.is_clear = np.tile(
-                self.is_clear[np.newaxis, :, :], (self.ntargets, 1, 1)
+                self.is_clear[np.newaxis, :, :], (self._access_shape[0], 1, 1)
             )
         else:
             logs.info("Pretending weather is always clear!")
-            self.is_clear = np.ones(
-                (self.ntargets, self.nnights, self.nslots), dtype=bool
-            )
+            self.is_clear = np.ones(self._access_shape, dtype=bool)
 
     def produce_ultimate_map(self):
         """
@@ -497,8 +494,8 @@ class Access:
         Requires :attr:`is_observable` to be populated; intended to run at the
         end of :meth:`produce_ultimate_map`.
         """
-        obs = self.is_observable  # (ntargets, nnights, nslots)
-        ntargets, nnights, nslots = obs.shape
+        obs = self.is_observable
+        ntargets, nnights, nslots = self._access_shape
 
         self.has_observable = obs.any(axis=2)
         first_idx = np.argmax(obs, axis=2)
@@ -596,9 +593,7 @@ class Access:
             is_clear (array): Trues represent clear nights, Falses represent weathered nights
         """
         previous_day_was_lost = False
-        is_clear = np.ones(
-            (self.semester_length, int((24 * 60) / self.slot_size)), dtype=bool
-        )
+        is_clear = np.ones(self._access_shape[1:], dtype=bool)
         for i in range(len(self.loss_stats_this_semester)):
             value_to_beat = self.loss_stats_this_semester[i]
             if previous_day_was_lost:
