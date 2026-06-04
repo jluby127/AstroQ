@@ -885,14 +885,37 @@ def format_hires_row(
     """
 
     equinox = "2000"
-    # Handle missing pmra/pmdec columns with default values
-    pmra = row.get("pmra", pd.Series([0.0])).iloc[0] if "pmra" in row else 0.0
-    pmdec = row.get("pmdec", pd.Series([0.0])).iloc[0] if "pmdec" in row else 0.0
-    updated_ra, updated_dec = pm_correcter(
-        row["ra"].iloc[0], row["dec"].iloc[0], pmra, pmdec, current_day, equinox=equinox
+    # Treat missing/NaN proper motions as zero so apply_space_motion stays finite.
+    pmra_raw = row.get("pmra", pd.Series([0.0])).iloc[0] if "pmra" in row else 0.0
+    pmdec_raw = row.get("pmdec", pd.Series([0.0])).iloc[0] if "pmdec" in row else 0.0
+    pmra = 0.0 if pd.isna(pmra_raw) else float(pmra_raw)
+    pmdec = 0.0 if pd.isna(pmdec_raw) else float(pmdec_raw)
+
+    current_time = Time(current_day)
+    coord = SkyCoord(
+        ra=row["ra"].iloc[0] * u.deg,
+        dec=row["dec"].iloc[0] * u.deg,
+        pm_ra_cosdec=pmra * u.mas / u.yr,
+        pm_dec=pmdec * u.mas / u.yr,
+        obstime=Time(f"J{equinox}"),
+    )
+    new_coord = coord.apply_space_motion(new_obstime=current_time)
+    updated_ra = new_coord.ra.to_string(
+        unit=u.hourangle, sep=" ", pad=True, precision=1
+    )
+    updated_dec = new_coord.dec.to_string(
+        unit=u.deg, sep=" ", pad=True, precision=0
     )
     if updated_dec[0] != "-":
         updated_dec = "+" + updated_dec
+
+    # Annotate the script line with the observation epoch when proper motion was actually
+    # applied, so the observer can tell the coords are propagated (frame/equinox is still J2000).
+    epoch_token = (
+        f"epoch={current_time.jyear:.1f}"
+        if (pmra != 0.0 or pmdec != 0.0)
+        else None
+    )
 
     starname_str = str(row["starname"].iloc[0])
     namestring = " " * (16 - len(starname_str[:16])) + starname_str[:16]
@@ -963,6 +986,9 @@ def format_hires_row(
     if not omit_timing:
         line += " " + timestring2 + " " + first_available + " " + last_available
 
+    if epoch_token is not None:
+        line += " " + epoch_token
+
     # Handle missing Observing Notes column
     observing_notes = (
         row.get("Observing Notes", [""])[0] if "Observing Notes" in row else ""
@@ -975,35 +1001,3 @@ def format_hires_row(
 
     return line
 
-
-def pm_correcter(ra, dec, pmra, pmdec, current_day, equinox="2000"):
-    """
-    Update a star's coordinates due to proper motion.
-
-    Args:
-        ra (float): RA in degrees
-        dec (float): Dec in degrees
-        pmra (float): proper motion in RA (mas/yr), including cos(Dec)
-        pmdec (float): proper motion in Dec (mas/yr)
-        equinox (str): original epoch (e.g. '2000.0')
-        current_day (str): date to which to propagate (e.g. '2025-04-30')
-
-    Returns:
-        formatted_ra (str), formatted_dec (str): updated coordinates as strings
-    """
-    start_time = Time(f"J{equinox}")
-    current_time = Time(current_day)
-    coord = SkyCoord(
-        ra=ra * u.deg,
-        dec=dec * u.deg,
-        pm_ra_cosdec=pmra * u.mas / u.yr,
-        pm_dec=pmdec * u.mas / u.yr,
-        obstime=start_time,
-    )
-    new_coord = coord.apply_space_motion(new_obstime=current_time)
-    formatted_ra = new_coord.ra.to_string(
-        unit=u.hourangle, sep=" ", pad=True, precision=1
-    )
-    formatted_dec = new_coord.dec.to_string(unit=u.deg, sep=" ", pad=True, precision=0)
-
-    return formatted_ra, formatted_dec
