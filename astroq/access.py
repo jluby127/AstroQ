@@ -12,22 +12,19 @@ Module for computing the intersection of the various accessibility maps for all 
 The Access class is saved as an attribute of the splan object and used again in plotting.
 """
 
-# Standard library imports
 import logging
+import os
 from datetime import datetime, timedelta
-from functools import cached_property
 
-# Third-party imports
-from astropy.utils.iers import conf
-
-conf.auto_max_age = None
 import astropy as apy
 import astropy.units as u
 import astroplan as apl
 import numpy as np
 import pandas as pd
 from astropy.time import Time, TimeDelta
-import os
+from astropy.utils.iers import conf
+
+conf.auto_max_age = None
 
 DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 
@@ -44,8 +41,7 @@ def build_date_dictionary(semester_start_date, semester_length):
     """
     start = datetime.strptime(semester_start_date, "%Y-%m-%d")
     all_dates_array = [
-        (start + timedelta(days=i)).strftime("%Y-%m-%d")
-        for i in range(semester_length)
+        (start + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(semester_length)
     ]
     all_dates_dict = {d: i for i, d in enumerate(all_dates_array)}
     return all_dates_array, all_dates_dict
@@ -68,13 +64,6 @@ class Access:
     pointing gate inside :meth:`compute_altaz`. The PI-supplied
     ``minimum_elevation`` overlay is applied here (Access-side) because it
     depends on ``request_frame``.
-
-    The semester date grid (``all_dates_array`` / ``all_dates_dict``) is
-    exposed as a :class:`functools.cached_property` so a standalone caller
-    that only uses ``compute_altaz`` / ``compute_moon`` never pays the
-    datetime-loop cost. If you mutate ``semester_start_date`` or
-    ``semester_length`` post-construction, invalidate with
-    ``del self.all_dates_array`` (and likewise for ``all_dates_dict``).
 
     Required columns on ``request_frame``: ``unique_id``, ``ra``, ``dec``.
     Optional columns with sensible defaults if missing: ``minimum_elevation``
@@ -122,10 +111,14 @@ class Access:
         self.semester_start_date = semester_start_date
         self.semester_length = int(semester_length)
         self.slot_size = int(slot_size)
-        self.current_day = current_day if current_day is not None else semester_start_date
+        self.current_day = (
+            current_day if current_day is not None else semester_start_date
+        )
 
         self.start_date = Time(self.semester_start_date, format="iso", scale="utc")
-
+        self.all_dates_array, self.all_dates_dict = build_date_dictionary(
+            self.semester_start_date, self.semester_length
+        )
 
         # Fill optional per-row columns so downstream compute_* code can assume
         # they exist. Copy to avoid mutating caller's frame.
@@ -186,28 +179,11 @@ class Access:
         self.DATADIR = DATADIR
         # Default historical-loss CSV for Keck/Mauna Kea. compute_clear only
         # uses this when run_weather_loss is True; harmless otherwise.
-        self.weather_loss_file = weather_loss_file if weather_loss_file is not None else os.path.join(
-            self.DATADIR, "maunakea_weather_loss_data.csv"
+        self.weather_loss_file = (
+            weather_loss_file
+            if weather_loss_file is not None
+            else os.path.join(self.DATADIR, "maunakea_weather_loss_data.csv")
         )
-
-    # ------------------------------------------------------------------
-    # Date-grid derivation: cached_property so a standalone user who only
-    # calls compute_altaz / compute_moon never pays the datetime-loop cost,
-    # and so the dicts stay tied to semester_start_date / semester_length.
-    # Invalidate with ``del self.<field>`` if you mutate those inputs.
-    # ------------------------------------------------------------------
-
-    @cached_property
-    def _date_dicts(self):
-        return build_date_dictionary(self.semester_start_date, self.semester_length)
-
-    @cached_property
-    def all_dates_array(self):
-        return self._date_dicts[0]
-
-    @cached_property
-    def all_dates_dict(self):
-        return self._date_dicts[1]
 
     # ------------------------------------------------------------------
     # Adapter for the planner pipeline. Wires SemesterPlanner attributes
@@ -247,10 +223,10 @@ class Access:
         depends on ``request_frame``.
 
         Notes:
-            
+
             Accessibility booleans are computed for first day of semester. Then
-            and a look-up table relating LST to accessibility is created. Then 
-            subsequent slot midpoints are converted to LST and we query the look-up 
+            and a look-up table relating LST to accessibility is created. Then
+            subsequent slot midpoints are converted to LST and we query the look-up
             table to get the accessibility boolean.
 
             Does not work for non-sidereal targets
@@ -286,7 +262,8 @@ class Access:
 
     def compute_moon(self):
         """
-        Compute boolean mask of is_moon for all targets according to the moon's position.
+        Compute boolean mask of is_moon for all targets according to the moon's
+        position.
         """
         self.is_moon = np.ones_like(self.is_altaz, dtype=bool)
         moon = apy.coordinates.get_moon(
@@ -310,7 +287,8 @@ class Access:
 
     def compute_inter(self):
         """
-        Compute boolean mask of is_inter for all targets according to the internight cadence.
+        Compute boolean mask of is_inter for all targets according to the
+        internight cadence.
         """
         # Set to False if internight cadence is violated
         self.is_inter = np.ones(self._access_shape, dtype=bool)
@@ -331,7 +309,8 @@ class Access:
 
     def compute_custom(self):
         """
-        Compute boolean mask of is_custom for all targets according to the custom times.
+        Compute boolean mask of is_custom for all targets according to the
+        custom times.
         """
         self.is_custom = np.ones(self._access_shape, dtype=bool)
         if self.custom_file is None:
@@ -372,7 +351,8 @@ class Access:
 
     def compute_allocated(self):
         """
-        Compute boolean mask of is_allocated for all targets according to the allocated times.
+        Compute boolean mask of is_allocated for all targets according to the
+        allocated times.
 
         If ``self.allocation_file is None`` (standalone-Access use case), every
         slot is treated as allocated.
@@ -443,9 +423,11 @@ class Access:
                 self.is_clear,
             ]
         )
-        # the target does not violate any of the observability limits in that specific slot, but
-        # it does not mean it can be started at the slot. retroactively grow mask to accomodate multishot exposures.
-        # Is observable now,
+
+        # The array is_observable_now is True if an exposure can start at the
+        # current slot, but we need to make sure it is observable for the entire
+        # duration of its exposure. This retroactively grows the mask observable
+        # now.
         self.is_observable = self.is_observable_now.copy()
         for itarget in range(self.ntargets):
             e_val = self.slots_needed_for_exposure_dict[
@@ -459,6 +441,9 @@ class Access:
                 self.is_observable[itarget, :, :-shift] &= self.is_observable_now[
                     itarget, :, shift:
                 ]
+
+            # Protect against an exposure overrunning the night
+            self.is_observable[itarget, :, -(e_val - 1):] = False
 
         self.compute_available_windows()
 
@@ -526,9 +511,7 @@ class Access:
         self.first_available[mask] = self.slotmidpoints[
             night_idx[mask], first_idx[mask]
         ]
-        self.last_available[mask] = self.slotmidpoints[
-            night_idx[mask], last_idx[mask]
-        ]
+        self.last_available[mask] = self.slotmidpoints[night_idx[mask], last_idx[mask]]
 
     def observability(self, access=None):
         """Long-form table of observable ``(unique_id, d, s)`` triples.

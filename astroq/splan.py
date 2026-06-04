@@ -10,7 +10,7 @@ import os
 import time
 import warnings
 from configparser import ConfigParser
-from datetime import datetime, timedelta
+from datetime import datetime
 import json
 import h5py
 
@@ -208,7 +208,9 @@ class SemesterPlanner(object):
         # Compile additional data and metadata
         self.past_history = hs.process_star_history(self.past_file)
         self.slots_needed_for_exposure_dict = self._build_slots_required_dictionary()
-        self.all_dates_dict, self.all_dates_array = self._build_date_dictionary()
+        # Build Access early so it is the single source of truth for the
+        # semester date grid (consumed via @property shims below).
+        self.access_obj = ac.Access.from_planner(self)
         self._calculate_slot_info()
 
         # Observability represents the indices of the slots where targets are observable
@@ -360,16 +362,15 @@ class SemesterPlanner(object):
             self.past_nights_observed_dict = past_nights_observed_dict
         logs.debug("Initializing complete.")
 
-    def _build_date_dictionary(self):
-        """Delegate to :func:`astroq.access.build_date_dictionary`.
+    @property
+    def all_dates_array(self):
+        """List of ISO date strings, one per night; sourced from ``access_obj``."""
+        return self.access_obj.all_dates_array
 
-        Returns the dicts in ``(dict, array)`` order to preserve the existing
-        unpacking at the caller site (``self.all_dates_dict, self.all_dates_array = ...``).
-        """
-        all_dates_array, all_dates_dict = ac.build_date_dictionary(
-            self.semester_start_date, self.semester_length
-        )
-        return all_dates_dict, all_dates_array
+    @property
+    def all_dates_dict(self):
+        """``{date_str: night_index}``; sourced from ``access_obj``."""
+        return self.access_obj.all_dates_dict
 
     def _calculate_slot_info(self):
         """
@@ -427,7 +428,6 @@ class SemesterPlanner(object):
         Returns:
             observability (dict): a dictionary where keys are the star names and values are the indices of the slots where the target is observable
         """
-        self.access_obj = ac.Access.from_planner(self)
         self.access_record = self.access_obj.produce_ultimate_map()
         observability = self.access_obj.observability(access=self.access_record)
         return observability
@@ -1074,9 +1074,11 @@ class SemesterPlanner(object):
             ("hours_per_night", "hours_per_night", "scalar", None),
         ]
 
-        # Dictionary attributes (saved as JSON)
+        # Dictionary attributes (saved as JSON).
+        # Note: all_dates_dict is intentionally NOT saved here — it is rebuilt
+        # from semester_start_date + semester_length by Access.from_planner on
+        # load (see SemesterPlanner.from_hdf5).
         dict_attrs = [
-            ("all_dates_dict_json", "all_dates_dict", "dict_json", None),
             (
                 "slots_needed_for_exposure_dict_json",
                 "slots_needed_for_exposure_dict",
@@ -1092,9 +1094,10 @@ class SemesterPlanner(object):
             ("past_history_json", "past_history", "past_history_dict", None),
         ]
 
-        # Array/list attributes
+        # Array/list attributes.
+        # Note: all_dates_array is intentionally NOT saved here for the same
+        # reason as all_dates_dict above.
         array_attrs = [
-            ("all_dates_array", "all_dates_array", "list", None),
             ("access_record", "access_record", "structured_array", None),
         ]
 
@@ -1203,9 +1206,9 @@ class SemesterPlanner(object):
             ("allocation_file", "allocation_file", "string", None),
         ]
 
-        # Dictionary attributes (loaded from JSON)
+        # Dictionary attributes (loaded from JSON).
+        # all_dates_dict is recomputed on the fly by Access.from_planner below.
         dict_attrs = [
-            ("all_dates_dict_json", "all_dates_dict", "dict_json", None),
             (
                 "slots_needed_for_exposure_dict_json",
                 "slots_needed_for_exposure_dict",
@@ -1221,9 +1224,9 @@ class SemesterPlanner(object):
             ("past_history_json", "past_history", "past_history_dict", None),
         ]
 
-        # Array/list attributes
+        # Array/list attributes.
+        # all_dates_array is recomputed on the fly by Access.from_planner below.
         array_attrs = [
-            ("all_dates_array", "all_dates_array", "list", None),
             ("access_record", "access_record", "structured_array", None),
         ]
 
