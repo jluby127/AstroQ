@@ -20,11 +20,11 @@ from gurobipy import GRB
 import numpy as np
 import pandas as pd
 from astropy.time import Time, TimeDelta
+from jinja2 import Template
 
 # Local imports
 import astroq.access as ac
 import astroq.history as hs
-import astroq.io as io
 import astroq.queue
 
 # Suppress warnings
@@ -184,7 +184,17 @@ class SemesterPlanner(object):
                 )
         self.requests_frame["unique_id"] = self.requests_frame["unique_id"].astype(str)
         self.requests_frame["starname"] = self.requests_frame["starname"].astype(str)
-        io.validate_active_request_unique_ids(self.requests_frame, self.request_file)
+
+        # Fail loudly on duplicate unique_id rather than letting gurobipy raise the
+        # cryptic "Duplicate keys in Model.addVars()" later.
+        uid = self.requests_frame["unique_id"]
+        dup_mask = uid.duplicated(keep=False)
+        if dup_mask.any():
+            dup_ids = sorted(uid[dup_mask].unique())
+            raise ValueError(
+                f"Duplicate unique_id among active requests in {self.request_file!r}: "
+                f"{dup_ids}. Remove or merge duplicate rows so each active request has one row."
+            )
 
         # Build the "strategy" dataframe. Note exptime is in seconds and tau_intra is in hours; both are converted to slots here
         strategy = self.requests_frame[
@@ -1002,20 +1012,236 @@ class SemesterPlanner(object):
         self.set_objective_maximize_slots_used()
         logs.info(f"Time to build constraints: {np.round(time.time() - t1, 3):.3f}")
 
+    def build_schedule(self):
+        """
+        Build the sparse schedule DataFrame from ``self.Yrds`` and write
+        ``semester_plan.csv``.
+
+        Sets ``self.serialized_schedule`` to the resulting DataFrame with
+        columns ``r, d, s, name`` (one row per scheduled exposure start).
+        """
+        df = pd.DataFrame(self.Yrds.keys(), columns=["r", "d", "s"])
+        df["value"] = [self.Yrds[k].x for k in self.Yrds.keys()]
+        sparse = df.query("value>0").copy()
+        sparse.drop(columns=["value"], inplace=True)
+        sparse["name"] = (
+            sparse["r"]
+            .map(
+                dict(
+                    zip(
+                        self.requests_frame["unique_id"],
+                        self.requests_frame["starname"],
+                    )
+                )
+            )
+            .fillna("NO MATCHING NAME")
+        )
+        sparse.to_csv(
+            os.path.join(self.output_directory, "semester_plan.csv"),
+            index=False,
+            na_rep="",
+        )
+        self.serialized_schedule = sparse
+
+    def _program_statistics(self, schedule_df):
+        """Per-program awarded/requested/past/scheduled slot accounting."""
+        slot_size = self.slot_size
+        hours_per_night = self.hours_per_night
+        slots_per_hour = 60 / slot_size
+        slots_per_night = hours_per_night * slots_per_hour
+
+        program_frame = pd.read_csv(self.programs_file)
+        program_stats = {}
+        for _, prog_row in program_frame.iterrows():
+            program = prog_row["program"]
+            awarded_nights = prog_row["nights"]
+            awarded_hours = awarded_nights * hours_per_night
+            awarded_slots = awarded_nights * slots_per_night
+
+            program_requests = self.requests_frame[
+                self.requests_frame["program_code"] == program
+            ].copy()
+            program_requests["slots_needed"] = (
+                program_requests["unique_id"]
+                .map(self.slots_needed_for_exposure_dict)
+                .fillna(0)
+            )
+            requested_slots = (
+                program_requests["slots_needed"]
+                * program_requests["n_intra_max"]
+                * program_requests["n_inter_max"]
+            ).sum()
+            requested_hours = requested_slots / slots_per_hour
+            requested_nights = requested_hours / hours_per_night
+
+            past_slots = 0
+            for _, req_row in program_requests.iterrows():
+                star_id = req_row["unique_id"]
+                if star_id in self.past_history:
+                    past_hist = self.past_history[star_id]
+                    slots_per_exposure = self.slots_needed_for_exposure_dict.get(
+                        star_id, 1
+                    )
+                    past_slots += past_hist.total_n_exposures * slots_per_exposure
+            past_hours = past_slots / slots_per_hour
+            past_nights = past_hours / hours_per_night
+
+            schedule_with_program = schedule_df.merge(
+                self.requests_frame[["unique_id", "program_code"]],
+                left_on="r",
+                right_on="unique_id",
+                how="inner",
+            )
+            program_scheduled = schedule_with_program[
+                schedule_with_program["program_code"] == program
+            ]
+            scheduled_slots = (
+                program_scheduled["r"]
+                .map(self.slots_needed_for_exposure_dict)
+                .fillna(1)
+                .sum()
+            )
+            scheduled_hours = scheduled_slots / slots_per_hour
+            scheduled_nights = scheduled_hours / hours_per_night
+
+            total_scheduled_and_past_slots = scheduled_slots + past_slots
+            fullnessA = (
+                (total_scheduled_and_past_slots * 100.0 / requested_slots)
+                if requested_slots > 0
+                else 0.0
+            )
+            fullnessB = (
+                (total_scheduled_and_past_slots * 100.0 / awarded_slots)
+                if awarded_slots > 0
+                else 0.0
+            )
+            fullnessC = (
+                (requested_slots * 100.0 / awarded_slots) if awarded_slots > 0 else 0.0
+            )
+
+            program_stats[program] = {
+                "awarded_nights": awarded_nights,
+                "awarded_hours": awarded_hours,
+                "awarded_slots": awarded_slots,
+                "past_nights": past_nights,
+                "past_hours": past_hours,
+                "past_slots": past_slots,
+                "requested_nights": requested_nights,
+                "requested_hours": requested_hours,
+                "requested_slots": requested_slots,
+                "scheduled_nights": scheduled_nights,
+                "scheduled_hours": scheduled_hours,
+                "scheduled_slots": scheduled_slots,
+                "fullnessA": fullnessA,
+                "fullnessB": fullnessB,
+                "fullnessC": fullnessC,
+            }
+
+        return program_stats
+
+    def to_string(self, *, header="Stats for Round1"):
+        """Return a human-readable run report for the current schedule.
+
+        Mirrors :meth:`astroq.ttp.model.TTPModel.to_string`. Requires that
+        :meth:`build_schedule` has been called so ``self.serialized_schedule``
+        is populated.
+        """
+        if getattr(self, "serialized_schedule", None) is None:
+            raise RuntimeError("call build_schedule() before to_string()")
+        schedule_df = self.serialized_schedule
+
+        is_alloc_2d = self.access_record["is_allocated"][0]
+        total_slots_in_semester = is_alloc_2d.shape[0] * is_alloc_2d.shape[1]
+        allocated_slots = int(np.sum(is_alloc_2d))
+
+        scheduled_starting_slots = len(schedule_df)
+        reserved_slots = 0
+        for _, row in schedule_df.iterrows():
+            star_name = row["r"]
+            if star_name in self.slots_needed_for_exposure_dict:
+                reserved_slots += (
+                    self.slots_needed_for_exposure_dict[star_name] - 1
+                )
+        total_scheduled_slots = scheduled_starting_slots + reserved_slots
+        empty_slots = allocated_slots - total_scheduled_slots
+
+        total_slots_requested = 0
+        for i in range(len(self.requests_frame)):
+            star_id = self.requests_frame["unique_id"][i]
+            if star_id in self.slots_needed_for_exposure_dict:
+                slots_needed = self.slots_needed_for_exposure_dict[star_id]
+                total_slots_requested += (
+                    slots_needed
+                    * self.requests_frame["n_intra_max"][i]
+                    * self.requests_frame["n_inter_max"][i]
+                )
+
+        percentage_of_available = (
+            np.round((total_scheduled_slots * 100) / allocated_slots, 3)
+            if allocated_slots > 0
+            else 0
+        )
+        percentage_of_requested = (
+            np.round((total_scheduled_slots * 100) / total_slots_requested, 3)
+            if total_slots_requested > 0
+            else 0
+        )
+
+        program_stats = self._program_statistics(schedule_df)
+
+        lines = [
+            header,
+            "------------------------------------------------------",
+            f"N slots in semester:{total_slots_in_semester}",
+            f"N available slots:{allocated_slots}",
+            f"N starting slots scheduled: {scheduled_starting_slots}",
+            f"N reserved slots: {reserved_slots}",
+            f"N total slots scheduled: {total_scheduled_slots}",
+            f"N slots left empty: {empty_slots}",
+            f"N slots requested (total): {total_slots_requested}",
+            f"Utilization (% of available slots): {percentage_of_available}%",
+            f"Utilization (% of requested slots): {percentage_of_requested}%",
+            "",
+            "Program Statistics:",
+            "------------------------------------------------------",
+        ]
+        out = "\n".join(lines) + "\n"
+
+        if program_stats:
+            program_template = Template("""{{ program }}
+ -- Awarded {{ "%.2f"|format(stats['awarded_nights']) }} nights = {{ "%.2f"|format(stats['awarded_hours']) }} hours = {{ "%.1f"|format(stats['awarded_slots']) }} slots.
+ -- Requested {{ "%.2f"|format(stats['requested_nights']) }} nights = {{ "%.2f"|format(stats['requested_hours']) }} hours = {{ "%.1f"|format(stats['requested_slots']) }} slots
+ ------ Fullness of requested to awarded: {{ "%.2f"|format(stats['fullnessC']) }}%
+ -- Past {{ "%.2f"|format(stats['past_nights']) }} nights = {{ "%.2f"|format(stats['past_hours']) }} hours = {{ "%.1f"|format(stats['past_slots']) }} slots.
+ -- Scheduled {{ "%.2f"|format(stats['scheduled_nights']) }} nights = {{ "%.2f"|format(stats['scheduled_hours']) }} hours = {{ "%.1f"|format(stats['scheduled_slots']) }} slots
+ ------ Fullness of past/scheduled to requested: {{ "%.2f"|format(stats['fullnessA']) }}%
+ ------ Fullness of past/scheduled to awarded: {{ "%.2f"|format(stats['fullnessB']) }}%
+
+
+""")
+            for program in sorted(program_stats.keys()):
+                out += program_template.render(
+                    program=program, stats=program_stats[program]
+                )
+        else:
+            out += "  No program information available\n"
+
+        return out
+
     def serialize_results_csv(self):
-        """
-        Serialize the results to a CSV file.
-
-        Returns:
-            None
-        """
-
+        """Write all per-run text artifacts and the HDF5 snapshot."""
         logs.debug("Building human readable schedule.")
-        serialized_schedule = io.serialize_schedule(self.Yrds, self)
-        self.serialized_schedule = serialized_schedule
+        self.build_schedule()
+        report = self.to_string()
+        with open(
+            os.path.join(self.output_directory, "runReport.txt"), "w"
+        ) as fh:
+            fh.write(report)
+
         today_idx = self.all_dates_dict[self.current_day]
-        selected = [k[0] for k, v in self.Yrds.items() if v.x > 0 and k[1] == today_idx]
-        selected = list(set(selected))
+        selected = list(
+            {k[0] for k, v in self.Yrds.items() if v.x > 0 and k[1] == today_idx}
+        )
         selected_df = self.requests_frame[
             self.requests_frame["unique_id"].isin(selected)
         ].copy()

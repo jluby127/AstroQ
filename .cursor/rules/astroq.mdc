@@ -37,7 +37,7 @@ See [README.md](README.md) and [docs/getting_started.rst](docs/getting_started.r
 - [astroq/ttp/](astroq/ttp) — vendored TTP package (`formatting.theTTP`, `telescope.Keck1`, `model.TTPModel`); the MILP solved by `nplan.NightPlanner.run_ttp`.
 - [astroq/access.py](astroq/access.py) — `Access` class; computes `is_altaz`, `is_future`, `is_moon`, `is_custom`, `is_inter`, `is_allocated`, `is_clear`, and the AND-reduction `is_observable`.
 - [astroq/queue/](astroq/queue) — instrument-specific prep + starlist writers; `prep` chooses by `[global] instrument`. `kpfcc.py` (KPF-CC), `hirescps.py` (HIRES-CPS), `base.py` (shared helpers).
-- [astroq/io.py](astroq/io.py), [astroq/history.py](astroq/history.py), [astroq/plot.py](astroq/plot.py), [astroq/webapp.py](astroq/webapp.py), [astroq/benchmarking.py](astroq/benchmarking.py).
+- [astroq/history.py](astroq/history.py), [astroq/plot.py](astroq/plot.py), [astroq/webapp.py](astroq/webapp.py), [astroq/benchmarking.py](astroq/benchmarking.py).
 - Per-run on-disk layout: `<workdir>/<semester>/<date>/<band>/{config.ini, allocation.csv, request.csv, custom.csv, past.csv, programs.csv, outputs/}`. Driven by [Makefile_HIRES2026A](Makefile_HIRES2026A) (also `Makefile_HIRES`, `Makefile_HIRES2026B`).
 
 ## Data Schemas
@@ -47,14 +47,14 @@ See [README.md](README.md) and [docs/getting_started.rst](docs/getting_started.r
 - `past.csv` — `id, target, semid, timestamp, exposure_start_time, exposure_time, observer`.
 - `custom.csv` — `unique_id, starname, start, stop` (`YYYY-MM-DD HH:MM`).
 - `programs.csv` — `program, hours, nights`.
-- Outputs in `outputs/`: `semester_plan.csv`, `serialized_outputs_dense_v{1,2}.csv` (`d, s, r, name`), `request_selected.csv`, `runReport.txt`, `ttp_prepared.csv`, `ObserveOrder_<date>.txt`, `script_<date>_nominal.txt`, `TTPstatistics.txt`, `semester_planner.h5`, `night_planner.h5`.
+- Outputs in `outputs/`: `semester_plan.csv` (`r, d, s, name`), `request_selected.csv`, `runReport.txt`, `ttp_prepared.csv`, `ObserveOrder_<date>.txt`, `script_<date>_nominal.txt`, `TTPstatistics.txt`, `semester_planner.h5`, `night_planner.h5`.
 
 ## Conventions
 
 - Single `config.ini` drives everything; resolve paths via `[global] workdir` + `[data] *_file`, supporting absolute or relative (see [astroq/nplan.py](astroq/nplan.py) lines 62-81).
 - Module-level loggers: `logs = logging.getLogger(__name__)`. Root config in [astroq/__init__.py](astroq/__init__.py) silences `gurobipy` propagation — don't reconfigure logging.
 - `splan` filters `requests_frame_all['inactive'] == False` before building the model. Downstream code consumes `semester_planner.requests_frame` (active) or `requests_frame_all` (everything).
-- `unique_id` is the join key everywhere; before creating Gurobi vars, validate with `io.validate_active_request_unique_ids` to avoid the cryptic `Duplicate keys in Model.addVars()` failure.
+- `unique_id` is the join key everywhere; `SemesterPlanner.__init__` raises `ValueError` on duplicate active `unique_id`s to avoid the cryptic `Duplicate keys in Model.addVars()` failure.
 - Persistence: paired `to_hdf5(self, ...)` / `from_hdf5(cls, ...)` using `h5py` for scalars/strings/JSON-encoded dicts and `pd.read_hdf` for DataFrames. `solution.gurobi_model` is deleted before save.
 - Night TTP windows: `Access.build_windows` sets `first_available` / `last_available` as `(ntargets, nnights)` `Time` arrays (slot midpoints) plus a `has_observable` mask. Called at the end of `Access.build_access`; consumed by `NightPlanner.run_ttp` via row-index slicing. No synthetic gap rows.
 - Engine switch: `[night] engine = ilp | ttp` in `config.ini` (default `ilp`). `astroq.driver.plan_night` branches on it; both paths write the same `outputs/{ttp_prepared.csv, ObserveOrder_<date>.txt, script_<date>_nominal.txt, TTPstatistics.txt, night_planner.h5}`.

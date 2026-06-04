@@ -1,11 +1,13 @@
 import argparse
 import os
 import unittest
+import warnings
 
 import numpy as np
 import pandas as pd
 from astropy.coordinates import SkyCoord
 from astropy.time import Time
+from tables.exceptions import DataTypeWarning
 
 import astroq.driver as dr
 import astroq.nplan as nplan
@@ -14,6 +16,14 @@ from astroq.ttp.model import TTPModel
 
 
 class TestClass(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        # python -m unittest installs warnings.simplefilter("default") at
+        # runner startup, which wipes the filter installed by astroq/__init__.py.
+        # Re-install it inside unittest's catch_warnings() context so it sticks
+        # for the duration of the test class.
+        warnings.filterwarnings("ignore", category=DataTypeWarning)
 
     def test01_helloworld(self):
         dr.plan_semester(
@@ -189,6 +199,73 @@ class TestClass(unittest.TestCase):
         allo = "examples/hello_world/2018B/2018-08-05/band1/allocation.csv"
         with self.assertRaises(ValueError):
             nplan.get_nightly_times_from_allocation(allo, "1900-01-01")
+
+    def test12_webapp(self):
+        """Drive every webapp route via Flask's test client against the hello_world
+        fixture. Cache dirs are redirected to a tmp dir so the cache-miss branches
+        of build_twilight_allocation_file and compute_seasonality actually run.
+        Rendered HTML is dumped to the same tmp dir for visual inspection.
+        """
+        import tempfile
+        from unittest.mock import patch
+
+        import astroq.access as ac
+        import astroq.plot as pl
+        import astroq.webapp as wa
+
+        tmp = tempfile.mkdtemp(prefix="astroq_webapp_")
+        print(f"webapp HTML dumps -> {tmp}")
+
+        # Pick a real (program_code, starname) pair from the fixture so the URL
+        # actually resolves inside data_astroq[0].
+        request_selected = pd.read_csv(
+            "examples/hello_world/2018B/2018-08-05/band1/"
+            "outputs/request_selected.csv"
+        )
+        row = request_selected.iloc[0]
+        program_code = str(row["program_code"])
+        starname = str(row["starname"])
+
+        # Redirect on-disk cache locations so the test does not write into the
+        # committed data/ directory and so cache-miss branches execute.
+        with patch.object(ac, "DATADIR", tmp), patch.object(pl, "DATADIR", tmp):
+            wa.uptree_path = "examples/hello_world"
+            client = wa.app.test_client()
+
+            # (path, expected_codes, dump_name)
+            # expected_codes is a set; download_nightplan may legitimately 500
+            # when the stored output_directory does not resolve from this cwd.
+            routes = [
+                ("/", {200}, "homepage.html"),
+                ("/2018B/2018-08-05/band1/admin", {200}, "admin.html"),
+                (
+                    f"/2018B/2018-08-05/band1/{program_code}",
+                    {200},
+                    f"program_{program_code}.html",
+                ),
+                (
+                    f"/2018B/2018-08-05/band1/{program_code}/{starname}",
+                    {200},
+                    f"star_{starname}.html",
+                ),
+                ("/2018B/2018-08-05/band1/nightplan", {200}, "nightplan.html"),
+                (
+                    "/2018B/2018-08-05/band1/download_nightplan",
+                    {200, 500},
+                    "download_nightplan.txt",
+                ),
+                # Invalid band -> 400 from abort()
+                ("/2018B/2018-08-05/bogus/admin", {400}, None),
+                # Valid band but missing date -> 404 from load_data_for_path
+                ("/2018B/1900-01-01/band1/admin", {404}, None),
+            ]
+            for path, expected_codes, dump_name in routes:
+                resp = client.get(path)
+                msg = f"{path} -> {resp.status_code}: {resp.data[:500]!r}"
+                self.assertIn(resp.status_code, expected_codes, msg=msg)
+                if dump_name is not None and resp.status_code == 200:
+                    with open(os.path.join(tmp, dump_name), "wb") as f:
+                        f.write(resp.data)
 
 
 if __name__ == "__main__":

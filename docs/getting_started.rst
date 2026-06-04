@@ -220,8 +220,6 @@ Let's take a look at the outputs produced:
         $ ls -ltr examples/hello_world/2018B/2018-08-05/band1/outputs
         
             -rw-r--r--@ 1 jack  staff    3153 Oct 29 12:15 semester_plan.csv
-            -rw-r--r--@ 1 jack  staff  230542 Oct 29 12:15 serialized_outputs_dense_v1.csv
-            -rw-r--r--@ 1 jack  staff  253640 Oct 29 12:15 serialized_outputs_dense_v2.csv
             -rw-r--r--@ 1 jack  staff     346 Oct 29 12:15 runReport.txt
             -rw-r--r--@ 1 jack  staff     873 Oct 29 12:15 request_selected.csv
             -rw-r--r--@ 1 jack  staff  244512 Oct 29 12:15 semester_planner.h5
@@ -246,54 +244,6 @@ Let's take a look at the outputs produced:
        e2, 5, 35, TOI-1670
        e2, 8, 41, TOI-1670
 
-- ``serialized_outputs_dense_v1.csv`` contains the same information, but now all slots, even those not scheduled to have an observation are included, and it is ordered by time. See example:
-
-    .. csv-table::
-       :header: "d", "s", "r", "name"
-       :widths: auto
-
-       0, 0, , 
-       0, 1, , 
-       0, 2, , 
-       0, 3, , 
-       0, 4, , 
-       0, 5, , 
-       0, 6, , 
-       0, 7, , 
-       0, 8, , 
-       0, 9, , 
-       0, 10, , 
-       0, 11, , 
-       0, 12, , 
-       0, 13, , 
-       0, 14, , 
-       ..., ..., ..., ...
-       4, 62, e2, HIP1532
-       4, 63, , 
-
-- ``serialized_outputs_dense_v2.csv`` is identical to ``serialized_outputs_dense_v1.csv``, but now slots that cannot be filled for all stars (like sky brightness or telescope allocation, are denoted with an "X"). See example:
-
-    .. csv-table::
-       :header: "d", "s", "r", "name"
-       :widths: auto
-
-       0, 0, X, 
-       0, 1, X, 
-       0, 2, X, 
-       0, 3, X, 
-       0, 4, X, 
-       0, 5, X, 
-       0, 6, X, 
-       0, 7, X, 
-       0, 8, X, 
-       0, 9, X, 
-       0, 10, X, 
-       0, 11, X, 
-       0, 12, X, 
-       ..., ..., ..., ...
-       4, 62, e2, HIP1532
-       4, 63, , 
-    
 - ``runReport.txt``: contains some basic statistics about the fullness of the schedule. See example (note, this schedule is not supposed to be a good one!):
     
     ::

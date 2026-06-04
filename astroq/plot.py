@@ -200,9 +200,8 @@ def process_stars(semester_planner):
     nulltime = 1 - nulltime
     nulltime = np.array(nulltime).T
 
-    # Read forecast CSV once instead of once per star (PERFORMANCE OPTIMIZATION)
-    forecast_df = semester_planner.serialized_schedule  # pd.read_csv(semester_planner.output_directory + semester_planner.future_forecast)
-    forecast_df["r"] = forecast_df["r"].astype(str)  # Convert to string once
+    forecast_df = semester_planner.serialized_schedule
+    forecast_df["r"] = forecast_df["r"].astype(str)
 
     # Per-visit overhead scalars come from the queue (single source of truth).
     queue = semester_planner.queue
@@ -1987,6 +1986,8 @@ def compute_seasonality(semester_planner, starnames, ras, decs):
     original_request_frame = semester_planner.access_obj.request_frame
     original_targets = semester_planner.access_obj.targets
     original_ntargets = semester_planner.access_obj.ntargets
+    original_access_shape = semester_planner.access_obj._access_shape
+    original_slots_needed = semester_planner.access_obj.slots_needed_for_exposure_dict
 
     semester_planner.access_obj.allocation_file = twilight_allocation_file
     semester_planner.access_obj.request_frame = temp_requests_frame
@@ -1998,6 +1999,19 @@ def compute_seasonality(semester_planner, starnames, ras, decs):
         name=temp_requests_frame.unique_id, coord=coords
     )
     semester_planner.access_obj.ntargets = len(temp_requests_frame)
+    # _access_shape is cached at __init__; keep it consistent with the new ntargets
+    # so the per-target compute_* methods broadcast correctly.
+    _, _nnights, _nslots = original_access_shape
+    semester_planner.access_obj._access_shape = (
+        len(temp_requests_frame),
+        _nnights,
+        _nslots,
+    )
+    # The dict is keyed by the original unique_ids; build a fresh one for the
+    # synthetic grid uids (single-slot exposures are fine for seasonality).
+    semester_planner.access_obj.slots_needed_for_exposure_dict = {
+        uid: 1 for uid in temp_requests_frame["unique_id"]
+    }
 
     # Create dummy allocation for if the try statement fails.
     is_allocated = np.ones(
@@ -2018,6 +2032,10 @@ def compute_seasonality(semester_planner, starnames, ras, decs):
         semester_planner.access_obj.request_frame = original_request_frame
         semester_planner.access_obj.targets = original_targets
         semester_planner.access_obj.ntargets = original_ntargets
+        semester_planner.access_obj._access_shape = original_access_shape
+        semester_planner.access_obj.slots_needed_for_exposure_dict = (
+            original_slots_needed
+        )
 
     # Extract is_altaz and is_moon arrays
     is_altaz = access_record.is_altaz

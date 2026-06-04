@@ -574,15 +574,14 @@ def build_twilight_allocation_file(semester_planner):
     semester = (
         semester_planner.semester_start_date[:4] + semester_planner.semester_letter
     )
-    data_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
-    twilight_file = os.path.join(data_dir, f"{semester}_twilights.csv")
+    twilight_file = os.path.join(DATADIR, f"{semester}_twilights.csv")
 
     # Check if file already exists
     if os.path.exists(twilight_file):
         return twilight_file
 
     # Create data directory if it doesn't exist
-    os.makedirs(data_dir, exist_ok=True)
+    os.makedirs(DATADIR, exist_ok=True)
 
     # Use the planner's queue's observatory (already an apl.Observer)
     observatory = semester_planner.queue.observatory
