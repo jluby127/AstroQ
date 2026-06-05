@@ -32,10 +32,24 @@ from scipy.interpolate import griddata
 # Local imports
 import astroq.access as ac
 
-DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
-_TEMPLATE_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(__file__)), "templates"
-)
+# Jinja templates ship with the webapp subpackage. ``importlib.resources`` keeps
+# the lookup correct for both source checkouts and installed wheels.
+from importlib.resources import files as _resource_files
+from pathlib import Path as _Path
+
+_TEMPLATE_DIR = str(_resource_files("astroq.webapp").joinpath("templates"))
+
+
+def _football_cache_dir(semester_planner):
+    """Directory holding the cached sky-availability grids for ``get_football``.
+
+    One cache per workdir keeps the on-disk artifacts adjacent to the run that
+    produced them and avoids polluting the installed package. Tests monkeypatch
+    this function to redirect the cache into a tmp dir.
+    """
+    return _Path(semester_planner.semester_directory) / "cache"
+
+
 _TEMPLATE_ENV = jinja2.Environment(
     loader=jinja2.FileSystemLoader(_TEMPLATE_DIR),
     # We intentionally embed pandas-rendered <table> HTML and CSS/JS verbatim;
@@ -2137,8 +2151,10 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
     semester = (
         semester_planner.semester_start_date[:4] + semester_planner.semester_letter
     )
-    cache_grids_file = f"{DATADIR}/{semester}_sky_grids.npz"
-    cache_image_file = f"{DATADIR}/{semester}_sky_availability_image.txt"
+    cache_dir = _football_cache_dir(semester_planner)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_grids_file = str(cache_dir / f"{semester}_sky_grids.npz")
+    cache_image_file = str(cache_dir / f"{semester}_sky_availability_image.txt")
     semester_length = semester_planner.semester_length
 
     if os.path.exists(cache_grids_file):

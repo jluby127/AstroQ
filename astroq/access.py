@@ -9,6 +9,7 @@ stored on ``SemesterPlanner`` and reused for plotting.
 import logging
 import os
 from datetime import datetime, timedelta
+from importlib.resources import files
 
 import astropy as apy
 import astropy.units as u
@@ -19,8 +20,6 @@ from astropy.time import Time, TimeDelta
 from astropy.utils.iers import conf
 
 conf.auto_max_age = None
-
-DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 
 logs = logging.getLogger(__name__)
 
@@ -502,7 +501,14 @@ class Access:
         """
         Gather the loss probabilities for each night in the semester from the saved historical weather data.
         """
-        historical_weather_data = pd.read_csv(os.path.join(DATADIR, weather_loss_file))
+        # ``weather_loss_file`` is normally a bare filename shipped with the
+        # package (resolved via ``astroq.data``). Absolute paths are honored so
+        # callers can override with site-specific historical data.
+        if os.path.isabs(weather_loss_file):
+            weather_csv = weather_loss_file
+        else:
+            weather_csv = files("astroq.data").joinpath(weather_loss_file)
+        historical_weather_data = pd.read_csv(weather_csv)
         loss_stats_this_semester = []
         for i, item in enumerate(self.all_dates_array):
             ind = historical_weather_data.index[

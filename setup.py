@@ -11,6 +11,11 @@ setup(
     name="astroq",
     version=get_property('__version__', 'astroq'),
     packages=find_packages(),
+    include_package_data=True,
+    package_data={
+        "astroq.data": ["*.csv", "*.json"],
+        "astroq.webapp": ["templates/*.html", "templates/*.j2", "templates/partials/*"],
+    },
     install_requires=[],
     description="The AstroQ auto-scheduler software.",
     long_description=open("README.md").read(),

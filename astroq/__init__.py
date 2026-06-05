@@ -4,7 +4,6 @@ AstroQ: Optimized observation scheduling for astronomical observations.
 
 # Standard library imports
 import logging
-import os
 import warnings
 
 # Third-party imports
@@ -22,7 +21,6 @@ warnings.filterwarnings("ignore", category=DataTypeWarning)
 from astroq import driver  # noqa: E402
 
 __version__ = "2.1.0"
-DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 
 logger = logging.getLogger(__name__)
 

@@ -23,7 +23,7 @@ from astroq.nplan import NightPlanner
 
 running_on_keck_machines = False
 
-app = Flask(__name__, template_folder="../templates")
+app = Flask(__name__)
 
 # Global variables to store loaded data
 data_astroq = None

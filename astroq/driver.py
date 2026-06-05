@@ -23,7 +23,7 @@ import astroq.nplan as nplan
 import astroq.plot as pl
 import astroq.splan as splan
 import astroq.ttp.plot as tplot
-import astroq.webapp as app
+import astroq.webapp.app as app
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)  # Lower level to capture more messages

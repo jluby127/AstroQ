@@ -210,7 +210,7 @@ class TestClass(unittest.TestCase):
         from unittest.mock import patch
 
         import astroq.plot as pl
-        import astroq.webapp as wa
+        import astroq.webapp.app as wa
 
         tmp = tempfile.mkdtemp(prefix="astroq_webapp_")
         print(f"webapp HTML dumps -> {tmp}")
@@ -227,7 +227,8 @@ class TestClass(unittest.TestCase):
 
         # Redirect get_football's on-disk cache so the test does not write into
         # the committed data/ directory and so the cache-miss branch executes.
-        with patch.object(pl, "DATADIR", tmp):
+        from pathlib import Path
+        with patch.object(pl, "_football_cache_dir", lambda sp: Path(tmp)):
             wa.uptree_path = "examples/hello_world"
             client = wa.app.test_client()
 

@@ -117,4 +117,4 @@ Using this template, you can use whatever tools you like to construct OBs with y
 .. note::
    You can download the unannotated template JSON file here:
 
-   :download:`template_OB.json <../data/template_OB_annotated.json>`
+   :download:`template_OB.json <../astroq/data/template_OB_annotated.json>`
