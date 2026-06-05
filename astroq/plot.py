@@ -5,9 +5,12 @@ From there, they can be used as is or saved as png files.
 
 # Standard library imports
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, timedelta
+from html import escape as html_escape
+from urllib.parse import quote
 import os
 import base64
+import re
 from io import BytesIO
 
 # Third-party imports
@@ -17,6 +20,7 @@ import seaborn as sns
 import astropy.units as u
 from astropy.coordinates import SkyCoord
 import astroplan as apl
+import jinja2
 import matplotlib
 import matplotlib.pyplot as plt
 import plotly.express as px
@@ -29,6 +33,17 @@ from scipy.interpolate import griddata
 import astroq.access as ac
 
 DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
+_TEMPLATE_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(__file__)), "templates"
+)
+_TEMPLATE_ENV = jinja2.Environment(
+    loader=jinja2.FileSystemLoader(_TEMPLATE_DIR),
+    # We intentionally embed pandas-rendered <table> HTML and CSS/JS verbatim;
+    # values that need escaping (e.g. tooltips) are escaped explicitly via html_escape.
+    autoescape=False,
+    trim_blocks=True,
+    lstrip_blocks=True,
+)
 
 # Configure matplotlib for headless rendering
 matplotlib.use("Agg")
@@ -41,6 +56,131 @@ gray = "rgb(210,210,210)"
 clear = "rgba(255,255,255,1)"
 labelsize = 38
 hours_per_night = 12.0
+
+
+def _render_datatable(
+    df,
+    *,
+    template_name,
+    table_id,
+    variant,
+    column_widths,
+    column_defs,
+    tooltips=None,
+    page_size=25,
+    sort_column=0,
+    sort_dir="asc",
+    numeric_cols=(),
+    time_cols=(),
+    has_band_padding=False,
+    has_column_filters=False,
+    has_dt_controls_styling=False,
+    has_init_complete_header_style=False,
+    filter_placeholder="",
+    auto_width=False,
+    table_layout=None,
+    scroll_x=None,
+    responsive=None,
+    add_tfoot=False,
+):
+    """Render a DataFrame to a self-contained DataTables HTML fragment.
+
+    All public table-rendering helpers in this module funnel through this function.
+    The Jinja templates live under ``templates/`` and ``templates/partials/``.
+
+    Args:
+        df (pd.DataFrame): table to render. Must already have its display column
+            names and HTML cell contents finalized (the renderer doesn't transform
+            cell values).
+        template_name (str): page template, e.g. ``'request_table.html.j2'``.
+        table_id (str): DOM id for the rendered ``<table>``.
+        variant (str): ``'compact'`` (request/nightplan) or ``'card'`` (legacy generic).
+        column_widths (list[str]): one width spec per column, e.g. ``'12ch'`` or
+            ``'100px'``. Used by the CSS partial in ``compact`` variant.
+        column_defs (list[dict]): list of ``{'target': i, 'width': w}`` dicts that
+            DataTables consumes via ``columnDefs``.
+        tooltips (list[str] | None): per-column tooltip strings. Any non-empty
+            entry triggers a ``data-tooltip`` attribute on the matching ``<th>`` and
+            enables the tooltip CSS block.
+        page_size, sort_column, sort_dir: DataTables init values.
+        numeric_cols, time_cols: column indices that filter as numbers / HH:MM.
+        has_band_padding: enable tighter padding for the band columns
+            (request_frame layout only).
+        has_column_filters: render per-column filter inputs in ``<tfoot>``.
+        has_dt_controls_styling: style DataTables length/buttons/paginate (card variant).
+        has_init_complete_header_style: re-apply header CSS in ``initComplete``
+            (legacy generic table; redundant with the CSS but matches prior output).
+        filter_placeholder (str): placeholder for column filter inputs.
+        auto_width, table_layout, scroll_x, responsive: passthroughs to DataTables.
+        add_tfoot (bool): inject an empty ``<tfoot>`` so column-filter inputs have
+            a row to mount onto.
+
+    Returns:
+        str: HTML fragment containing ``<style>`` + ``<table>`` + ``<script>``.
+    """
+    tooltips = list(tooltips) if tooltips else []
+    has_tooltips = any(bool(t) for t in tooltips)
+
+    table_html = df.to_html(
+        classes="table table-striped table-hover",
+        index=False,
+        escape=False,
+        table_id=table_id,
+    )
+
+    if has_tooltips:
+        # pandas emits one <th>label</th> per column header; replace each in order.
+        idx = [0]
+
+        def _add_th_tooltip(m):
+            i = idx[0]
+            idx[0] += 1
+            t = tooltips[i] if i < len(tooltips) else ""
+            return (
+                f'<th data-tooltip="{html_escape(t)}">{m.group(1)}</th>'
+                if t
+                else m.group(0)
+            )
+
+        table_html = re.sub(
+            r"<th>([^<]*)</th>",
+            _add_th_tooltip,
+            table_html,
+            count=len(df.columns),
+        )
+
+    if add_tfoot:
+        tfoot_cells = "".join("<th></th>" for _ in df.columns)
+        table_html = table_html.replace(
+            "</tbody>", "</tbody><tfoot><tr>" + tfoot_cells + "</tr></tfoot>"
+        )
+
+    template = _TEMPLATE_ENV.get_template(template_name)
+    ctx = {
+        "table_id": table_id,
+        "table_html": table_html,
+        "variant": variant,
+        "column_widths": list(column_widths),
+        "column_defs": list(column_defs),
+        "page_size": int(page_size),
+        "sort_column": int(sort_column),
+        "sort_dir": sort_dir,
+        "numeric_cols": list(numeric_cols),
+        "time_cols": list(time_cols),
+        "has_tooltips": has_tooltips,
+        "has_band_padding": has_band_padding,
+        "has_column_filters": has_column_filters,
+        "has_dt_controls_styling": has_dt_controls_styling,
+        "has_init_complete_header_style": has_init_complete_header_style,
+        "filter_placeholder": filter_placeholder,
+        "auto_width": auto_width,
+        "table_layout": table_layout,
+    }
+    if scroll_x is not None:
+        ctx["scroll_x"] = scroll_x
+    if responsive is not None:
+        ctx["responsive"] = responsive
+    return template.render(**ctx)
 
 
 class StarPlotter(object):
@@ -131,7 +271,7 @@ class StarPlotter(object):
             None
         """
         # Only keep rows for this star
-        star_rows = forecast_df[forecast_df["r"] == str(self.unique_id)]
+        star_rows = forecast_df[forecast_df["unique_id"] == str(self.unique_id)]
         # Count number of slots scheduled per night (d)
         observations_future = {}
         for d, group in star_rows.groupby("d"):
@@ -148,18 +288,18 @@ class StarPlotter(object):
     def get_map(self, semester_planner, forecast_df):
         """
         Build the 2D d/s matrix starmap for teh given star using semester_plan.csv.
-        Only set starmap[d, s] = 1 if sched['r'] == self.unique_id.
+        Only set starmap[d, s] = 1 if sched['unique_id'] == self.unique_id.
 
         Args:
             semester_planner: The semester planner object
-            forecast_df (pd.DataFrame): Pre-loaded forecast DataFrame with columns ['r', 'd', 's']
+            forecast_df (pd.DataFrame): Pre-loaded forecast DataFrame with columns ['unique_id', 'd', 's']
         """
         n_nights = semester_planner.semester_length
         n_slots = int((24 * 60) / semester_planner.slot_size)
         starmap = np.zeros((n_nights, n_slots), dtype=int)
 
         # Filter to only this star's rows
-        star_forecast = forecast_df[forecast_df["r"] == str(self.unique_id)]
+        star_forecast = forecast_df[forecast_df["unique_id"] == str(self.unique_id)]
 
         if len(star_forecast) > 0:
             # Vectorized approach: extract d,s values as numpy arrays and set all at once (PERFORMANCE OPTIMIZATION)
@@ -201,8 +341,8 @@ def process_stars(semester_planner):
     nulltime = 1 - nulltime
     nulltime = np.array(nulltime).T
 
-    forecast_df = semester_planner.serialized_schedule
-    forecast_df["r"] = forecast_df["r"].astype(str)
+    forecast_df = semester_planner.schedule
+    forecast_df["unique_id"] = forecast_df["unique_id"].astype(str)
 
     # Per-visit overhead scalars come from the queue (single source of truth).
     queue = semester_planner.queue
@@ -733,8 +873,6 @@ def get_cof(semester_planner, all_stars, use_time=False):
 
     # Create calendar date labels for secondary x-axis (top axis)
     # Format dates as "Feb<br>01" (month and day on separate lines)
-    from datetime import datetime
-
     x_ticktext_dates = []
     for day_idx in x_tickvals:
         if day_idx < len(semester_planner.all_dates_array):
@@ -977,8 +1115,6 @@ def get_birdseye(semester_planner, availablity, all_stars):
 
     # Create calendar date labels for secondary x-axis (top axis)
     # Format dates as "Jan<br>15" or "Aug<br>12" (month and day on separate lines)
-    from datetime import datetime
-
     x_ticktext_dates = []
     for day_idx in x_tickvals:
         if day_idx < len(semester_planner.all_dates_array):
@@ -2218,33 +2354,6 @@ def get_request_frame(semester_planner, all_stars):
     return filtered_frame
 
 
-def add_star_links(request_df, semester_code, date, band):
-    """
-    Convert starname column to links: /semester/date/band/program_code/starname
-
-    Args:
-        request_df (pd.DataFrame): request frame with starname and program_code columns
-        semester_code (str): e.g. 2025B
-        date (str): e.g. 2025-01-15
-        band (str): e.g. band1
-
-    Returns:
-        request_df (pd.DataFrame): df with starname as HTML links
-    """
-    from urllib.parse import quote
-
-    if "program_code" not in request_df.columns or "starname" not in request_df.columns:
-        return request_df.copy()
-    df = request_df.copy()
-    df["starname"] = df.apply(
-        lambda row: (
-            f'<a href="/{semester_code}/{date}/{band}/{quote(str(row["program_code"]))}/{quote(str(row["starname"]))}">{row["starname"]}</a>'
-        ),
-        axis=1,
-    )
-    return df
-
-
 def get_ladder(data, tonight_start_time):
     """Produce a plotly figure which illustrates the night plan solution.
 
@@ -2694,6 +2803,53 @@ REQUEST_FRAME_COLUMN_TOOLTIPS = {
 }
 
 
+_REQUEST_BAND_COLS = ("Band1", "Band2", "Band3", "Inactive")
+_REQUEST_NO_PAD_COLS = (
+    "n_inter_max",
+    "tau_inter",
+    "n_intra_max",
+    "n_intra_min",
+    "tau_intra",
+)
+# Numeric columns (post-rename): RA(3), Dec(4), ExpTime(5), n_exp(6),
+# n_inter_max(7), tau_inter(8), n_intra_max(9), n_intra_min(10), tau_intra(11).
+_REQUEST_NUMERIC_COLS = [3, 4, 5, 6, 7, 8, 9, 10, 11]
+
+
+def _is_true(val):
+    """Coerce a CSV-ish value to bool with permissive parsing."""
+    if pd.isna(val) or val == "":
+        return False
+    s = str(val).lower()
+    if s in ("true", "1", "yes"):
+        return True
+    if s in ("false", "0", "no"):
+        return False
+    try:
+        return bool(float(val))
+    except (ValueError, TypeError):
+        return False
+
+
+def _yn_cell(val, *, inactive_semantics):
+    """Render a boolean cell as Y/N with green=good / red=bad background."""
+    green_bg = "rgba(34, 139, 34, 0.25)"
+    red_bg = "rgba(220, 53, 69, 0.25)"
+    truth = _is_true(val)
+    if inactive_semantics:
+        y_n, bg = ("Y", red_bg) if truth else ("N", green_bg)
+    else:
+        y_n, bg = ("Y", green_bg) if truth else ("N", red_bg)
+    return (
+        f'<span style="background:{bg};padding:2px 6px;border-radius:4px;">{y_n}</span>'
+    )
+
+
+def _visible_len(s):
+    """Length of ``s`` with HTML tags stripped (used for content-fit column widths)."""
+    return len(re.sub(r"<[^>]+>", "", str(s)).strip())
+
+
 def request_frame_to_html(
     request_df,
     semester_code=None,
@@ -2720,21 +2876,15 @@ def request_frame_to_html(
     Returns:
         str: HTML string with table and DataTables
     """
-    import re
-    from urllib.parse import quote
-
-    df = request_df.copy()
-    df = df.reset_index(drop=True)
-    # Select only columns we want, in order; ignore any extra columns
+    df = request_df.copy().reset_index(drop=True)
     cols = [c for c in REQUEST_FRAME_COLUMNS if c in df.columns]
-    df = df[cols].copy()
-    df = df.fillna("")
-    # Round RA and Dec to 2 decimals
+    df = df[cols].copy().fillna("")
+
     for coord in ("ra", "dec"):
         if coord in df.columns:
             df[coord] = pd.to_numeric(df[coord], errors="coerce")
             df[coord] = df[coord].apply(lambda x: f"{x:.2f}" if pd.notna(x) else "")
-    # Add star links if URL context provided
+
     if (
         semester_code
         and date
@@ -2744,224 +2894,55 @@ def request_frame_to_html(
     ):
         df["starname"] = df.apply(
             lambda row: (
-                f'<a href="/{semester_code}/{date}/{band}/{quote(str(row["program_code"]))}/{quote(str(row["starname"]))}">{row["starname"]}</a>'
+                f'<a href="/{semester_code}/{date}/{band}/'
+                f'{quote(str(row["program_code"]))}/{quote(str(row["starname"]))}">'
+                f'{row["starname"]}</a>'
             ),
             axis=1,
         )
-    # Convert boolean columns to Y/N with color
-    green_bg = "rgba(34, 139, 34, 0.25)"
-    red_bg = "rgba(220, 53, 69, 0.25)"
-
-    def _is_true(val):
-        if pd.isna(val) or val == "":
-            return False
-        s = str(val).lower()
-        if s in ("true", "1", "yes"):
-            return True
-        if s in ("false", "0", "no"):
-            return False
-        try:
-            return bool(float(val))
-        except (ValueError, TypeError):
-            return False
 
     for orig in BOOLEAN_COLUMNS:
         if orig not in df.columns:
             continue
         is_inactive = orig == "inactive"
+        df[orig] = df[orig].apply(
+            lambda v, _i=is_inactive: _yn_cell(v, inactive_semantics=_i)
+        )
 
-        def _cell(val, _inactive=is_inactive):
-            truth = _is_true(val)
-            if _inactive:
-                y_n, bg = ("Y", red_bg) if truth else ("N", green_bg)
-            else:
-                y_n, bg = ("Y", green_bg) if truth else ("N", red_bg)
-            return f'<span style="background:{bg};padding:2px 6px;border-radius:4px;">{y_n}</span>'
-
-        df[orig] = df[orig].apply(lambda v: _cell(v))
-    # Rename columns for display
     df = df.rename(columns={**BOOLEAN_COLUMNS, **REQUEST_FRAME_DISPLAY_NAMES})
-    # Ensure object columns are strings
     for col in df.columns:
-        if df[col].dtype == "object":
-            s = df[col].astype(str).replace("nan", "").replace("None", "")
-            if col not in BOOLEAN_COLUMNS.values():  # Don't overwrite our HTML
-                df[col] = s
-    table_html = df.to_html(
-        classes="table table-striped table-hover",
-        index=False,
-        escape=False,
-        table_id=table_id,
-    )
-    # Add data-tooltip to column headers (custom CSS tooltip, shows immediately)
-    from html import escape
+        if df[col].dtype == "object" and col not in BOOLEAN_COLUMNS.values():
+            df[col] = df[col].astype(str).replace("nan", "").replace("None", "")
 
+    widths = []
+    for col in df.columns:
+        content_max = max((_visible_len(c) for c in df[col]), default=0)
+        header_len = len(str(col))
+        pad = 3 if col == "n_exp" else (0 if col in _REQUEST_NO_PAD_COLS else 2)
+        ch_width = max(content_max, header_len, 1) + pad
+        if col in _REQUEST_BAND_COLS:
+            ch_width = max(ch_width, 3)
+        widths.append(f"{ch_width}ch")
+
+    column_defs = [{"target": i, "width": w} for i, w in enumerate(widths)]
     tooltips = [REQUEST_FRAME_COLUMN_TOOLTIPS.get(col, "") for col in df.columns]
 
-    def _add_th_tooltip(m):
-        idx = _add_th_tooltip.idx
-        _add_th_tooltip.idx += 1
-        t = tooltips[idx] if idx < len(tooltips) else ""
-        return f'<th data-tooltip="{escape(t)}">{m.group(1)}</th>' if t else m.group(0)
-
-    _add_th_tooltip.idx = 0
-    table_html = re.sub(
-        r"<th>([^<]*)</th>", _add_th_tooltip, table_html, count=len(df.columns)
+    return _render_datatable(
+        df,
+        template_name="request_table.html.j2",
+        table_id=table_id,
+        variant="compact",
+        column_widths=widths,
+        column_defs=column_defs,
+        tooltips=tooltips,
+        page_size=page_size,
+        sort_column=0,
+        numeric_cols=_REQUEST_NUMERIC_COLS,
+        has_band_padding=True,
+        has_column_filters=True,
+        filter_placeholder="Filter... (use > < >= <= for numbers)",
+        add_tfoot=True,
     )
-    # Add tfoot for column filter dropdowns
-    tfoot_cells = "".join(["<th></th>" for _ in df.columns])
-    table_html = table_html.replace(
-        "</tbody>", "</tbody><tfoot><tr>" + tfoot_cells + "</tr></tfoot>"
-    )
-
-    # Column widths = longest value in column (content-based)
-    def visible_len(s):
-        return len(re.sub(r"<[^>]+>", "", str(s)).strip())
-
-    widths = {}
-    band_cols = ("Band1", "Band2", "Band3", "Inactive")
-    no_padding_cols = (
-        "n_inter_max",
-        "tau_inter",
-        "n_intra_max",
-        "n_intra_min",
-        "tau_intra",
-    )
-    for col in df.columns:
-        content_max = max((visible_len(c) for c in df[col]), default=0)
-        header_len = len(str(col))
-        pad = 3 if col == "n_exp" else (0 if col in no_padding_cols else 2)
-        ch_width = max(content_max, header_len, 1) + pad
-        if col in band_cols:
-            ch_width = max(ch_width, 3)  # Y/N box needs ~3ch with padding
-        widths[col] = f"{ch_width}ch"
-    column_defs = [
-        f"{{ targets: {i}, width: '{widths[col]}' }}"
-        for i, col in enumerate(df.columns)
-    ]
-    column_defs_str = ",\n                ".join(column_defs)
-    # CSS column widths (Star=1st, ID=2nd, etc.) - force narrow to override DataTables auto-sizing
-    col_widths = [widths[col] for col in df.columns]
-    col_css = " ".join(
-        [
-            f"#{table_id} th:nth-child({i + 1}), #{table_id} td:nth-child({i + 1}) {{ width: {w} !important; max-width: {w} !important; }}"
-            for i, w in enumerate(col_widths)
-        ]
-    )
-    custom_css = f"""
-    <style>
-    /* Override DataTables width:100% - table should shrink to fit column widths, not stretch to page */
-    #{table_id} {{ width: auto !important; max-width: 100%; border-collapse: collapse; font-size: 21px; margin: 10px 0; table-layout: fixed !important; }}
-    {col_css}
-    #{table_id} thead th {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; font-weight: 600;
-        padding: 3pt; text-align: center; font-size: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help; }}
-    #{table_id} tbody td {{ padding: 3pt; text-align: center; font-size: 20px; border-bottom: 1px solid #e9ecef;
-        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
-    #{table_id} tbody td:nth-child(7), #{table_id} thead th:nth-child(7) {{ padding: 3pt !important; }}
-    #{table_id} tbody td:nth-child(8), #{table_id} tbody td:nth-child(9), #{table_id} tbody td:nth-child(10), #{table_id} tbody td:nth-child(11), #{table_id} tbody td:nth-child(12),
-    #{table_id} thead th:nth-child(8), #{table_id} thead th:nth-child(9), #{table_id} thead th:nth-child(10), #{table_id} thead th:nth-child(11), #{table_id} thead th:nth-child(12) {{ padding: 0 !important; }}
-    #{table_id} tbody td:nth-child(13), #{table_id} tbody td:nth-child(14), #{table_id} tbody td:nth-child(15), #{table_id} tbody td:nth-child(16),
-    #{table_id} thead th:nth-child(13), #{table_id} thead th:nth-child(14), #{table_id} thead th:nth-child(15), #{table_id} thead th:nth-child(16) {{ padding: 3pt !important; }}
-    #{table_id} tbody tr:nth-child(even) {{ background-color: #dee2e6 !important; }}
-    #{table_id} tbody tr:nth-child(odd) {{ background-color: white !important; }}
-    #{table_id} tbody tr:hover {{ background-color: #e3f2fd !important; }}
-    #{table_id} tfoot th {{ padding: 8px 4px; background: #f1f3f5; border-top: 2px solid #dee2e6; }}
-    #{table_id} tfoot .column-filter {{ width: 100%; padding: 4px 8px; font-size: 14px; border: 1px solid #ced4da; border-radius: 4px; box-sizing: border-box; }}
-    /* Custom tooltip - bold, opaque, high visibility */
-    #{table_id} thead th[data-tooltip] {{ position: relative; }}
-    #{table_id} thead th[data-tooltip]:hover::after {{
-        content: attr(data-tooltip);
-        position: fixed;
-        top: 140px;
-        left: 50%;
-        transform: translateX(-50%);
-        padding: 16px 24px;
-        background: #5a4d9e !important;
-        color: white !important;
-        font-size: 18px !important;
-        font-weight: 700 !important;
-        white-space: normal;
-        max-width: 675px;
-        width: 675px;
-        text-align: center;
-        border-radius: 8px;
-        border: 3px solid #4a3d8e;
-        box-shadow: 0 6px 24px rgba(0,0,0,0.5);
-        z-index: 10000;
-        pointer-events: none;
-        opacity: 1 !important;
-    }}
-    </style>
-    """
-    # Column indices for numeric comparison: Star(0), ID(1), Program(2), RA(3), Dec(4), ExpTime(5), n_exp(6), n_inter_max(7), tau_inter(8), n_intra_max(9), n_intra_min(10), tau_intra(11), Band1-4(12-15)
-    numeric_col_indices = [3, 4, 5, 6, 7, 8, 9, 10, 11]
-    init_script = f"""
-    <script>
-    $(document).ready(function() {{
-        if ($.fn.DataTable.isDataTable('#{table_id}')) {{ $('#{table_id}').DataTable().destroy(); }}
-        var numericCols = {numeric_col_indices};
-        var table = $('#{table_id}').DataTable({{
-            autoWidth: false,
-            pageLength: {page_size},
-            order: [[0, 'asc']],
-            dom: 'lBfrtip',
-            buttons: ['copy', 'csv', 'excel', 'print'],
-            lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
-            columnDefs: [ {column_defs_str} ],
-            initComplete: function() {{
-                var api = this.api();
-                var dt = this;
-                $.fn.dataTable.ext.search.push(function(settings, data, dataIndex) {{
-                    if (settings.nTable.id !== '{table_id}') return true;
-                    var tbl = $('#' + '{table_id}');
-                    for (var i = 0; i < data.length; i++) {{
-                        var input = tbl.find('tfoot th').eq(i).find('input.column-filter');
-                        var val = (input.val() || '').trim();
-                        if (!val) continue;
-                        var cellVal = data[i];
-                        if (typeof cellVal === 'string' && cellVal.indexOf('<') >= 0) {{
-                            cellVal = $('<div>').html(cellVal).text().trim();
-                        }} else {{
-                            cellVal = (cellVal || '').toString().trim();
-                        }}
-                        if (numericCols.indexOf(i) >= 0) {{
-                            var match = val.match(/^(>=|<=|>|<|=|==)\s*(-?[\\d.]+)$/);
-                            if (match) {{
-                                var op = match[1];
-                                var numVal = parseFloat(match[2]);
-                                var cellNum = parseFloat(cellVal);
-                                if (isNaN(cellNum)) return false;
-                                switch(op) {{
-                                    case '>': if (!(cellNum > numVal)) return false; break;
-                                    case '<': if (!(cellNum < numVal)) return false; break;
-                                    case '>=': if (!(cellNum >= numVal)) return false; break;
-                                    case '<=': if (!(cellNum <= numVal)) return false; break;
-                                    case '=':
-                                    case '==': if (cellNum != numVal) return false; break;
-                                }}
-                            }} else {{
-                                if (cellVal.toLowerCase().indexOf(val.toLowerCase()) < 0) return false;
-                            }}
-                        }} else {{
-                            if (cellVal.toLowerCase().indexOf(val.toLowerCase()) < 0) return false;
-                        }}
-                    }}
-                    return true;
-                }});
-                api.columns().every(function() {{
-                    var column = this;
-                    var input = $('<input type="text" class="column-filter" placeholder="Filter... (use > < >= <= for numbers)">')
-                        .appendTo($(column.footer()).empty())
-                        .on('keyup change', function() {{
-                            api.draw();
-                        }});
-                }});
-            }}
-        }});
-    }});
-    </script>
-    """
-    return custom_css + table_html + init_script
 
 
 NIGHTPLAN_COLUMNS = [
@@ -2998,6 +2979,12 @@ NIGHTPLAN_COLUMN_TOOLTIPS = {
 }
 
 
+# Numeric (post-select) cols: ra(6), dec(7), exptime(8), n_exp(9),
+# n_intra_max(10), tau_intra(11), jmag(12), Vmag(13). Time cols: 0,1,2.
+_NIGHTPLAN_NUMERIC_COLS = [6, 7, 8, 9, 10, 11, 12, 13]
+_NIGHTPLAN_TIME_COLS = [0, 1, 2]
+
+
 def nightplan_table_to_html(script_df, table_id="script-table", page_size=100):
     """
     Convert nightplan script DataFrame to HTML with same styling as request_frame_to_html.
@@ -3006,192 +2993,57 @@ def nightplan_table_to_html(script_df, table_id="script-table", page_size=100):
     Displays: First Available, Start Exposure, Last Available, unique_id, starname, program_code,
     ra, dec, exptime, n_exp, n_intra_max, tau_intra, jmag, Vmag.
     """
-    import re
-    from html import escape
-
-    df = script_df.copy()
-    df = df.reset_index(drop=True)
+    df = script_df.copy().reset_index(drop=True)
     cols = [c for c in NIGHTPLAN_COLUMNS if c in df.columns]
-    df = df[cols].copy()
-    df = df.fillna("")
+    df = df[cols].copy().fillna("")
     for col in df.columns:
         if df[col].dtype == "object":
             df[col] = df[col].astype(str).replace("nan", "").replace("None", "")
-    table_html = df.to_html(
-        classes="table table-striped table-hover",
-        index=False,
-        escape=False,
-        table_id=table_id,
-    )
-    # Add tooltips to headers
+
+    widths = []
+    for col in df.columns:
+        content_max = max((_visible_len(c) for c in df[col]), default=0)
+        header_len = len(str(col))
+        widths.append(f"{max(content_max, header_len, 1) + 2}ch")
+
+    column_defs = [{"target": i, "width": w} for i, w in enumerate(widths)]
     tooltips = [NIGHTPLAN_COLUMN_TOOLTIPS.get(col, "") for col in df.columns]
 
-    def _add_th_tooltip(m):
-        idx = _add_th_tooltip.idx
-        _add_th_tooltip.idx += 1
-        t = tooltips[idx] if idx < len(tooltips) else ""
-        return f'<th data-tooltip="{escape(t)}">{m.group(1)}</th>' if t else m.group(0)
-
-    _add_th_tooltip.idx = 0
-    table_html = re.sub(
-        r"<th>([^<]*)</th>", _add_th_tooltip, table_html, count=len(df.columns)
+    return _render_datatable(
+        df,
+        template_name="nightplan_table.html.j2",
+        table_id=table_id,
+        variant="compact",
+        column_widths=widths,
+        column_defs=column_defs,
+        tooltips=tooltips,
+        page_size=page_size,
+        sort_column=1,
+        numeric_cols=_NIGHTPLAN_NUMERIC_COLS,
+        time_cols=_NIGHTPLAN_TIME_COLS,
+        has_column_filters=True,
+        filter_placeholder="Filter... (> < for HH:MM or numbers)",
+        add_tfoot=True,
     )
-    tfoot_cells = "".join(["<th></th>" for _ in df.columns])
-    table_html = table_html.replace(
-        "</tbody>", "</tbody><tfoot><tr>" + tfoot_cells + "</tr></tfoot>"
-    )
 
-    # Column widths
-    def visible_len(s):
-        return len(re.sub(r"<[^>]+>", "", str(s)).strip())
 
-    widths = {}
-    for col in df.columns:
-        content_max = max((visible_len(c) for c in df[col]), default=0)
-        header_len = len(str(col))
-        ch_width = max(content_max, header_len, 1) + 2
-        widths[col] = f"{ch_width}ch"
-    column_defs = [
-        f"{{ targets: {i}, width: '{widths[col]}' }}"
-        for i, col in enumerate(df.columns)
-    ]
-    column_defs_str = ",\n                ".join(column_defs)
-    col_widths = [widths[col] for col in df.columns]
-    col_css = " ".join(
-        [
-            f"#{table_id} th:nth-child({i + 1}), #{table_id} td:nth-child({i + 1}) {{ width: {w} !important; max-width: {w} !important; }}"
-            for i, w in enumerate(col_widths)
-        ]
-    )
-    custom_css = f"""
-    <style>
-    #{table_id} {{ width: auto !important; max-width: 100%; border-collapse: collapse; font-size: 21px; margin: 10px 0; table-layout: fixed !important; }}
-    {col_css}
-    #{table_id} thead th {{ background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; font-weight: 600;
-        padding: 3pt; text-align: center; font-size: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: help; }}
-    #{table_id} tbody td {{ padding: 3pt; text-align: center; font-size: 20px; border-bottom: 1px solid #e9ecef;
-        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
-    #{table_id} tbody tr:nth-child(even) {{ background-color: #dee2e6 !important; }}
-    #{table_id} tbody tr:nth-child(odd) {{ background-color: white !important; }}
-    #{table_id} tbody tr:hover {{ background-color: #e3f2fd !important; }}
-    #{table_id} tfoot th {{ padding: 8px 4px; background: #f1f3f5; border-top: 2px solid #dee2e6; }}
-    #{table_id} tfoot .column-filter {{ width: 100%; padding: 4px 8px; font-size: 14px; border: 1px solid #ced4da; border-radius: 4px; box-sizing: border-box; }}
-    #{table_id} thead th[data-tooltip] {{ position: relative; }}
-    #{table_id} thead th[data-tooltip]:hover::after {{
-        content: attr(data-tooltip);
-        position: fixed;
-        top: 140px;
-        left: 50%;
-        transform: translateX(-50%);
-        padding: 16px 24px;
-        background: #5a4d9e !important;
-        color: white !important;
-        font-size: 18px !important;
-        font-weight: 700 !important;
-        white-space: normal;
-        max-width: 675px;
-        width: 675px;
-        text-align: center;
-        border-radius: 8px;
-        border: 3px solid #4a3d8e;
-        box-shadow: 0 6px 24px rgba(0,0,0,0.5);
-        z-index: 10000;
-        pointer-events: none;
-        opacity: 1 !important;
-    }}
-    </style>
-    """
-    # Numeric columns for > < >= <= : ra(6), dec(7), exptime(8), n_exp(9), n_intra_max(10), tau_intra(11), jmag(12), Vmag(13)
-    # Time columns (HH:MM): First Available(0), Start Exposure(1), Last Available(2)
-    numeric_col_indices = [6, 7, 8, 9, 10, 11, 12, 13]
-    time_col_indices = [0, 1, 2]
-    init_script = f"""
-    <script>
-    function parseHHMM(s) {{
-        var m = (s || '').match(/(\\d{{1,2}}):(\\d{{2}})/);
-        return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : NaN;
-    }}
-    $(document).ready(function() {{
-        if ($.fn.DataTable.isDataTable('#{table_id}')) {{ $('#{table_id}').DataTable().destroy(); }}
-        var numericCols = {numeric_col_indices};
-        var timeCols = {time_col_indices};
-        var table = $('#{table_id}').DataTable({{
-            autoWidth: false,
-            pageLength: {page_size},
-            order: [[1, 'asc']],
-            dom: 'lBfrtip',
-            buttons: ['copy', 'csv', 'excel', 'print'],
-            lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
-            columnDefs: [ {column_defs_str} ],
-            initComplete: function() {{
-                var api = this.api();
-                $.fn.dataTable.ext.search.push(function(settings, data, dataIndex) {{
-                    if (settings.nTable.id !== '{table_id}') return true;
-                    var tbl = $('#' + '{table_id}');
-                    for (var i = 0; i < data.length; i++) {{
-                        var input = tbl.find('tfoot th').eq(i).find('input.column-filter');
-                        var val = (input.val() || '').trim();
-                        if (!val) continue;
-                        var cellVal = data[i];
-                        if (typeof cellVal === 'string' && cellVal.indexOf('<') >= 0) {{
-                            cellVal = $('<div>').html(cellVal).text().trim();
-                        }} else {{
-                            cellVal = (cellVal || '').toString().trim();
-                        }}
-                        if (timeCols.indexOf(i) >= 0) {{
-                            var tMatch = val.match(/^(>=|<=|>|<|=|==)\s*(\\d{{1,2}}):(\\d{{2}})$/);
-                            if (tMatch) {{
-                                var op = tMatch[1];
-                                var filterMins = parseInt(tMatch[2], 10) * 60 + parseInt(tMatch[3], 10);
-                                var cellMins = parseHHMM(cellVal);
-                                if (isNaN(cellMins)) return false;
-                                switch(op) {{
-                                    case '>': if (!(cellMins > filterMins)) return false; break;
-                                    case '<': if (!(cellMins < filterMins)) return false; break;
-                                    case '>=': if (!(cellMins >= filterMins)) return false; break;
-                                    case '<=': if (!(cellMins <= filterMins)) return false; break;
-                                    case '=':
-                                    case '==': if (cellMins != filterMins) return false; break;
-                                }}
-                            }} else {{
-                                if (cellVal.toLowerCase().indexOf(val.toLowerCase()) < 0) return false;
-                            }}
-                        }} else if (numericCols.indexOf(i) >= 0) {{
-                            var match = val.match(/^(>=|<=|>|<|=|==)\s*(-?[\\d.]+)$/);
-                            if (match) {{
-                                var op = match[1];
-                                var numVal = parseFloat(match[2]);
-                                var cellNum = parseFloat(cellVal);
-                                if (isNaN(cellNum)) return false;
-                                switch(op) {{
-                                    case '>': if (!(cellNum > numVal)) return false; break;
-                                    case '<': if (!(cellNum < numVal)) return false; break;
-                                    case '>=': if (!(cellNum >= numVal)) return false; break;
-                                    case '<=': if (!(cellNum <= numVal)) return false; break;
-                                    case '=':
-                                    case '==': if (cellNum != numVal) return false; break;
-                                }}
-                            }} else {{
-                                if (cellVal.toLowerCase().indexOf(val.toLowerCase()) < 0) return false;
-                            }}
-                        }} else {{
-                            if (cellVal.toLowerCase().indexOf(val.toLowerCase()) < 0) return false;
-                        }}
-                    }}
-                    return true;
-                }});
-                api.columns().every(function() {{
-                    var column = this;
-                    var input = $('<input type="text" class="column-filter" placeholder="Filter... (> < for HH:MM or numbers)">')
-                        .appendTo($(column.footer()).empty())
-                        .on('keyup change', function() {{ api.draw(); }});
-                }});
-            }}
-        }});
-    }});
-    </script>
-    """
-    return custom_css + table_html + init_script
+# Default per-column widths for `dataframe_to_html` (legacy generic table).
+_GENERIC_WIDTH_MAP = {
+    "First Available": "80px",
+    "Start Exposure": "80px",
+    "Last Available": "80px",
+    "unique_id": "200px",
+    "starname": "200px",
+    "program_code": "120px",
+    "ra": "100px",
+    "dec": "100px",
+    "exptime": "80px",
+    "n_exp": "60px",
+    "n_intra_max": "80px",
+    "tau_intra": "80px",
+    "jmag": "60px",
+    "Vmag": "60px",
+}
 
 
 def dataframe_to_html(dataframe, sort_column=2, page_size=10, table_id="request-table"):
@@ -3208,331 +3060,31 @@ def dataframe_to_html(dataframe, sort_column=2, page_size=10, table_id="request-
     Returns:
         table_html (str): HTML string with table and DataTables initialization
     """
-    # Ensure DataFrame is clean and properly structured
-    dataframe = dataframe.reset_index(drop=True)
-    # Remove duplicate column names if any exist
-    dataframe = dataframe.loc[:, ~dataframe.columns.duplicated(keep="first")]
-    # Fill NaN values with empty strings
-    dataframe = dataframe.fillna("")
-    # Ensure all object columns are strings
-    for col in dataframe.columns:
-        if dataframe[col].dtype == "object":
-            dataframe[col] = (
-                dataframe[col].astype(str).replace("nan", "").replace("None", "")
-            )
+    df = dataframe.reset_index(drop=True)
+    df = df.loc[:, ~df.columns.duplicated(keep="first")]
+    df = df.fillna("")
+    for col in df.columns:
+        if df[col].dtype == "object":
+            df[col] = df[col].astype(str).replace("nan", "").replace("None", "")
 
-    # Validate sort_column is within bounds
-    num_columns = len(dataframe.columns)
-    if sort_column >= num_columns:
-        sort_column = 0  # Default to first column if out of bounds
+    if sort_column >= len(df.columns):
+        sort_column = 0
 
-    # if 'exptime' in dataframe.columns:
-    #     # Ensure exptime is an integer, handle 'None' strings
-    #     dataframe['exptime'] = dataframe['exptime'].replace('None', pd.NA)
-    #     dataframe['exptime'] = pd.to_numeric(dataframe['exptime'], errors='coerce').fillna(0).astype(int)
+    widths = [_GENERIC_WIDTH_MAP.get(col, "100px") for col in df.columns]
+    column_defs = [{"target": i, "width": w} for i, w in enumerate(widths)]
 
-    # Convert DataFrame to HTML table with unique ID
-    table_html = dataframe.to_html(
-        classes="table table-striped table-hover",
-        index=False,
-        escape=False,
+    return _render_datatable(
+        df,
+        template_name="generic_table.html.j2",
         table_id=table_id,
+        variant="card",
+        column_widths=widths,
+        column_defs=column_defs,
+        page_size=page_size,
+        sort_column=sort_column,
+        has_dt_controls_styling=True,
+        has_init_complete_header_style=True,
+        table_layout="auto",
+        scroll_x=False,
+        responsive=False,
     )
-
-    # Custom CSS for beautiful table styling
-    custom_css = f"""
-    <style>
-    #{table_id} {{
-        border-collapse: separate !important;
-        border-spacing: 0 !important;
-        border-radius: 8px !important;
-        overflow: hidden !important;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
-        margin: 20px 0 !important;
-    }}
-    
-    #{table_id} thead th {{
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-        color: white !important;
-        font-weight: 600 !important;
-        padding: 15px 12px !important;
-        border: none !important;
-        text-align: center !important;
-        font-size: 14px !important;
-        text-transform: uppercase !important;
-        letter-spacing: 0.5px !important;
-    }}
-    
-    /* Additional DataTables header styling to ensure purple background */
-    #{table_id} .dataTables_scrollHead thead th {{
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-        color: white !important;
-        font-weight: 600 !important;
-        padding: 15px 12px !important;
-        border: none !important;
-        text-align: left !important;
-        font-size: 14px !important;
-        text-transform: uppercase !important;
-        letter-spacing: 0.5px !important;
-    }}
-    
-    #{table_id} .dataTables_wrapper .dataTables_scrollHead thead th {{
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-        color: white !important;
-        font-weight: 600 !important;
-        padding: 15px 12px !important;
-        border: none !important;
-        text-align: left !important;
-        font-size: 14px !important;
-        text-transform: uppercase !important;
-        letter-spacing: 0.5px !important;
-    }}
-    
-    /* Target any header cells that might be created by DataTables */
-    #{table_id} th, #{table_id} .dataTables_scrollHead th {{
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-        color: white !important;
-        font-weight: 600 !important;
-        padding: 15px 12px !important;
-        border: none !important;
-        text-align: left !important;
-        font-size: 14px !important;
-        text-transform: uppercase !important;
-        letter-spacing: 0.5px !important;
-    }}
-    
-    /* More aggressive DataTables header targeting */
-    #{table_id} .dataTables_wrapper thead th {{
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-        color: white !important;
-        font-weight: 600 !important;
-        padding: 15px 12px !important;
-        border: none !important;
-        text-align: left !important;
-        font-size: 14px !important;
-        text-transform: uppercase !important;
-        letter-spacing: 0.5px !important;
-    }}
-    
-    /* Force all header cells to have purple background */
-    #{table_id} thead th, #{table_id} th, #{table_id} .dataTables_scrollHead th, #{table_id} .dataTables_wrapper th {{
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-        color: white !important;
-        font-weight: 600 !important;
-        padding: 15px 12px !important;
-        border: none !important;
-        text-align: left !important;
-        font-size: 14px !important;
-        text-transform: uppercase !important;
-        letter-spacing: 0.5px !important;
-    }}
-    
-    /* Override any DataTables default styling */
-    #{table_id} .dataTables_wrapper .dataTables_scrollHead thead th,
-    #{table_id} .dataTables_wrapper .dataTables_scrollHead thead td {{
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-        color: white !important;
-        font-weight: 600 !important;
-        padding: 15px 12px !important;
-        border: none !important;
-        text-align: left !important;
-        font-size: 14px !important;
-        text-transform: uppercase !important;
-        letter-spacing: 0.5px !important;
-    }}
-    
-    /* Nuclear option - target everything with maximum specificity */
-    #{table_id} .dataTables_wrapper .dataTables_scrollHead thead th,
-    #{table_id} .dataTables_wrapper .dataTables_scrollHead thead td,
-    #{table_id} .dataTables_wrapper thead th,
-    #{table_id} .dataTables_wrapper thead td,
-    #{table_id} thead th,
-    #{table_id} thead td {{
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-        color: white !important;
-        font-weight: 600 !important;
-        padding: 15px 12px !important;
-        border: none !important;
-        text-align: left !important;
-        font-size: 14px !important;
-        text-transform: uppercase !important;
-        letter-spacing: 0.5px !important;
-    }}
-    
-    /* Force override any inline styles that DataTables might add */
-    #{table_id} thead th[style*="background"],
-    #{table_id} .dataTables_wrapper thead th[style*="background"] {{
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-        color: white !important;
-        font-weight: 600 !important;
-        padding: 15px 12px !important;
-        border: none !important;
-        text-align: left !important;
-        font-size: 14px !important;
-        text-transform: uppercase !important;
-        letter-spacing: 0.5px !important;
-    }}
-    
-    #{table_id} tbody tr {{
-        transition: all 0.2s ease !important;
-    }}
-    
-    #{table_id} tbody tr:nth-child(even) {{
-        background-color: #f8f9fa !important;
-    }}
-    
-    #{table_id} tbody tr:nth-child(odd) {{
-        background-color: white !important;
-    }}
-    
-    #{table_id} tbody tr:hover {{
-        background-color: #e3f2fd !important;
-        transform: translateY(-1px) !important;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
-    }}
-    
-    #{table_id} tbody td {{
-        padding: 12px !important;
-        border: none !important;
-        border-bottom: 1px solid #e9ecef !important;
-        font-size: 14px !important;
-        color: #495057 !important;
-        text-align: center !important;
-    }}
-    
-    #{table_id} tbody tr:last-child td {{
-        border-bottom: none !important;
-    }}
-    
-    /* Column widths are now controlled by DataTables columnDefs for proper alignment */
-    
-    /* DataTables controls styling */
-    .dataTables_length select {{
-        border: 1px solid #ddd !important;
-        border-radius: 4px !important;
-        padding: 4px 8px !important;
-        background: white !important;
-    }}
-    
-    .dataTables_filter input {{
-        border: 1px solid #ddd !important;
-        border-radius: 4px !important;
-        padding: 6px 12px !important;
-        background: white !important;
-    }}
-    
-    .dt-buttons .dt-button {{
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-        color: white !important;
-        border: none !important;
-        border-radius: 4px !important;
-        padding: 8px 16px !important;
-        margin: 2px !important;
-        font-size: 12px !important;
-        transition: all 0.2s ease !important;
-    }}
-    
-    .dt-buttons .dt-button:hover {{
-        background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%) !important;
-        transform: translateY(-1px) !important;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2) !important;
-    }}
-    
-    .dataTables_info {{
-        color: #6c757d !important;
-        font-size: 14px !important;
-        margin-top: 10px !important;
-    }}
-    
-    .dataTables_paginate .paginate_button {{
-        border: 1px solid #ddd !important;
-        border-radius: 4px !important;
-        padding: 6px 12px !important;
-        margin: 2px !important;
-        background: white !important;
-        color: #495057 !important;
-        transition: all 0.2s ease !important;
-    }}
-    
-    .dataTables_paginate .paginate_button:hover {{
-        background: #e9ecef !important;
-        border-color: #adb5bd !important;
-    }}
-    
-    .dataTables_paginate .paginate_button.current {{
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-        color: white !important;
-        border-color: #667eea !important;
-    }}
-    </style>
-    """
-
-    # Generate columnDefs dynamically based on actual number of columns
-    num_columns = len(dataframe.columns)
-    column_defs = []
-    # Default width mapping for common column names
-    width_map = {
-        "First Available": "80px",
-        "Start Exposure": "80px",
-        "Last Available": "80px",
-        "unique_id": "200px",
-        "starname": "200px",
-        "program_code": "120px",
-        "ra": "100px",
-        "dec": "100px",
-        "exptime": "80px",
-        "n_exp": "60px",
-        "n_intra_max": "80px",
-        "tau_intra": "80px",
-        "jmag": "60px",
-        "Vmag": "60px",
-    }
-
-    for i, col in enumerate(dataframe.columns):
-        width = width_map.get(col, "100px")  # Default width if not in map
-        column_defs.append(f"{{ targets: {i}, width: '{width}' }}")
-
-    column_defs_str = ",\n                ".join(column_defs)
-
-    # DataTables initialization script - destroy existing instance first
-    init_script = f"""
-    <script>
-    $(document).ready(function() {{
-        // Destroy existing DataTable if it exists
-        if ($.fn.DataTable.isDataTable('#{table_id}')) {{
-            $('#{table_id}').DataTable().destroy();
-        }}
-        
-        // Initialize new DataTable
-        var table = $('#{table_id}').DataTable({{
-            pageLength: {page_size},
-            order: [[{sort_column}, 'asc']],
-            dom: 'lBfrtip',
-            buttons: ['copy', 'csv', 'excel', 'print'],
-            scrollX: false,  // Disable horizontal scrolling to prevent header misalignment
-            responsive: false,  // Disable responsive features that can cause header issues
-            lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
-            tableLayout: 'auto',  // Use auto layout for better column width handling
-            columnDefs: [
-                {column_defs_str}
-            ],
-            initComplete: function() {{
-                // Simple styling after DataTables is initialized
-                $('#{table_id} thead th').css({{
-                    'background': 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                    'color': 'white',
-                    'font-weight': '600',
-                    'padding': '15px 12px',
-                    'border': 'none',
-                    'text-align': 'center',
-                    'font-size': '14px',
-                    'text-transform': 'uppercase',
-                    'letter-spacing': '0.5px'
-                }});
-            }}
-        }});
-    }});
-    </script>
-    """
-
-    return custom_css + table_html + init_script

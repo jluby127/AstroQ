@@ -723,7 +723,9 @@ def requests_vs_schedule(args):
     assert sch.groupby(["d", "s"]).size().max() <= 1, no_duplicate_slot_err
     for star in req.unique_id:
         star_request = req.query(f"unique_id=='{star}'")
-        star_schedule = sch.query(f"r=='{star}'")  # Only the slots with the star listed
+        star_schedule = sch.query(
+            f"unique_id=='{star}'"
+        )  # Only the slots with the star listed
 
         # A star might not be scheduled at all. This does not violate constraints, but should be noted.
         if len(star_schedule) == 0:
