@@ -1,0 +1,8 @@
+{# Nightplan script DataTable (night plan page).
+
+Variables (in addition to those required by the partials):
+  table_html (str)     : pre-rendered <table>...</table> with tooltips and tfoot already injected
+#}
+{% include 'partials/datatable.css.j2' %}
+{{ table_html | safe }}
+{% include 'partials/datatable.js.j2' %}

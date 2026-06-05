@@ -1,0 +1,137 @@
+{# Shared DataTables init script.
+
+Variables:
+  table_id (str)                           : id of the rendered <table>
+  page_size (int)                          : initial pageLength
+  sort_column (int)                        : initial sort column index
+  sort_dir (str)                           : 'asc' or 'desc'
+  column_defs (list[{target, width}])      : DataTables columnDefs widths
+  numeric_cols (list[int])                 : column indices to filter as numbers (> < >= <= = ==)
+  time_cols (list[int])                    : column indices to filter as HH:MM (> < >= <= = ==)
+  has_column_filters (bool)                : render per-column filter inputs in tfoot
+  has_init_complete_header_style (bool)    : re-apply header CSS in initComplete (legacy 'card' variant)
+  filter_placeholder (str)                 : placeholder text for column filter inputs
+  auto_width (bool)                        : DataTables `autoWidth` option (default false)
+  table_layout (str|None)                  : optional DataTables `tableLayout` option, e.g. 'auto'
+  scroll_x (bool)                          : DataTables `scrollX` option
+  responsive (bool)                        : DataTables `responsive` option
+#}
+<script>
+$(document).ready(function() {
+    if ($.fn.DataTable.isDataTable('#{{ table_id }}')) {
+        $('#{{ table_id }}').DataTable().destroy();
+    }
+    {%- if time_cols %}
+    function parseHHMM(s) {
+        var m = (s || '').match(/(\d{1,2}):(\d{2})/);
+        return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : NaN;
+    }
+    {%- endif %}
+    {%- if has_column_filters %}
+    var numericCols = {{ numeric_cols | tojson }};
+    var timeCols = {{ time_cols | tojson }};
+    {%- endif %}
+    var table = $('#{{ table_id }}').DataTable({
+        autoWidth: {{ 'true' if auto_width else 'false' }},
+        pageLength: {{ page_size }},
+        order: [[{{ sort_column }}, '{{ sort_dir }}']],
+        dom: 'lBfrtip',
+        buttons: ['copy', 'csv', 'excel', 'print'],
+        {%- if scroll_x is defined %}
+        scrollX: {{ 'true' if scroll_x else 'false' }},
+        {%- endif %}
+        {%- if responsive is defined %}
+        responsive: {{ 'true' if responsive else 'false' }},
+        {%- endif %}
+        lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, "All"]],
+        {%- if table_layout %}
+        tableLayout: '{{ table_layout }}',
+        {%- endif %}
+        columnDefs: [
+            {%- for cd in column_defs %}
+            { targets: {{ cd.target }}, width: '{{ cd.width }}' }{% if not loop.last %},{% endif %}
+            {%- endfor %}
+        ]{% if has_column_filters or has_init_complete_header_style %},
+        initComplete: function() {
+            {%- if has_init_complete_header_style %}
+            $('#{{ table_id }} thead th').css({
+                'background': 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                'color': 'white',
+                'font-weight': '600',
+                'padding': '15px 12px',
+                'border': 'none',
+                'text-align': 'center',
+                'font-size': '14px',
+                'text-transform': 'uppercase',
+                'letter-spacing': '0.5px'
+            });
+            {%- endif %}
+            {%- if has_column_filters %}
+            var api = this.api();
+            $.fn.dataTable.ext.search.push(function(settings, data, dataIndex) {
+                if (settings.nTable.id !== '{{ table_id }}') return true;
+                var tbl = $('#' + '{{ table_id }}');
+                for (var i = 0; i < data.length; i++) {
+                    var input = tbl.find('tfoot th').eq(i).find('input.column-filter');
+                    var val = (input.val() || '').trim();
+                    if (!val) continue;
+                    var cellVal = data[i];
+                    if (typeof cellVal === 'string' && cellVal.indexOf('<') >= 0) {
+                        cellVal = $('<div>').html(cellVal).text().trim();
+                    } else {
+                        cellVal = (cellVal || '').toString().trim();
+                    }
+                    if (timeCols.indexOf(i) >= 0) {
+                        var tMatch = val.match(/^(>=|<=|>|<|=|==)\s*(\d{1,2}):(\d{2})$/);
+                        if (tMatch) {
+                            var op = tMatch[1];
+                            var filterMins = parseInt(tMatch[2], 10) * 60 + parseInt(tMatch[3], 10);
+                            var cellMins = parseHHMM(cellVal);
+                            if (isNaN(cellMins)) return false;
+                            switch(op) {
+                                case '>': if (!(cellMins > filterMins)) return false; break;
+                                case '<': if (!(cellMins < filterMins)) return false; break;
+                                case '>=': if (!(cellMins >= filterMins)) return false; break;
+                                case '<=': if (!(cellMins <= filterMins)) return false; break;
+                                case '=':
+                                case '==': if (cellMins != filterMins) return false; break;
+                            }
+                        } else {
+                            if (cellVal.toLowerCase().indexOf(val.toLowerCase()) < 0) return false;
+                        }
+                    } else if (numericCols.indexOf(i) >= 0) {
+                        var match = val.match(/^(>=|<=|>|<|=|==)\s*(-?[\d.]+)$/);
+                        if (match) {
+                            var op = match[1];
+                            var numVal = parseFloat(match[2]);
+                            var cellNum = parseFloat(cellVal);
+                            if (isNaN(cellNum)) return false;
+                            switch(op) {
+                                case '>': if (!(cellNum > numVal)) return false; break;
+                                case '<': if (!(cellNum < numVal)) return false; break;
+                                case '>=': if (!(cellNum >= numVal)) return false; break;
+                                case '<=': if (!(cellNum <= numVal)) return false; break;
+                                case '=':
+                                case '==': if (cellNum != numVal) return false; break;
+                            }
+                        } else {
+                            if (cellVal.toLowerCase().indexOf(val.toLowerCase()) < 0) return false;
+                        }
+                    } else {
+                        if (cellVal.toLowerCase().indexOf(val.toLowerCase()) < 0) return false;
+                    }
+                }
+                return true;
+            });
+            api.columns().every(function() {
+                var column = this;
+                var input = $('<input type="text" class="column-filter" placeholder="{{ filter_placeholder }}">')
+                    .appendTo($(column.footer()).empty())
+                    .on('keyup change', function() { api.draw(); });
+            });
+            {%- endif %}
+        }
+        {%- endif %}
+    });
+});
+</script>
