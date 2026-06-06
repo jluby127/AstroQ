@@ -16,6 +16,7 @@ import plotly.io as pio
 # Local imports
 
 import astroq.benchmarking as bn
+import astroq.queue
 import astroq.queue.kpfcc as kpfcc
 import astroq.queue.hirescps as hirescps
 import astroq.history as hs
@@ -65,7 +66,7 @@ def bench(args):
     requests_frame.to_csv(os.path.join(semester_directory, "request.csv"))
 
     # Run the schedule directly from config file
-    schedule = splan.SemesterPlanner(cf, run_band3=False)
+    schedule = splan.SemesterPlanner(cf)
     schedule.run_model()
     return
 
@@ -180,6 +181,12 @@ def hirescps_prep(args):
     if is_full_band:
         print("Updating allocation.csv for full-band")
         allocation_frame = kpfcc.update_allocation_file(allocation_frame, current_date)
+    if band_number == 3:
+        print("Expanding allocation.csv for band-3 twilight buffer")
+        queue = astroq.queue.from_config(config)
+        allocation_frame = kpfcc.expand_allocation_for_band3(
+            allocation_frame, queue.observatory
+        )
     allocation_frame.sort_values(by="start", inplace=True)
     allocation_frame.to_csv(os.path.join(savepath, allocation_file), index=False)
 
@@ -204,18 +211,10 @@ def hirescps_prep(args):
         custom_file = str(config.get("data", "custom_file"))
         custom_df.to_csv(os.path.join(savepath, custom_file), index=False)
 
-        # # CAPTURE FILLER REQUEST INFORMATION AND PROCESS
-        # # --------------------------------------------
-        # # --------------------------------------------
-        # # Now get the bright backup stars information from the filler program
-        # filler_file = str(config.get('data', 'filler_file'))
-        # fillers_df, fillers_custom_df = hirescps.pull_requests(hirescps.get_program_sheet_urls(), skip_rows=2)
-        # fillers_df.to_csv(os.path.join(savepath, filler_file), index=False)
-
     else:
         print(f"User specified request source: {args.request_source}")
         print("No action taken on request.csv")
-        print("User must also supply a custom.csv file and a filler.csv file.")
+        print("User must also supply a custom.csv file.")
 
     # CAPTURE PAST HISTORY INFORMATION AND PROCESS
     # --------------------------------------------
@@ -370,6 +369,12 @@ def kpfcc_prep(args):
     if is_full_band:
         print("Updating allocation.csv for full-band")
         allocation_frame = kpfcc.update_allocation_file(allocation_frame, current_date)
+    if band_number == 3:
+        print("Expanding allocation.csv for band-3 twilight buffer")
+        queue = astroq.queue.from_config(config)
+        allocation_frame = kpfcc.expand_allocation_for_band3(
+            allocation_frame, queue.observatory
+        )
     allocation_frame.sort_values(by="start", inplace=True)
     allocation_frame.to_csv(os.path.join(savepath, allocation_file), index=False)
 
@@ -395,20 +400,37 @@ def kpfcc_prep(args):
         ) = kpfcc.get_request_sheet(
             OBs, awarded_programs, os.path.join(savepath, request_file)
         )
-        # Filter the request sheet by weather band
-        filtered_good_obs = kpfcc.filter_request_csv(good_obs, band_number)
-        # If no exposure meter threshold set, then OB can only be part of band 1
-        if band_number != 1:
-            filtered_good_obs = filtered_good_obs[
-                filtered_good_obs["exp_meter_threshold"] != -1.0
-            ]
-        filtered_good_obs.reset_index(drop=True, inplace=True)
+        # For band 3 (filler band), `request.csv` is the filler-program list
+        # only; everything else gets the band-filtered scientific request list.
+        if band_number == 3:
+            if fillers is None:
+                print("No fillers specified; writing empty request.csv for band-3.")
+                request_df = pd.DataFrame(columns=good_obs.columns)
+            else:
+                print(f"Generating band-3 request.csv from filler program: {fillers}")
+                (
+                    request_df,
+                    _,
+                    _,
+                    _,
+                    _,
+                ) = kpfcc.get_request_sheet(
+                    OBs, [fillers], os.path.join(savepath, request_file)
+                )
+                request_df = kpfcc.filter_request_csv(request_df, band_number)
+        else:
+            request_df = kpfcc.filter_request_csv(good_obs, band_number)
+            # If no exposure meter threshold set, then OB can only be part of
+            # band 1.
+            if band_number != 1:
+                request_df = request_df[request_df["exp_meter_threshold"] != -1.0]
+        request_df.reset_index(drop=True, inplace=True)
         # Compute nominal exposure times and increase exposure times for different bands
         slowdown_factors = {1: 1.0, 2: 2.0, 3: 4.0}
         slow = slowdown_factors[band_number]
-        # new_exptimes = kpfcc.recompute_exposure_times(filtered_good_obs, slow)
-        # filtered_good_obs['exptime'] = new_exptimes
-        filtered_good_obs.to_csv(os.path.join(savepath, request_file), index=False)
+        # new_exptimes = kpfcc.recompute_exposure_times(request_df, slow)
+        # request_df['exptime'] = new_exptimes
+        request_df.to_csv(os.path.join(savepath, request_file), index=False)
 
         # CAPTURE CUSTOM INFORMATION AND PROCESS
         # --------------------------------------------
@@ -416,32 +438,6 @@ def kpfcc_prep(args):
         custom_file = str(config.get("data", "custom_file"))
         custom_frame = kpfcc.format_custom_csv(OBs)
         custom_frame.to_csv(os.path.join(savepath, custom_file), index=False)
-
-        # CAPTURE FILLER REQUEST INFORMATION AND PROCESS
-        # --------------------------------------------
-        # --------------------------------------------
-        # Now get the bright backup stars information from the filler program
-        filler_file = str(config.get("data", "filler_file"))
-        if fillers is not None:
-            print(f"Generating filler.csv from program: {fillers}")
-            (
-                good_obs_backup,
-                bad_obs_values_backup,
-                bad_obs_hasFields_backup,
-                bad_obs_count_by_semid_backup,
-                bad_field_histogram_backup,
-            ) = kpfcc.get_request_sheet(
-                OBs, [fillers], os.path.join(savepath, filler_file)
-            )
-        else:
-            print(f"No fillers specified, creating blank filler.csv file.")
-            good_obs_backup = pd.DataFrame(columns=good_obs.columns)
-        filtered_good_obs_backup = kpfcc.filter_request_csv(
-            good_obs_backup, band_number
-        )
-        filtered_good_obs_backup.to_csv(
-            os.path.join(savepath, filler_file), index=False
-        )
 
         # CAPTURE EMAIL INFORMATION AND PROCESS
         # --------------------------------------------
@@ -458,7 +454,7 @@ def kpfcc_prep(args):
     else:
         print(f"User specified request source: {args.request_source}")
         print("No action taken on request.csv")
-        print("User must also supply a custom.csv file and a filler.csv file.")
+        print("User must also supply a custom.csv file.")
 
     # CAPTURE PAST HISTORY INFORMATION AND PROCESS
     # --------------------------------------------
@@ -526,16 +522,13 @@ def plan_semester(args):
     Args:
         args (argparse.Namespace): the command line arguments with flags:
             -cf (str): the path to the config file.
-            -run_band3 (bool): whether to run the band 3 filler program.
 
     Returns:
         None
     """
     cf = args.config_file
     print(f"plan_semester function: config_file is {cf}")
-    b3 = args.run_band3
-    print(f"plan_semester function: b3 is {b3}")
-    semester_planner = splan.SemesterPlanner(cf, b3)
+    semester_planner = splan.SemesterPlanner(cf)
     semester_planner.run_model()
     return
 
@@ -707,9 +700,9 @@ def requests_vs_schedule(args):
     print(f"requests_vs_schedule function: config_file is {cf}")
     print(f"requests_vs_schedule function: schedule_file is {sf}")
     # Create semester planner to get strategy data
-    semester_planner = splan.SemesterPlanner(cf, run_band3=False)
+    semester_planner = splan.SemesterPlanner(cf)
     semester_planner.run_model()
-    req = semester_planner.strategy
+    req = semester_planner.requests_frame
     sch = pd.read_csv(sf)
     sch = sch.sort_values(by=["d", "s"]).reset_index(
         drop=True
@@ -732,7 +725,7 @@ def requests_vs_schedule(args):
             print(f"{star} not scheduled")
             continue
         # 1) t_visit: No stars scheduled during another star's slot
-        t_visit = star_request.t_visit.values[
+        t_visit = star_request.t_visit_slots.values[
             0
         ]  # Number of slots needed to complete observation
         star_inds = star_schedule.index
@@ -775,7 +768,7 @@ def requests_vs_schedule(args):
 
         # 3) n_intra_min, n_intra_max: N obs per day is between n_intra_min and n_intra_max
         # t_visit, the number of slots required to complete a single observation (aka visit)
-        t_visit = req[req.unique_id == star].t_visit.values
+        t_visit = req[req.unique_id == star].t_visit_slots.values
         # Upper/lower limits on N obs per day
         n_intra_min, n_intra_max = star_request[["n_intra_min", "n_intra_max"]].values[
             0
@@ -823,11 +816,11 @@ def requests_vs_schedule(args):
                 assert min_day_gaps >= tau_inter, tau_inter_err
 
         # 5) tau_intra: There must be at least tau_intra slots between successive observations of a target in a single night
-        slot_duration = semester_planner.slot_size  # Slot duration in minutes
+        slot_duration = semester_planner.config.getint(
+            "semester", "slot_size"
+        )  # Slot duration in minutes
         slots_per_hour = 60 / slot_duration
-        tau_intra_slots = star_request["tau_intra"].values[
-            0
-        ]  # recall that the tau_intra is already in units of slots
+        tau_intra_slots = star_request["tau_intra_slots"].values[0]
         min_slot_diffs = (
             star_schedule.groupby("d").s.diff().min()
         )  # Group by day, then find successive differences between slot numbers in the same day. Differences are not computed between the last slot of one night and the first slot of the next night (those values are NaN). The differences must all be AT LEAST tau_intra.

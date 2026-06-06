@@ -47,7 +47,7 @@ def _football_cache_dir(semester_planner):
     produced them and avoids polluting the installed package. Tests monkeypatch
     this function to redirect the cache into a tmp dir.
     """
-    return _Path(semester_planner.semester_directory) / "cache"
+    return _Path(semester_planner.config.get("global", "workdir")) / "cache"
 
 
 _TEMPLATE_ENV = jinja2.Environment(
@@ -309,7 +309,7 @@ class StarPlotter(object):
             forecast_df (pd.DataFrame): Pre-loaded forecast DataFrame with columns ['unique_id', 'd', 's']
         """
         n_nights = semester_planner.semester_length
-        n_slots = int((24 * 60) / semester_planner.slot_size)
+        n_slots = int((24 * 60) / semester_planner.config.getint("semester", "slot_size"))
         starmap = np.zeros((n_nights, n_slots), dtype=int)
 
         # Filter to only this star's rows
@@ -324,9 +324,9 @@ class StarPlotter(object):
             starmap[d_values, s_values] = 1
 
             # Set the reserve slots
-            reserve_slots = semester_planner.slots_needed_for_exposure_dict[
-                str(self.unique_id)
-            ]
+            rf = semester_planner.requests_frame
+            row = rf.loc[rf["unique_id"] == str(self.unique_id)]
+            reserve_slots = int(row["t_visit_slots"].iloc[0]) if len(row) else 1
             for r in range(1, reserve_slots):
                 starmap[d_values, s_values + r] = 1
 
@@ -380,7 +380,7 @@ def process_stars(semester_planner):
         # Create a StarPlotter object for each request, fill and compute relavant information
         newstar = StarPlotter(row["unique_id"])
         newstar.get_map(semester_planner, forecast_df)
-        newstar.get_stats(row, semester_planner.slot_size, queue)
+        newstar.get_stats(row, semester_planner.config.getint("semester", "slot_size"), queue)
         if newstar.unique_id in list(semester_planner.past_history.keys()):
             newstar.observations_past = semester_planner.past_history[
                 newstar.unique_id
@@ -528,7 +528,7 @@ def process_stars(semester_planner):
         except (IndexError, KeyError):
             # Target is inactive (not in access record) - create zero maps with appropriate shape
             n_nights = semester_planner.semester_length
-            n_slots = int((24 * 60) / semester_planner.slot_size)
+            n_slots = int((24 * 60) / semester_planner.config.getint("semester", "slot_size"))
             newstar.maps = {
                 name: np.zeros((n_nights, n_slots), dtype=bool)
                 for name in newstar.maps_names
@@ -542,7 +542,7 @@ def process_stars(semester_planner):
     # These will not have all the attributes, but we only need these for the admin COF plot
     # These StarPlotter objects cannot be used to create a birdseye plot, they don't have all attributes
     programmatics = pd.read_csv(
-        os.path.join(semester_planner.semester_directory, "programs.csv")
+        os.path.join(semester_planner.config.get("global", "workdir"), "programs.csv")
     )
 
     unique_programs = sorted(set(star.program for star in all_stars))
@@ -750,7 +750,7 @@ def get_cof(semester_planner, all_stars, use_time=False):
     else:
         # use_time=True: normalize by program hours from programs.csv
         programmatics_cof = pd.read_csv(
-            os.path.join(semester_planner.semester_directory, "programs.csv")
+            os.path.join(semester_planner.config.get("global", "workdir"), "programs.csv")
         )
         programs_in_stars = set(
             getattr(s, "program", getattr(s, "starname", None)) for s in all_stars
@@ -859,7 +859,7 @@ def get_cof(semester_planner, all_stars, use_time=False):
     # Find the night index for "today" (current_day)
     try:
         today_night_index = semester_planner.all_dates_array.index(
-            semester_planner.current_day
+            semester_planner.config.get("global", "current_day")
         )
     except (ValueError, AttributeError):
         # Fallback to today_starting_night if available, otherwise use 0
@@ -1142,12 +1142,12 @@ def get_birdseye(semester_planner, availablity, all_stars):
             x_ticktext_dates.append("")
 
     # Y-axis: ticks every 2 hours, using slot_size
-    n_slots = int(24 * 60 // semester_planner.slot_size)
-    slots_per_2hr = int(2 * 60 // semester_planner.slot_size)
+    n_slots = int(24 * 60 // semester_planner.config.getint("semester", "slot_size"))
+    slots_per_2hr = int(2 * 60 // semester_planner.config.getint("semester", "slot_size"))
     y_tickvals = list(range(0, n_slots, slots_per_2hr))
     y_ticktext = []
     for slot in y_tickvals:
-        total_minutes = slot * semester_planner.slot_size
+        total_minutes = slot * semester_planner.config.getint("semester", "slot_size")
         hours = total_minutes // 60
         minutes = total_minutes % 60
         y_ticktext.append(f"{hours:02.0f}:{minutes:02.0f}")
@@ -1164,7 +1164,7 @@ def get_birdseye(semester_planner, availablity, all_stars):
 
     # Add an invisible trace to force the secondary x-axis to appear
     # This trace must be associated with xaxis='x2' to make the secondary axis visible
-    n_slots = int(24 * 60 // semester_planner.slot_size)
+    n_slots = int(24 * 60 // semester_planner.config.getint("semester", "slot_size"))
     fig.add_trace(
         go.Scatter(
             x=[0, len(semester_planner.all_dates_array) - 1],
@@ -1562,7 +1562,7 @@ def get_timebar(
         fig (plotly figure): a plotly figure showing the time used vs forecasted vs available as a horizontal bar chart
     """
     programmatics = pd.read_csv(
-        os.path.join(semester_planner.semester_directory, "programs.csv")
+        os.path.join(semester_planner.config.get("global", "workdir"), "programs.csv")
     )
 
     # Per-visit overhead scalars come from the queue (single source of truth).
@@ -1710,7 +1710,7 @@ def get_timebar(
     )
 
     # Add gray vertical dashed line at total_allocated_hours * throttle_grace
-    grace_factor = semester_planner.throttle_grace
+    grace_factor = semester_planner.config.getfloat("semester", "throttle_grace")
     fig.add_shape(
         type="line",
         x0=total_allocated_hours * grace_factor,
@@ -1801,7 +1801,7 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
         fig (plotly figure): a plotly figure showing time breakdown per program as a grid of horizontal bar charts
     """
     programmatics = pd.read_csv(
-        os.path.join(semester_planner.semester_directory, "programs.csv")
+        os.path.join(semester_planner.config.get("global", "workdir"), "programs.csv")
     )
 
     # Per-visit overhead scalars come from the queue (single source of truth).
@@ -2005,7 +2005,7 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
         )
 
         # Add gray vertical dashed line at allocated * throttle_grace
-        grace_factor = semester_planner.throttle_grace
+        grace_factor = semester_planner.config.getfloat("semester", "throttle_grace")
         fig.add_shape(
             type="line",
             x0=allocated * grace_factor,
@@ -2149,7 +2149,7 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
     )
 
     semester = (
-        semester_planner.semester_start_date[:4] + semester_planner.semester_letter
+        semester_planner.config.get("global", "semester_start_day")[:4] + semester_planner.config.get("global", "semester")[-1]
     )
     cache_dir = _football_cache_dir(semester_planner)
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -2172,9 +2172,9 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
         grid_access = ac.Access(
             queue=semester_planner.queue,
             request_frame=seasonality_frame,
-            semester_start_date=semester_planner.semester_start_date,
+            semester_start_date=semester_planner.config.get("global", "semester_start_day"),
             semester_length=semester_length,
-            slot_size=semester_planner.slot_size,
+            slot_size=semester_planner.config.getint("semester", "slot_size"),
         )
         record = grid_access.build_access()
         is_observable_now = np.logical_and.reduce(

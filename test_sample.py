@@ -29,7 +29,6 @@ class TestClass(unittest.TestCase):
         dr.plan_semester(
             argparse.Namespace(
                 config_file="examples/hello_world/config_hello_world.ini",
-                run_band3=False,
             )
         )
 
@@ -37,7 +36,6 @@ class TestClass(unittest.TestCase):
         dr.plan_semester(
             argparse.Namespace(
                 config_file="examples/hello_world/config_hello_world_bonus_weather.ini",
-                run_band3=False,
             )
         )
 
@@ -139,11 +137,11 @@ class TestClass(unittest.TestCase):
             night_planner.config.get("global", "current_day"),
         )
         self.assertEqual(
-            semester_planner.current_day,
+            semester_planner.config.get("global", "current_day"),
             night_planner.current_day,
         )
         self.assertEqual(
-            semester_planner.semester_directory,
+            semester_planner.config.get("global", "workdir"),
             night_planner.semester_directory,
         )
 
@@ -166,7 +164,7 @@ class TestClass(unittest.TestCase):
         # the test does not depend on h5 contents.
         access_record = sp.access_obj.build_access()
 
-        night_d = sp.all_dates_dict[sp.current_day]
+        night_d = sp.all_dates_dict[sp.config.get("global", "current_day")]
         uids = sp.requests_frame["unique_id"].iloc[:3]
 
         # Cross-check first/last_available against the long-form observability

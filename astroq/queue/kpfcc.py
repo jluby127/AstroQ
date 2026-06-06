@@ -1158,6 +1158,52 @@ def update_allocation_file(allocation_df, current_date):
     return allocation_df
 
 
+def expand_allocation_for_band3(
+    allocation_df, observatory, buffer_minutes=20, tol_minutes=10
+):
+    """Extend allocation rows whose start/stop matches 12-deg nautical
+    twilight by ``buffer_minutes`` on each side.
+
+    Used at prep time when ``-band 3`` is requested: claims a small
+    band-3 (filler) buffer at the edges of allocated nights without
+    overlapping band-1/2 time.
+
+    Args:
+        allocation_df (pandas.DataFrame): allocation frame with ISO
+            ``start`` / ``stop`` columns (``YYYY-MM-DDTHH:MM``).
+        observatory (astroplan.Observer): the observing site, used to
+            compute nautical twilight times for each row's date.
+        buffer_minutes (int): minutes added on each end at twilight
+            boundaries. Defaults to 20.
+        tol_minutes (int): tolerance for the twilight-match heuristic.
+            Defaults to 10.
+
+    Returns:
+        pandas.DataFrame: a new frame; the input is not mutated.
+    """
+    df = allocation_df.copy()
+    tol = TimeDelta(tol_minutes * 60.0, format="sec")
+    buf = TimeDelta(buffer_minutes * 60.0, format="sec")
+
+    for idx, row in df.iterrows():
+        date_str = str(row["start"])[:10]
+        day = Time(date_str, format="iso", scale="utc")
+        evening_12 = observatory.twilight_evening_nautical(day, which="next")
+        morning_12 = observatory.twilight_morning_nautical(day, which="next")
+
+        start_time = Time(row["start"])
+        if abs(start_time - evening_12) <= tol:
+            df.loc[idx, "start"] = (start_time - buf).strftime("%Y-%m-%dT%H:%M")
+            print(f"Adjusted start time for {date_str}: subtracted {buffer_minutes} min")
+
+        stop_time = Time(row["stop"])
+        if abs(stop_time - morning_12) <= tol:
+            df.loc[idx, "stop"] = (stop_time + buf).strftime("%Y-%m-%dT%H:%M")
+            print(f"Adjusted stop time for {date_str}: added {buffer_minutes} min")
+
+    return df
+
+
 def write_starlist(
     frame,
     schedule,

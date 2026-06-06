@@ -247,14 +247,6 @@ def main():
         required=True,
         help="Relative path of config file.",
     )
-    psr_plan_semester.add_argument(
-        "-b3",
-        "--run_band3",
-        type=bool,
-        required=False,
-        default=False,
-        help="Turn on to run filler.csv as if it were request.csv",
-    )
     psr_plan_semester.set_defaults(func=astroq.driver.plan_semester)
 
     ## subcommand of astroq: plan-night -- run the night planner

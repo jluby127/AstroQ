@@ -9,7 +9,7 @@ import warnings
 # Third-party imports
 from tables.exceptions import DataTypeWarning
 
-# Booleans persisted via h5py (e.g. run_band3, run_weather_loss, gurobi_output,
+# Booleans persisted via h5py (e.g. run_weather_loss, gurobi_output,
 # run_bonus_round in splan.py) are stored as H5T_ENUM, which PyTables does not
 # recognize. PyTables scans root attributes on every pd.read_hdf() and emits a
 # DataTypeWarning for each unrecognized attribute. The data still round-trips

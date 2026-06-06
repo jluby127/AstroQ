@@ -63,7 +63,10 @@ class Access:
         queue (astroq.queue.base.Queue): instrument/telescope queue.
             Provides ``observer``, ``is_accessible``, ``access_constraints``.
         request_frame (pandas.DataFrame): target list. Required columns:
-            ``unique_id``, ``ra`` (deg), ``dec`` (deg). 
+            ``unique_id``, ``ra`` (deg), ``dec`` (deg). Optional column
+            ``t_visit_slots`` (int >= 1) drives the multi-slot exposure
+            dilation in :meth:`build_access`; if absent, defaults to 1
+            per target (no dilation).
         semester_start_date (str): ``'YYYY-MM-DD'`` ISO date of night 0 (UTC).
         semester_length (int): number of nights in the semester.
         slot_size (int): slot length in minutes; must divide 1440 evenly.
@@ -71,9 +74,6 @@ class Access:
     Keyword Args:
         current_day (str, optional): today's ``'YYYY-MM-DD'`` for the
             ``compute_future`` mask. Defaults to ``semester_start_date``.
-        slots_needed_for_exposure (dict[str, int], optional): per-``unique_id``
-            slot count for the multislot exposure dilation. Defaults to 1
-            per target (no dilation).
         allocation_file (str, optional): path to ``allocation.csv``. ``None``
             treats every slot as allocated.
         custom_file (str, optional): path to ``custom.csv`` (PI windows).
@@ -116,7 +116,6 @@ class Access:
         slot_size,
         *,
         current_day=None,
-        slots_needed_for_exposure=None,
         allocation_file=None,
         custom_file=None,
         past_history=None,
@@ -150,6 +149,10 @@ class Access:
             ("minimum_elevation", 0.0),
             ("minimum_moon_separation", 0.0),
             ("tau_inter", 0),
+            # Multi-shot dilation: per-target full-visit duration in slots.
+            # Default 1 (no dilation) so a stand-alone caller can skip the
+            # full splan-style exposure accounting.
+            ("t_visit_slots", 1),
         ):
             if col not in rf.columns:
                 rf[col] = default
@@ -165,14 +168,6 @@ class Access:
         self.custom_file = custom_file
         self.past_history = past_history if past_history is not None else {}
         self.run_weather_loss = run_weather_loss
-
-        # Multishot dilation: per-target slot counts. Default 1 per target
-        # (no dilation) so a standalone caller can skip exposure accounting.
-        if slots_needed_for_exposure is None:
-            slots_needed_for_exposure = {
-                uid: 1 for uid in self.request_frame["unique_id"]
-            }
-        self.slots_needed_for_exposure_dict = slots_needed_for_exposure
 
         self.slot_size_time = TimeDelta(self.slot_size * u.min)
         coords = apy.coordinates.SkyCoord(
@@ -213,21 +208,27 @@ class Access:
         """Construct an ``Access`` from a :class:`SemesterPlanner` instance.
 
         The planner is consumed for its current state and is not retained,
-        avoiding any circular references between planner and access.
+        avoiding any circular references between planner and access. Trivial
+        scalar fields are read straight from ``planner.config``; derived
+        ones (``semester_length``) and path-resolved ones
+        (``allocation_file``, ``custom_file``) come from planner properties.
         """
+        cfg = planner.config
+        weather_loss_file = cfg.get(
+            "semester", "weather_loss_file", fallback=None
+        ) or None
         return cls(
             queue=planner.queue,
             request_frame=planner.requests_frame,
-            semester_start_date=planner.semester_start_date,
+            semester_start_date=cfg.get("global", "semester_start_day"),
             semester_length=planner.semester_length,
-            slot_size=planner.slot_size,
-            current_day=planner.current_day,
-            slots_needed_for_exposure=planner.slots_needed_for_exposure_dict,
+            slot_size=cfg.getint("semester", "slot_size"),
+            current_day=cfg.get("global", "current_day"),
             allocation_file=planner.allocation_file,
             custom_file=planner.custom_file,
             past_history=planner.past_history,
-            run_weather_loss=planner.run_weather_loss,
-            weather_loss_file=planner.weather_loss_file,
+            run_weather_loss=cfg.getboolean("semester", "run_weather_loss"),
+            weather_loss_file=weather_loss_file,
         )
 
     # ------------------------------------------------------------------
@@ -400,7 +401,7 @@ class Access:
             ``is_observable_now`` (slot-level clearance, AND-reduce of all
             constraint cubes) and ``is_observable`` (start-of-exposure mask
             narrowed so a multislot exposure of
-            ``slots_needed_for_exposure_dict[uid]`` slots fits before
+            ``request_frame['t_visit_slots'][uid]`` slots fits before
             night-end).
         """
         cubes = {
@@ -419,11 +420,10 @@ class Access:
         # is_observable[t, d, s] = "an e_val-slot exposure can START at slot s
         # and fit before night-end". AND in shifted copies of is_observable_now,
         # then zero the last e_val - 1 slots (the shift loop never writes them).
+        t_visit_slots = self.request_frame["t_visit_slots"].astype(int).to_numpy()
         is_observable = is_observable_now.copy()
         for itarget in range(self.ntargets):
-            e_val = self.slots_needed_for_exposure_dict[
-                self.request_frame.iloc[itarget]["unique_id"]
-            ]
+            e_val = int(t_visit_slots[itarget])
             if e_val == 1:
                 continue
             for shift in range(1, e_val):

@@ -174,8 +174,8 @@ class Queue:
 
         This is the single source of truth for the splan-style "visit
         seconds" calculation. Callers (:meth:`visit_slots`,
-        :meth:`astroq.splan.SemesterPlanner._build_slots_required_dictionary`)
-        do their own slot conversion (round vs ceil) on top of the seconds.
+        :meth:`astroq.splan.SemesterPlanner._attach_slot_columns`) do
+        their own slot conversion (round vs ceil) on top of the seconds.
 
         Note: ``slew_overhead_mean * n_intra_max`` is the legacy formula
         used by splan and :meth:`visit_slots`. A per-visit slew should
@@ -189,7 +189,7 @@ class Queue:
         )
 
     def visit_slots(self, exptime_s, n_exp, slot_size_min, n_intra_max):
-        """Slots needed for one entry in ``slots_needed_for_exposure_dict``.
+        """Slots needed for one visit (scalar version of ``t_visit_slots``).
 
         Computes seconds via :meth:`visit_seconds` then rounds to slots.
         """
