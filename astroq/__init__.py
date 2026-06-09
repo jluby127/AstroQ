@@ -7,6 +7,7 @@ import logging
 import warnings
 
 # Third-party imports
+from erfa import ErfaWarning
 from tables.exceptions import DataTypeWarning
 
 # Booleans persisted via h5py (e.g. run_weather_loss, gurobi_output,
@@ -16,6 +17,12 @@ from tables.exceptions import DataTypeWarning
 # correctly via h5py; silence the cosmetic warning here. Installed before any
 # astroq submodule import so the filter is in place when h5 files are first read.
 warnings.filterwarnings("ignore", category=DataTypeWarning)
+
+# Nightly script generation (hirescps.format_hires_row, kpfcc.pm_correcter)
+# propagates catalog RA/Dec to the observation date via
+# SkyCoord.apply_space_motion without parallax. ERFA's pmsafe then warns
+# "distance overridden" once per target; coordinates are still correct.
+warnings.filterwarnings("ignore", category=ErfaWarning)
 
 # Local imports
 from astroq import driver  # noqa: E402

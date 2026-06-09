@@ -251,6 +251,13 @@ def _fetch_sheet_dataframe(url, skip_rows=3):
     df = pd.read_csv(io.StringIO(text), skiprows=skip_rows, dtype=str)
     df = df.dropna(how="all")
     df.columns = [str(c).strip() for c in df.columns]
+    # Google Sheets still use legacy column name; normalize to canonical schema.
+    if "starname" in df.columns and "target" not in df.columns:
+        df = df.rename(columns={"starname": "target"})
+    elif "starname" in df.columns and "target" in df.columns:
+        raise ValueError(
+            "CSV has both 'starname' and 'target' columns; remove the duplicate."
+        )
     if "comments" not in df.columns:
         df["comments"] = ""
     if "program_code" not in df.columns:
