@@ -120,7 +120,7 @@ def index():
     - semester_code is the four digit year and one letter semester
     - date is in format YYYY-MM-DD
     - band is either band1, band2, or band3 (or full-band1, full-band2, or full-band3)
-    - page is one of: {program_code}, {program_code}/{starname}, nightplan, or admin
+    - page is one of: {program_code}, {program_code}/{target}, nightplan, or admin
 
     Examples:
     - /2025B/2025-01-15/band1/admin
@@ -136,9 +136,9 @@ def index():
     return render_template("homepage.html", navigation_text=navigation_text)
 
 
-# Star page: /semester/date/band/program_code/starname (star under program)
-@app.route("/<semester_code>/<date>/<band>/<program_code>/<starname>")
-def star_page(semester_code, date, band, program_code, starname):
+# Star page: /semester/date/band/program_code/target (star under program)
+@app.route("/<semester_code>/<date>/<band>/<program_code>/<target>")
+def star_page(semester_code, date, band, program_code, target):
     """Handle star page route: star is under program in URL."""
     global uptree_path
     if band not in [
@@ -156,7 +156,7 @@ def star_page(semester_code, date, band, program_code, starname):
     success, message = load_data_for_path(semester_code, date, band, uptree_path)
     if not success:
         return f"Error: {message}", 404
-    return render_star_page(starname, program_code)
+    return render_star_page(target, program_code)
 
 
 # Dynamic route for program, admin, nightplan
@@ -196,7 +196,7 @@ def render_admin_page(semester_code, date, band):
 
     all_stars_from_all_programs = np.concatenate(list(data_astroq[0].values()))
 
-    # Get request frame table for all stars, with starname as links under program
+    # Get request frame table for all stars, with target as links under program
     request_df = pl.get_request_frame(semester_planner, all_stars_from_all_programs)
     request_table_html = pl.request_frame_to_html(request_df, semester_code, date, band)
 
@@ -269,7 +269,7 @@ def render_program_page(semester_code, date, band, program_code):
 
     program_stars = data_astroq[0][program_code]
 
-    # Get request frame table for this program's stars, with starname as links
+    # Get request frame table for this program's stars, with target as links
     request_df = pl.get_request_frame(semester_planner, program_stars)
     request_table_html = pl.request_frame_to_html(request_df, semester_code, date, band)
 
@@ -315,12 +315,12 @@ def render_program_page(semester_code, date, band, program_code):
     )
 
 
-def render_star_page(starname, program_code=None):
+def render_star_page(target, program_code=None):
     """Render a specific star page. If program_code is given, only look in that program."""
     if data_astroq is None:
         return "Error: No data available", 404
 
-    compare_starname = starname.lower().replace(
+    compare_target = target.lower().replace(
         " ", ""
     )  # Lower case and remove all spaces
     programs_to_search = (
@@ -333,10 +333,10 @@ def render_star_page(starname, program_code=None):
         for star_ind in range(len(data_astroq[0][program])):
             star_obj = data_astroq[0][program][star_ind]
 
-            true_starname = star_obj.starname
-            object_compare_starname = true_starname.lower().replace(" ", "")
+            true_target = star_obj.target
+            object_compare_target = true_target.lower().replace(" ", "")
 
-            if object_compare_starname == compare_starname:
+            if object_compare_target == compare_target:
                 # Get request frame table for this specific star (no star links needed)
                 request_df = pl.get_request_frame(semester_planner, [star_obj])
                 request_table_html = pl.request_frame_to_html(request_df)
@@ -378,13 +378,13 @@ def render_star_page(starname, program_code=None):
 
                 return render_template(
                     "star.html",
-                    starname=true_starname,
+                    target=true_target,
                     tables_html=tables_html,
                     figures_html=figures_html,
                     timestamp=semester_planner_timestamp,
                 )
 
-    return f"Error, star {starname} not found in programs {list(program_names)}"
+    return f"Error, target {target} not found in programs {list(program_names)}"
 
 
 def render_nightplan_page(band):
@@ -425,7 +425,7 @@ def render_nightplan_page(band):
 
     return render_template(
         "nightplan.html",
-        starname=None,
+        target=None,
         figure_html_list=figure_html_list,
         semester_planner=semester_planner,
         night_planner=night_planner,

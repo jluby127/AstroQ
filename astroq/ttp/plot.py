@@ -41,11 +41,11 @@ def schedule_to_ladder_frame(model):
     extras = on_sky[~on_sky["scheduled"]].sort_values("t_early")
 
     def _pack(df, *, scheduled_rows):
-        starname = df.get("starname", df["unique_id"])
+        target = df.get("target", df["unique_id"])
         return pd.DataFrame(
             {
-                "Starname": df["unique_id"],
-                "human_starname": starname,
+                "unique_id": df["unique_id"],
+                "human_target": target,
                 "First Available": df["t_early"],
                 "Last Available": df["t_late"],
                 "Start Exposure": df["t_start"] if scheduled_rows else 0.0,
@@ -145,7 +145,7 @@ def get_slew_animation_plotly(
     Args:
         data: ``TTPModel`` or ``[TTPModel]`` solution.
         request_selected_path: Path to request_selected.csv (used only to map
-            ``unique_id`` -> human-readable ``starname`` for the hover text).
+            ``unique_id`` -> human-readable ``target`` for the hover text).
         animationStep (int): the time, in seconds, between animation frames. Default 120s.
         inaccessible_zones: optional list of obstruction boxes from ``Queue``.
 
@@ -187,14 +187,14 @@ def get_slew_animation_plotly(
 
     names_array = np.array(names)
 
-    unique_id_to_starname = dict(
+    unique_id_to_target = dict(
         zip(
             request_selected_df["unique_id"].astype(str),
-            request_selected_df["starname"],
+            request_selected_df["target"],
         )
     )
-    human_starname_array = np.array(
-        [unique_id_to_starname.get(str(uid), str(uid)) for uid in names_array]
+    human_target_array = np.array(
+        [unique_id_to_target.get(str(uid), str(uid)) for uid in names_array]
     )
 
     zone_traces = _inaccessible_zone_traces(inaccessible_zones)
@@ -223,7 +223,7 @@ def get_slew_animation_plotly(
                 marker=dict(size=10, color="orange", symbol="star"),
                 name="Observed",
                 showlegend=(i == 0),
-                text=human_starname_array[is_observed],
+                text=human_target_array[is_observed],
                 hovertemplate="<b>%{text}</b><br>Az: %{theta:.1f}°<br>ZD: %{r:.1f}°<extra></extra>",
             ),
             go.Scatterpolar(
@@ -233,7 +233,7 @@ def get_slew_animation_plotly(
                 marker=dict(size=10, color="white", symbol="star"),
                 name="Scheduled",
                 showlegend=(i == 0),
-                text=human_starname_array[~is_observed],
+                text=human_target_array[~is_observed],
                 hovertemplate="<b>%{text}</b><br>Az: %{theta:.1f}°<br>ZD: %{r:.1f}°<extra></extra>",
             ),
             go.Scatterpolar(
@@ -429,7 +429,7 @@ def plot_path_2D_interactive(data, night_start_time=None):
         fig.update_layout(height=600, width=1000, template="plotly_white")
         return fig
 
-    starname = scheduled.get("starname", scheduled["unique_id"])
+    target = scheduled.get("target", scheduled["unique_id"])
     t_start = scheduled["t_start"].to_numpy()
     t_end = scheduled["t_end"].to_numpy()
     t_start_time = model.night_start + TimeDelta(t_start * 60, format="sec")
@@ -456,7 +456,7 @@ def plot_path_2D_interactive(data, night_start_time=None):
         obs_time[2 * i + 1] = t_end_time[i].jd
         az_path[2 * i], az_path[2 * i + 1] = az_start[i], az_end[i]
         alt_path[2 * i], alt_path[2 * i + 1] = alt_start[i], alt_end[i]
-        names.extend([starname.iloc[i], starname.iloc[i]])
+        names.extend([target.iloc[i], target.iloc[i]])
 
     if len(obs_time) == 2 * len(names):
         expanded_names = []

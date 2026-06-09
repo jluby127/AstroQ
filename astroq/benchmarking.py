@@ -86,7 +86,7 @@ def build_toy_model_from_paper(ns, hours_per_program=80, seed=24):
     df["ra"] = ra
     df["dec"] = dec
 
-    df.insert(0, "starname", [f"Star{i:04d}" for i in range(len(df))])
+    df.insert(0, "target", [f"Star{i:04d}" for i in range(len(df))])
     df.insert(1, "program_code", "Program" + df["program_num"].astype(str))
     df = df.drop(columns="program_num")
 
@@ -94,14 +94,14 @@ def build_toy_model_from_paper(ns, hours_per_program=80, seed=24):
     df["n_exp"] = 1
     df["n_intra_min"] = np.where(df["n_intra_max"] == 5, df["n_intra_max"] - 2, df["n_intra_max"])
     df["tau_intra"] = np.where(df["n_intra_max"] == 1, 0, 1)
-    df["unique_id"] = df["starname"]
+    df["unique_id"] = df["target"]
     df["minimum_elevation"] = 33.0
     df["minimum_moon_separation"] = 33.0
     df["inactive"] = False
 
     return df[
         [
-            "starname", "program_code", "unique_id",
+            "target", "program_code", "unique_id",
             "ra", "dec",
             "exptime", "n_exp",
             "n_intra_max", "n_intra_min", "tau_intra",

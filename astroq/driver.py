@@ -53,9 +53,9 @@ def bench(args):
     config.read(cf)
     semester_directory = config.get("global", "workdir")
     requests_frame = bn.build_toy_model_from_paper(number_slots)
-    # Ensure starname column is always interpreted as strings
-    if "starname" in requests_frame.columns:
-        requests_frame["starname"] = requests_frame["starname"].astype(str)
+    # Ensure target column is always interpreted as strings
+    if "target" in requests_frame.columns:
+        requests_frame["target"] = requests_frame["target"].astype(str)
     original_size = len(requests_frame)
     requests_frame = requests_frame.iloc[::thin]
     new_size = len(requests_frame)
@@ -229,31 +229,7 @@ def hirescps_prep(args):
 
     else:
         print(f"Using past history information from file: {past_source}")
-        # Validate that the file has the correct columns
-        expected_columns = [
-            "id",
-            "target",
-            "semid",
-            "timestamp",
-            "exposure_start_time",
-            "exposure_time",
-            "observer",
-        ]
-        if os.path.exists(past_source):
-            df = pd.read_csv(past_source, nrows=0)
-            actual_columns = set(df.columns)
-            expected_set = set(expected_columns)
-            missing_columns = expected_set - actual_columns
-            if missing_columns:
-                logging.warning(
-                    f"Past history file '{past_source}' is missing required columns: {missing_columns}"
-                )
-            else:
-                print(
-                    f"Past history file columns validated: all required columns present"
-                )
-        else:
-            logging.warning(f"Past history file '{past_source}' does not exist")
+        _validate_past_csv_columns(past_source)
 
     return
 
@@ -467,33 +443,29 @@ def kpfcc_prep(args):
         obhist.to_csv(os.path.join(savepath, past_file), index=False)
     else:
         print(f"Using past history information from file: {past_source}")
-        # Validate that the file has the correct columns
-        expected_columns = [
-            "id",
-            "target",
-            "semid",
-            "timestamp",
-            "exposure_start_time",
-            "exposure_time",
-            "observer",
-        ]
-        if os.path.exists(past_source):
-            df = pd.read_csv(past_source, nrows=0)
-            actual_columns = set(df.columns)
-            expected_set = set(expected_columns)
-            missing_columns = expected_set - actual_columns
-            if missing_columns:
-                logging.warning(
-                    f"Past history file '{past_source}' is missing required columns: {missing_columns}"
-                )
-            else:
-                print(
-                    f"Past history file columns validated: all required columns present"
-                )
-        else:
-            logging.warning(f"Past history file '{past_source}' does not exist")
+        _validate_past_csv_columns(past_source)
 
     return
+
+
+def _validate_past_csv_columns(past_source):
+    """Warn if ``past_source`` is missing the required past.csv columns.
+
+    Required schema: ``unique_id, target, timestamp, exposure_time``. The
+    ``junk`` column is optional.
+    """
+    expected_columns = {"unique_id", "target", "timestamp", "exposure_time"}
+    if not os.path.exists(past_source):
+        logging.warning(f"Past history file '{past_source}' does not exist")
+        return
+    df = pd.read_csv(past_source, nrows=0)
+    missing = expected_columns - set(df.columns)
+    if missing:
+        logging.warning(
+            f"Past history file '{past_source}' is missing required columns: {missing}"
+        )
+    else:
+        print("Past history file columns validated: all required columns present")
 
 
 def kpfcc_webapp(args):

@@ -96,7 +96,7 @@ AstroQ requires six files to run. All example file paths are relative the astroq
 
 3. ``request.csv`` - Contains information about the targets and their observational strategies. It must contain appropriate column headers.
     - ``unique_id`` - A unique identifier for the target.
-    - ``starname`` - The human-readable name of the target.
+    - ``target`` - The human-readable name of the target.
     - ``program_code`` - The program code of the target. 
     - ``ra`` - The right ascension of the target.
     - ``dec`` - The declination of the target.
@@ -118,12 +118,12 @@ AstroQ requires six files to run. All example file paths are relative the astroq
       :header-rows: 1
       :widths: auto
 
-4. ``past.csv`` - Contains information about the past history of observations. While it may be blank, it must contain appropriate column headers:
-    - ``id`` - the unique identifier for the target.
+4. ``past.csv`` - Contains information about the past history of observations. One row per exposure. While it may be blank, it must contain appropriate column headers:
+    - ``unique_id`` - the unique identifier for the target (matches ``unique_id`` in ``request.csv``).
     - ``target`` - the human-readable name of the target.
-    - ``semid`` - the program code of the target.
-    - ``exposure_start_time`` - the start time of the recorded exposure. 
+    - ``timestamp`` - the start time of the recorded exposure (UT ISO).
     - ``exposure_time`` - the recorded duration of the exposure.
+    - ``junk`` (optional) - boolean flag for bad/junk exposures.
 
    Example ``examples/hello_world/2018B/2018-08-05/band1/past.csv``:
 
@@ -146,7 +146,7 @@ AstroQ requires six files to run. All example file paths are relative the astroq
 
 6. ``custom.csv`` - Contains information about the specific time windows when targets may be observed. While it may be blank, it must contain appropriate column headers:
     - ``unique_id`` - the unique identifier for the target.
-    - ``starname`` - the human-readable name of the target.
+    - ``target`` - the human-readable name of the target.
     - ``start`` - the start time of the time window.
     - ``stop`` - the stop time of the time window.
     Times are in format "YYYY-MM-DD HH:MM"

@@ -74,7 +74,7 @@ class KPFCC(Queue):
 column_definitions = {
     "_id": {"new_name": "unique_id", "type": "string"},
     "metadata.semid": {"new_name": "program_code", "type": "string"},
-    "target.target_name": {"new_name": "starname", "type": "string"},
+    "target.target_name": {"new_name": "target", "type": "string"},
     "target.ra": {"new_name": "ra", "type": "string"},
     "target.dec": {"new_name": "dec", "type": "string"},
     "observation.exposure_time": {"new_name": "exptime", "type": "Int64"},
@@ -181,7 +181,7 @@ def format_custom_csv(OBs):
         if "custom_time_constraints" in ob.get("schedule", {}):
             ctc = ob["schedule"]["custom_time_constraints"]
             unique_id = ob["_id"]
-            starname = ob["target"]["target_name"]
+            target_name = ob["target"]["target_name"]
 
             if isinstance(ctc, list) and len(ctc) > 0:
                 for constraint in ctc:
@@ -197,7 +197,7 @@ def format_custom_csv(OBs):
                             rows.append(
                                 {
                                     "unique_id": unique_id,
-                                    "starname": starname,
+                                    "target": target_name,
                                     "start": start,
                                     "stop": stop,
                                 }
@@ -214,7 +214,7 @@ def format_custom_csv(OBs):
                     rows.append(
                         {
                             "unique_id": unique_id,
-                            "starname": starname,
+                            "target": target_name,
                             "start": start,
                             "stop": stop,
                         }
@@ -223,7 +223,7 @@ def format_custom_csv(OBs):
     if len(rows) > 0:
         custom_frame = pd.DataFrame(rows)
     else:
-        custom_frame = pd.DataFrame(columns=["unique_id", "starname", "start", "stop"])
+        custom_frame = pd.DataFrame(columns=["unique_id", "target", "start", "stop"])
 
     return custom_frame
 
@@ -497,8 +497,12 @@ def pull_OB_histories(semester):
 
 
 def write_OB_histories_to_csv(histories):
-    """
-    Prepare dataframe of past history for writing to CSV.
+    """Prepare dataframe of past history for writing to CSV.
+
+    Output schema: ``unique_id, target, timestamp, exposure_time``. For KPFCC
+    ``unique_id`` is the OB id from the database; the (UT) ``timestamp`` is
+    one row per exposure (``exposure_start_times`` zipped with
+    ``exposure_times``).
 
     Args:
         histories (dict): the OB histories in JSON-decoded form
@@ -506,40 +510,25 @@ def write_OB_histories_to_csv(histories):
     Returns:
         df (pandas DataFrame): the OB histories in dataframe format
     """
+    cols = ["unique_id", "target", "timestamp", "exposure_time"]
     rows = []
     for entry in histories["history"]:
-        # Zip together times and durations for each exposure in this record
         for start_time, duration in zip(
             entry["exposure_start_times"], entry["exposure_times"]
         ):
             rows.append(
                 {
-                    "id": entry.get("id", ""),
+                    "unique_id": entry.get("id", ""),
                     "target": entry.get("target", ""),
-                    "semid": entry.get("semid", ""),
-                    "timestamp": entry.get("timestamp", ""),
-                    "exposure_start_time": start_time,
+                    "timestamp": start_time,
                     "exposure_time": duration,
-                    "observer": entry.get("observer", ""),
-                    # "junk": entry.get("junk", ""),
                 }
             )
     df = pd.DataFrame(rows)
     if len(df) == 0:
-        return pd.DataFrame(
-            columns=[
-                "id",
-                "target",
-                "semid",
-                "timestamp",
-                "exposure_start_time",
-                "exposure_time",
-                "observer",
-            ]
-        )
-    else:
-        df.sort_values(by="timestamp", inplace=True)
-    return df
+        return pd.DataFrame(columns=cols)
+    df.sort_values(by="timestamp", inplace=True)
+    return df[cols]
 
 
 def get_request_sheet(OBs, awarded_programs, savepath):
@@ -574,9 +563,9 @@ def get_request_sheet(OBs, awarded_programs, savepath):
 
     # good_obs['active'] = [True] * len(good_obs)
 
-    # Cast starname column to strings to ensure proper matching
-    if "starname" in good_obs.columns:
-        good_obs["starname"] = good_obs["starname"].astype(str)
+    # Cast target column to strings to ensure proper matching
+    if "target" in good_obs.columns:
+        good_obs["target"] = good_obs["target"].astype(str)
 
     os.makedirs(os.path.dirname(savepath), exist_ok=True)
     return (
@@ -782,11 +771,11 @@ def validate_and_convert_coordinates(df):
         except Exception as e:
             # Get the target info for reporting (using renamed column names)
             target_id = df.iloc[i].get("unique_id", "Unknown ID")
-            target_name = df.iloc[i].get("starname", "Unknown Name")
+            target_name = df.iloc[i].get("target", "Unknown Name")
             invalid_targets.append(
                 {
                     "id": target_id,
-                    "starname": target_name,
+                    "target": target_name,
                     "ra": ra,
                     "dec": dec,
                     "error": str(e),
@@ -798,11 +787,11 @@ def validate_and_convert_coordinates(df):
         print(
             f"Warning: {len(invalid_targets)} targets have invalid coordinates and will be removed:"
         )
-        for target in invalid_targets:
+        for t in invalid_targets:
             print(
-                f"  ID: {target['id']}, Star: {target['starname']}, RA: {target['ra']}, Dec: {target['dec']}"
+                f"  ID: {t['id']}, Target: {t['target']}, RA: {t['ra']}, Dec: {t['dec']}"
             )
-            print(f"    Error: {target['error']}")
+            print(f"    Error: {t['error']}")
 
     # Filter to only valid coordinates
     if len(valid_indices) < len(df):
@@ -1041,7 +1030,7 @@ def inspect_row(df_exists, df_values, row_num, required_fields=required_fields):
 
     email_body = email_template.format(
         semid=row_values["metadata.semid"],
-        starname=row_values["target.target_name"],
+        target=row_values["target.target_name"],
         _id=row_values["_id"],
         badparams="\n".join(lines),
     )
@@ -1259,7 +1248,6 @@ def write_starlist(
     outputdir,
     version="nominal",
     all_active_requests=None,
-    past_history=None,
 ):
     """
     Generate the nightly script in the format required by the Keck "Magiq" software.
@@ -1277,7 +1265,7 @@ def write_starlist(
     Returns:
         lines (str): the script file as a string
     """
-    frame["starname"] = frame["starname"].astype(str)
+    frame["target"] = frame["target"].astype(str)
 
     on_sky = schedule[~schedule["is_anchor"]]
     scheduled_df = on_sky[on_sky["scheduled"]].sort_values("order")
@@ -1398,8 +1386,8 @@ def format_kpf_row(
     if updated_dec[0] != "-":
         updated_dec = "+" + updated_dec
 
-    starname_str = str(row["starname"].iloc[0])
-    namestring = " " * (16 - len(starname_str[:16])) + starname_str[:16]
+    target_str = str(row["target"].iloc[0])
+    namestring = " " * (16 - len(target_str[:16])) + target_str[:16]
 
     # Handle missing columns with default values
     jmag_val = row.get("jmag", [15.0])[0] if "jmag" in row else 15.0

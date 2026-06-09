@@ -233,7 +233,7 @@ class StarPlotter(object):
             program (str): the program code
         """
         # Access row data directly instead of filtering the entire DataFrame (PERFORMANCE OPTIMIZATION)
-        self.starname = row["starname"]
+        self.target = row["target"]
         self.inactive = row["inactive"]
         self.ra = float(row["ra"])
         self.dec = float(row["dec"])
@@ -363,8 +363,7 @@ def process_stars(semester_planner):
     slew_overhead = queue.slew_overhead_mean
     readout_overhead = queue.readout_time
 
-    # Previously, there was a unique call to star names, every row of the request frame will be unique already when we switch to "id"
-    starnames = semester_planner.requests_frame_all["starname"].unique()
+    targets = semester_planner.requests_frame_all["target"].unique()
     programs = semester_planner.requests_frame_all["program_code"].unique()
 
     # Make colors consistent for all stars in each program
@@ -374,6 +373,28 @@ def process_stars(semester_planner):
     ]
     program_colors_rgb_vals = dict(zip(programs, rgb_strings))
 
+    # Per-(uid, night) past-observation aggregates derived from past_df. Keys
+    # are UT calendar dates (timestamp[:10]). Empty dicts when past_df is empty.
+    past_df = semester_planner.past_df
+    if not past_df.empty:
+        pdf = past_df.assign(
+            unique_id=past_df["unique_id"].astype(str),
+            night=past_df["timestamp"].astype(str).str[:10],
+        )
+        n_obs_by_uid = (
+            pdf.groupby("unique_id").apply(
+                lambda g: g.groupby("night").size().to_dict()
+            ).to_dict()
+        )
+        n_visits_by_uid = (
+            pdf.groupby("unique_id").apply(
+                lambda g: g.groupby("night")["timestamp"].nunique().to_dict()
+            ).to_dict()
+        )
+    else:
+        n_obs_by_uid = {}
+        n_visits_by_uid = {}
+
     all_stars = []
     i = 0
     for i, row in semester_planner.requests_frame_all.iterrows():
@@ -381,16 +402,9 @@ def process_stars(semester_planner):
         newstar = StarPlotter(row["unique_id"])
         newstar.get_map(semester_planner, forecast_df)
         newstar.get_stats(row, semester_planner.config.getint("semester", "slot_size"), queue)
-        if newstar.unique_id in list(semester_planner.past_history.keys()):
-            newstar.observations_past = semester_planner.past_history[
-                newstar.unique_id
-            ].n_visits_on_nights
-            newstar.observations_past_exposures = semester_planner.past_history[
-                newstar.unique_id
-            ].n_obs_on_nights
-        else:
-            newstar.observations_past = {}
-            newstar.observations_past_exposures = {}
+        uid = str(newstar.unique_id)
+        newstar.observations_past = n_visits_by_uid.get(uid, {})
+        newstar.observations_past_exposures = n_obs_by_uid.get(uid, {})
         newstar.get_future(forecast_df, semester_planner.all_dates_array)
 
         # Create COF arrays for each request
@@ -559,7 +573,7 @@ def process_stars(semester_planner):
 
         # This is the quasi-StarPlotter object definition
         programmatic_star = StarPlotter(all_stars[prog_indices[0]].program)
-        programmatic_star.starname = all_stars[prog_indices[0]].program
+        programmatic_star.target = all_stars[prog_indices[0]].program
         programmatic_star.program = all_stars[prog_indices[0]].program
 
         # Compute the COF data for all stars in the given program
@@ -753,7 +767,7 @@ def get_cof(semester_planner, all_stars, use_time=False):
             os.path.join(semester_planner.config.get("global", "workdir"), "programs.csv")
         )
         programs_in_stars = set(
-            getattr(s, "program", getattr(s, "starname", None)) for s in all_stars
+            getattr(s, "program", getattr(s, "target", None)) for s in all_stars
         )
         programs_in_stars = {p for p in programs_in_stars if p is not None}
         summed_cume_time = np.sum(
@@ -805,7 +819,7 @@ def get_cof(semester_planner, all_stars, use_time=False):
     for i in range(len(all_stars)):
         if use_time:
             y_vals = getattr(all_stars[i], "cume_observe_time_pct", None)
-            prog_for_star = getattr(all_stars[i], "program", all_stars[i].starname)
+            prog_for_star = getattr(all_stars[i], "program", all_stars[i].target)
             total_prog_hours = (
                 programmatics_cof.loc[
                     programmatics_cof["program"] == prog_for_star, "hours"
@@ -848,13 +862,13 @@ def get_cof(semester_planner, all_stars, use_time=False):
                 y=y_vals,
                 mode="lines",
                 line=dict(color=all_stars[i].star_color_rgb, width=2),
-                name=all_stars[i].starname,
+                name=all_stars[i].target,
                 hovertemplate=hovertemplate,
                 customdata=semester_planner.all_dates_array,
             )
         )
         last_pct = float(np.round(y_vals[-1], 2)) if len(y_vals) else 0
-        lines.append(str(all_stars[i].starname) + "," + str(last_pct))
+        lines.append(str(all_stars[i].target) + "," + str(last_pct))
 
     # Find the night index for "today" (current_day)
     try:
@@ -1065,9 +1079,9 @@ def get_birdseye(semester_planner, availablity, all_stars):
                 zmax=1,
                 opacity=1.0,
                 showscale=False,
-                name=all_stars[i].starname,
+                name=all_stars[i].target,
                 hovertemplate="<b>"
-                + str(all_stars[i].starname)
+                + str(all_stars[i].target)
                 + "</b><br><b>Date: %{x}</b><br><b>Slot: %{y}</b><br>Forecasted N_Obs: "
                 + str(all_stars[i].total_observations_requested)
                 + "<extra></extra>",
@@ -1261,14 +1275,14 @@ def get_tau_inter_line(semester_planner, all_stars, use_program_colors=False):
 
     request_tau_inter = []
     onsky_tau_inter = []
-    starnames = []
+    targets = []
     programs = []
     colors = []
     for starobj in all_stars:
         onsky_diffs = list(np.diff(np.where(np.diff(starobj.cume_observe) > 0)[0]))
         onsky_tau_inter.extend(onsky_diffs)
         request_tau_inter.extend([starobj.tau_inter] * len(onsky_diffs))
-        starnames.extend([starobj.starname] * len(onsky_diffs))
+        targets.extend([starobj.target] * len(onsky_diffs))
         programs.extend([starobj.program] * len(onsky_diffs))
         # Choose color based on flag
         if use_program_colors:
@@ -1278,7 +1292,7 @@ def get_tau_inter_line(semester_planner, all_stars, use_program_colors=False):
 
     all_request_tau_inters = np.array(request_tau_inter)
     all_onsky_tau_inters = np.array(onsky_tau_inter)
-    all_starnames = np.array(starnames)
+    all_targets = np.array(targets)
     all_programs = np.array(programs)
     all_colors = np.array(colors)
 
@@ -1289,18 +1303,18 @@ def get_tau_inter_line(semester_planner, all_stars, use_program_colors=False):
     for i, prog in enumerate(all_programs):
         program_to_indices.setdefault(prog, []).append(i)
 
-    # Create one trace per star (grouped by starname)
+    # Create one trace per star (grouped by target)
     maxyvals = []
-    # Build map from starname to point indices
-    starname_to_indices = {}
-    for i, starname in enumerate(all_starnames):
-        starname_to_indices.setdefault(starname, []).append(i)
+    # Build map from target to point indices
+    target_to_indices = {}
+    for i, target in enumerate(all_targets):
+        target_to_indices.setdefault(target, []).append(i)
 
-    for starname, indices in starname_to_indices.items():
+    for target, indices in target_to_indices.items():
         idx_array = np.array(indices)
         x_vals = all_request_tau_inters[idx_array]
         y_vals = all_onsky_tau_inters[idx_array]
-        text_vals = [f"{all_starnames[i]} in {all_programs[i]}" for i in indices]
+        text_vals = [f"{all_targets[i]} in {all_programs[i]}" for i in indices]
         color_vals = all_colors[idx_array].tolist()  # Convert to list for Plotly
         maxyvals.append(np.max(y_vals))
         fig.add_trace(
@@ -1308,7 +1322,7 @@ def get_tau_inter_line(semester_planner, all_stars, use_program_colors=False):
                 x=x_vals,
                 y=y_vals,
                 mode="markers",
-                name=starname,  # Use star name for legend
+                name=target,  # Use target for legend
                 marker=dict(size=10, color=color_vals),
                 text=text_vals,
                 hovertemplate="%{text}<br>X: %{x}<br>Y: %{y}<extra></extra>",
@@ -1392,7 +1406,7 @@ def get_rawobs(semester_planner, all_stars, use_program_colors=False):
     fig.update_layout(plot_bgcolor=clear, paper_bgcolor=clear)
 
     # Prepare data for each star
-    starnames = []
+    targets = []
     total_requested = []
     past_obs = []
     future_obs = []
@@ -1401,7 +1415,7 @@ def get_rawobs(semester_planner, all_stars, use_program_colors=False):
     star_colors = []
 
     for star in all_stars:
-        starnames.append(star.starname)
+        targets.append(star.target)
         total = star.total_observations_requested
 
         # Sum past observations
@@ -1445,8 +1459,8 @@ def get_rawobs(semester_planner, all_stars, use_program_colors=False):
                     color=star_colors[i],  # Use each star's individual color
                     opacity=0.7,
                 ),
-                name=starnames[i],  # Star name for legend (allows toggling)
-                text=[starnames[i]],  # Star name for hover
+                name=targets[i],  # Target for legend (allows toggling)
+                text=[targets[i]],  # Target for hover
                 hovertemplate="<b>%{text}</b><br>"
                 + "Total Requested: %{x}<br>"
                 + "Past: %{customdata[0]}<br>"
@@ -2116,7 +2130,7 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
 
     star_ras = [s.ra for s in all_stars]
     star_decs = [s.dec for s in all_stars]
-    starnames = [s.starname for s in all_stars]
+    targets = [s.target for s in all_stars]
     programs = [s.program for s in all_stars]
     if use_program_colors:
         colors = [s.program_color_rgb for s in all_stars]
@@ -2124,7 +2138,7 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
         colors = [s.star_color_rgb for s in all_stars]
     program_frame = pd.DataFrame(
         {
-            "starname": starnames,
+            "target": targets,
             "program_code": programs,
             "color": colors,
             "ra": star_ras,
@@ -2142,7 +2156,7 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
     n_points = n_dec * n_ra
     grid_frame = pd.DataFrame(
         {
-            "starname": [f"noname_{i}" for i in range(n_points)],
+            "target": [f"noname_{i}" for i in range(n_points)],
             "ra": RA_grid.flatten(),
             "dec": DEC_grid.flatten(),
         }
@@ -2167,8 +2181,8 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
         # grid keeps the planner's real access_obj pristine. Bare defaults
         # give all-True cubes for future / custom / inter / allocated /
         # clear; only altaz, moon, and night actually gate.
-        seasonality_frame = grid_frame[["starname", "ra", "dec"]].copy()
-        seasonality_frame["unique_id"] = seasonality_frame["starname"]
+        seasonality_frame = grid_frame[["target", "ra", "dec"]].copy()
+        seasonality_frame["unique_id"] = seasonality_frame["target"]
         grid_access = ac.Access(
             queue=semester_planner.queue,
             request_frame=seasonality_frame,
@@ -2275,7 +2289,7 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
         grouped = program_frame.groupby("program_code")
         for program, group in grouped:
             group.reset_index(inplace=True, drop=True)
-            hover = [f"{name} in {program}" for name in group["starname"]]
+            hover = [f"{name} in {program}" for name in group["target"]]
             color = group["color"].tolist()
 
             fig.add_trace(
@@ -2359,7 +2373,7 @@ def get_request_frame(semester_planner, all_stars):
     Returns:
         filtered_frame (pd.DataFrame): filtered request frame with only the specified stars
     """
-    # Extract starnames from the StarPlotter objects
+    # Extract targets from the StarPlotter objects
     starids = [star.unique_id for star in all_stars]
 
     # Filter the request frame to only include the specified stars
@@ -2387,8 +2401,8 @@ def get_ladder(data, tonight_start_time):
     if orderData.empty:
         orderData = pd.DataFrame(
             columns=[
-                "Starname",
-                "human_starname",
+                "unique_id",
+                "human_target",
                 "First Available",
                 "Last Available",
                 "Start Exposure",
@@ -2447,7 +2461,7 @@ def get_ladder(data, tonight_start_time):
     fig = px.scatter(
         orderData,
         x="Minutes the from Start of the Night",
-        y="human_starname",
+        y="human_target",
         hover_data=hover_cols,
         title="Night Plan",
         width=800,
@@ -2488,12 +2502,12 @@ def get_ladder(data, tonight_start_time):
 
     new_already_processed = []
     ifixer = 0  # for multi-visit targets, it throws off the one row per target plotting...this fixes it
-    for i in range(len(orderData["Starname"])):
-        if orderData["Starname"][i] not in new_already_processed:
+    for i in range(len(orderData["unique_id"])):
+        if orderData["unique_id"][i] not in new_already_processed:
             indices = [
                 k
-                for k in range(len(orderData["Starname"]))
-                if orderData["Starname"][k] == orderData["Starname"][i]
+                for k in range(len(orderData["unique_id"]))
+                if orderData["unique_id"][k] == orderData["unique_id"][i]
             ]
             for j in range(len(indices)):
                 if j == 0:
@@ -2528,7 +2542,7 @@ def get_ladder(data, tonight_start_time):
                         fillcolor="dimgray",
                         line=dict(width=0),
                     )
-            new_already_processed.append(orderData["Starname"][i])
+            new_already_processed.append(orderData["unique_id"][i])
         else:
             # if we already did this star, it is a multi-visit star and we need to adjust the row counter for plotting purposes
             ifixer -= 1
@@ -2574,7 +2588,7 @@ def get_ladder(data, tonight_start_time):
     fig.add_trace(
         go.Scatter(
             x=[x_min, x_max],
-            y=["Starname", "Starname"],  # Place just below the visible range
+            y=["unique_id", "unique_id"],  # Place just below the visible range
             mode="markers",
             marker=dict(size=0.1, opacity=0),
             showlegend=False,
@@ -2646,7 +2660,7 @@ def get_script_plan(night_planner):
 
     # Select and reorder only the specific columns requested
     # desired_columns = [
-    #     'Start Exposure', 'unique_id', 'starname', 'program_code', 'ra', 'dec',
+    #     'Start Exposure', 'unique_id', 'target', 'program_code', 'ra', 'dec',
     #     'exptime', 'n_exp', 'n_intra_max', 'tau_intra', 'weather_band_1', 'weather_band_2', 'weather_band_3', 'teff',
     #     'jmag', 'Vmag', 'epoch', 'gaia_id', 'First Available', 'Last Available'
     # ]
@@ -2655,7 +2669,7 @@ def get_script_plan(night_planner):
         "Start Exposure",
         "Last Available",
         "unique_id",
-        "starname",
+        "target",
         "program_code",
         "ra",
         "dec",
@@ -2764,7 +2778,7 @@ def get_script_plan(night_planner):
 
 
 REQUEST_FRAME_COLUMNS = [
-    "starname",
+    "target",
     "unique_id",
     "program_code",
     "ra",
@@ -2789,7 +2803,7 @@ BOOLEAN_COLUMNS = {
     "inactive": "Inactive",
 }
 REQUEST_FRAME_DISPLAY_NAMES = {
-    "starname": "Star",
+    "target": "Target",
     "unique_id": "ID",
     "program_code": "Program",
     "ra": "RA",
@@ -2877,7 +2891,7 @@ def request_frame_to_html(
     """
     Convert a request frame (from request.csv) to HTML for admin/program/star pages.
 
-    Displays only: starname, unique_id, program_code, ra, dec, exptime, n_exp,
+    Displays only: target, unique_id, program_code, ra, dec, exptime, n_exp,
     n_inter_max, tau_inter, n_intra_max, n_intra_min, tau_intra, Band1, Band2, Band3, Inactive, Comments.
     Boolean columns (weather bands, inactive) are shown as Y/N with transparent green/red.
 
@@ -2906,13 +2920,13 @@ def request_frame_to_html(
         and date
         and band
         and "program_code" in df.columns
-        and "starname" in df.columns
+        and "target" in df.columns
     ):
-        df["starname"] = df.apply(
+        df["target"] = df.apply(
             lambda row: (
                 f'<a href="/{semester_code}/{date}/{band}/'
-                f'{quote(str(row["program_code"]))}/{quote(str(row["starname"]))}">'
-                f'{row["starname"]}</a>'
+                f'{quote(str(row["program_code"]))}/{quote(str(row["target"]))}">'
+                f'{row["target"]}</a>'
             ),
             axis=1,
         )
@@ -2966,7 +2980,7 @@ NIGHTPLAN_COLUMNS = [
     "Start Exposure",
     "Last Available",
     "unique_id",
-    "starname",
+    "target",
     "program_code",
     "ra",
     "dec",
@@ -2982,7 +2996,7 @@ NIGHTPLAN_COLUMN_TOOLTIPS = {
     "Start Exposure": "Scheduled start time (HH:MM). Use > < >= <= with HH:MM to filter.",
     "Last Available": "Last available time to observe (HH:MM). Use > < >= <= with HH:MM to filter.",
     "unique_id": "Keck OB database unique ID",
-    "starname": "Name of the star",
+    "target": "Name of the target",
     "program_code": "Program Code",
     "ra": "Right ascension in decimal degrees",
     "dec": "Declination in decimal degrees",
@@ -3006,7 +3020,7 @@ def nightplan_table_to_html(script_df, table_id="script-table", page_size=100):
     Convert nightplan script DataFrame to HTML with same styling as request_frame_to_html.
 
     Same colors, fonts, fontsize, filtering (partial match, numeric > < >= <=), hover tooltips.
-    Displays: First Available, Start Exposure, Last Available, unique_id, starname, program_code,
+    Displays: First Available, Start Exposure, Last Available, unique_id, target, program_code,
     ra, dec, exptime, n_exp, n_intra_max, tau_intra, jmag, Vmag.
     """
     df = script_df.copy().reset_index(drop=True)
@@ -3049,7 +3063,7 @@ _GENERIC_WIDTH_MAP = {
     "Start Exposure": "80px",
     "Last Available": "80px",
     "unique_id": "200px",
-    "starname": "200px",
+    "target": "200px",
     "program_code": "120px",
     "ra": "100px",
     "dec": "100px",
@@ -3069,7 +3083,7 @@ def dataframe_to_html(dataframe, sort_column=2, page_size=10, table_id="request-
 
     Args:
         dataframe (pd.DataFrame): The dataframe to convert
-        sort_column (int): Column index to sort by (default: 2 for starname)
+        sort_column (int): Column index to sort by (default: 2 for target)
         page_size (int): Default number of rows per page (default: 25)
         table_id (str): Unique ID for the table (default: 'request-table')
 

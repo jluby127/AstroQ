@@ -81,7 +81,7 @@ class HIRESCPS(Queue):
 # Shared request fields through ``priority`` (exptime/maxtime are seconds; Keck / MAGIQ convention).
 REQUEST_COLS_CORE = [
     "program_code",
-    "starname",
+    "target",
     "unique_id",
     "ra",
     "dec",
@@ -119,7 +119,7 @@ REQUEST_COLS = REQUEST_COLS_CORE + ["comments"]
 REQUEST_COLS_READ = REQUEST_COLS_CORE + ["start", "stop", "comments"]
 
 # Column definitions for custom dataframe (built from start/stop on requests)
-CUSTOM_COLS = ["unique_id", "starname", "start", "stop"]
+CUSTOM_COLS = ["unique_id", "target", "start", "stop"]
 
 
 def _parse_bracket_array(s):
@@ -151,7 +151,7 @@ def _customs_from_requests_df(req_df):
     rows = []
     for _, r in req_df.iterrows():
         uid = r.get("unique_id", "")
-        star = r.get("starname", "")
+        star = r.get("target", "")
         starts = _parse_bracket_array(r.get("start"))
         stops = _parse_bracket_array(r.get("stop"))
         n = min(len(starts), len(stops))
@@ -159,7 +159,7 @@ def _customs_from_requests_df(req_df):
             rows.append(
                 {
                     "unique_id": uid,
-                    "starname": star,
+                    "target": star,
                     "start": starts[i],
                     "stop": stops[i],
                 }
@@ -302,7 +302,7 @@ def _dedup_requests_by_hash(requests_df, custom_df):
 
     keep_idx = []
     duplicate_blocks = []
-    star_col = "starname" if "starname" in df.columns else "unique_id"
+    star_col = "target" if "target" in df.columns else "unique_id"
     for uid, grp in df.groupby("unique_id", sort=False):
         if len(grp) == 1:
             keep_idx.append(grp.index[0])
@@ -366,7 +366,7 @@ def pull_requests():
     Returns:
         tuple: ``(requests_df, custom_df)`` where ``requests_df`` has
         ``REQUEST_COLS`` and ``custom_df`` has
-        ``[unique_id, starname, start, stop]``.
+        ``[unique_id, target, start, stop]``.
 
     Raises:
         ValueError: If ``HIRES_PROGRAM_SHEET_URLS_CSV`` is unset or empty.
@@ -642,14 +642,20 @@ def get_database_explorer(
 
 
 def get_hires_past_history(path_to_csv, semester_start_day=None):
-    """
-    Pull HIRES past history from Jump and write ``path_to_csv``.
+    """Pull HIRES past history from Jump and write ``path_to_csv``.
+
+    Output schema: ``unique_id, target, timestamp, exposure_time`` (plus
+    ``junk`` if Jump returns it). For HIRES, ``unique_id`` is set equal to
+    ``target`` (the target name); the legacy ``id``/``target`` duplication and
+    the unused ``semid`` / ``observer`` / ``exposure_start_time`` columns
+    are not written.
 
     Args:
         path_to_csv (str): Output CSV path.
-        semester_start_day (str, optional): ``YYYY-MM-DD``; rows with ``timestamp`` strictly
-            before this calendar instant are dropped so ``past.csv`` matches the current
-            semester (avoids KeyError in internight logic when last obs is outside planned nights).
+        semester_start_day (str, optional): ``YYYY-MM-DD``; rows with
+            ``timestamp`` strictly before this calendar instant are dropped
+            so ``past.csv`` matches the current semester (avoids KeyError in
+            internight logic when last obs is outside planned nights).
     """
     name = "HIRES2026A - All Observations"
     # comment this line out when playing with synthetic schedules
@@ -657,8 +663,7 @@ def get_hires_past_history(path_to_csv, semester_start_day=None):
     print("All KPF observations pulled from Jump. Saved to csv: " + path_to_csv)
 
     data = pd.read_csv(path_to_csv)
-
-    data = data.rename(columns={"starname": "target", "program_name": "semid"})
+    data = data.rename(columns={"starname": "target"})
 
     if semester_start_day and "timestamp" in data.columns and len(data) > 0:
         ts = pd.to_datetime(data["timestamp"], errors="coerce")
@@ -674,15 +679,13 @@ def get_hires_past_history(path_to_csv, semester_start_day=None):
                 f"{semester_start_day}."
             )
 
-    # Add dummy columns
-    data["exposure_start_time"] = data["timestamp"]
-    data["observer"] = ""
-
-    # Create unique_id column
-    data["id"] = data["target"]
-
-    # make ints
+    data["unique_id"] = data["target"].astype(str)
     data["exposure_time"] = data["exposure_time"].astype(int)
+
+    cols = ["unique_id", "target", "timestamp", "exposure_time"]
+    if "junk" in data.columns:
+        cols.append("junk")
+    data = data[cols]
 
     data.to_csv(path_to_csv, index=False)
     print("Data cleaned. Done.")
@@ -697,7 +700,6 @@ def write_starlist(
     outputdir,
     version="nominal",
     all_active_requests=None,
-    past_history=None,
 ):
     """
     Generate the nightly script in the correct format.
@@ -711,16 +713,15 @@ def write_starlist(
         outputdir (str): the directory to save the script file
         version (str): a tag for thescript (e.g. nominal, slowdown, backups, etc)
         all_active_requests (pd.DataFrame | None): full active request frame for
-            the semester. When provided together with ``past_history``, a third
-            ``BACKUPS`` section is appended listing every active request along
-            with an ``obs=N/M`` token (past nights observed / requested).
-        past_history (dict | None): mapping ``unique_id -> StarHistory``. Used to
-            compute the ``obs=N/M`` token for the BACKUPS section.
+            the semester. When provided, a ``BACKUPS`` section is appended
+            listing every active request along with an ``obs=N/M`` token
+            (past nights observed / requested) read off the
+            ``past_nights_observed`` column.
 
     Returns:
         list[str]: the lines written to the script file.
     """
-    frame["starname"] = frame["starname"].astype(str)
+    frame["target"] = frame["target"].astype(str)
 
     on_sky = schedule[~schedule["is_anchor"]]
     scheduled_df = on_sky[on_sky["scheduled"]].sort_values("order")
@@ -788,7 +789,7 @@ def write_starlist(
             )
         )
 
-    if all_active_requests is not None and past_history is not None:
+    if all_active_requests is not None:
         backup_df = all_active_requests.copy()
         backup_df["_ra_float"] = pd.to_numeric(backup_df["ra"], errors="coerce")
         backup_df["_vmag_float"] = pd.to_numeric(
@@ -802,11 +803,8 @@ def write_starlist(
             lines.append("")
             for _, req_row in sub_df.iterrows():
                 uid = req_row["unique_id"]
-                n_done = (
-                    past_history[uid].total_n_unique_nights
-                    if uid in past_history
-                    else 0
-                )
+                n_done_raw = req_row.get("past_nights_observed", 0)
+                n_done = int(n_done_raw) if pd.notna(n_done_raw) else 0
                 n_req_raw = req_row.get("n_inter_max", 0)
                 n_req = int(n_req_raw) if pd.notna(n_req_raw) else 0
                 obs_token = f"obs={n_done}/{n_req}"
@@ -917,8 +915,8 @@ def format_hires_row(
         else None
     )
 
-    starname_str = str(row["starname"].iloc[0])
-    namestring = " " * (16 - len(starname_str[:16])) + starname_str[:16]
+    target_str = str(row["target"].iloc[0])
+    namestring = " " * (16 - len(target_str[:16])) + target_str[:16]
 
     # Handle missing columns with default values
     vmag_val = row.get("Vmag", [15.0])[0] if "Vmag" in row else 15.0

@@ -4,7 +4,6 @@ building, and solving the Gurobi model for semester-level observation planning. 
 nearly completely agnostic to all astronomy knowledge.
 """
 
-import json
 import logging
 import os
 import time
@@ -18,39 +17,42 @@ import numpy as np
 import pandas as pd
 from gurobipy import GRB
 import astroq.access as ac
-import astroq.history as hs
 import astroq.queue
 
 logs = logging.getLogger(__name__)
 
 # Schema for h5 serialization bump when the on-disk layout changes
-SEMESTER_PLANNER_H5_SCHEMA = 3
+SEMESTER_PLANNER_H5_SCHEMA = 4
+
+# Canonical past.csv column schema. ``junk`` is optional.
+PAST_COLS = ["unique_id", "target", "timestamp", "exposure_time"]
+
 
 def _resolve_path(workdir, raw):
     """Resolve a possibly-relative config path against ``workdir``."""
     return raw if os.path.isabs(raw) else os.path.join(workdir, raw)
 
 
-def _serialize_past_history(past_history):
-    """Flatten ``{uid: StarHistory}`` to a JSON-safe dict."""
-    return {
-        uid: {
-            "name": h.name,
-            "date_last_observed": h.date_last_observed,
-            "total_n_exposures": h.total_n_exposures,
-            "total_n_visits": h.total_n_visits,
-            "total_n_unique_nights": h.total_n_unique_nights,
-            "total_open_shutter_time": h.total_open_shutter_time,
-            "n_obs_on_nights": h.n_obs_on_nights,
-            "n_visits_on_nights": h.n_visits_on_nights,
-        }
-        for uid, h in past_history.items()
-    }
+def _load_past_df(past_file):
+    """Read past.csv, apply junk filter, return a clean DataFrame.
 
-
-def _deserialize_past_history(data):
-    """Inverse of :func:`_serialize_past_history`."""
-    return {uid: hs.StarHistory(**fields) for uid, fields in data.items()}
+    Empty / missing files yield an empty frame with the canonical schema.
+    Junk filter: drop a visit (``unique_id, timestamp`` group) when at least
+    half of its rows are flagged ``junk=True``.
+    """
+    if not past_file or not os.path.exists(past_file) or os.path.getsize(past_file) == 0:
+        return pd.DataFrame(columns=PAST_COLS)
+    try:
+        df = pd.read_csv(past_file)
+    except pd.errors.EmptyDataError:
+        return pd.DataFrame(columns=PAST_COLS)
+    if "junk" in df.columns:
+        df["junk"] = df["junk"].fillna(False).astype(bool)
+        keep = df.groupby(["unique_id", "timestamp"])["junk"].transform(
+            lambda s: s.sum() < len(s) / 2
+        )
+        df = df.loc[keep].copy()
+    return df.reset_index(drop=True)
 
 
 class SemesterPlanner:
@@ -70,7 +72,7 @@ class SemesterPlanner:
 
     Key outputs (written to ``<workdir>/outputs``):
         - ``semester_plan.csv`` -- sparse schedule with columns
-          ``unique_id, d, s, starname``
+          ``unique_id, d, s, target``
         - ``request_selected.csv`` -- tonight's targets, the handoff to
           :class:`astroq.nplan.NightPlanner`.
         - ``runReport.txt`` -- human-readable per-program statistics.
@@ -108,18 +110,18 @@ class SemesterPlanner:
 
         self.requests_frame_all, self.requests_frame = self._load_requests_frame()
 
-        self.past_history = hs.process_star_history(
+        self.past_df = _load_past_df(
             _resolve_path(
                 self.config.get("global", "workdir"),
                 self.config.get("data", "past_file"),
             )
         )
 
-        # Per-request derived columns that depend on past_history live on
-        # requests_frame (single source of truth, no parallel _dict
+        # Per-request derived columns that depend on past_df live on
+        # requests_frame (single source of truth, no parallel dict
         # attributes). Constraint methods derive `dict(zip(...))` adapters
         # locally where Gurobi's quicksum needs O(1) keyed lookup.
-        self._attach_max_obs_columns()
+        self._attach_past_columns()
 
         # Observability cube (single source of truth for which slots are valid).
         self.access_obj = ac.Access.from_planner(self)
@@ -221,7 +223,7 @@ class SemesterPlanner:
         Cleaning rules (applied once at CSV ingest; not repeated on HDF5
         rehydrate): tolerate "None" strings left over from the early-2025B
         webform, ensure ``comments`` column exists, normalize ``unique_id``
-        and ``starname`` to strings, and fail on duplicate active unique_id
+        and ``target`` to strings, and fail on duplicate active unique_id
         (which would otherwise produce a cryptic Gurobi error later).
 
         Also appends two derived slot-unit columns to the active frame:
@@ -262,7 +264,7 @@ class SemesterPlanner:
             if col in rf.columns:
                 rf[col] = rf[col].replace("None", np.nan).fillna(False)
         rf["unique_id"] = rf["unique_id"].astype(str)
-        rf["starname"] = rf["starname"].astype(str)
+        rf["target"] = rf["target"].astype(str)
 
         dup_mask = rf["unique_id"].duplicated(keep=False)
         if dup_mask.any():
@@ -313,7 +315,7 @@ class SemesterPlanner:
         )
         strategy_cols = [
             "unique_id",
-            "starname",
+            "target",
             "n_intra_min",
             "n_intra_max",
             "n_inter_max",
@@ -358,33 +360,56 @@ class SemesterPlanner:
             list(self.requests_frame["unique_id"]), name="Shortfall"
         )
 
-    def _attach_max_obs_columns(self):
-        """Append ``past_nights_observed`` / ``desired_max_obs`` / ``absolute_max_obs``
-        columns to ``self.requests_frame``.
+    def _attach_past_columns(self):
+        """Append past-history and max-obs columns to ``self.requests_frame``.
 
-        Three integer columns derived from ``past_history`` and ``n_inter_max``:
+        Past-history aggregates are derived from ``self.past_df`` and indexed
+        by ``unique_id``; missing uids default to 0 (or empty string). The
+        per-row ``night`` is the first 10 chars of the UT-ISO ``timestamp``;
+        observatory-local-night handling is intentionally deferred (see plan).
 
-        - ``past_nights_observed`` -- ``StarHistory.total_n_unique_nights``
-          per uid (0 if the uid isn't in ``past_history``).
-        - ``desired_max_obs`` -- the Round-1 per-request night cap:
-          ``n_inter_max - past`` if the target is under-observed, else
-          ``past`` (lock the schedule to past so the model stays feasible).
-        - ``absolute_max_obs`` -- the Round-2 (bonus round) night cap:
+        Columns appended (active frame only):
+
+        - ``past_nights_observed`` -- count of distinct UT nights with at
+          least one exposure for this uid.
+        - ``past_n_exposures`` -- total exposure rows for this uid.
+        - ``past_date_last_observed`` -- latest UT night string
+          (``YYYY-MM-DD``); ``""`` if uid has no past observations.
+        - ``desired_max_obs`` -- Round-1 per-request night cap:
+          ``n_inter_max - past`` if under-observed, else ``past`` (lock the
+          schedule to past so the model stays feasible).
+        - ``absolute_max_obs`` -- Round-2 (bonus round) night cap:
           ``desired + n_inter_max * maximum_bonus_size``, clamped at >=
-          ``past``. ``absolute`` collapses to ``past`` when over-observed.
+          ``past``. Collapses to ``past`` when over-observed.
         """
-        max_bonus = self.config.getfloat("semester", "maximum_bonus_size")
         rf = self.requests_frame
-        n_inter_max = rf["n_inter_max"].astype(int).to_numpy()
-        past = (
-            pd.Series(
-                {uid: h.total_n_unique_nights for uid, h in self.past_history.items()},
-                dtype=float,
+        uid_index = pd.Index(rf["unique_id"])
+
+        if self.past_df.empty:
+            past_nights = pd.Series(0, index=uid_index, dtype=int)
+            past_nexp = pd.Series(0, index=uid_index, dtype=int)
+            past_last = pd.Series("", index=uid_index, dtype=object)
+        else:
+            night = self.past_df["timestamp"].astype(str).str[:10]
+            df = self.past_df.assign(_night=night)
+            grouped = df.groupby("unique_id")
+            past_nights = (
+                grouped["_night"].nunique().reindex(uid_index, fill_value=0).astype(int)
             )
-            .reindex(rf["unique_id"], fill_value=0)
-            .astype(int)
-            .to_numpy()
-        )
+            past_nexp = (
+                grouped.size().reindex(uid_index, fill_value=0).astype(int)
+            )
+            past_last = (
+                grouped["_night"].max().reindex(uid_index, fill_value="").astype(str)
+            )
+
+        rf["past_nights_observed"] = past_nights.to_numpy()
+        rf["past_n_exposures"] = past_nexp.to_numpy()
+        rf["past_date_last_observed"] = past_last.to_numpy()
+
+        max_bonus = self.config.getfloat("semester", "maximum_bonus_size")
+        n_inter_max = rf["n_inter_max"].astype(int).to_numpy()
+        past = rf["past_nights_observed"].to_numpy()
         over = past > n_inter_max
         desired = np.where(over, past, n_inter_max - past)
         absolute = np.where(
@@ -392,7 +417,6 @@ class SemesterPlanner:
             past,
             np.maximum(desired + (n_inter_max * max_bonus).astype(int), past),
         )
-        rf["past_nights_observed"] = past.astype(int)
         rf["desired_max_obs"] = desired.astype(int)
         rf["absolute_max_obs"] = absolute.astype(int)
 
@@ -689,18 +713,16 @@ class SemesterPlanner:
             program_frame["awarded_slots"] * throttle_grace
         ).astype(int)
 
-        t_visit_slots = dict(
-            zip(self.requests_frame["unique_id"], self.requests_frame["t_visit_slots"])
-        )
-        past_slots = {
-            uid: h.total_n_exposures * t_visit_slots.get(uid, 1)
-            for uid, h in self.past_history.items()
-        }
-
-        merged_df = self.requests_frame[["unique_id", "program_code"]].copy()
+        rf = self.requests_frame
+        t_visit_slots = dict(zip(rf["unique_id"], rf["t_visit_slots"]))
+        merged_df = rf[
+            ["unique_id", "program_code", "past_n_exposures", "t_visit_slots"]
+        ].copy()
         merged_df["past_slots_used"] = (
-            merged_df["unique_id"].astype(str).map(past_slots).fillna(0)
+            merged_df["past_n_exposures"].astype(int)
+            * merged_df["t_visit_slots"].astype(int)
         )
+        merged_df = merged_df.drop(columns=["past_n_exposures", "t_visit_slots"])
         merged_df = merged_df.merge(
             program_frame[["nights"]],
             left_on="program_code",
@@ -861,17 +883,17 @@ class SemesterPlanner:
         ``semester_plan.csv``.
 
         Sets ``self.schedule`` to a DataFrame with columns
-        ``unique_id, d, s, starname`` -- one row per scheduled exposure start.
+        ``unique_id, d, s, target`` -- one row per scheduled exposure start.
         """
         df = pd.DataFrame(self.Yrds.keys(), columns=["unique_id", "d", "s"])
         df["value"] = [self.Yrds[k].x for k in self.Yrds.keys()]
         sparse = df.query("value > 0").drop(columns=["value"]).copy()
         sparse = sparse.merge(
-            self.requests_frame[["unique_id", "starname"]],
+            self.requests_frame[["unique_id", "target"]],
             on="unique_id",
             how="left",
         )
-        sparse["starname"] = sparse["starname"].fillna("NO MATCHING NAME")
+        sparse["target"] = sparse["target"].fillna("NO MATCHING NAME")
         sparse.to_csv(
             os.path.join(self.output_directory, "semester_plan.csv"),
             index=False,
@@ -938,17 +960,11 @@ class SemesterPlanner:
         )
         awarded = progs["awarded_nights"] * hours_per_night
 
-        past_n_exp_by_uid = pd.Series(
-            {uid: h.total_n_exposures for uid, h in self.past_history.items()},
-            dtype=float,
-        )
-        rf = self.requests_frame.assign(
-            past_n_exp=self.requests_frame["unique_id"].map(past_n_exp_by_uid).fillna(0),
-        )
+        rf = self.requests_frame.copy()
         rf["requested_h"] = (
             rf["t_visit_slots"] * rf["n_intra_max"] * rf["n_inter_max"]
         ) / slots_per_hour
-        rf["past_h"] = (rf["past_n_exp"] * rf["t_visit_slots"]) / slots_per_hour
+        rf["past_h"] = (rf["past_n_exposures"] * rf["t_visit_slots"]) / slots_per_hour
         by_prog = rf.groupby("program_code")[["requested_h", "past_h"]].sum()
 
         sched_with_prog = sched.merge(
@@ -1043,6 +1059,8 @@ class SemesterPlanner:
         self.requests_frame_all.to_hdf(
             tmp_path, key="requests_frame_all", mode="a", format="table"
         )
+        past_fmt = "fixed" if self.past_df.empty else "table"
+        self.past_df.to_hdf(tmp_path, key="past_df", mode="a", format=past_fmt)
         if self.schedule is not None:
             fmt = "fixed" if self.schedule.empty else "table"
             self.schedule.to_hdf(tmp_path, key="schedule", mode="a", format=fmt)
@@ -1050,9 +1068,6 @@ class SemesterPlanner:
         with h5py.File(tmp_path, "a") as f:
             f.attrs["schema_version"] = SEMESTER_PLANNER_H5_SCHEMA
             f.attrs["config_ini_text"] = self._config_ini_text
-            f.attrs["past_history_json"] = json.dumps(
-                _serialize_past_history(self.past_history)
-            )
             f.create_dataset(
                 "access_record", data=self.access_record, compression="gzip"
             )
@@ -1068,7 +1083,7 @@ class SemesterPlanner:
         Skips Gurobi-only state (model, Yrds, Wrd, theta) and the constraint
         lookup tables -- those are only meaningful when solving. Downstream
         consumers (plot.py, nplan.py) read requests_frame*, schedule,
-        access_record, past_history, and queue, all of which are restored.
+        access_record, past_df, and queue, all of which are restored.
         """
         with h5py.File(hdf5_path, "r") as f:
             schema = int(f.attrs.get("schema_version", 0))
@@ -1080,10 +1095,13 @@ class SemesterPlanner:
             config_ini_text = f.attrs["config_ini_text"]
             if isinstance(config_ini_text, bytes):
                 config_ini_text = config_ini_text.decode("utf-8")
-            past_history_data = json.loads(f.attrs["past_history_json"])
             access_record = f["access_record"][:].view(np.recarray)
 
         requests_frame_all = pd.read_hdf(hdf5_path, key="requests_frame_all")
+        try:
+            past_df = pd.read_hdf(hdf5_path, key="past_df")
+        except KeyError:
+            past_df = pd.DataFrame(columns=PAST_COLS)
         try:
             schedule = pd.read_hdf(hdf5_path, key="schedule")
         except KeyError:
@@ -1096,8 +1114,8 @@ class SemesterPlanner:
         instance.queue = astroq.queue.from_config(instance.config)
 
         # Cleaning was done at original CSV ingest; on rehydrate we just split
-        # active vs. all, then re-derive the slot/max-obs columns (they're
-        # pure functions of the persisted data so we don't ship them on disk).
+        # active vs. all, then re-derive the slot/past columns (they're pure
+        # functions of the persisted data so we don't ship them on disk).
         instance.requests_frame_all = requests_frame_all
         instance.requests_frame = (
             requests_frame_all[~requests_frame_all["inactive"].astype(bool)]
@@ -1106,8 +1124,8 @@ class SemesterPlanner:
         )
         instance._attach_slot_columns(instance.requests_frame)
 
-        instance.past_history = _deserialize_past_history(past_history_data)
-        instance._attach_max_obs_columns()
+        instance.past_df = past_df
+        instance._attach_past_columns()
         instance.access_obj = ac.Access.from_planner(instance)
         instance.access_record = access_record
         instance.schedule = schedule

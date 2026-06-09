@@ -199,8 +199,8 @@ class NightPlanner:
         selected_df: pd.DataFrame,
         observation_start_time: Time,
     ) -> None:
-        id_to_name = dict(zip(selected_df["unique_id"], selected_df["starname"]))
-        tm.schedule["starname"] = tm.schedule["unique_id"].map(
+        id_to_name = dict(zip(selected_df["unique_id"], selected_df["target"]))
+        tm.schedule["target"] = tm.schedule["unique_id"].map(
             lambda uid: id_to_name.get(uid, "NO MATCHING NAME")
         )
         self.solution = tm
@@ -220,7 +220,7 @@ class NightPlanner:
             rows.append(
                 {
                     "unique_id": str(row["unique_id"]),
-                    "Target": row["starname"],
+                    "Target": row["target"],
                     "StartExposure": str(ts)[11:16],
                 }
             )
@@ -228,7 +228,7 @@ class NightPlanner:
             rows.append(
                 {
                     "unique_id": str(row["unique_id"]),
-                    "Target": row["starname"],
+                    "Target": row["target"],
                     "StartExposure": "24:00",
                 }
             )
@@ -242,7 +242,6 @@ class NightPlanner:
             str(self.current_day),
             observers_path,
             all_active_requests=self.semester_planner.requests_frame,
-            past_history=self.semester_planner.past_history,
         )
 
     def run_ttp(self):

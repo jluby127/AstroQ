@@ -213,7 +213,7 @@ class TestClass(unittest.TestCase):
         tmp = tempfile.mkdtemp(prefix="astroq_webapp_")
         print(f"webapp HTML dumps -> {tmp}")
 
-        # Pick a real (program_code, starname) pair from the fixture so the URL
+        # Pick a real (program_code, target) pair from the fixture so the URL
         # actually resolves inside data_astroq[0].
         request_selected = pd.read_csv(
             "examples/hello_world/2018B/2018-08-05/band1/"
@@ -221,7 +221,7 @@ class TestClass(unittest.TestCase):
         )
         row = request_selected.iloc[0]
         program_code = str(row["program_code"])
-        starname = str(row["starname"])
+        target = str(row["target"])
 
         # Redirect get_football's on-disk cache so the test does not write into
         # the committed data/ directory and so the cache-miss branch executes.
@@ -242,9 +242,9 @@ class TestClass(unittest.TestCase):
                     f"program_{program_code}.html",
                 ),
                 (
-                    f"/2018B/2018-08-05/band1/{program_code}/{starname}",
+                    f"/2018B/2018-08-05/band1/{program_code}/{target}",
                     {200},
-                    f"star_{starname}.html",
+                    f"star_{target}.html",
                 ),
                 ("/2018B/2018-08-05/band1/nightplan", {200}, "nightplan.html"),
                 (

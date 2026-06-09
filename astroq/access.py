@@ -43,7 +43,7 @@ def build_date_dictionary(semester_start_date, semester_length):
 class Access:
     """Accessibility maps for a collection of targets across a semester.
 
-    Optional inputs (``allocation_file``, ``custom_file``, ``past_history``,
+    Optional inputs (``allocation_file``, ``custom_file``,
     ``slots_needed_for_exposure``, weather) are opt-in via keyword. Passing
     ``None`` (or omitting them) makes the corresponding constraint a no-op.
 
@@ -78,8 +78,6 @@ class Access:
             treats every slot as allocated.
         custom_file (str, optional): path to ``custom.csv`` (PI windows).
             ``None`` skips custom-window restriction.
-        past_history (dict, optional): per-``unique_id`` history records used
-            by ``compute_inter``. ``None`` means no internight cadence blocking.
         run_weather_loss (bool, optional): if True, ``compute_clear`` samples
             historical weather losses; otherwise the cube is all-True.
         weather_loss_file (str, optional): override CSV for historical losses.
@@ -118,7 +116,6 @@ class Access:
         current_day=None,
         allocation_file=None,
         custom_file=None,
-        past_history=None,
         run_weather_loss=False,
         weather_loss_file=None,
     ):
@@ -166,7 +163,6 @@ class Access:
         # Opt-in constraint inputs. None == constraint is a no-op.
         self.allocation_file = allocation_file
         self.custom_file = custom_file
-        self.past_history = past_history if past_history is not None else {}
         self.run_weather_loss = run_weather_loss
 
         self.slot_size_time = TimeDelta(self.slot_size * u.min)
@@ -226,7 +222,6 @@ class Access:
             current_day=cfg.get("global", "current_day"),
             allocation_file=planner.allocation_file,
             custom_file=planner.custom_file,
-            past_history=planner.past_history,
             run_weather_loss=cfg.getboolean("semester", "run_weather_loss"),
             weather_loss_file=weather_loss_file,
         )
@@ -291,14 +286,23 @@ class Access:
         ).copy()
 
     def compute_inter(self):
-        """Block ``tau_inter`` nights after each target's last observation."""
+        """Block ``tau_inter`` nights after each target's last observation.
+
+        Reads ``past_date_last_observed`` off ``self.request_frame`` (a
+        ``YYYY-MM-DD`` UT-date string, ``""`` if the target has no past
+        observations). Falls back to all-True if the column is absent (e.g.
+        standalone-Access use case).
+        """
         cube = np.ones(self._access_shape, dtype=bool)
+        rf = self.request_frame
+        if "past_date_last_observed" not in rf.columns:
+            return cube
         for itarget in range(self.ntargets):
-            row = self.request_frame.iloc[itarget]
-            uid = row["unique_id"]
-            if uid in self.past_history and row["tau_inter"] > 1:
-                start = self.all_dates_dict[self.past_history[uid].date_last_observed]
-                stop = min(start + row["tau_inter"], self.nnights)
+            row = rf.iloc[itarget]
+            last = row["past_date_last_observed"]
+            if last and row["tau_inter"] > 1 and last in self.all_dates_dict:
+                start = self.all_dates_dict[last]
+                stop = min(start + int(row["tau_inter"]), self.nnights)
                 cube[itarget, start:stop, :] = False
         return cube
 
