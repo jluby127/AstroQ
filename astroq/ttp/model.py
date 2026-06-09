@@ -186,6 +186,8 @@ class TTPModel:
         rdf["t_late"] =  (r["last_available"] - self.night_start).to_value(u.min).astype(float)
         rdf["tau_intra"] = r["tau_intra"].to_value(u.min).astype(float)
         rdf["t_visit"] = r["t_visit"].to_value(u.min).astype(float)
+        rdf["ra"] = r["coord"].ra.deg.astype(float)
+        rdf["dec"] = r["coord"].dec.deg.astype(float)
         rdf["request_idx"] = np.arange(len(r), dtype=np.int64)
         rdf["is_anchor"] = False
 

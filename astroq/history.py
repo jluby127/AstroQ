@@ -1,6 +1,7 @@
 """
-Module for processing the past history of observations from OB database or user inputted file.
-Used to populate the past.csv file for the optimization.
+Module for processing the past.csv observation history into per-target
+``StarHistory`` records consumed by the semester planner. The instrument-
+specific code that builds ``past.csv`` lives in ``astroq.queue.*``.
 """
 
 # Standard library imports
@@ -30,52 +31,6 @@ StarHistory = namedtuple(
         "n_visits_on_nights",
     ],
 )
-
-
-def write_OB_histories_to_csv(histories):
-    """
-    Prepare dataframe of past history for writing to CSV.
-
-    Args:
-        histories (json): the OB histories in json format
-
-    Returns:
-        df (pandas DataFrame): the OB histories in dataframe format
-    """
-    rows = []
-    for entry in histories["history"]:
-        # Zip together times and durations for each exposure in this record
-        for start_time, duration in zip(
-            entry["exposure_start_times"], entry["exposure_times"]
-        ):
-            rows.append(
-                {
-                    "id": entry.get("id", ""),
-                    "target": entry.get("target", ""),
-                    "semid": entry.get("semid", ""),
-                    "timestamp": entry.get("timestamp", ""),
-                    "exposure_start_time": start_time,
-                    "exposure_time": duration,
-                    "observer": entry.get("observer", ""),
-                    # "junk": entry.get("junk", ""),
-                }
-            )
-    df = pd.DataFrame(rows)
-    if len(df) == 0:
-        return pd.DataFrame(
-            columns=[
-                "id",
-                "target",
-                "semid",
-                "timestamp",
-                "exposure_start_time",
-                "exposure_time",
-                "observer",
-            ]
-        )
-    else:
-        df.sort_values(by="timestamp", inplace=True)
-    return df
 
 
 def process_star_history(filename):

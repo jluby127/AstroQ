@@ -496,6 +496,52 @@ def pull_OB_histories(semester):
         return
 
 
+def write_OB_histories_to_csv(histories):
+    """
+    Prepare dataframe of past history for writing to CSV.
+
+    Args:
+        histories (dict): the OB histories in JSON-decoded form
+
+    Returns:
+        df (pandas DataFrame): the OB histories in dataframe format
+    """
+    rows = []
+    for entry in histories["history"]:
+        # Zip together times and durations for each exposure in this record
+        for start_time, duration in zip(
+            entry["exposure_start_times"], entry["exposure_times"]
+        ):
+            rows.append(
+                {
+                    "id": entry.get("id", ""),
+                    "target": entry.get("target", ""),
+                    "semid": entry.get("semid", ""),
+                    "timestamp": entry.get("timestamp", ""),
+                    "exposure_start_time": start_time,
+                    "exposure_time": duration,
+                    "observer": entry.get("observer", ""),
+                    # "junk": entry.get("junk", ""),
+                }
+            )
+    df = pd.DataFrame(rows)
+    if len(df) == 0:
+        return pd.DataFrame(
+            columns=[
+                "id",
+                "target",
+                "semid",
+                "timestamp",
+                "exposure_start_time",
+                "exposure_time",
+                "observer",
+            ]
+        )
+    else:
+        df.sort_values(by="timestamp", inplace=True)
+    return df
+
+
 def get_request_sheet(OBs, awarded_programs, savepath):
     """
     Produce the request.csv file from the json OBs.

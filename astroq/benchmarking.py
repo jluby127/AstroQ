@@ -1,10 +1,6 @@
 """
 Module for preparing the benchmark test as used in Lubin et al. 2025.
 
-Emits only the columns the bench ILP path actually consumes
-(splan.SemesterPlanner + access.Access). All starlist / prep / plotting
-columns from the production schema (jmag, gmag, teff, pmra, pmdec, epoch,
-gaia_id, exp_meter_threshold, weather_band_*) are intentionally omitted.
 """
 
 import numpy as np

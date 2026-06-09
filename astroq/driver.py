@@ -19,7 +19,6 @@ import astroq.benchmarking as bn
 import astroq.queue
 import astroq.queue.kpfcc as kpfcc
 import astroq.queue.hirescps as hirescps
-import astroq.history as hs
 import astroq.nplan as nplan
 import astroq.plot as pl
 import astroq.splan as splan
@@ -464,7 +463,7 @@ def kpfcc_prep(args):
     if past_source == "db":
         print(f"Pulling past history information from database")
         raw_history = kpfcc.pull_OB_histories(semester)
-        obhist = hs.write_OB_histories_to_csv(raw_history)
+        obhist = kpfcc.write_OB_histories_to_csv(raw_history)
         obhist.to_csv(os.path.join(savepath, past_file), index=False)
     else:
         print(f"Using past history information from file: {past_source}")
