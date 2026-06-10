@@ -28,33 +28,6 @@ SEMESTER_PLANNER_H5_SCHEMA = 4
 PAST_COLS = ["unique_id", "target", "timestamp", "exposure_time"]
 
 
-def _resolve_path(workdir, raw):
-    """Resolve a possibly-relative config path against ``workdir``."""
-    return raw if os.path.isabs(raw) else os.path.join(workdir, raw)
-
-
-def _load_past_df(past_file):
-    """Read past.csv, apply junk filter, return a clean DataFrame.
-
-    Empty / missing files yield an empty frame with the canonical schema.
-    Junk filter: drop a visit (``unique_id, timestamp`` group) when at least
-    half of its rows are flagged ``junk=True``.
-    """
-    if not past_file or not os.path.exists(past_file) or os.path.getsize(past_file) == 0:
-        return pd.DataFrame(columns=PAST_COLS)
-    try:
-        df = pd.read_csv(past_file)
-    except pd.errors.EmptyDataError:
-        return pd.DataFrame(columns=PAST_COLS)
-    if "junk" in df.columns:
-        df["junk"] = df["junk"].fillna(False).astype(bool)
-        keep = df.groupby(["unique_id", "timestamp"])["junk"].transform(
-            lambda s: s.sum() < len(s) / 2
-        )
-        df = df.loc[keep].copy()
-    return df.reset_index(drop=True)
-
-
 class SemesterPlanner:
     """Semester-level scheduler: pick which targets get observed when.
 
@@ -75,9 +48,11 @@ class SemesterPlanner:
           ``unique_id, d, s, target``
         - ``request_selected.csv`` -- tonight's targets, the handoff to
           :class:`astroq.nplan.NightPlanner`.
-        - ``runReport.txt`` -- human-readable per-program statistics.
         - ``semester_planner.h5`` -- round-trippable snapshot consumed by
           :class:`astroq.nplan.NightPlanner` and the plotting layer.
+
+    The per-round run report is emitted via :meth:`log_report` (logged at
+    INFO) rather than persisted to disk.
 
     Lifecycle:
 
@@ -106,16 +81,15 @@ class SemesterPlanner:
         self.queue = astroq.queue.from_config(self.config)
         self.schedule = None
 
+        workdir = self.config.get("global", "workdir")
+        self.output_directory = os.path.join(workdir, "outputs")
+        self.allocation_file = self._resolve_path("allocation_file")
+        self.custom_file = self._resolve_path("custom_file")
+        self.programs_file = self._resolve_path("programs_file")
         os.makedirs(self.output_directory, exist_ok=True)
 
         self.requests_frame_all, self.requests_frame = self._load_requests_frame()
-
-        self.past_df = _load_past_df(
-            _resolve_path(
-                self.config.get("global", "workdir"),
-                self.config.get("data", "past_file"),
-            )
-        )
+        self.past_df = self._load_past()
 
         # Per-request derived columns that depend on past_df live on
         # requests_frame (single source of truth, no parallel dict
@@ -136,40 +110,41 @@ class SemesterPlanner:
         # rest live as locals at their call sites.
         self._build_constraint_lookups()
 
-        self.model = gp.Model("Semester_Scheduler")
-        self._build_gurobi_vars()
+        self.build_gurobi_model()
 
         logs.debug("Initializing complete.")
 
+    def _resolve_path(self, key):
+        """Resolve a ``[data]`` config key against ``[global] workdir``."""
+        raw = self.config.get("data", key)
+        workdir = self.config.get("global", "workdir")
+        return raw if os.path.isabs(raw) else os.path.join(workdir, raw)
+
+    def _load_past(self):
+        """Read ``past.csv``, drop junk-flagged visits, return a DataFrame.
+
+        Empty/missing files yield an empty frame with the canonical schema.
+        Junk filter: drop a visit (``unique_id, timestamp`` group) when at
+        least half of its rows are flagged ``junk=True``.
+        """
+        path = self._resolve_path("past_file")
+        if not path or not os.path.exists(path) or os.path.getsize(path) == 0:
+            return pd.DataFrame(columns=PAST_COLS)
+        try:
+            df = pd.read_csv(path)
+        except pd.errors.EmptyDataError:
+            return pd.DataFrame(columns=PAST_COLS)
+        if "junk" in df.columns:
+            df["junk"] = df["junk"].fillna(False).astype(bool)
+            keep = df.groupby(["unique_id", "timestamp"])["junk"].transform(
+                lambda s: s.sum() < len(s) / 2
+            )
+            df = df.loc[keep]
+        return df.reset_index(drop=True)
+
     # ------------------------------------------------------------------
-    # Properties (only path-resolving and date-derived ones; trivial config
-    # passthroughs were removed -- read self.config.get* directly).
+    # Properties (date-derived; path attrs are set in __init__).
     # ------------------------------------------------------------------
-
-    @property
-    def output_directory(self):
-        return os.path.join(self.config.get("global", "workdir"), "outputs")
-
-    @property
-    def allocation_file(self):
-        return _resolve_path(
-            self.config.get("global", "workdir"),
-            self.config.get("data", "allocation_file"),
-        )
-
-    @property
-    def custom_file(self):
-        return _resolve_path(
-            self.config.get("global", "workdir"),
-            self.config.get("data", "custom_file"),
-        )
-
-    @property
-    def programs_file(self):
-        return _resolve_path(
-            self.config.get("global", "workdir"),
-            self.config.get("data", "programs_file"),
-        )
 
     @property
     def semester_length(self):
@@ -190,28 +165,8 @@ class SemesterPlanner:
         return self.access_obj.all_dates_dict
 
     @property
-    def n_slots_in_night(self):
-        return int(24 * 60 / self.config.getint("semester", "slot_size"))
-
-    @property
-    def n_nights_remaining(self):
-        """Nights from ``current_day`` through end of semester (inclusive)."""
-        return len(self.all_dates_dict) - self.all_dates_dict[
-            self.config.get("global", "current_day")
-        ]
-
-    @property
-    def n_slots_remaining(self):
-        """Slot count for nights remaining (see :attr:`n_nights_remaining`)."""
-        return self.n_slots_in_night * self.n_nights_remaining
-
-    @property
     def today_starting_night(self):
         return self.all_dates_dict[self.config.get("global", "current_day")]
-
-    @property
-    def today_starting_slot(self):
-        return self.today_starting_night * self.n_slots_in_night
 
     # ------------------------------------------------------------------
     # Construction helpers.
@@ -240,10 +195,7 @@ class SemesterPlanner:
         Original units of ``exptime`` (seconds) and ``tau_intra`` (hours)
         are left untouched.
         """
-        request_file = _resolve_path(
-            self.config.get("global", "workdir"),
-            self.config.get("data", "request_file"),
-        )
+        request_file = self._resolve_path("request_file")
         if not os.path.exists(request_file):
             raise FileNotFoundError(f"Requests file not found: {request_file}")
 
@@ -340,13 +292,13 @@ class SemesterPlanner:
             self.joiner.groupby(["unique_id"])[["d", "s"]].agg(list)
         )
 
-    def _build_gurobi_vars(self):
-        """Build ``Yrds``, ``Wrd``, ``theta`` on ``self.model``."""
+    def build_gurobi_model(self):
+        """Instantiate the Gurobi model and add ``Yrds``, ``Wrd``, ``theta``."""
+        self.model = gp.Model("Semester_Scheduler")
         observability_nights = (
             self.joiner.loc[self.joiner["n_intra_max"] > 1, ["unique_id", "d"]]
             .drop_duplicates()
         )
-
         self.Yrds = self.model.addVars(
             self.observability_tuples, vtype=GRB.BINARY, name="Requests_Slots"
         )
@@ -361,73 +313,53 @@ class SemesterPlanner:
         )
 
     def _attach_past_columns(self):
-        """Append past-history and max-obs columns to ``self.requests_frame``.
+        """Attach past-history aggregates and max-obs caps to ``requests_frame``.
 
-        Past-history aggregates are derived from ``self.past_df`` and indexed
-        by ``unique_id``; missing uids default to 0 (or empty string). The
-        per-row ``night`` is the first 10 chars of the UT-ISO ``timestamp``;
-        observatory-local-night handling is intentionally deferred (see plan).
-
-        Columns appended (active frame only):
-
-        - ``past_nights_observed`` -- count of distinct UT nights with at
-          least one exposure for this uid.
-        - ``past_n_exposures`` -- total exposure rows for this uid.
-        - ``past_date_last_observed`` -- latest UT night string
-          (``YYYY-MM-DD``); ``""`` if uid has no past observations.
-        - ``desired_max_obs`` -- Round-1 per-request night cap:
-          ``n_inter_max - past`` if under-observed, else ``past`` (lock the
-          schedule to past so the model stays feasible).
-        - ``absolute_max_obs`` -- Round-2 (bonus round) night cap:
-          ``desired + n_inter_max * maximum_bonus_size``, clamped at >=
-          ``past``. Collapses to ``past`` when over-observed.
+        Aggregates are indexed by ``unique_id`` over UT calendar nights
+        (``timestamp[:10]``); missing uids default to 0 (or ``""``).
+        ``desired_max_obs`` is the Round-1 night cap; ``absolute_max_obs``
+        relaxes it by ``maximum_bonus_size`` for the bonus round. Both
+        collapse to ``past_nights_observed`` when a target is over-observed
+        so the model stays feasible.
         """
         rf = self.requests_frame
-        uid_index = pd.Index(rf["unique_id"])
+        uids = rf["unique_id"]
 
         if self.past_df.empty:
-            past_nights = pd.Series(0, index=uid_index, dtype=int)
-            past_nexp = pd.Series(0, index=uid_index, dtype=int)
-            past_last = pd.Series("", index=uid_index, dtype=object)
+            agg = pd.DataFrame(
+                {"nights": 0, "n_exp": 0, "last": ""}, index=uids,
+            )
         else:
             night = self.past_df["timestamp"].astype(str).str[:10]
-            df = self.past_df.assign(_night=night)
-            grouped = df.groupby("unique_id")
-            past_nights = (
-                grouped["_night"].nunique().reindex(uid_index, fill_value=0).astype(int)
-            )
-            past_nexp = (
-                grouped.size().reindex(uid_index, fill_value=0).astype(int)
-            )
-            past_last = (
-                grouped["_night"].max().reindex(uid_index, fill_value="").astype(str)
-            )
+            g = self.past_df.assign(_night=night).groupby("unique_id")
+            agg = pd.DataFrame({
+                "nights": g["_night"].nunique(),
+                "n_exp": g.size(),
+                "last": g["_night"].max(),
+            }).reindex(uids).fillna({"nights": 0, "n_exp": 0, "last": ""})
 
-        rf["past_nights_observed"] = past_nights.to_numpy()
-        rf["past_n_exposures"] = past_nexp.to_numpy()
-        rf["past_date_last_observed"] = past_last.to_numpy()
+        rf["past_nights_observed"] = agg["nights"].astype(int).to_numpy()
+        rf["past_n_exposures"] = agg["n_exp"].astype(int).to_numpy()
+        rf["past_date_last_observed"] = agg["last"].astype(str).to_numpy()
 
-        max_bonus = self.config.getfloat("semester", "maximum_bonus_size")
-        n_inter_max = rf["n_inter_max"].astype(int).to_numpy()
+        bonus = self.config.getfloat("semester", "maximum_bonus_size")
+        n_max = rf["n_inter_max"].astype(int).to_numpy()
         past = rf["past_nights_observed"].to_numpy()
-        over = past > n_inter_max
-        desired = np.where(over, past, n_inter_max - past)
+        over = past > n_max
+        desired = np.where(over, past, n_max - past)
         absolute = np.where(
-            over,
-            past,
-            np.maximum(desired + (n_inter_max * max_bonus).astype(int), past),
+            over, past,
+            np.maximum(desired + (n_max * bonus).astype(int), past),
         )
         rf["desired_max_obs"] = desired.astype(int)
         rf["absolute_max_obs"] = absolute.astype(int)
 
     # ==================================================================
-    # Constraints (grouped by purpose).
+    # Constraints 
     # ==================================================================
 
-
     def constraint_build_theta_multivisit(self):
-        """Build the "shortfall" matrix, Theta.
-
+        """Build the shortfall matrix, Theta.
 
         Notes:  
             Equation 3 in Lubin et al. 2025.
@@ -455,8 +387,6 @@ class SemesterPlanner:
                 self.theta[uid] >= rhs,
                 f"greater_than_nobs_shortfall_{uid}",
             )
-
-    # ---- per-slot reservation ----
 
     def constraint_reserve_multislot_exposures(self):
         """
@@ -491,8 +421,6 @@ class SemesterPlanner:
             self.model.addConstr(
                 lhs >= gp.quicksum(rhs), f"reserve_multislot_{d}d_{s}s"
             )
-
-    # ---- cadence ----
 
     def constraint_enforce_internight_cadence(self):
         """
@@ -582,8 +510,6 @@ class SemesterPlanner:
                 f"enforce_intranight_cadence_{row.unique_id}_{row.d}d_{row.s}s",
             )
 
-    # ---- visit count bounds ----
-
     def constraint_set_max_desired_unique_nights_Wrd(self):
         """
         See Constraint 2 in Lubin et al. 2025.
@@ -593,7 +519,7 @@ class SemesterPlanner:
         if Round 2 of scheduling is invoked.
         """
         logs.info("Constraint: Set desired maximum observations.")
-        multi_visit_uids = self._multi_visit_uids()
+        multi_visit_uids = self.multi_visit_uids
         schedulable_uids = set(self.joiner["unique_id"].unique())
         single_visit_uids = [
             uid for uid in schedulable_uids if uid not in multi_visit_uids
@@ -627,7 +553,7 @@ class SemesterPlanner:
         :meth:`constraint_set_max_desired_unique_nights_Wrd`.
         """
         logs.info("Constraint: Removing previous maximum observations constraint.")
-        for uid in self._multi_visit_uids():
+        for uid in self.multi_visit_uids:
             rm_const = self.model.getConstrByName(
                 f"max_desired_unique_nights_for_request_{uid}"
             )
@@ -642,7 +568,7 @@ class SemesterPlanner:
         """
         logs.info("Constraint: Set absolute maximum observations.")
         absolute_max_obs = self.requests_frame.set_index("unique_id")["absolute_max_obs"]
-        for uid in self._multi_visit_uids():
+        for uid in self.multi_visit_uids:
             all_d = list(set(self.all_valid_ds_for_request.loc[uid].d))
             self.model.addConstr(
                 gp.quicksum(self.Wrd[uid, d] for d in all_d)
@@ -663,7 +589,7 @@ class SemesterPlanner:
             self.joiner.groupby(["unique_id", "d"])["s"].unique().reset_index()
         )
         grouped_s.set_index(["unique_id", "d"], inplace=True)
-        multi_visit_uids = self._multi_visit_uids()
+        multi_visit_uids = self.multi_visit_uids
         for _, row in per_day.iterrows():
             slots_tonight = list(grouped_s.loc[(row.unique_id, row.d)]["s"])
             name_tag = f"{row.unique_id}_{row.d}d_{row.s}s"
@@ -685,7 +611,8 @@ class SemesterPlanner:
                     f"enforce_max_visits_{name_tag}",
                 )
 
-    def _multi_visit_uids(self):
+    @property
+    def multi_visit_uids(self):
         """uids that may receive >1 visit per night (Wrd is defined for these)."""
         return set(
             self.joiner.loc[self.joiner["n_intra_max"] > 1, "unique_id"].unique()
@@ -866,12 +793,19 @@ class SemesterPlanner:
         """Construct and solve the Gurobi model (with optional bonus round)."""
         self.build_model_round1()
         self.optimize_model()
-        self.write_outputs(round_label="Round1")
+        self._finalize_round("Round1")
         if self.config.getboolean("semester", "run_bonus_round"):
             self.build_model_round2()
             self.optimize_model()
-            self.write_outputs(round_label="Round2")
+            self._finalize_round("Round2")
         logs.info("Scheduling complete, clear skies!")
+
+    def _finalize_round(self, round_label):
+        """Build schedule, log report, persist per-night handoff + snapshot."""
+        self.build_schedule()
+        self.log_report(round_label)
+        self.write_request_selected()
+        self.to_hdf5()
 
     # ==================================================================
     # Output.
@@ -1015,25 +949,24 @@ class SemesterPlanner:
         ]
         return "\n".join(parts) + "\n"
 
-    def write_outputs(self, *, round_label="Round1"):
-        """Write all per-run text artifacts and the HDF5 snapshot."""
-        logs.debug("Building human readable schedule.")
-        self.build_schedule()
+    def log_report(self, round_label):
+        """Log the run-report text (the same content that used to land in runReport.txt)."""
         report = self.to_string(header=f"Stats for {round_label}")
-        with open(os.path.join(self.output_directory, "runReport.txt"), "w") as fh:
-            fh.write(report)
+        for line in report.splitlines():
+            logs.info(line)
 
+    def write_request_selected(self):
+        """Write ``request_selected.csv`` -- the handoff to ``NightPlanner``."""
         today_idx = self.all_dates_dict[self.config.get("global", "current_day")]
-        selected = list(
-            {k[0] for k, v in self.Yrds.items() if v.x > 0 and k[1] == today_idx}
-        )
-        selected_df = self.requests_frame[
+        selected = {
+            k[0] for k, v in self.Yrds.items() if v.x > 0 and k[1] == today_idx
+        }
+        self.requests_frame[
             self.requests_frame["unique_id"].isin(selected)
-        ].copy()
-        selected_df.to_csv(
-            os.path.join(self.output_directory, "request_selected.csv"), index=False
+        ].to_csv(
+            os.path.join(self.output_directory, "request_selected.csv"),
+            index=False,
         )
-        self.to_hdf5()
 
     # ==================================================================
     # Serialization
@@ -1112,6 +1045,12 @@ class SemesterPlanner:
         instance.config = ConfigParser()
         instance.config.read_string(config_ini_text)
         instance.queue = astroq.queue.from_config(instance.config)
+
+        workdir = instance.config.get("global", "workdir")
+        instance.output_directory = os.path.join(workdir, "outputs")
+        instance.allocation_file = instance._resolve_path("allocation_file")
+        instance.custom_file = instance._resolve_path("custom_file")
+        instance.programs_file = instance._resolve_path("programs_file")
 
         # Cleaning was done at original CSV ingest; on rehydrate we just split
         # active vs. all, then re-derive the slot/past columns (they're pure
