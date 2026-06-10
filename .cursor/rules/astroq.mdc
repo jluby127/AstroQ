@@ -48,7 +48,7 @@ See [README.md](README.md) and [docs/getting_started.rst](docs/getting_started.r
 - `past.csv` — `unique_id, target, timestamp, exposure_time` (optional `junk`). One row per exposure; `timestamp` is UT ISO.
 - `custom.csv` — `unique_id, target, start, stop` (`YYYY-MM-DD HH:MM`).
 - `programs.csv` — `program, hours, nights`.
-- Outputs in `outputs/`: `semester_plan.csv` (`r, d, s, name`), `request_selected.csv`, `runReport.txt`, `ttp_prepared.csv`, `ObserveOrder_<date>.txt`, `script_<date>_nominal.txt`, `TTPstatistics.txt`, `semester_planner.h5`, `night_planner.h5`.
+- Outputs in `outputs/`: `semester_plan.csv` (`r, d, s, name`), `request_selected.csv`, `ttp_prepared.csv`, `ObserveOrder_<date>.txt`, `script_<date>_nominal.txt`, `TTPstatistics.txt`, `semester_planner.h5`, `night_planner.h5`. The per-round run report is logged at INFO (no `runReport.txt` is written).
 
 ## Conventions
 

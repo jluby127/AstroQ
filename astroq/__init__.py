@@ -18,8 +18,8 @@ from tables.exceptions import DataTypeWarning
 # astroq submodule import so the filter is in place when h5 files are first read.
 warnings.filterwarnings("ignore", category=DataTypeWarning)
 
-# Nightly script generation (hirescps.format_hires_row, kpfcc.pm_correcter)
-# propagates catalog RA/Dec to the observation date via
+# Nightly script generation (hirescps.starlist.format_hires_row,
+# kpfcc.starlist.pm_correcter) propagates catalog RA/Dec to the observation date via
 # SkyCoord.apply_space_motion without parallax. ERFA's pmsafe then warns
 # "distance overridden" once per target; coordinates are still correct.
 warnings.filterwarnings("ignore", category=ErfaWarning)

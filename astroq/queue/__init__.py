@@ -7,6 +7,15 @@ production run (site, slew model, pointing limits, overheads, starlist
 writer). It is constructed once by ``SemesterPlanner.__init__`` and reused
 by ``Access``, ``NightPlanner``, and the TTP MILP.
 
+Each concrete queue lives in its own subpackage (``astroq.queue.<name>``)
+with three sibling modules:
+
+- ``<name>.queue`` — the :class:`Queue` subclass (thin descriptor).
+- ``<name>.prep`` — data ingestion called by ``astroq prep <name>``.
+- ``<name>.starlist`` — nightly starlist writer.
+
+To add a new queue, create one new subdirectory and register the class here.
+
 Example:
     >>> from configparser import ConfigParser
     >>> import astroq.queue
@@ -17,8 +26,8 @@ Example:
 """
 
 from astroq.queue.base import Queue
-from astroq.queue.hirescps import HIRESCPS
-from astroq.queue.kpfcc import KPFCC
+from astroq.queue.hirescps.queue import HIRESCPS
+from astroq.queue.kpfcc.queue import KPFCC
 
 QUEUE_REGISTRY = {
     "hirescps": HIRESCPS,

@@ -17,8 +17,8 @@ import plotly.io as pio
 
 import astroq.benchmarking as bn
 import astroq.queue
-import astroq.queue.kpfcc as kpfcc
-import astroq.queue.hirescps as hirescps
+import astroq.queue.kpfcc.prep as kpfcc
+import astroq.queue.hirescps.prep as hirescps
 import astroq.nplan as nplan
 import astroq.plot as pl
 import astroq.splan as splan

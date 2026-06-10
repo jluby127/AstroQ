@@ -1,7 +1,10 @@
-"""
-Module for preparing all data specific to from Keck Observatory's custom made Observing Block (OB) database.
-This is specific to the KPF-CC program and the observatory's infrastructure as way to power the prep kpfcc command.
-New observatories should write their own module to connect to a new "prep <your observatory>" command.
+"""KPF-CC data ingestion.
+
+Pulls observing blocks (OBs), allocation info, and OB histories from Keck's
+KPF-CC and schedule APIs; validates/filters OBs into the canonical AstroQ
+request/custom/allocation/past frames. Consumed by
+:func:`astroq.driver.kpfcc_prep` to produce the on-disk ``request.csv``,
+``custom.csv``, ``allocation.csv``, and ``past.csv`` used by the planner.
 """
 
 # Standard library imports
@@ -19,55 +22,7 @@ from astropy.time import Time, TimeDelta
 import astropy.units as u
 import astroplan as apl
 
-# Local imports
-from astroq.queue.base import Queue
-
 logs = logging.getLogger(__name__)
-
-
-class KPFCC(Queue):
-    """KPF-CC on Keck-I.
-
-    KPF is permanently installed on Keck-I, so the telescope/instrument
-    pairing is unique and this single class fully describes the queue.
-
-    Pointing geometry references the Keck-I limits page:
-    https://www2.keck.hawaii.edu/inst/common/TelLimits.html
-
-    Geometry constants are duplicated from :class:`HIRESCPS` rather than shared
-    via a mixin: the two queues may legitimately diverge on elevation policy.
-    """
-
-    slew_rate = 0.6  # deg/s
-    wrap_limit = 270.0  # deg azimuth
-    nSlots = 1  # TTP slew-slot granularity
-    # Same readout/slew numbers as HIRES-CPS in production today; revisit if
-    # KPF's measured detector readout or acquisition time diverges.
-    readout_time = 45.0
-    slew_overhead_mean = 60.0
-
-    # Inaccessible (alt, az) boxes, degrees. (az_min, az_max, alt_min, alt_max).
-    # See Queue.is_accessible. Duplicated from HIRESCPS; may diverge over time.
-    inaccessible_zones = [
-        (5.3, 146.2, 0.0, 33.3),  # Nasmyth deck obstruction
-        (0.0, 360.0, 0.0, 18.0),  # below 18 deg elevation clamp
-        (0.0, 360.0, 85.0, 90.0),  # above 85 deg elevation clamp
-    ]
-
-    # Constraints `Access` should compute for KPF-CC. Full set including
-    # weather; `run_weather_loss` still gates whether ``compute_clear`` actually
-    # samples losses or returns all-True.
-    access_constraints = (
-        "altaz", "future", "moon", "custom", "inter", "allocated", "clear",
-    )
-
-    def __init__(self):
-        self.observatory = apl.Observer.at_site(
-            "Keck Observatory", name="Keck", timezone="US/Hawaii"
-        )
-
-    def write_starlist(self, *args, **kwargs):
-        return write_starlist(*args, **kwargs)
 
 
 # Column definitions: mapping from original names to new names and data types
@@ -157,8 +112,6 @@ def _validate_datetime_format(datetime_str):
     Returns:
         bool: True if format is valid, False otherwise
     """
-    import re
-
     if not isinstance(datetime_str, str):
         return False
     # Accept YYYY-MM-DDTHH:MM or YYYY-MM-DDTHH:MM:SS (Keck API returns the latter)
@@ -436,8 +389,6 @@ def expand_keck_ops_schedule_time_column(df):
     Returns:
         pandas.DataFrame: Copy of ``df`` with ``StartTime``, ``EndTime``, and ``FractionOfNight`` added.
     """
-    import re
-
     required = {"Date", "Time", "ProjCode"}
     missing = required - set(df.columns)
     if missing:
@@ -561,8 +512,6 @@ def get_request_sheet(OBs, awarded_programs, savepath):
     good_obs.sort_values(by="program_code", inplace=True)
     good_obs.reset_index(inplace=True, drop=True)
 
-    # good_obs['active'] = [True] * len(good_obs)
-
     # Cast target column to strings to ensure proper matching
     if "target" in good_obs.columns:
         good_obs["target"] = good_obs["target"].astype(str)
@@ -616,7 +565,8 @@ def apply_safety_valves(value_df, presence_df):
     safety_valve_defaults = {
         "target.gaia_id": "NoGaiaName",
         "target.t_eff": -1000.0,
-        "observation.exp_meter_threshold": 50000.0,  # absurdly high so that it is not used in the computation of exposure times
+        # absurdly high so that it is not used in the computation of exposure times
+        "observation.exp_meter_threshold": 50000.0,
         "schedule.num_intranight_cadence": 0,
         "schedule.num_intranight_cadence": 0,
         "schedule.num_inter_cadence": 0,
@@ -635,11 +585,9 @@ def apply_safety_valves(value_df, presence_df):
     # Apply safety valves using a loop
     for col_name, default_value in safety_valve_defaults.items():
         if col_name not in value_df.columns:
-            # Column doesn't exist, create it with default value
             value_df[col_name] = default_value
             presence_df[col_name] = True
         else:
-            # Column exists, fill NaN values with default
             value_df[col_name] = value_df[col_name].fillna(default_value)
             # Also handle empty strings for string columns
             if isinstance(default_value, str):
@@ -652,7 +600,6 @@ def apply_safety_valves(value_df, presence_df):
         # Check for 2025B_E473 semid and set opposite weather band values
         mask_2025B_E473 = value_df["metadata.semid"] == "2025B_E473"
         if mask_2025B_E473.any():
-            # Set weather bands to opposite values for 2025B_E473
             if "schedule.weather_band_1" in value_df.columns:
                 value_df.loc[mask_2025B_E473, "schedule.weather_band_1"] = False
             if "schedule.weather_band_2" in value_df.columns:
@@ -736,7 +683,6 @@ def cast_columns(df):
             elif dtype == "string":
                 df[col] = df[col].astype("string")
             elif dtype == "boolean":
-                # Convert to boolean, handling various representations
                 df[col] = df[col].astype("boolean")
             else:
                 raise ValueError(
@@ -765,11 +711,9 @@ def validate_and_convert_coordinates(df):
 
     for i, (ra, dec) in enumerate(zip(ra_list, dec_list)):
         try:
-            # Test if this coordinate pair is valid
             test_coord = SkyCoord(ra=ra, dec=dec, unit=(u.hourangle, u.deg))
             valid_indices.append(i)
         except Exception as e:
-            # Get the target info for reporting (using renamed column names)
             target_id = df.iloc[i].get("unique_id", "Unknown ID")
             target_name = df.iloc[i].get("target", "Unknown Name")
             invalid_targets.append(
@@ -782,7 +726,6 @@ def validate_and_convert_coordinates(df):
                 }
             )
 
-    # Print information about invalid targets
     if invalid_targets:
         print(
             f"Warning: {len(invalid_targets)} targets have invalid coordinates and will be removed:"
@@ -821,7 +764,6 @@ def sort_good_bad(OBs, awarded_programs):
         bad_OBs_hasFields (pandas DataFrame): a DataFrame with the indication of fields existing or not for the bad OBs
     """
 
-    # Create the dataframes
     OB_values, OB_hasFields = create_checks_dataframes(OBs, required_fields)
 
     # Apply safety valves
@@ -829,13 +771,11 @@ def sort_good_bad(OBs, awarded_programs):
     if run_safety_valves:
         OB_values, OB_hasFields = apply_safety_valves(OB_values, OB_hasFields)
 
-    # Create masks considering only the required fields
     def row_is_good(row):
         # Check that all required fields are present
         # If a required field is missing from the dataframe, row.get returns False (default)
         return all(row.get(col, False) for col in required_fields)
 
-    # Apply the good/bad row determination
     pass_OBs_mask = OB_hasFields.apply(row_is_good, axis=1)
 
     bad_OBs_values = OB_values[~pass_OBs_mask]
@@ -854,7 +794,6 @@ def sort_good_bad(OBs, awarded_programs):
     good_OBs_awarded = good_OBs[good_OBs["metadata.semid"].isin(awarded_programs)]
     good_OBs_awarded.reset_index(inplace=True, drop="True")
 
-    # Create column mapping from column_definitions
     new_column_names = {
         col: col_info["new_name"] for col, col_info in column_definitions.items()
     }
@@ -862,7 +801,6 @@ def sort_good_bad(OBs, awarded_programs):
         columns=new_column_names
     )
 
-    # Validate and convert coordinates
     trimmed_good = validate_and_convert_coordinates(trimmed_good)
 
     return trimmed_good, bad_OBs_values, bad_OBs_hasFields
@@ -1061,60 +999,6 @@ Very best,
 Jack
 """
 
-# This portion not ready yet, but saving for future use.
-# ---------------------------------------------------------
-# import smtplib
-# from email.mime.multipart import MIMEMultipart
-# from email.mime.text import MIMEText
-
-# Email Configuration
-# SMTP_SERVER = 'smtp.example.com'
-# SMTP_PORT = 587
-# SENDER_EMAIL = 'youremail@example.com'
-# SENDER_PASSWORD = 'yourpassword'
-#
-# def send_email(receiver_email, subject, body):
-#     msg = MIMEMultipart()
-#     msg['From'] = SENDER_EMAIL
-#     msg['To'] = receiver_email
-#     msg['Subject'] = subject
-#     msg.attach(MIMEText(body, 'plain'))
-#
-#     try:
-#         # Connect to SMTP server
-#         server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-#         server.starttls()  # Secure the connection
-#         server.login(SENDER_EMAIL, SENDER_PASSWORD)
-#         text = msg.as_string()
-#         server.sendmail(SENDER_EMAIL, receiver_email, text)
-#         server.quit()
-#         print(f"Email sent to {receiver_email}")
-#     except Exception as e:
-#         print(f"Failed to send email to {receiver_email}: {e}")
-
-# def define_email(bad_obs, i):
-#     badkeys = list(bad_obs.keys())
-#     email_address = bad_obs[badkeys[i]][4]
-#     human_unique = str(bad_obs[badkeys[i]][0])+"_"+str(bad_obs[badkeys[i]][1])+"_"+str(bad_obs[badkeys[i]][2])
-#     reasons=""
-#     for j in range(len(bad_obs[badkeys[i]][5])):
-#         if j == len(bad_obs[badkeys[i]][5])-1:
-#             add = ""
-#         else:
-#             add = "\n"
-#         reasons += "-- " + str(bad_obs[badkeys[i]][5][j]) + add
-
-#     email_body = email_template.format(
-#         name=bad_obs[badkeys[i]][3],
-#         semester=bad_obs[badkeys[i]][0],
-#         program=bad_obs[badkeys[i]][1],
-#         starname=bad_obs[badkeys[i]][2],
-#         _id=badkeys[i],
-#         h_id=human_unique,
-#         badparams=reasons
-#     )
-#     return email_address, email_body
-
 
 def filter_request_csv(request_df, weather_band_num):
     """
@@ -1170,7 +1054,6 @@ def update_allocation_file(allocation_df, current_date):
 
     if not date_exists:
         print(f"Adding allocation row for current_day: {current_date}")
-        # Add new row at the bottom
         new_row = pd.DataFrame(
             {
                 "start": [evening_12.strftime("%Y-%m-%dT%H:%M")],
@@ -1184,7 +1067,6 @@ def update_allocation_file(allocation_df, current_date):
         print(f"Added allocation: {evening_12.iso} to {morning_12.iso}")
     else:
         print(f"Updating existing allocation row for current_day: {current_date}")
-        # Update existing row
         allocation_df.loc[date_idx, "start"] = evening_12.strftime("%Y-%m-%dT%H:%M")
         allocation_df.loc[date_idx, "stop"] = morning_12.strftime("%Y-%m-%dT%H:%M")
         allocation_df.loc[date_idx, "comment"] = "added as part of full-band processing"
@@ -1237,293 +1119,3 @@ def expand_allocation_for_band3(
             print(f"Adjusted stop time for {date_str}: added {buffer_minutes} min")
 
     return df
-
-
-def write_starlist(
-    frame,
-    schedule,
-    night_start_time,
-    filler_stars,
-    current_day,
-    outputdir,
-    version="nominal",
-    all_active_requests=None,
-):
-    """
-    Generate the nightly script in the format required by the Keck "Magiq" software.
-    Backwards compatable to pre-KPF-CC observing.
-
-    Args:
-        frame (dataframe): the request_frame of just the targets that were selected to be observed tonight
-        schedule (dataframe): TTP ``schedule`` DataFrame (parallel to ``nodes``)
-        night_start_time (astropy time object): Beginning of observing interval
-        filler_stars (array): star names of the stars added in the bonus round
-        current_day (str): today's date in format YYYY-MM-DD
-        outputdir (str): the directory to save the script file
-        version (str): a tag for thescript (e.g. nominal, slowdown, backups, etc)
-
-    Returns:
-        lines (str): the script file as a string
-    """
-    frame["target"] = frame["target"].astype(str)
-
-    on_sky = schedule[~schedule["is_anchor"]]
-    scheduled_df = on_sky[on_sky["scheduled"]].sort_values("order")
-    extras_df = on_sky[~on_sky["scheduled"]]
-
-    total_exptime = 0
-    if not os.path.isdir(outputdir):
-        os.mkdir(outputdir)
-    script_file = os.path.join(
-        outputdir, "script_{}_{}.txt".format(current_day, version)
-    )
-
-    lines = []
-    for _, srow in scheduled_df.iterrows():
-        uid = str(srow["unique_id"])
-        filler_flag = uid in filler_stars
-        row = frame.loc[frame["unique_id"] == uid]
-        row.reset_index(inplace=True)
-        total_exptime += float(row["exptime"].iloc[0])
-
-        start_exposure_hst = str(
-            TimeDelta(srow["t_start"] * 60, format="sec") + night_start_time
-        )[11:16]
-        first_available_hst = str(
-            TimeDelta(srow["t_early"] * 60, format="sec") + night_start_time
-        )[11:16]
-        last_available_hst = str(
-            TimeDelta(srow["t_late"] * 60, format="sec") + night_start_time
-        )[11:16]
-
-        lines.append(
-            format_kpf_row(
-                row,
-                start_exposure_hst,
-                first_available_hst,
-                last_available_hst,
-                current_day,
-                filler_flag=filler_flag,
-            )
-        )
-
-    lines.append("")
-    lines.append("X" * 45 + "EXTRAS" + "X" * 45)
-    lines.append("")
-
-    for _, erow in extras_df.iterrows():
-        uid = str(erow["unique_id"])
-        filler_flag = uid in filler_stars
-        row = frame.loc[frame["unique_id"] == uid]
-        row.reset_index(inplace=True)
-        first_available_hst = str(
-            TimeDelta(erow["t_early"] * 60, format="sec") + night_start_time
-        )[11:16]
-        last_available_hst = str(
-            TimeDelta(erow["t_late"] * 60, format="sec") + night_start_time
-        )[11:16]
-        lines.append(
-            format_kpf_row(
-                row,
-                "24:00",
-                first_available_hst,
-                last_available_hst,
-                current_day,
-                filler_flag,
-                True,
-            )
-        )
-
-    # add buffer lines to end of file
-    lines.append("")
-    lines.append("")
-
-    with open(script_file, "w") as f:
-        f.write("\n".join(lines))
-    print(
-        "Total Open Shutter Time Scheduled: "
-        + str(np.round((total_exptime / 3600), 2))
-        + " hours"
-    )
-    return lines
-
-
-def format_kpf_row(
-    row,
-    obs_time,
-    first_available,
-    last_available,
-    current_day,
-    filler_flag=False,
-    extra=False,
-):
-    """
-    Format request data in the specific way needed for the script (relates to the Keck "Magiq"
-    software's data ingestion requirements).
-
-    Args:
-        row (dataframe): a single row from the requests sheet dataframe
-        obs_time (str): the timestamp of the night to begin the exposure according to the TTP.
-                        In format HH:MM in HST timezone
-        first_available (str): the timestamp of the night where the star is first accessible.
-                                In format HH:MM in HST timezone.
-        last_available (str): the timestamp of the night where the star is last accessible.
-                                In format HH:MM in HST timezone.
-        filler_flag (boolean): True of the target was added in the bonus round
-        extra (boolean): is this an "extra" target
-
-    Returns:
-        line (str): the properly formatted string to be included in the script file
-    """
-
-    equinox = "2000"
-    # Handle missing pmra/pmdec columns with default values
-    pmra = row.get("pmra", pd.Series([0.0])).iloc[0] if "pmra" in row else 0.0
-    pmdec = row.get("pmdec", pd.Series([0.0])).iloc[0] if "pmdec" in row else 0.0
-    updated_ra, updated_dec = pm_correcter(
-        row["ra"].iloc[0], row["dec"].iloc[0], pmra, pmdec, current_day, equinox=equinox
-    )
-    if updated_dec[0] != "-":
-        updated_dec = "+" + updated_dec
-
-    target_str = str(row["target"].iloc[0])
-    namestring = " " * (16 - len(target_str[:16])) + target_str[:16]
-
-    # Handle missing columns with default values
-    jmag_val = row.get("jmag", [15.0])[0] if "jmag" in row else 15.0
-    gmag_val = row.get("gmag", [15.0])[0] if "gmag" in row else 15.0
-    teff_val = row.get("teff", [5000])[0] if "teff" in row else 5000
-    gaia_id_val = row.get("gaia_id", ["UNKNOWN"])[0] if "gaia_id" in row else "UNKNOWN"
-
-    # Convert to float safely, with fallback to defaults
-    try:
-        jmag_val = float(jmag_val) if jmag_val is not None else 15.0
-    except (ValueError, TypeError):
-        jmag_val = 25.0
-
-    try:
-        gmag_val = float(gmag_val) if gmag_val is not None else 15.0
-    except (ValueError, TypeError):
-        gmag_val = 25.0
-
-    try:
-        teff_val = float(teff_val) if teff_val is not None else 5000
-    except (ValueError, TypeError):
-        teff_val = 0.0
-
-    jmagstring = (
-        "jmag="
-        + str(np.round(float(jmag_val), 1))
-        + " " * (4 - len(str(np.round(float(jmag_val), 1))))
-    )
-    exposurestring = (
-        " " * (4 - len(str(int(row["exptime"].iloc[0]))))
-        + str(int(row["exptime"].iloc[0]))
-        + "/"
-        + str(int(row["exptime"].iloc[0]))
-        + " " * (4 - len(str(int(row["exptime"].iloc[0]))))
-    )
-
-    ofstring = "1of" + str(int(row["n_intra_max"].iloc[0]))
-    scstring = "sc=" + "T"
-
-    numstring = str(int(row["n_exp"].iloc[0])) + "x"
-    gmagstring = (
-        "gmag="
-        + str(np.round(float(gmag_val), 1))
-        + " " * (4 - len(str(np.round(float(gmag_val), 1))))
-    )
-    teffstr = "Teff=" + str(int(teff_val)) + " " * (4 - len(str(int(teff_val))))
-
-    gaiastring = str(gaia_id_val) + " " * (25 - len(str(gaia_id_val)))
-    programstring = row["program_code"].iloc[0]
-
-    if filler_flag:
-        # All targets added in round 2 bonus round are lower priority
-        priostring = "p3"
-    else:
-        priostring = "p1"
-
-    if extra == False:
-        timestring2 = str(obs_time)
-    else:
-        # designate a nonsense time
-        timestring2 = "24:00"
-
-    line = (
-        namestring
-        + " "
-        + updated_ra
-        + " "
-        + updated_dec
-        + " "
-        + str(equinox)
-        + " "
-        + jmagstring
-        + " "
-        + exposurestring
-        + " "
-        + ofstring
-        + " "
-        + scstring
-        + " "
-        + numstring
-        + " "
-        + gmagstring
-        + " "
-        + teffstr
-        + " "
-        + gaiastring
-        + " CC "
-        + priostring
-        + " "
-        + programstring
-        + " "
-        + timestring2
-        + " "
-        + first_available
-        + " "
-        + last_available
-    )
-
-    # Handle missing Observing Notes column
-    observing_notes = (
-        row.get("Observing Notes", [""])[0] if "Observing Notes" in row else ""
-    )
-    if observing_notes and not pd.isnull(observing_notes):
-        line += " " + str(observing_notes)
-
-    return line
-
-
-def pm_correcter(ra, dec, pmra, pmdec, current_day, equinox="2000"):
-    """
-    Update a star's coordinates due to proper motion.
-
-    Args:
-        ra (float): RA in degrees
-        dec (float): Dec in degrees
-        pmra (float): proper motion in RA (mas/yr), including cos(Dec)
-        pmdec (float): proper motion in Dec (mas/yr)
-        equinox (str): original epoch (e.g. '2000.0')
-        current_day (str): date to which to propagate (e.g. '2025-04-30')
-
-    Returns:
-        formatted_ra (str), formatted_dec (str): updated coordinates as strings
-    """
-    start_time = Time(f"J{equinox}")
-    current_time = Time(current_day)
-    coord = SkyCoord(
-        ra=ra * u.deg,
-        dec=dec * u.deg,
-        pm_ra_cosdec=pmra * u.mas / u.yr,
-        pm_dec=pmdec * u.mas / u.yr,
-        obstime=start_time,
-    )
-    new_coord = coord.apply_space_motion(new_obstime=current_time)
-    formatted_ra = new_coord.ra.to_string(
-        unit=u.hourangle, sep=" ", pad=True, precision=1
-    )
-    formatted_dec = new_coord.dec.to_string(unit=u.deg, sep=" ", pad=True, precision=0)
-
-    return formatted_ra, formatted_dec

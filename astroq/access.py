@@ -86,7 +86,7 @@ class Access:
     Example (standalone):
 
         >>> import pandas as pd
-        >>> from astroq.queue.hirescps import HIRESCPS
+        >>> from astroq.queue.hirescps.queue import HIRESCPS
         >>> from astroq.access import Access
         >>> df = pd.DataFrame({
         ...     "unique_id": ["a", "b"],

@@ -1,0 +1,8 @@
+# Test outputs are written to a per-session tmp_path sandbox by conftest.py,
+# never under this directory. Anything that lands here is unintentional;
+# ignore it so the repo stays clean.
+*
+!.gitignore
+!__init__.py
+!conftest.py
+!test_*.py

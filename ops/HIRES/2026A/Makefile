@@ -15,10 +15,13 @@ LOAD_ENV = if [ -f "$(ENV_FILE)" ]; then set -a; . "$(ENV_FILE)"; set +a; fi
 # Optional offline allocation file. By default `astroq prep hires` pulls the
 # Keck schedule live and crossmatches against $HIRES_PROGRAM_SHEET_URLS_CSV.
 # To run offline, append   -as "$(ALLOCATION_FILE)"   to the prep recipes below.
-ALLOCATION_FILE ?= $(MAKEFILE_DIR)allocation_hires_cps_2026A.csv
+ALLOCATION_FILE ?= $(MAKEFILE_DIR)allocation_hires_cps.csv
 ifndef HIRES_PROGRAM_SHEET_URLS_CSV
-export HIRES_PROGRAM_SHEET_URLS_CSV := $(MAKEFILE_DIR)request_urls_2026A.csv
+export HIRES_PROGRAM_SHEET_URLS_CSV := $(MAKEFILE_DIR)request_urls.csv
 endif
+
+# Shared config template lives in ops/HIRES/common/ (one level up).
+CONFIG_TEMPLATE ?= $(MAKEFILE_DIR)../common/config_template.ini
 
 # Changed only once per semester
 SEMESTER ?= 2026A
@@ -93,7 +96,7 @@ $(DATE_DIR)/%/prep-run: $(DATE_DIR)/%/config.ini
 $(DATE_DIR)/%/config.ini: create_dirs
 	@echo "📋 Copying config template for band $(notdir $(@D))..."
 	@mkdir -p $(@D)
-	@cp config_template.ini $@
+	@cp $(CONFIG_TEMPLATE) $@
 	@sed -i $(SED_I_FLAG) "s|CURRENT_DATE_PLACEHOLDER|$(DATE)|g" $@
 	@sed -i $(SED_I_FLAG) "s|START_DATE_PLACEHOLDER|$(START_DATE)|g" $@
 	@sed -i $(SED_I_FLAG) "s|END_DATE_PLACEHOLDER|$(END_DATE)|g" $@
@@ -165,8 +168,8 @@ combine_logs:
 
 # Check night plans
 check_night_plans:
-	@echo "🔍 Running check_night_plans.py..."
-	@cd $(shell dirname $(firstword $(MAKEFILE_LIST))) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) python check_night_plans.py -s $(SEMESTER) -d $(DATE) $(DATE_DIR)
+	@echo "🔍 Running astroq.scripts.check_night_plans..."
+	@$(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) python -m astroq.scripts.check_night_plans -s $(SEMESTER) -d $(DATE) $(DATE_DIR)
 	@echo "✅ Night plans check complete!"
 
 # Launch webapp
