@@ -305,11 +305,10 @@ def _dedup_requests_by_hash(requests_df, custom_df):
     return out, custom_df
 
 
-def pull_requests():
+def pull_requests(request_urls_path):
     """
     Pull HIRES-CPS request and custom-window data from the per-program Google
-    Sheets listed in the CSV at ``$HIRES_PROGRAM_SHEET_URLS_CSV`` (column
-    ``url``).
+    Sheets listed in ``request_urls_path`` (column ``url``).
 
     For each URL, fetches the relevant tab via :func:`_fetch_sheet_dataframe`
     (Google's ``export?format=csv&gid=<GID>`` endpoint) and parses it using
@@ -318,21 +317,20 @@ def pull_requests():
     ``start``, ``stop``, ``comments``); a missing ``comments`` column is
     backfilled as empty strings.
 
+    Args:
+        request_urls_path: Path to CSV with a ``url`` column listing sheet URLs.
+
     Returns:
         tuple: ``(requests_df, custom_df)`` where ``requests_df`` has
         ``REQUEST_COLS`` and ``custom_df`` has
         ``[unique_id, target, start, stop]``.
 
     Raises:
-        ValueError: If ``HIRES_PROGRAM_SHEET_URLS_CSV`` is unset or empty.
+        ValueError: If ``request_urls_path`` is unset or empty.
     """
-    path = os.environ.get("HIRES_PROGRAM_SHEET_URLS_CSV")
-    if not path:
-        raise ValueError(
-            "HIRES_PROGRAM_SHEET_URLS_CSV is not set. "
-            "Point it at a CSV with a 'url' column, e.g. request_urls_2026A.csv."
-        )
-    sheet_urls = pd.read_csv(path)["url"].tolist()
+    if not request_urls_path:
+        raise ValueError("request_urls_path is required.")
+    sheet_urls = pd.read_csv(request_urls_path)["url"].tolist()
 
     request_dfs = []
     custom_dfs = []
