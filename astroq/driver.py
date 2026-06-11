@@ -83,6 +83,7 @@ def hirescps_prep(args):
             -allo_source (str): the source of the allocation information, either 'db' or a file path.
             -past_source (str): the source of the past history information, either 'db' or a file path.
             -request_source (str): the source of the request information, either 'db' or a file path.
+            -request_urls (str): path to CSV of program Google Sheet URLs.
             -filler_programs (str): the semester ID for the filler program. Ex. 2025B_E473.
 
     Returns:
@@ -94,6 +95,15 @@ def hirescps_prep(args):
     config.read(cf)
     band_number = args.band_number
     is_full_band = args.is_full_band
+
+    need_request_urls = (args.request_source == "db") or (not args.allo_source)
+    if need_request_urls and not args.request_urls:
+        raise ValueError(
+            "Pass -ru/--request_urls pointing at a CSV with 'url' (and "
+            "'program_code' for live allocation crossmatch), e.g. "
+            "ops/HIRES/2026A/request_urls.csv."
+        )
+    request_urls_path = args.request_urls
 
     # Get workdir from global section
     workdir = str(config.get("global", "workdir"))
@@ -141,13 +151,6 @@ def hirescps_prep(args):
         programmatics.to_csv(os.path.join(savepath, "programs.csv"), index=False)
     else:
         if not allo_source:
-            request_urls_path = os.environ.get("HIRES_PROGRAM_SHEET_URLS_CSV")
-            if not request_urls_path:
-                raise ValueError(
-                    "HIRES_PROGRAM_SHEET_URLS_CSV is not set. "
-                    "Point it at a CSV with 'url' and 'program_code' columns, "
-                    "e.g. request_urls_2026A.csv."
-                )
             sched_path = os.path.join(savepath, "allocation_hires_all_scheduled.csv")
             cps_path = os.path.join(savepath, f"allocation_hires_cps_{semester}.csv")
             print(f"Pulling Keck schedule live for {semester} -> {sched_path}")
@@ -201,7 +204,7 @@ def hirescps_prep(args):
             awarded_programs.append(fillers)
         # Pull the request sheet
         request_file = str(config.get("data", "request_file"))
-        requests_df, custom_df = hirescps.pull_requests()
+        requests_df, custom_df = hirescps.pull_requests(request_urls_path)
         requests_df.to_csv(os.path.join(savepath, request_file), index=False)
 
         # CAPTURE CUSTOM INFORMATION AND PROCESS

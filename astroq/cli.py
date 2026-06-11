@@ -168,9 +168,20 @@ def main():
         default=None,
         help=(
             "Allocation source. If omitted (default), the Keck schedule is "
-            "queried live and crossmatched against $HIRES_PROGRAM_SHEET_URLS_CSV. "
+            "queried live and crossmatched against the -ru request_urls CSV. "
             "Pass an absolute path to use an offline KOIP/allocation CSV, "
             "or 'db' to pull from the database."
+        ),
+    )
+    psr_prep_hirescps.add_argument(
+        "-ru",
+        "--request_urls",
+        type=str,
+        default=None,
+        help=(
+            "Path to CSV listing program Google Sheet URLs (columns url, "
+            "program_code). Required when pulling requests from sheets "
+            "(-rs db) or when pulling allocation live (-as omitted)."
         ),
     )
     psr_prep_hirescps.add_argument(
