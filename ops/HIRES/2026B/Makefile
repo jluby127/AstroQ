@@ -10,13 +10,11 @@ DATE_DIR = $(SEMESTER_DIR)/$(DATE)
 
 # Directory containing this Makefile (stable even if make is run from elsewhere)
 MAKEFILE_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
-# Optional offline allocation file. By default `astroq prep hires` pulls the
-# Keck schedule live and crossmatches against $HIRES_PROGRAM_SHEET_URLS_CSV.
+# Optional offline allocation file. By default `astroq prep hirescps` pulls the
+# Keck schedule live and crossmatches against REQUEST_URLS_CSV (passed via -ru).
 # To run offline, append   -as "$(ALLOCATION_FILE)"   to the prep recipes below.
 ALLOCATION_FILE ?= $(MAKEFILE_DIR)allocation_hires_cps.csv
-ifndef HIRES_PROGRAM_SHEET_URLS_CSV
-export HIRES_PROGRAM_SHEET_URLS_CSV := $(MAKEFILE_DIR)request_urls.csv
-endif
+REQUEST_URLS_CSV ?= $(MAKEFILE_DIR)request_urls.csv
 
 # Shared config template lives in ops/HIRES/common/ (one level up).
 CONFIG_TEMPLATE ?= $(MAKEFILE_DIR)../common/config_template.ini
@@ -77,15 +75,16 @@ $(DATE_DIR)/%/plan-semester-run: $(DATE_DIR)/%/prep-run
 # name is also the `astroq prep` subcommand name, e.g. hirescps / kpfcc).
 $(DATE_DIR)/%/prep-run: $(DATE_DIR)/%/config.ini
 	@echo "🔧 Running prep for band $(notdir $(@D))..."
+	@test -f "$(REQUEST_URLS_CSV)" || (echo "Missing $(REQUEST_URLS_CSV)" && exit 1)
 	@QUEUE=$$(sed -n 's/^[[:space:]]*queue[[:space:]]*=[[:space:]]*//p' $(@D)/config.ini | tr -d ' \r\n'); \
 	BAND_NUM=$$(echo $(notdir $(@D)) | sed 's/band//' | sed 's/full-//'); \
 	IS_FULL_BAND=$$(echo $(notdir $(@D)) | grep -q '^full-' && echo "true" || echo "false"); \
 	if [ "$$IS_FULL_BAND" = "true" ]; then \
 		echo "📅 Running prep for full-band $$BAND_NUM (queue=$$QUEUE)..." && \
-		cd $(@D) && conda run -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -fillers $(FILLER_PROGRAM) -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
+		cd $(@D) && conda run -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -fillers $(FILLER_PROGRAM) -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
 	else \
 		echo "📊 Running prep for band $$BAND_NUM (queue=$$QUEUE)..." && \
-		cd $(@D) && conda run -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -fillers $(FILLER_PROGRAM) -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
+		cd $(@D) && conda run -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -fillers $(FILLER_PROGRAM) -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
 	fi
 	@touch $@
 
@@ -199,7 +198,7 @@ status:
 	@echo "  Bands: $(BANDS)"
 	@echo "  Filler Program: $(FILLER_PROGRAM)"
 	@echo "  Allocation file (-as): $(ALLOCATION_FILE)"
-	@echo "  Program sheet URLs CSV: $(HIRES_PROGRAM_SHEET_URLS_CSV)"
+	@echo "  Program sheet URLs CSV (-ru): $(REQUEST_URLS_CSV)"
 	@echo "  Work Directory: $(WORKDIR)"
 	@echo "  Date Directory: $(DATE_DIR)"
 
