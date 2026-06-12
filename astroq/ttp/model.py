@@ -117,6 +117,7 @@ class TTPModel:
         *,
         slew_fn,
         n_slots=1,
+        n_states=1,
     ):
         if not isinstance(requests, QTable):
             raise TypeError(
@@ -158,6 +159,11 @@ class TTPModel:
 
         self.slew_fn = slew_fn
         self.n_slots = n_slots
+        #: Number of cable-wrap states. ``1`` selects the legacy single-cut
+        #: path; ``>1`` enables the state-aware MILP (``slew_fn`` must then
+        #: return a ``(P, M, S, S)`` tensor with ``NaN`` for impossible arcs).
+        self.n_states = int(n_states)
+        self.S = self.n_states
         self.dur_min = float(
             np.round((night_end - night_start).to_value(u.min), 0)
         )
@@ -267,26 +273,74 @@ class TTPModel:
         j_pos = jj[mask]  # ending node of arc
         n_pair = len(i_pos)
 
-        # slew_fn returns shape (n_pair, M): worst-case slew per (pair, window).
-        tau_per_slot = self.slew_fn(
-            node_coords[i_pos], node_coords[j_pos], window_start, window_end
-        )
-
-        p_idx, m_lev = np.mgrid[0:n_pair, 0 : self.M]
-        i_id = i_pos[p_idx.ravel()] + 1  # account for anchor nodes
-        j_id = j_pos[p_idx.ravel()] + 1  # account for anchor nodes
-
         uid = self.nodes["unique_id"].to_numpy()
-        self.arcs = pd.DataFrame(
-            {
-                "i_id": uid[i_id],
-                "j_id": uid[j_id],
-                "t_slew": tau_per_slot.ravel(),
-            },
-            index=pd.MultiIndex.from_arrays(
-                [i_id, j_id, m_lev.ravel()], names=("i", "j", "m")
-            ),
-        )
+
+        if self.S > 1:
+            # State-aware: slew_fn returns (n_pair, M, S, S) with NaN where a
+            # winding is unreachable. Flatten, then drop the NaN (impossible)
+            # arcs so they can never be selected.
+            tau = np.asarray(
+                self.slew_fn(
+                    node_coords[i_pos], node_coords[j_pos],
+                    window_start, window_end,
+                )
+            )
+            if tau.shape != (n_pair, self.M, self.S, self.S):
+                raise ValueError(
+                    f"slew_fn returned shape {tau.shape}; expected "
+                    f"{(n_pair, self.M, self.S, self.S)} for n_states={self.S}"
+                )
+            p_g, m_g, si_g, sj_g = np.mgrid[
+                0:n_pair, 0 : self.M, 0 : self.S, 0 : self.S
+            ]
+            i_id = i_pos[p_g.ravel()] + 1
+            j_id = j_pos[p_g.ravel()] + 1
+            m_lev = m_g.ravel()
+            si = si_g.ravel()
+            sj = sj_g.ravel()
+            t_slew = tau.ravel()
+            keep = np.isfinite(t_slew)
+            self.arcs = pd.DataFrame(
+                {
+                    "i_id": uid[i_id[keep]],
+                    "j_id": uid[j_id[keep]],
+                    "t_slew": t_slew[keep],
+                },
+                index=pd.MultiIndex.from_arrays(
+                    [i_id[keep], j_id[keep], m_lev[keep], si[keep], sj[keep]],
+                    names=("i", "j", "m", "si", "sj"),
+                ),
+            )
+            # Feasible states per real node: states in which the node appears
+            # as either endpoint of a surviving arc.
+            node_states = {n: set() for n in range(1, self.N - 1)}
+            for n, s in zip(i_id[keep], si[keep]):
+                node_states[n].add(int(s))
+            for n, s in zip(j_id[keep], sj[keep]):
+                node_states[n].add(int(s))
+            self.node_states = {
+                n: sorted(s) for n, s in node_states.items()
+            }
+        else:
+            # slew_fn returns shape (n_pair, M): worst-case slew per (pair, window).
+            tau_per_slot = self.slew_fn(
+                node_coords[i_pos], node_coords[j_pos], window_start, window_end
+            )
+
+            p_idx, m_lev = np.mgrid[0:n_pair, 0 : self.M]
+            i_id = i_pos[p_idx.ravel()] + 1  # account for anchor nodes
+            j_id = j_pos[p_idx.ravel()] + 1  # account for anchor nodes
+
+            self.arcs = pd.DataFrame(
+                {
+                    "i_id": uid[i_id],
+                    "j_id": uid[j_id],
+                    "t_slew": tau_per_slot.ravel(),
+                },
+                index=pd.MultiIndex.from_arrays(
+                    [i_id, j_id, m_lev.ravel()], names=("i", "j", "m")
+                ),
+            )
 
         # Slot bounds (minutes from night_start) used by build_model.
         self.w = self.dur_min * fractions
@@ -299,6 +353,9 @@ class TTPModel:
         """
         if not hasattr(self, "arcs"):
             raise RuntimeError("call build_arcs() before build_model()")
+        if self.S > 1:
+            self._build_model_states()
+            return
         self.model = gp.Model("TTP")
 
         N, M = self.N, self.M
@@ -490,6 +547,209 @@ class TTPModel:
 
         self.model.update()
 
+    # --------------------------------------------------- state-aware MILP build
+    def _build_model_states(self):
+        """State-aware TTP MILP (cable-wrap windings).
+
+        Generalizes the single-state model so each visited node is observed in
+        exactly one wrap state. Variables are state-indexed:
+        ``Y[(i, s)]`` (node ``i`` observed in state ``s``) and
+        ``X[(i, j, m, si, sj)]`` (arc from ``i`` in ``si`` to ``j`` in ``sj``
+        within window ``m``). Only *feasible* arcs are created -- impossible
+        windings were dropped (NaN) in :meth:`build_arcs` -- so they can never
+        be selected. Flow conservation is enforced per ``(node, state)`` so the
+        telescope keeps its winding through a visit (state continuity).
+
+        Anchors (start ``0`` / end ``N-1``) are stateless; their arcs cost 0.
+        """
+        self.model = gp.Model("TTP")
+        N, M, S = self.N, self.M, self.S
+        nodes = self.nodes
+        real_nodes = range(1, N - 1)
+
+        # Per-node feasible states (computed in build_arcs from surviving arcs).
+        node_states = self.node_states
+
+        # Slew cost for the internal (real-real) arcs that survived NaN drop.
+        arc_cost = self.arcs["t_slew"].to_dict()  # keys (i, j, m, si, sj)
+
+        # ---- Enumerate every arc key used by the model + adjacency tables.
+        arc_keys = list(arc_cost.keys())          # internal feasible arcs
+        cost = dict(arc_cost)                      # anchor arcs default to 0
+        # start-anchor -> real node-state (one per window); end real -> end anchor.
+        for j in real_nodes:
+            for sj in node_states[j]:
+                for m in range(M):
+                    key = (0, j, m, 0, sj)
+                    arc_keys.append(key)
+                    cost[key] = 0.0
+        for i in real_nodes:
+            for si in node_states[i]:
+                for m in range(M):
+                    key = (i, N - 1, m, si, 0)
+                    arc_keys.append(key)
+                    cost[key] = 0.0
+
+        out_by_node = {i: [] for i in range(N)}    # keyed by source node id
+        in_by_node = {j: [] for j in range(N)}     # keyed by dest node id
+        out_by_ns = {}                             # keyed by (node, state)
+        in_by_ns = {}
+        for key in arc_keys:
+            i, j, m, si, sj = key
+            out_by_node[i].append(key)
+            in_by_node[j].append(key)
+            out_by_ns.setdefault((i, si), []).append(key)
+            in_by_ns.setdefault((j, sj), []).append(key)
+
+        # Real node-states that actually exist (have a Y variable).
+        ns_keys = [(i, s) for i in real_nodes for s in node_states[i]]
+
+        # ---- Variables.
+        self.Yi = self.model.addVars(ns_keys, vtype=GRB.BINARY, name="Yi")
+        self.Xijm = self.model.addVars(arc_keys, vtype=GRB.BINARY, name="Xijm")
+        self.tijm = self.model.addVars(arc_keys, vtype=GRB.CONTINUOUS, name="tijm")
+        self.ti = self.model.addVars(range(N), vtype=GRB.CONTINUOUS, lb=0, name="ti")
+
+        self.model.addConstr(self.ti[0] == 0.0, "anchor_start_time")
+
+        # First exposure pinned to start (or earliest feasible) -- same policy
+        # as the single-state model, now per start-anchor arc.
+        t_earliest = nodes[~nodes.is_anchor].t_early.min()
+        t_start = max(0.0, t_earliest)
+        for key in out_by_node[0]:
+            _, j, _, _, _ = key
+            t_visit_j = float(nodes.at[j, "t_visit"])
+            self.model.addGenConstrIndicator(
+                self.Xijm[key], 1, self.ti[j], GRB.EQUAL,
+                t_start + t_visit_j, name=f"first_exposure_{key}",
+            )
+
+        # eq. 2 - exactly one arc out of the start anchor.
+        self.model.addConstr(
+            gp.quicksum(self.Xijm[k] for k in out_by_node[0]) == 1, "start_anchor"
+        )
+        # eq. 3 - exactly one arc into the end anchor.
+        self.model.addConstr(
+            gp.quicksum(self.Xijm[k] for k in in_by_node[N - 1]) == 1, "end_anchor"
+        )
+
+        # eq. 4 - visit indicator per real node-state; at most one state used.
+        for j in real_nodes:
+            for sj in node_states[j]:
+                self.model.addConstr(
+                    gp.quicksum(self.Xijm[k] for k in in_by_ns.get((j, sj), []))
+                    == self.Yi[(j, sj)],
+                    f"visit_once_{j}_{sj}",
+                )
+            self.model.addConstr(
+                gp.quicksum(self.Yi[(j, s)] for s in node_states[j]) <= 1,
+                f"one_state_{j}",
+            )
+
+        # eq. 5 - flow conservation per (real node, state): in == out. Keying by
+        # the same state on both sides enforces wrap-state continuity.
+        for k in real_nodes:
+            for sk in node_states[k]:
+                self.model.addConstr(
+                    gp.quicksum(self.Xijm[a] for a in in_by_ns.get((k, sk), []))
+                    - gp.quicksum(self.Xijm[a] for a in out_by_ns.get((k, sk), []))
+                    == 0,
+                    f"flow_{k}_{sk}",
+                )
+
+        # eq. 6 - link ti to tijm (per non-end node; sum over its out-arcs).
+        for i in range(N - 1):
+            self.model.addConstr(
+                self.ti[i] == gp.quicksum(self.tijm[k] for k in out_by_node[i]),
+                f"tijm_def_{i}",
+            )
+
+        # eq. 7 - exposure/slew time linking (per non-start node).
+        for j in range(1, N):
+            t_visit_j = float(nodes.at[j, "t_visit"])
+            self.model.addConstr(
+                self.ti[j]
+                >= gp.quicksum(
+                    self.tijm[k] + (cost[k] + t_visit_j) * self.Xijm[k]
+                    for k in in_by_node[j]
+                ),
+                f"exp_constr_{j}",
+            )
+
+        # eq. 8 - slot bounds on tijm (per arc).
+        for k in arc_keys:
+            m = k[2]
+            self.model.addConstr(
+                self.tijm[k] >= self.w[m] * self.Xijm[k], f"t_min_{k}"
+            )
+            self.model.addConstr(
+                self.tijm[k] <= self.w[m + 1] * self.Xijm[k], f"t_max_{k}"
+            )
+
+        # eq. 9 - node accessibility (per real node; visited = sum over states).
+        for i in real_nodes:
+            row = nodes.loc[i]
+            visited = gp.quicksum(self.Yi[(i, s)] for s in node_states[i])
+            self.model.addConstr(
+                self.ti[i] >= (row.t_early + row.t_visit) * visited,
+                f"rise_constr_{i}",
+            )
+            self.model.addConstr(
+                self.ti[i] <= row.t_late * visited, f"set_constr_{i}"
+            )
+
+        # eq. B3 - intra-night separation (multi-visit only).
+        for indices in self.multi_visit_groups.values():
+            for k in range(1, len(indices)):
+                cur, prev = indices[k], indices[k - 1]
+                self.model.addConstr(
+                    gp.quicksum(self.tijm[a] for a in out_by_node[cur])
+                    >= gp.quicksum(self.tijm[a] for a in out_by_node[prev])
+                    + gp.quicksum(self.Yi[(cur, s)] for s in node_states[cur])
+                    * nodes.at[cur, "tau_intra"],
+                    f"intra_sep_constr_{prev}_{cur}",
+                )
+
+        # Total slew over internal (real-real) arcs only.
+        self.t_slew = self.model.addVar(lb=0.0, name="t_slew")
+        self.model.addConstr(
+            self.t_slew
+            == gp.quicksum(arc_cost[k] * self.Xijm[k] for k in arc_cost),
+            "t_slew_def",
+        )
+
+        self.t_visit = self.model.addVar(lb=0.0, name="t_visit")
+        self.model.addConstr(
+            self.t_visit
+            == gp.quicksum(
+                nodes.at[j, "t_visit"] * self.Yi[(j, s)]
+                for j in real_nodes
+                for s in node_states[j]
+            ),
+            "t_visit_def",
+        )
+
+        self.t_idle_between = self.model.addVar(lb=0.0, name="t_idle_between")
+        self.model.addConstr(
+            self.t_idle_between == self.ti[N - 1] - self.t_visit - self.t_slew,
+            name="t_idle_between_def",
+        )
+
+        # eq. 10 - objective.
+        P_max = float(self.nodes.loc[1 : N - 1, "priority"].max())
+        slew_penalty = P_max / self._SLEW_MINUTES_FOR_TOP_TARGET
+        self.model.setObjective(
+            gp.quicksum(
+                nodes.at[j, "priority"] * self.Yi[(j, s)]
+                for j in real_nodes
+                for s in node_states[j]
+            )
+            - slew_penalty * self.t_slew
+            - slew_penalty * self._SLEW_IDLE_PENALTY_RATIO * self.t_idle_between,
+            GRB.MAXIMIZE,
+        )
+        self.model.update()
+
     def run_model(self):
         """Solve the MILP and build ``schedule`` / ``stats``.
 
@@ -528,9 +788,15 @@ class TTPModel:
             raise RuntimeError("call build_model() before build_schedule()")
 
         arcs_selected = []
-        for (i, j, m), var in self.Xijm.items():
+        for key, var in self.Xijm.items():
+            if self.S > 1:
+                i, j, m, si, sj = key
+                row = {"i": i, "j": j, "m": m, "si": si, "sj": sj}
+            else:
+                i, j, m = key
+                row = {"i": i, "j": j, "m": m}
             if var.X > 0.5 and j != 0 and i != self.N - 1:
-                arcs_selected.append({"i": i, "j": j, "m": m, "ti": self.ti[i].X})
+                arcs_selected.append({**row, "ti": self.ti[i].X})
         arcs_selected = pd.DataFrame(arcs_selected)
 
         # merge selected arcs with nodes, unvisited nodes will have NaN for ti
@@ -544,11 +810,15 @@ class TTPModel:
         schedule["t_start"] = schedule["ti"] - schedule["t_visit"]
         schedule["t_end"] = schedule["ti"]
         schedule["scheduled"] = ~schedule["ti"].isna()
+        if self.S > 1:
+            # wrap_state = the winding node ``i`` is observed in.
+            schedule["wrap_state"] = schedule["si"]
 
+        merge_on = ["i", "j", "m", "si", "sj"] if self.S > 1 else ["i", "j", "m"]
         schedule = pd.merge(
             schedule,
             self.arcs["t_slew"],
-            left_on=["i", "j", "m"],
+            left_on=merge_on,
             right_index=True,
             how="left",
         ).sort_values(by="t_start", na_position="last")

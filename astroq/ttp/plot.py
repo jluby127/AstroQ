@@ -28,6 +28,21 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 
+def _encoder_az_display(az_deg, enc_min, enc_max):
+    """Sky az -> encoder az in ``[enc_min, enc_max]`` (else nearest, for display).
+
+    Mirrors ``astroq.queue.base.Queue._encoder_az`` but never returns NaN so a
+    scheduled point always plots somewhere sensible.
+    """
+    az = np.asarray(az_deg, dtype=float)
+    out = az.copy()
+    for k in (-360.0, 0.0, 360.0):
+        cand = az + k
+        in_range = (cand >= enc_min) & (cand <= enc_max)
+        out = np.where(in_range, cand, out)
+    return out
+
+
 def _as_model(data):
     """Accept ``TTPModel`` or legacy ``[TTPModel]`` wrapper."""
     return data[0] if isinstance(data, (list, tuple)) else data
@@ -447,15 +462,28 @@ def plot_path_2D_interactive(data, night_start_time=None):
     az_end = np.atleast_1d(aa_end.az.deg)
     alt_end = np.atleast_1d(aa_end.alt.deg)
 
+    # State-aware (cable-wrap) plotting: when the schedule carries per-node
+    # wrap_state and the model knows its wrap_states, draw the azimuth path in
+    # continuous encoder coordinates of the chosen winding instead of sky az.
+    wrap_states = getattr(model, "wrap_states", None)
+    state_aware = wrap_states is not None and "wrap_state" in scheduled.columns
+    node_state = (
+        scheduled["wrap_state"].to_numpy() if state_aware else None
+    )
+
     obs_time = np.empty(2 * len(scheduled))
     az_path = np.empty(2 * len(scheduled))
     alt_path = np.empty(2 * len(scheduled))
+    state_path = np.empty(2 * len(scheduled))
     names = []
     for i in range(len(scheduled)):
         obs_time[2 * i] = t_start_time[i].jd
         obs_time[2 * i + 1] = t_end_time[i].jd
         az_path[2 * i], az_path[2 * i + 1] = az_start[i], az_end[i]
         alt_path[2 * i], alt_path[2 * i + 1] = alt_start[i], alt_end[i]
+        if state_aware:
+            state_path[2 * i] = node_state[i]
+            state_path[2 * i + 1] = node_state[i]
         names.extend([target.iloc[i], target.iloc[i]])
 
     if len(obs_time) == 2 * len(names):
@@ -477,9 +505,17 @@ def plot_path_2D_interactive(data, night_start_time=None):
     az_path = np.mod(az_path, 360)
     az_path_original = az_path.copy()
 
-    # Values above 270° displayed as negative (subtract 360) so e.g. 350° → -10°.
-    az_path_display = az_path.copy()
-    az_path_display[az_path_display > 270] -= 360
+    if state_aware:
+        # Encoder azimuth of each node's chosen winding (continuous, physical).
+        state_path = state_path[:min_len].astype(int)
+        az_path_display = az_path.copy()
+        for s, (_, lo, hi) in enumerate(wrap_states):
+            sel = state_path == s
+            az_path_display[sel] = _encoder_az_display(az_path[sel], lo, hi)
+    else:
+        # Values above 270° displayed as negative (subtract 360) so e.g. 350° → -10°.
+        az_path_display = az_path.copy()
+        az_path_display[az_path_display > 270] -= 360
 
     time_labels = [Time(t, format="jd").isot[11:16] for t in obs_time]
 
@@ -528,7 +564,25 @@ def plot_path_2D_interactive(data, night_start_time=None):
         col=1,
     )
 
-    if wrap is not None:
+    if state_aware:
+        # Draw each used winding's encoder-azimuth bounds as reference lines.
+        for s, (name, lo, hi) in enumerate(wrap_states):
+            if not (state_path == s).any():
+                continue
+            for edge in (lo, hi):
+                fig.add_shape(
+                    type="line",
+                    x0=obs_time[0], x1=obs_time[-1], y0=edge, y1=edge,
+                    line=dict(color="red", dash="dash", width=1),
+                    row=1, col=1,
+                )
+            fig.add_annotation(
+                x=obs_time[-1], y=hi,
+                text=f"{name}-wrap [{lo:g}, {hi:g}]\u00b0",
+                showarrow=False, font=dict(color="red", size=10),
+                row=1, col=1,
+            )
+    elif wrap is not None:
         wrap_normalized = wrap % 360
         wrap_display = wrap_normalized
         if wrap_display > 270:
