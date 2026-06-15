@@ -605,7 +605,14 @@ class TTPModel:
         ns_keys = [(i, s) for i in real_nodes for s in node_states[i]]
 
         # ---- Variables.
-        self.Yi = self.model.addVars(ns_keys, vtype=GRB.BINARY, name="Yi")
+        # Yi is implied-integer: visit_once pins Yi[(j,s)] = sum of binary in-arcs
+        # (<=1 via one_state), so it is 0/1 at every integer-feasible point. Leaving
+        # it continuous keeps integrality on the arcs (Xijm) and removes ~|states|
+        # redundant binaries from the branch set -- this attacks the wrap-state
+        # branching symmetry directly. (build_schedule reads only Xijm/ti.)
+        self.Yi = self.model.addVars(
+            ns_keys, vtype=GRB.CONTINUOUS, lb=0.0, ub=1.0, name="Yi"
+        )
         self.Xijm = self.model.addVars(arc_keys, vtype=GRB.BINARY, name="Xijm")
         self.tijm = self.model.addVars(arc_keys, vtype=GRB.CONTINUOUS, name="tijm")
         self.ti = self.model.addVars(range(N), vtype=GRB.CONTINUOUS, lb=0, name="ti")
