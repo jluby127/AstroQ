@@ -783,6 +783,275 @@ class TTPModel:
                 "Try raising ``self.model.params.TimeLimit`` before solving."
             )
 
+    # ------------------------------------------------ batched warm-start
+    #
+    # Incremental "partial solve" warm-start (works for single- AND two-state).
+    # Nodes are activated in waves (sorted by ``t_late``/``t_early``); each wave
+    # is solved with the previously-scheduled assignments either hard-fixed
+    # (``warm_start="fix"``) or soft-hinted (``warm_start="hint"``), then a final
+    # polish frees everything. For the two-state model the accumulated incumbent
+    # keys are state-indexed (``Yi[(j, s)]`` / ``Xijm[(i, j, m, si, sj)]``), so
+    # committing an early wave also commits its wrap state -- progressively
+    # breaking the N/S cable-wrap symmetry.
+    #
+    # Key handling is mode-agnostic:
+    #   - node id of a ``Yi`` key:  ``k if isinstance(k, int) else k[0]``
+    #   - ``(i, j)`` of an ``Xijm`` key: always ``k[0], k[1]`` (states trail).
+
+    @staticmethod
+    def _yi_node(key):
+        """Node id for a ``Yi`` key (int in single-state, ``(j, s)`` in two)."""
+        return key if isinstance(key, (int, np.integer)) else key[0]
+
+    def _ordered_real_nodes(self):
+        """Non-anchor node indices sorted for batch activation."""
+        real = self.nodes[~self.nodes.is_anchor]
+        return real.sort_values(["t_late", "t_early"], kind="stable").index.tolist()
+
+    def _batch_slices(self, n_batches):
+        """Disjoint node-index slices by cumulative ``t_visit`` budget per batch."""
+        ordered = self._ordered_real_nodes()
+        budget = self.dur_min / n_batches
+        slices = []
+        start = 0
+        for b in range(n_batches):
+            if start >= len(ordered):
+                slices.append([])
+                continue
+            cum_t = 0.0
+            end = start
+            while end < len(ordered):
+                cum_t += float(self.nodes.at[ordered[end], "t_visit"])
+                end += 1
+                if cum_t > budget:
+                    break
+            if end == start:
+                end = start + 1
+            if b == n_batches - 1:
+                end = len(ordered)
+            slices.append(ordered[start:end])
+            start = end
+        return slices
+
+    def _reset_var_bounds(self):
+        """Restore every non-anchor Yi / Xijm variable to [0, 1] (polish stage)."""
+        for var in self.Yi.values():
+            var.LB = 0.0
+            var.UB = 1.0
+        for var in self.Xijm.values():
+            var.LB = 0.0
+            var.UB = 1.0
+
+    def _apply_batch_bounds_excluded(self, activated):
+        """Keep only excluded nodes/arcs off; activated variables stay in [0, 1]."""
+        real = set(range(1, self.N - 1))
+        activated = set(activated)
+        excluded = real - activated
+
+        for key, var in self.Yi.items():
+            if self._yi_node(key) in excluded:
+                var.LB = 0.0
+                var.UB = 0.0
+            else:
+                var.LB = 0.0
+                var.UB = 1.0
+
+        for key, var in self.Xijm.items():
+            i, j = key[0], key[1]
+            if j in excluded or (i in excluded and i in real):
+                var.LB = 0.0
+                var.UB = 0.0
+            else:
+                var.LB = 0.0
+                var.UB = 1.0
+
+    def _apply_batch_bounds(self, activated, frozen_yi, frozen_xijm):
+        """Set Yi / Xijm bounds for one incremental batch (``fix`` mode)."""
+        real = set(range(1, self.N - 1))
+        activated = set(activated)
+        excluded = real - activated
+        frozen_yi = set(frozen_yi)
+        frozen_xijm = set(frozen_xijm)
+
+        for key, var in self.Yi.items():
+            node = self._yi_node(key)
+            if key in frozen_yi:
+                var.LB = 1.0
+                var.UB = 1.0
+            elif node in excluded:
+                var.LB = 0.0
+                var.UB = 0.0
+            else:
+                var.LB = 0.0
+                var.UB = 1.0
+
+        for key, var in self.Xijm.items():
+            i, j = key[0], key[1]
+            if key in frozen_xijm:
+                var.LB = 1.0
+                var.UB = 1.0
+                continue
+            if j in excluded or (i in excluded and i in real):
+                var.LB = 0.0
+                var.UB = 0.0
+            else:
+                var.LB = 0.0
+                var.UB = 1.0
+
+    def _clear_var_hints(self):
+        """Remove all VarHintVal entries on Yi / Xijm variables."""
+        for var in self.Yi.values():
+            var.VarHintVal = GRB.UNDEFINED
+        for var in self.Xijm.values():
+            var.VarHintVal = GRB.UNDEFINED
+
+    def _apply_var_hints(self, hint_yi, hint_xijm, *, priority=10):
+        """Set soft hints (=1) on scheduled node-states and interior arcs."""
+        for key in hint_yi:
+            self.Yi[key].VarHintVal = 1.0
+            self.Yi[key].VarHintPri = priority
+        for key in hint_xijm:
+            var = self.Xijm[key]
+            var.VarHintVal = 1.0
+            var.VarHintPri = priority
+
+    def _accumulate_ones_from_solution(self, scheduled_yi, interior_xijm):
+        """Add Yi=1 and interior Xijm=1 keys from the incumbent to the sets.
+
+        For the two-state model the captured keys carry the wrap state, so the
+        accumulated commitments pin both *which* node and *which winding*.
+        """
+        if self.model.SolCount == 0:
+            return scheduled_yi, interior_xijm
+        scheduled_yi = set(scheduled_yi)
+        interior_xijm = set(interior_xijm)
+        last_real = self.N - 2
+        for key, var in self.Yi.items():
+            if var.X > 0.5:
+                scheduled_yi.add(key)
+        for key, var in self.Xijm.items():
+            i, j = key[0], key[1]
+            if var.X > 0.5 and 1 <= i <= last_real and 1 <= j <= last_real:
+                interior_xijm.add(key)
+        return scheduled_yi, interior_xijm
+
+    def _optimize_stage(self, time_limit, label):
+        """Run one Gurobi optimize pass; return stage stats."""
+        self.model.params.TimeLimit = time_limit
+        self.model.update()
+        t0 = time.time()
+        self.model.optimize()
+        wall = time.time() - t0
+        if self.model.Status == GRB.INFEASIBLE:
+            logs.critical(f"TTP infeasible during {label}; computing IIS.")
+            self.model.computeIIS()
+            for c in self.model.getConstrs():
+                if c.IISConstr:
+                    logs.critical(c.ConstrName)
+        n_sched = sum(
+            1 for v in self.Yi.values() if self.model.SolCount and v.X > 0.5
+        )
+        stats = {
+            "label": label,
+            "wall_s": wall,
+            "gurobi_runtime_s": float(self.model.Runtime),
+            "status": int(self.model.Status),
+            "n_scheduled": n_sched,
+        }
+        if self.model.SolCount > 0:
+            stats["objective"] = float(self.model.ObjVal)
+            stats["mip_gap"] = float(self.model.MIPGap)
+            stats["objective_bound"] = float(self.model.ObjBound)
+        logs.info(
+            f"TTP {label}: scheduled={n_sched} wall={wall:.1f}s "
+            f"status={stats['status']}"
+        )
+        return stats
+
+    def run_model_batched(
+        self,
+        *,
+        n_batches=4,
+        batch_time_fraction=0.15,
+        polish_time_fraction=0.40,
+        warm_start="fix",
+        after_stage=None,
+    ):
+        """Incremental batch warm-start (single- or two-state).
+
+        Activates targets in ``t_late``/``t_early`` order quarter-by-quarter,
+        then runs a polish pass with all variables free.
+
+        Args:
+            warm_start: ``"fix"`` hard-freezes scheduled ``Yi``=1 and interior
+                ``Xijm``=1 between batches; ``"hint"`` keeps bounds at [0, 1] and
+                sets ``VarHintVal`` on those variables instead.
+            after_stage: optional ``callback(label, stats, model)`` invoked after
+                each batch and after polish.
+
+        Returns a dict with per-batch and polish stage stats.
+        """
+        if not hasattr(self, "model"):
+            raise RuntimeError("call build_model() before run_model_batched()")
+        if warm_start not in ("fix", "hint"):
+            raise ValueError("warm_start must be 'fix' or 'hint'")
+
+        total_limit = float(self.model.params.TimeLimit or 240.0)
+        batch_limit = total_limit * batch_time_fraction
+        polish_limit = total_limit * polish_time_fraction
+
+        slices = self._batch_slices(n_batches)
+        activated = []
+        scheduled_yi = set()
+        interior_xijm = set()
+        stage_stats = []
+
+        logs.info(
+            f"Batched TTP warm-start ({warm_start}, S={self.S}): "
+            f"{self.N - 2} visits, {n_batches} batches, "
+            f"total limit={total_limit:.0f}s"
+        )
+        for b, slc in enumerate(slices, start=1):
+            activated = activated + slc
+            if warm_start == "fix":
+                self._apply_batch_bounds(activated, scheduled_yi, interior_xijm)
+            else:
+                self._clear_var_hints()
+                self._apply_batch_bounds_excluded(activated)
+                self._apply_var_hints(scheduled_yi, interior_xijm)
+            stats = self._optimize_stage(batch_limit, f"batch-{b}/{n_batches}")
+            stage_stats.append(stats)
+            scheduled_yi, interior_xijm = self._accumulate_ones_from_solution(
+                scheduled_yi, interior_xijm
+            )
+            if after_stage is not None:
+                after_stage(stats["label"], stats, self)
+
+        self._reset_var_bounds()
+        if warm_start == "hint":
+            self._clear_var_hints()
+            self._apply_var_hints(scheduled_yi, interior_xijm)
+        self.model.update()
+        stats = self._optimize_stage(polish_limit, "polish")
+        stage_stats.append(stats)
+        if after_stage is not None:
+            after_stage(stats["label"], stats, self)
+
+        if self.model.SolCount == 0:
+            logs.warning(
+                "No incumbent TTP solution after batched warm-start. "
+                "Try raising ``self.model.params.TimeLimit``."
+            )
+
+        return {
+            "warm_start": warm_start,
+            "n_batches": n_batches,
+            "batch_slices": slices,
+            "scheduled_yi": sorted(scheduled_yi, key=str),
+            "interior_xijm_count": len(interior_xijm),
+            "stages": stage_stats,
+        }
+
     # ---------------------------------------------------------- post-process
 
     def build_schedule(self):
