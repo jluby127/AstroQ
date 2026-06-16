@@ -299,23 +299,44 @@ class NightPlanner:
         )
         tm.build_nodes()
         tm.build_arcs()
-        tm.build_model()
-        tm.model.params.TimeLimit = self.config.getint("night", "max_solve_time")
-        tm.model.params.MIPGap = self.config.getfloat("night", "max_solve_gap")
-        tm.model.params.OutputFlag = int(
-            self.config.getboolean("night", "show_gurobi_output")
-        )
-        tm.model.params.PreSolve = 2
-        tm.model.params.MIPFocus = 1
-        tm.model.params.Heuristics = 0.2
-        tm.model.update()
-        tm.run_model()
-        if tm.model.SolCount == 0:
-            logs.warning("TTP produced no schedule; skipping night-plan outputs.")
-            return None
-        tm.build_schedule()
-        logs.info("\n" + tm.to_string())
-        del tm.model
+
+        # Night solver: 'milp' (Gurobi), 'acs' (heuristic only), or 'acs_seed'
+        # (heuristic warm-start, then Gurobi). Default 'milp'.
+        ttp_solver = self.config.get("night", "ttp_solver", fallback="milp")
+        # ACS budget: per-start time limit and number of independent (parallel)
+        # restarts kept-best. Defaults match the single-start behavior.
+        acs_time = self.config.getfloat("night", "acs_time_limit_s", fallback=3.0)
+        acs_starts = self.config.getint("night", "acs_starts", fallback=1)
+        acs_params = {"time_limit_s": acs_time}
+
+        if ttp_solver == "acs":
+            result = tm.run_heuristic(params=acs_params, n_starts=acs_starts)
+            if not result["feasible"] or not result["order"]:
+                logs.warning("ACS produced no schedule; skipping night-plan outputs.")
+                return None
+            logs.info("\n" + tm.to_string())
+        else:
+            tm.build_model()
+            if ttp_solver == "acs_seed":
+                tm.seed_from_tour(
+                    tm.run_heuristic(params=acs_params, n_starts=acs_starts)
+                )
+            tm.model.params.TimeLimit = self.config.getint("night", "max_solve_time")
+            tm.model.params.MIPGap = self.config.getfloat("night", "max_solve_gap")
+            tm.model.params.OutputFlag = int(
+                self.config.getboolean("night", "show_gurobi_output")
+            )
+            tm.model.params.PreSolve = 2
+            tm.model.params.MIPFocus = 1
+            tm.model.params.Heuristics = 0.2
+            tm.model.update()
+            tm.run_model()
+            if tm.model.SolCount == 0:
+                logs.warning("TTP produced no schedule; skipping night-plan outputs.")
+                return None
+            tm.build_schedule()
+            logs.info("\n" + tm.to_string())
+            del tm.model
 
 
 

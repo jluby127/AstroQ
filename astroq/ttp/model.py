@@ -1074,6 +1074,20 @@ class TTPModel:
             if var.X > 0.5 and j != 0 and i != self.N - 1:
                 arcs_selected.append({**row, "ti": self.ti[i].X})
         arcs_selected = pd.DataFrame(arcs_selected)
+        self._finalize_schedule(arcs_selected)
+
+    def _finalize_schedule(self, arcs_selected):
+        """Assemble ``self.schedule`` / ``self.stats`` from selected arcs.
+
+        Shared by the MILP path (:meth:`build_schedule`) and the heuristic
+        path (:meth:`run_heuristic`). ``arcs_selected`` has one row per
+        scheduled real node (its outgoing arc) with columns ``i, j, m, ti``
+        (plus ``si, sj`` when ``S > 1``).
+        """
+        # Guarantee the merge keys exist even when nothing was scheduled.
+        cols = ["i", "j", "m", "ti"] + (["si", "sj"] if self.S > 1 else [])
+        if arcs_selected is None or len(arcs_selected) == 0:
+            arcs_selected = pd.DataFrame(columns=cols)
 
         # merge selected arcs with nodes, unvisited nodes will have NaN for ti
         schedule = pd.merge(
@@ -1119,6 +1133,118 @@ class TTPModel:
         stats["t_idle_after_last"] = self.dur_min - stats["t_last_end"]
         stats["t_idle_before_last"] = stats["t_idle_sum"] - stats["t_idle_after_last"]
         self.stats = stats
+
+    # ------------------------------------------------------- ACS heuristic
+    def _make_acs(self, *, params=None, rng=None):
+        """Construct an :class:`astroq.ttp.acs.ACSSolver` over the built data."""
+        from .acs import ACSSolver
+
+        if not hasattr(self, "arcs"):
+            raise RuntimeError("call build_arcs() before the ACS heuristic")
+        P_max = float(self.nodes.loc[1 : self.N - 2, "priority"].max())
+        slew_penalty = P_max / self._SLEW_MINUTES_FOR_TOP_TARGET
+        return ACSSolver(
+            self.nodes,
+            self.arcs["t_slew"].to_dict(),
+            self.w,
+            self.dur_min,
+            self.multi_visit_groups,
+            self.N,
+            self.M,
+            slew_penalty,
+            self._SLEW_IDLE_PENALTY_RATIO,
+            node_states=getattr(self, "node_states", None),
+            n_states=self.S,
+            rng=rng,
+            params=params,
+        )
+
+    def _tour_to_arcs(self, result):
+        """Build an ``arcs_selected`` frame (one outgoing arc per real node).
+
+        Consumes the ACS ``result`` (already-resolved ``order`` / ``states`` /
+        ``ti``) and emits the columns :meth:`_finalize_schedule` expects.
+        """
+        acs = self._acs  # reuse window bookkeeping
+        order, states, ti = result["order"], result["states"], result["ti"]
+        rows = []
+        seq = list(order) + [self.N - 1]  # append end anchor
+        for k, u in enumerate(order):
+            j = seq[k + 1]
+            m = acs._window_of(ti[k])
+            row = {"i": u, "j": j, "m": m, "ti": float(ti[k])}
+            if self.S > 1:
+                row["si"] = states.get(u, 0)
+                row["sj"] = states.get(j, 0) if j != self.N - 1 else 0
+            rows.append(row)
+        return pd.DataFrame(rows)
+
+    def run_heuristic(self, *, params=None, rng=None, n_starts=1, parallel=True):
+        """Solve the TTP with the ACS heuristic (no Gurobi) and build schedule.
+
+        Populates ``self.schedule`` / ``self.stats`` exactly like
+        :meth:`build_schedule`. With ``n_starts > 1`` runs several independent
+        ACS searches (different seeds) and keeps the best; ``parallel=True``
+        runs them in separate processes. Returns the ACS result dict (resolved
+        ``order`` / ``states`` / ``ti`` / ``objective`` / ``feasible``).
+        """
+        self._acs = self._make_acs(params=params, rng=rng)
+        if n_starts and n_starts > 1:
+            result = self._acs.solve_multistart(n_starts, parallel=parallel)
+        else:
+            result = self._acs.solve()
+        self._finalize_schedule(self._tour_to_arcs(result))
+        self.acs_result = result
+        return result
+
+    def seed_from_tour(self, result):
+        """Set a Gurobi MIPStart from an ACS ``result`` (call after build_model).
+
+        Sets ``.Start`` on the arc / visit variables for the heuristic tour so
+        Gurobi begins from a strong incumbent. Unset variables are completed by
+        Gurobi. Safe no-op if the tour is empty or infeasible.
+        """
+        if not hasattr(self, "model"):
+            raise RuntimeError("call build_model() before seed_from_tour()")
+        order = result.get("order", [])
+        if not order or not result.get("feasible", False):
+            return
+        states = result.get("states") or {n: 0 for n in order}
+        acs = getattr(self, "_acs", None) or self._make_acs()
+        ti = list(result["ti"])
+        seq = [0, *order, self.N - 1]
+        ti_full = [0.0, *ti, float(ti[-1])]
+
+        # Clear any stale starts, then set the tour's arcs / visits to 1.
+        for var in self.Xijm.values():
+            var.Start = 0.0
+        for var in self.Yi.values():
+            var.Start = 0.0
+
+        for k in range(len(seq) - 1):
+            i, j = seq[k], seq[k + 1]
+            m = acs._window_of(ti_full[k])
+            if self.S > 1:
+                si = 0 if i == 0 else states.get(i, 0)
+                sj = 0 if j == self.N - 1 else states.get(j, 0)
+                key = (i, j, m, si, sj)
+            else:
+                key = (i, j, m)
+            if key in self.Xijm:
+                self.Xijm[key].Start = 1.0
+        for nid in order:
+            if self.S > 1:
+                ykey = (nid, states.get(nid, 0))
+            else:
+                ykey = nid
+            if ykey in self.Yi:
+                self.Yi[ykey].Start = 1.0
+        # Anchor visit indicators are pinned to 1 in the single-state model
+        # (the two-state model has no anchor Yi variables).
+        for anchor in (0, self.N - 1):
+            if anchor in self.Yi:
+                self.Yi[anchor].Start = 1.0
+        self.model.update()
 
     def to_string(self, *, header="Stats for TTP Solution"):
         """Return a human-readable summary of the solve from ``self.stats``."""
