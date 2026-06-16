@@ -1,7 +1,9 @@
-"""Tests for the ACS heuristic (astroq.ttp.acs) and its model integration.
+"""Tests for the ACS warm-start heuristic (astroq.ttp.acs) and its integration.
 
 Self-contained: small synthetic request sets solved directly, mirroring
-``tests/test_ttp_twostate.py``.
+``tests/test_ttp_twostate.py``. The ACS now returns only a tour dict
+(:func:`astroq.ttp.acs.acs_warm_start`); a schedule is produced by seeding the
+MILP and running Gurobi (see ``test_seed_accepted_by_gurobi``).
 """
 
 import unittest
@@ -14,6 +16,7 @@ import astropy.units as u
 
 from astroq.queue.hirescps.queue import HIRESCPS
 from astroq.ttp.model import TTPModel
+from astroq.ttp.acs import acs_warm_start
 
 
 NIGHT_START = Time("2026-05-09T06:00:00", format="isot")
@@ -54,6 +57,15 @@ def _build(requests, n_states):
     return tm
 
 
+def _uid_completions(tm, res):
+    """Map ``{unique_id: [completion_minutes, ...]}`` from an ACS result."""
+    out = {}
+    for nid, ti in zip(res["order"], res["ti"]):
+        uid = tm.nodes.at[nid, "unique_id"]
+        out.setdefault(uid, []).append(float(ti))
+    return out
+
+
 RAS = [184.0, 186.0, 170.0, 176.0, 192.0, 198.0]
 DECS = [13.0, 15.0, 5.0, 27.0, 51.0, -3.0]
 
@@ -64,14 +76,13 @@ class TestACSHeuristic(unittest.TestCase):
 
     def test_single_state_feasible_and_windows(self):
         tm = _build(self.req, 1)
-        res = tm.run_heuristic(params={"time_limit_s": 1.0})
+        res = acs_warm_start(tm, params={"time_limit_s": 1.0})
         self.assertTrue(res["feasible"])
-        sched = tm.schedule[tm.schedule["scheduled"]]
-        self.assertGreater(len(sched), 0)
+        self.assertGreater(len(res["order"]), 0)
         # completion time within each node's window and the night budget.
-        self.assertTrue((sched["t_end"] <= sched["t_late"] + 1e-6).all())
-        self.assertTrue((sched["t_end"] <= tm.dur_min + 1e-6).all())
-        self.assertGreaterEqual(tm.stats["t_slew_sum"], 0.0)
+        for nid, ti in zip(res["order"], res["ti"]):
+            self.assertLessEqual(ti, float(tm.nodes.at[nid, "t_late"]) + 1e-6)
+            self.assertLessEqual(ti, tm.dur_min + 1e-6)
 
     def test_matches_milp_optimum_small(self):
         """On a tiny instance the ACS should reach the MILP optimum."""
@@ -85,7 +96,7 @@ class TestACSHeuristic(unittest.TestCase):
         opt = float(tm_milp.model.ObjVal)
 
         tm = _build(self.req, 1)
-        res = tm.run_heuristic(params={"time_limit_s": 2.0})
+        res = acs_warm_start(tm, params={"time_limit_s": 2.0})
         self.assertLessEqual(res["objective"], opt + 1e-6)
         self.assertGreaterEqual(res["objective"], opt - 1e-6)
 
@@ -93,7 +104,7 @@ class TestACSHeuristic(unittest.TestCase):
         """The MIPStart from the ACS tour must be loadable (feasible)."""
         tm = _build(self.req, 1)
         tm.build_model()
-        tm.seed_from_tour(tm.run_heuristic(params={"time_limit_s": 1.0}))
+        tm.seed_from_tour(acs_warm_start(tm, params={"time_limit_s": 1.0}))
         tm.model.params.OutputFlag = 0
         tm.model.params.TimeLimit = 60
         tm.model.params.MIPGap = 1e-4
@@ -105,11 +116,26 @@ class TestACSHeuristic(unittest.TestCase):
 
     def test_two_state_assigns_valid_wrap(self):
         tm = _build(self.req, 2)
-        res = tm.run_heuristic(params={"time_limit_s": 1.0})
+        res = acs_warm_start(tm, params={"time_limit_s": 1.0})
         self.assertTrue(res["feasible"])
+        self.assertGreater(len(res["order"]), 0)
+        # every kept node carries a valid wrap state.
+        self.assertTrue(all(s in (0, 1) for s in res["states"].values()))
+
+    def test_two_state_seed_accepted_by_gurobi(self):
+        """A two-state ACS tour must seed the state-indexed MILP cleanly."""
+        tm = _build(self.req, 2)
+        tm.build_model()
+        tm.seed_from_tour(acs_warm_start(tm, params={"time_limit_s": 1.0}))
+        tm.model.params.OutputFlag = 0
+        tm.model.params.TimeLimit = 60
+        tm.model.params.MIPGap = 1e-4
+        tm.model.update()
+        tm.run_model()
+        tm.build_schedule()
+        self.assertGreater(tm.model.SolCount, 0)
         sched = tm.schedule[tm.schedule["scheduled"]]
         self.assertGreater(len(sched), 0)
-        self.assertIn("wrap_state", tm.schedule.columns)
         self.assertTrue(sched["wrap_state"].isin([0, 1]).all())
 
     def test_tau_intra_separation_respected(self):
@@ -129,13 +155,11 @@ class TestACSHeuristic(unittest.TestCase):
             copy=False,
         )
         tm = _build(req, 1)
-        res = tm.run_heuristic(params={"time_limit_s": 1.0})
+        res = acs_warm_start(tm, params={"time_limit_s": 1.0})
         self.assertTrue(res["feasible"])
-        sched = tm.schedule[tm.schedule["scheduled"]].sort_values("t_start")
-        a_visits = sched[sched["unique_id"] == "A"].sort_values("t_end")
-        if len(a_visits) == 2:
-            gap = a_visits["t_end"].to_numpy()
-            self.assertGreaterEqual(gap[1] - gap[0], 30.0 - 1e-6)
+        a_comps = sorted(_uid_completions(tm, res).get("A", []))
+        if len(a_comps) == 2:
+            self.assertGreaterEqual(a_comps[1] - a_comps[0], 30.0 - 1e-6)
 
 
 if __name__ == "__main__":

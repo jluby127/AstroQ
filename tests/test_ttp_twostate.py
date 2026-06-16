@@ -170,7 +170,11 @@ class TestTwoStateSolve(unittest.TestCase):
     def test_single_state_regression_still_solves(self):
         tm = _solve(self.q, self.req, 1)
         self.assertIsNotNone(tm.schedule)
-        self.assertNotIn("wrap_state", tm.schedule.columns)
+        # Single-state is the degenerate S == 1 case: wrap_state is present and
+        # always 0 (one unified, state-indexed code path).
+        self.assertIn("wrap_state", tm.schedule.columns)
+        sched = tm.schedule[tm.schedule["scheduled"]]
+        self.assertTrue((sched["wrap_state"] == 0).all())
         self.assertEqual(tm.stats["n_requested"], len(self.ras))
         self.assertGreaterEqual(tm.stats["t_slew_sum"], 0.0)
 

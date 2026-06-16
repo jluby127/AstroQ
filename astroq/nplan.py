@@ -21,6 +21,7 @@ from astropy.table import QTable
 
 from astroq.splan import SemesterPlanner
 from astroq.ttp import model
+from astroq.ttp.acs import acs_warm_start
 
 logs = logging.getLogger(__name__)
 
@@ -300,8 +301,9 @@ class NightPlanner:
         tm.build_nodes()
         tm.build_arcs()
 
-        # Night solver: 'milp' (Gurobi), 'acs' (heuristic only), or 'acs_seed'
-        # (heuristic warm-start, then Gurobi). Default 'milp'.
+        # Night solver: 'milp' (Gurobi) or 'acs_seed' (ACS warm-start, then
+        # Gurobi). Default 'milp'. An ACS-only schedule is just 'acs_seed' with a
+        # very short Gurobi TimeLimit, so there is no separate 'acs' engine.
         ttp_solver = self.config.get("night", "ttp_solver", fallback="milp")
         # ACS budget: per-start time limit and number of independent (parallel)
         # restarts kept-best. Defaults match the single-start behavior.
@@ -309,34 +311,27 @@ class NightPlanner:
         acs_starts = self.config.getint("night", "acs_starts", fallback=1)
         acs_params = {"time_limit_s": acs_time}
 
-        if ttp_solver == "acs":
-            result = tm.run_heuristic(params=acs_params, n_starts=acs_starts)
-            if not result["feasible"] or not result["order"]:
-                logs.warning("ACS produced no schedule; skipping night-plan outputs.")
-                return None
-            logs.info("\n" + tm.to_string())
-        else:
-            tm.build_model()
-            if ttp_solver == "acs_seed":
-                tm.seed_from_tour(
-                    tm.run_heuristic(params=acs_params, n_starts=acs_starts)
-                )
-            tm.model.params.TimeLimit = self.config.getint("night", "max_solve_time")
-            tm.model.params.MIPGap = self.config.getfloat("night", "max_solve_gap")
-            tm.model.params.OutputFlag = int(
-                self.config.getboolean("night", "show_gurobi_output")
+        tm.build_model()
+        if ttp_solver == "acs_seed":
+            tm.seed_from_tour(
+                acs_warm_start(tm, params=acs_params, n_starts=acs_starts)
             )
-            tm.model.params.PreSolve = 2
-            tm.model.params.MIPFocus = 1
-            tm.model.params.Heuristics = 0.2
-            tm.model.update()
-            tm.run_model()
-            if tm.model.SolCount == 0:
-                logs.warning("TTP produced no schedule; skipping night-plan outputs.")
-                return None
-            tm.build_schedule()
-            logs.info("\n" + tm.to_string())
-            del tm.model
+        tm.model.params.TimeLimit = self.config.getint("night", "max_solve_time")
+        tm.model.params.MIPGap = self.config.getfloat("night", "max_solve_gap")
+        tm.model.params.OutputFlag = int(
+            self.config.getboolean("night", "show_gurobi_output")
+        )
+        tm.model.params.PreSolve = 2
+        tm.model.params.MIPFocus = 1
+        tm.model.params.Heuristics = 0.2
+        tm.model.update()
+        tm.run_model()
+        if tm.model.SolCount == 0:
+            logs.warning("TTP produced no schedule; skipping night-plan outputs.")
+            return None
+        tm.build_schedule()
+        logs.info("\n" + tm.to_string())
+        del tm.model
 
 
 

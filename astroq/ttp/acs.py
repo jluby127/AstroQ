@@ -1,31 +1,78 @@
-"""Ant Colony System heuristic for the Traveling Telescope Problem.
+"""Ant Colony System (ACS) warm-start heuristic for the Traveling Telescope
+Problem (TTP).
 
-A fast primal heuristic for the TTP that operates on the same precomputed
-``nodes`` / ``arcs`` data produced by :class:`astroq.ttp.model.TTPModel`. It is
-an adaptation of the time-dependent OPTW Ant Colony System of Verbeeck,
-Vansteenwegen & Aghezzaf (2017, Ann. Oper. Res. 254:481-505) to the TTP:
+Overview
+--------
+The TTP (Handley+ 2024) is a single-machine, time-dependent, prize-collecting
+orienteering problem with time windows -- NP-hard. This module provides a fast *primal*
+heuristic that can be fed to Gurobi via :meth:`TTPModel.seed_from_tour`
 
-* Time-dependent "travel" (slew) is **piecewise-constant per window**: the slew
-  from node ``i`` to ``j`` departing at minute ``t`` is the precomputed
-  worst-case value ``arcs[(i, j, window_of(t))]`` -- simpler than the paper's
-  piecewise-linear ``mu*w + nu``.
-* The objective mirrors the MILP (Handley+ 2024 eq. 10 as implemented in
-  ``TTPModel.build_model``): maximize ``sum(priority) - slew_penalty*t_slew
-  - slew_penalty*idle_ratio*t_idle_between``.
-* Time windows map as ``o_i -> t_early``, ``c_i -> t_late`` on the visit
-  *completion* time ``ti`` (TTP convention: ``t_early + t_visit <= ti <=
-  t_late``); the first visit is pinned to ``t_start`` like the MILP's
-  ``first_exposure_at_start`` constraint.
+Algorithm
+---------
+The heuristic is an adaptation of the time-dependent OPTW Ant Colony System of Verbeeck,
+Vansteenwegen & Aghezzaf (2017, Ann. Oper. Res. 254:481-505):
 
-For correctness at the small TTP scale (``N`` ~ tens of nodes) every candidate
-move is checked by an O(N) forward simulation (:meth:`_evaluate`) rather than
-the paper's incremental ``max_shift`` bookkeeping; this trades a little speed
-for a formulation that is obviously faithful to the MILP feasibility region.
+* **Construction** (:meth:`_ACS._construct`): each "ant" builds a tour by repeatedly
+  choosing the next target with probability proportional to ``tau^alpha * eta^beta`` --
+  where ``tau`` is the learned pheromone on the arc and ``eta`` is a greedy desirability
+  ``priority / (t_visit + slew)`` -- biased away from long waits. Candidate targets are
+  restricted to a precomputed, reward-ranked neighbor list
+  (:meth:`_ACS._build_neighbors`).
+* **Local search** (:meth:`_ACS._local_search`): each constructed tour is improved by
+  insert / swap / replace moves until no improving move remains. Moves are restricted to
+  geometric neighbors and pre-screened with a Verbeeck ``max_shift`` slack filter
+  (:meth:`_ACS._profile`) so most candidates are rejected in O(1) before the full O(N)
+  feasibility check.
+* **Pheromone update**: local evaporation during construction encourages exploration;
+  global reinforcement on the iteration-best tour concentrates search around good
+  structures. Stagnation triggers a pheromone reset.
+* **Multi-start** (:meth:`_ACS.solve_multistart`): ACS is stochastic, so several short
+  independent runs from different seeds typically beat one long run and parallelize
+  trivially across processes.
 
-The solver is state-agnostic for construction: with ``n_states > 1`` the arc
-cost used during search is the minimum over feasible wrap-state pairs, and a
-per-node wrap state is assigned afterwards by a shortest-path pass over the
-fixed visit order (:meth:`assign_states`).
+Objective and feasibility
+--------------------------
+The heuristic optimizes the same objective as the MILP (Handley+ 2024 eq. 10):
+``sum(priority over visited) - slew_penalty * t_slew - slew_penalty * idle_ratio *
+t_idle_between``. Time-dependent slew is modeled exactly as in the MILP: the slew
+minutes from node ``i`` to ``j`` departing at minute ``t`` is the precomputed worst-case
+value ``arcs[(i, j, window_of(t), si, sj)]``. Time windows map as ``o_i -> t_early`` and
+``c_i -> t_late`` on the visit *completion* time (``t_early + t_visit <= ti <=
+t_late``), and the first visit is pinned to the night start, mirroring the MILP's
+``first_exposure`` constraint.
+
+Every candidate tour is turned into a *realizable* schedule by :meth:`_ACS._resolve`, an
+O(N) forward simulation that assigns each node a cable-wrap state (greedily, keeping
+continuity through a visit, since a visit's in- and out-arc share its state) and
+**drops** any node for which no feasible state / arc / time-window placement exists.
+Single-state instances are the degenerate case: every node has the one state ``0``. This
+forward-simulation approach (rather than incremental ``max_shift`` accounting
+everywhere) keeps the heuristic obviously faithful to the MILP's feasible region at the
+small TTP scale (``N`` ~ tens of nodes).
+
+Model coupling
+--------------
+:class:`_ACS` reads everything it needs (the arc catalog and per-node arrays) straight
+out of a *built* :class:`~astroq.ttp.model.TTPModel` (after ``build_nodes`` /
+``build_arcs``) in its constructor, and keeps no reference to the model afterward.
+Because the solver then holds only plain numpy arrays / dicts (no Gurobi model, no
+``SkyCoord``), it is itself picklable and is shipped directly to worker processes for
+parallel multi-start -- no separate "problem view" object is needed. Users only call
+:func:`acs_warm_start`.
+
+Result-dict contract
+--------------------
+:func:`acs_warm_start` (and :meth:`_ACS.solve`) return a dict:
+
+* ``order``    -- list of real node ids in visit order (the kept subsequence).
+* ``states``   -- ``{node_id: wrap_state}`` for each kept node (all ``0`` when the
+  instance is single-state).
+* ``ti``       -- visit completion minutes, parallel to ``order``.
+* ``objective``-- the heuristic objective value of the tour.
+* ``feasible`` -- ``True`` when the tour is realizable (always ``True`` for a resolved
+  tour, including the empty tour).
+
+This is exactly what :meth:`TTPModel.seed_from_tour` consumes.
 """
 
 import logging
@@ -36,92 +83,86 @@ import numpy as np
 logs = logging.getLogger(__name__)
 
 
-def _solve_with_seed(solver, seed):
-    """Top-level worker for parallel multi-start (must be picklable).
+_DEFAULT_PARAMS = {
+    "alpha": 1.0,        # pheromone weight
+    "beta": 2.0,         # greedy (heuristic) weight
+    "rho": 0.1,          # local pheromone evaporation
+    "rho_global": 0.1,   # global pheromone reinforcement
+    "max_ants": 10,      # solutions constructed per iteration
+    "nb_max": 25,        # neighbor-list cap per node
+    "tau_init": 1.0,
+    "time_limit_s": 3.0,
+    "max_iter": 200,
+    "reset_no_improve": 30,
+    "swap_window": 4,    # only swap positions within this span
+}
 
-    Reseeds the (already-pickled) solver and runs one full ACS search.
+
+def window_of(w, t_depart, M):
+    """Slot index ``m`` (in ``0..M-1``) containing departure minute ``t``."""
+    m = int(np.searchsorted(w, t_depart, side="right") - 1)
+    return min(max(m, 0), M - 1)
+
+
+def acs_warm_start(tm, *, params=None, rng=None, n_starts=1, parallel=True):
+    """Run the ACS heuristic on a built ``TTPModel`` and return its best tour.
+
+    ``tm`` must have had ``build_nodes`` / ``build_arcs`` called. The returned
+    dict (see the module docstring's *Result-dict contract*) is ready to pass to
+    :meth:`TTPModel.seed_from_tour`. With ``n_starts > 1`` several independent
+    searches are run (different seeds) and the best tour is kept;
+    ``parallel=True`` runs them in separate processes.
     """
-    solver.rng = np.random.default_rng(int(seed))
-    return solver.solve()
+    acs = _ACS(tm, params=params, rng=rng)
+    if n_starts and n_starts > 1:
+        return acs.solve_multistart(n_starts, parallel=parallel)
+    return acs.solve()
 
 
-class ACSSolver:
-    """Ant Colony System heuristic over a built TTP node/arc catalog.
+def _solve_with_seed(acs, seed):
+    """Top-level picklable worker: reseed a (pickled) solver and run it once."""
+    acs.rng = np.random.default_rng(int(seed))
+    return acs.solve()
 
-    Args:
-        nodes (pd.DataFrame): ``TTPModel.nodes`` (anchor, real..., anchor).
-        arcs_lookup (dict): ``{(i, j, m): t_slew}`` for single state, or
-            ``{(i, j, m, si, sj): t_slew}`` for ``n_states > 1``.
-        w (np.ndarray): slot boundaries in minutes, length ``M + 1``.
-        dur_min (float): night duration in minutes.
-        multi_visit_groups (dict): ``{unique_id: [node_id, ...]}`` in visit_seq
-            order for requests with more than one visit.
-        N (int): number of nodes (including the two anchors).
-        M (int): number of slew windows.
-        slew_penalty (float): objective weight on total slew minutes.
-        idle_ratio (float): idle weight as a fraction of ``slew_penalty``.
 
-    Keyword Args:
-        node_states (dict | None): ``{node_id: [feasible_state, ...]}`` when
-            ``n_states > 1``.
-        n_states (int): number of cable-wrap states.
-        rng (np.random.Generator | None): random source.
-        params (dict | None): ACS hyperparameters (see :attr:`_DEFAULT_PARAMS`).
+class _ACS:
+    """Stateful Ant Colony System search over a built TTP model.
+
+    Internal -- construct via :func:`acs_warm_start`. The constructor copies the
+    arc catalog and per-node arrays out of ``tm`` and keeps no reference to it,
+    so an instance holds only plain arrays / dicts and is picklable (shipped to
+    worker processes for parallel multi-start). The arc catalog is always
+    state-indexed (``(i, j, m, si, sj)``), with single-state instances using the
+    one state ``0``.
     """
 
-    _DEFAULT_PARAMS = {
-        "alpha": 1.0,        # pheromone weight
-        "beta": 2.0,         # greedy (heuristic) weight
-        "rho": 0.1,          # local pheromone evaporation
-        "rho_global": 0.1,   # global pheromone reinforcement
-        "max_ants": 10,      # solutions constructed per iteration
-        "nb_max": 25,        # neighbor-list cap per node
-        "tau_init": 1.0,
-        "time_limit_s": 3.0,
-        "max_iter": 200,
-        "reset_no_improve": 30,
-        "swap_window": 4,    # only swap positions within this span
-    }
-
-    def __init__(
-        self,
-        nodes,
-        arcs_lookup,
-        w,
-        dur_min,
-        multi_visit_groups,
-        N,
-        M,
-        slew_penalty,
-        idle_ratio,
-        *,
-        node_states=None,
-        n_states=1,
-        rng=None,
-        params=None,
-    ):
-        self.nodes = nodes
-        self.arcs_lookup = arcs_lookup
-        self.w = np.asarray(w, dtype=float)
-        self.dur_min = float(dur_min)
-        self.multi_visit_groups = multi_visit_groups or {}
-        self.N = int(N)
-        self.M = int(M)
-        self.slew_penalty = float(slew_penalty)
-        self.idle_ratio = float(idle_ratio)
-        self.n_states = int(n_states)
-        self.node_states = node_states or {}
-        self.rng = rng if rng is not None else np.random.default_rng(0)
-        self.params = {**self._DEFAULT_PARAMS, **(params or {})}
-
-        # Real nodes are 1..N-2; 0 and N-1 are the start / end anchors.
-        self.real_nodes = list(range(1, self.N - 1))
+    def __init__(self, tm, *, rng=None, params=None):
+        if not hasattr(tm, "arcs"):
+            raise RuntimeError("call build_arcs() before the ACS heuristic")
+        nodes = tm.nodes
+        self.N = int(tm.N)
+        self.M = int(tm.M)
+        self.w = np.asarray(tm.w, dtype=float)
+        self.dur_min = float(tm.dur_min)
+        self.arcs_lookup = tm.arcs["t_slew"].to_dict()  # {(i, j, m, si, sj): slew}
+        self.node_states = dict(tm.node_states)
+        self.multi_visit_groups = dict(tm.multi_visit_groups or {})
         self.t_early = nodes["t_early"].to_numpy(dtype=float)
         self.t_late = nodes["t_late"].to_numpy(dtype=float)
         self.t_visit = nodes["t_visit"].to_numpy(dtype=float)
         self.tau_intra = nodes["tau_intra"].to_numpy(dtype=float)
         self.priority = nodes["priority"].to_numpy(dtype=float)
-        self.uid = nodes["unique_id"].to_numpy()
+
+        # Objective weights, derived exactly as in TTPModel.build_model.
+        P_max = float(nodes.loc[1 : self.N - 2, "priority"].max())
+        self.slew_penalty = P_max / tm._SLEW_MINUTES_FOR_TOP_TARGET
+        self.idle_ratio = float(tm._SLEW_IDLE_PENALTY_RATIO)
+
+        self.rng = rng if rng is not None else np.random.default_rng(0)
+        self.params = {**_DEFAULT_PARAMS, **(params or {})}
+
+        # Real nodes are 1..N-2; 0 and N-1 are the start / end anchors.
+        self.real_nodes = list(range(1, self.N - 1))
 
         # First exposure is pinned to the start (or earliest feasible) time.
         if self.real_nodes:
@@ -131,7 +172,7 @@ class ACSSolver:
 
         # node_id -> (group_list, position) for tau_intra ordering checks.
         self._group_of = {}
-        for uid, members in self.multi_visit_groups.items():
+        for members in self.multi_visit_groups.values():
             for pos, nid in enumerate(members):
                 self._group_of[nid] = (members, pos)
 
@@ -143,27 +184,25 @@ class ACSSolver:
     # ------------------------------------------------------------------ setup
     def _window_of(self, t_depart):
         """Slot index ``m`` containing departure minute ``t_depart``."""
-        m = int(np.searchsorted(self.w, t_depart, side="right") - 1)
-        return min(max(m, 0), self.M - 1)
+        return window_of(self.w, t_depart, self.M)
 
     def _build_arc_cost(self):
-        """Collapse the arc catalog to a single cost per ``(i, j, m)``.
+        """Collapse the state-indexed catalog to a single cost per ``(i, j, m)``.
 
-        For ``n_states > 1`` the search cost is the minimum slew over feasible
-        wrap-state pairs (states are assigned later on the fixed order).
+        The search-level arc cost is the minimum slew over feasible wrap-state
+        pairs (the exact per-node state is assigned later by :meth:`_resolve`).
+        For single-state instances this is just the lone ``(si, sj) = (0, 0)``
+        value.
         """
         cost = {}
-        if self.n_states > 1:
-            for (i, j, m, si, sj), val in self.arcs_lookup.items():
-                key = (i, j, m)
-                if key not in cost or val < cost[key]:
-                    cost[key] = val
-        else:
-            cost = dict(self.arcs_lookup)
+        for (i, j, m, si, sj), val in self.arcs_lookup.items():
+            key = (i, j, m)
+            if key not in cost or val < cost[key]:
+                cost[key] = val
         self._cost = cost
 
     def _arc_cost(self, i, j, m):
-        """Slew minutes for arc ``(i, j)`` departing in window ``m``.
+        """Min-over-states slew minutes for arc ``(i, j)`` departing in ``m``.
 
         Anchor arcs (``i == 0`` or ``j == N-1``) are free; missing real arcs
         fall back to ``0.0`` (kept consistent with the MILP's ``.get(.., 0.0)``).
@@ -218,14 +257,16 @@ class ACSSolver:
     def _resolve(self, order):
         """Forward-simulate a visit order into a *realizable* schedule.
 
-        Walks ``order`` and, for ``n_states > 1``, picks each node's wrap state
-        to maintain continuity with the previous kept node (the in- and out-arc
-        of a visit share its state). A node is **dropped** when no feasible
-        wrap state / arc / time-window placement exists, so the returned
-        ``order`` is always physically realizable.
+        Walks ``order`` and picks each node's wrap state to maintain continuity
+        with the previous kept node (the in- and out-arc of a visit share its
+        state). The state choice is *greedy* (min-slew feasible state given the
+        previous node's state), which is fast but not guaranteed optimal for the
+        two-state case. A node is **dropped** when no feasible wrap state / arc /
+        time-window placement exists, so the returned ``order`` is always
+        physically realizable. (Single-state instances have one state ``0``.)
 
-        Returns a dict ``{order, states, ti, objective, feasible}`` where
-        ``order`` is the kept subsequence and ``ti`` its completion minutes.
+        Returns a dict ``{order, states, ti, objective}`` where ``order`` is the
+        kept subsequence and ``ti`` its completion minutes.
         """
         kept, states, ti = [], {}, []
         total_slew = 0.0
@@ -236,16 +277,14 @@ class ACSSolver:
             dep = self.t_start if prev == 0 else last_comp
             m = self._window_of(dep)
             best = None  # (state, slew, comp)
-            for sv in (self.node_states.get(v, [0]) if self.n_states > 1 else [0]):
+            for sv in self.node_states.get(v, [0]):
                 if prev == 0:
                     slew = 0.0  # start-anchor arcs are free in every state
-                elif self.n_states > 1:
+                else:
                     val = self.arcs_lookup.get((prev, v, m, prev_state, sv))
                     if val is None:
                         continue
                     slew = val
-                else:
-                    slew = self._arc_cost(prev, v, m)
                 arrive = max(dep + slew, self.t_early[v])
                 comp = arrive + self.t_visit[v]
                 if comp > min(self.t_late[v], self.dur_min) + 1e-9:
@@ -265,8 +304,7 @@ class ACSSolver:
             prev, prev_state, last_comp = v, sv, comp
 
         if not kept:
-            return {"order": [], "states": {}, "ti": [], "objective": 0.0,
-                    "feasible": True}
+            return {"order": [], "states": {}, "ti": [], "objective": 0.0}
         sum_visit = float(self.t_visit[kept].sum())
         idle = ti[-1] - sum_visit - total_slew
         obj = (
@@ -274,13 +312,7 @@ class ACSSolver:
             - self.slew_penalty * total_slew
             - self.slew_penalty * self.idle_ratio * idle
         )
-        return {"order": kept, "states": states, "ti": ti, "objective": obj,
-                "feasible": True}
-
-    def _evaluate(self, order):
-        """Objective of a (resolved) visit order; thin wrapper over _resolve."""
-        res = self._resolve(order)
-        return res["feasible"], res["objective"], res
+        return {"order": kept, "states": states, "ti": ti, "objective": obj}
 
     # ----------------------------------------------------------- construction
     def _construct(self, tau):
@@ -326,7 +358,7 @@ class ACSSolver:
         return order
 
     def _group_ready(self, nid, comp, group_last, *, commit=False):
-        """Like :meth:`_check_group` but non-mutating unless ``commit``."""
+        """Non-mutating tau_intra ordering check unless ``commit`` is set."""
         info = self._group_of.get(nid)
         if info is None:
             return True
@@ -352,9 +384,9 @@ class ACSSolver:
         ``order`` must be a *resolved* (realizable) sequence. Returns per-position
         completion times, the wait absorbed before each node, and ``max_shift``
         (how far each node may be delayed before some downstream node or the end
-        of night becomes infeasible). With ``n_states > 1`` slews use the
-        min-over-states cost, so ``max_shift`` is an optimistic lower bound and
-        the filter never rejects a feasible insertion (exact check is _resolve).
+        of night becomes infeasible). Slews use the min-over-states cost, so
+        ``max_shift`` is an optimistic lower bound and the filter never rejects a
+        feasible insertion (the exact check is :meth:`_resolve`).
         """
         L = len(order)
         comp = [0.0] * L
@@ -364,16 +396,14 @@ class ACSSolver:
             dep = self.t_start if prev == 0 else last_comp
             m = self._window_of(dep)
             best = None
-            for sv in (self.node_states.get(v, [0]) if self.n_states > 1 else [0]):
+            for sv in self.node_states.get(v, [0]):
                 if prev == 0:
                     slew = 0.0
-                elif self.n_states > 1:
+                else:
                     val = self.arcs_lookup.get((prev, v, m, prev_state, sv))
                     if val is None:
                         continue
                     slew = val
-                else:
-                    slew = self._arc_cost(prev, v, m)
                 if best is None or slew < best[1]:
                     best = (sv, slew)
             sv, slew = best if best is not None else (0, 0.0)
@@ -391,15 +421,13 @@ class ACSSolver:
         return {"comp": comp, "wait": wait, "max_shift": max_shift, "ub": ub}
 
     def _local_search(self, order):
-        """Insert / swap / replace moves until no feasible improvement.
+        """Insert / swap / replace moves until no improvement.
 
         Operates on the *resolved* order (so candidate positions index a
         realizable tour) and uses neighbor-restricted candidate generation plus
         the ``max_shift`` insertion filter to keep each pass cheap.
         """
         res = self._resolve(order)
-        if not res["feasible"]:
-            return list(order), -np.inf
         best_order, best_obj = res["order"], res["objective"]
         improved = True
         while improved and not self._expired():
@@ -469,8 +497,8 @@ class ACSSolver:
                 if not self._insert_passes_filter(order, prof, v, pos):
                     continue
                 cand = order[:pos] + [v] + order[pos:]
-                ok, obj, _ = self._evaluate(cand)
-                if ok and obj > best_obj + 1e-9:
+                obj = self._resolve(cand)["objective"]
+                if obj > best_obj + 1e-9:
                     best_order, best_obj = cand, obj
         return best_order, best_obj
 
@@ -484,8 +512,8 @@ class ACSSolver:
             for b in range(a + 1, min(a + 1 + win, n)):
                 cand = list(order)
                 cand[a], cand[b] = cand[b], cand[a]
-                ok, obj, _ = self._evaluate(cand)
-                if ok and obj > base_obj + 1e-9:
+                obj = self._resolve(cand)["objective"]
+                if obj > base_obj + 1e-9:
                     return cand, obj
         return order, base_obj
 
@@ -503,22 +531,25 @@ class ACSSolver:
                     continue
                 cand = list(order)
                 cand[pos] = v
-                ok, obj, _ = self._evaluate(cand)
-                if ok and obj > best_obj + 1e-9:
+                obj = self._resolve(cand)["objective"]
+                if obj > best_obj + 1e-9:
                     best_order, best_obj = cand, obj
         return best_order, best_obj
 
     # -------------------------------------------------------------- main loop
-    def solve_multistart(self, n_starts=1, *, base_seed=0, parallel=True):
-        """Run ``n_starts`` independent ACS searches; return the best tour.
+    def solve_multistart(self, n_starts, *, parallel=True, base_seed=0):
+        """Run ``n_starts`` independent searches (different seeds); return best.
 
-        ACS is stochastic, so several short independent runs from different
-        seeds typically beat a single long run and parallelize trivially. Each
-        start uses the full ``time_limit_s`` budget; with ``parallel=True`` they
-        run in separate processes so wall time stays ~``time_limit_s``.
+        ACS is stochastic, so several short independent runs typically beat one
+        long run. This solver holds only plain arrays / dicts (no Gurobi model),
+        so each start is dispatched by pickling ``self`` to a worker process.
+        Each start uses the full ``time_limit_s`` budget; with ``parallel=True``
+        wall time stays ~``time_limit_s``. Falls back to sequential on any pool
+        error (e.g. a sandbox that forbids spawning processes).
         """
         if n_starts <= 1:
             return self.solve()
+
         seeds = [int(base_seed) + 7919 * i for i in range(n_starts)]
         results = None
         if parallel:
@@ -549,11 +580,7 @@ class ACSSolver:
         return best
 
     def solve(self):
-        """Run the ACS and return the best tour found.
-
-        Returns a dict with ``order`` (list of real node ids), ``ti``
-        (completion minutes), ``objective``, and ``feasible``.
-        """
+        """Run the ACS and return the best tour found (result-dict contract)."""
         tau = np.full((self.N, self.N), self.params["tau_init"], dtype=float)
         best_order, best_obj = [], -np.inf
         no_improve = 0
@@ -561,9 +588,10 @@ class ACSSolver:
         self._deadline = t0 + float(self.params["time_limit_s"])
 
         if not self.real_nodes:
-            return {"order": [], "ti": [], "objective": 0.0, "feasible": True}
+            return {"order": [], "states": {}, "ti": [], "objective": 0.0,
+                    "feasible": True}
 
-        for it in range(int(self.params["max_iter"])):
+        for _ in range(int(self.params["max_iter"])):
             iter_best_order, iter_best_obj = None, -np.inf
             for _ in range(int(self.params["max_ants"])):
                 order = self._construct(tau)
