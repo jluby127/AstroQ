@@ -514,6 +514,64 @@ def get_slew_animation_plotly(
     return fig
 
 
+def save_slew_animation(fig, html_path, gif_path=None, **gif_kw):
+    """Write interactive HTML and a GIF copy of a slew-animation figure."""
+    fig.write_html(html_path)
+    if gif_path is None:
+        gif_path = html_path.rsplit(".", 1)[0] + ".gif"
+    write_slew_animation_gif(fig, gif_path, **gif_kw)
+
+
+def write_slew_animation_gif(
+    fig,
+    path,
+    *,
+    max_frames=90,
+    fps=3,
+    width=640,
+    height=640,
+):
+    """Export a Plotly slew-animation figure to an animated GIF via Kaleido.
+
+    Long nights produce hundreds of Plotly frames; this subsamples evenly to
+    ``max_frames`` so GIF size stays reasonable.
+    """
+    import io
+
+    from PIL import Image
+
+    if not fig.frames:
+        raise ValueError("figure has no animation frames")
+
+    n = len(fig.frames)
+    if n > max_frames:
+        indices = np.unique(np.round(np.linspace(0, n - 1, max_frames)).astype(int))
+    else:
+        indices = np.arange(n)
+
+    layout = fig.layout.to_plotly_json()
+    layout.pop("updatemenus", None)
+    layout.pop("sliders", None)
+
+    images = []
+    for i in indices:
+        frame = fig.frames[int(i)]
+        frame_fig = go.Figure(data=frame.data, layout=layout)
+        png = frame_fig.to_image(
+            format="png", width=width, height=height, engine="kaleido"
+        )
+        images.append(Image.open(io.BytesIO(png)))
+
+    images[0].save(
+        path,
+        save_all=True,
+        append_images=images[1:],
+        duration=int(1000 / fps),
+        loop=0,
+        optimize=True,
+    )
+
+
 def plot_path_2D_interactive(data, night_start_time=None):
     """Create an interactive Plotly plot showing telescope azimuth and altitude paths with UTC times and white background.
 
