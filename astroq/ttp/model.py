@@ -945,6 +945,36 @@ class TTPModel:
         m = int(np.searchsorted(self.w, t_depart, side="right") - 1)
         return min(max(m, 0), self.M - 1)
 
+    def _tour_arcs_dataframe(self, result):
+        """Build an ``arcs_selected`` frame from an ACS/heuristic tour dict."""
+        order = result.get("order", [])
+        if not order:
+            return pd.DataFrame(columns=["i", "j", "m", "si", "sj", "ti"])
+        states = result.get("states") or {n: 0 for n in order}
+        ti = list(result["ti"])
+        seq = [0, *order, self.N - 1]
+        ti_full = [0.0, *ti, float(ti[-1])]
+        rows = []
+        for k in range(len(seq) - 2):
+            i = seq[k + 1]
+            j = seq[k + 2]
+            m = self._window_of(ti_full[k])
+            si = states.get(i, 0)
+            sj = 0 if j == self.N - 1 else states.get(j, 0)
+            rows.append(
+                {"i": i, "j": j, "m": m, "si": si, "sj": sj, "ti": ti_full[k + 1]}
+            )
+        return pd.DataFrame(rows)
+
+    def schedule_from_tour(self, result):
+        """Populate ``schedule`` / ``stats`` from a tour dict without Gurobi.
+
+        Requires ``build_nodes`` and ``build_arcs`` (not ``build_model``).
+        """
+        if not hasattr(self, "nodes"):
+            raise RuntimeError("call build_nodes() before schedule_from_tour()")
+        self._finalize_schedule(self._tour_arcs_dataframe(result))
+
     def seed_from_tour(self, result):
         """Set a Gurobi MIPStart from an ACS warm-start ``result``.
 
