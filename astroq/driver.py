@@ -406,10 +406,11 @@ def kpfcc_prep(args):
         # Compute nominal exposure times and increase exposure times for different bands
         slowdown_factors = {1: 1.0, 2: 2.0, 3: 4.0}
         slow = slowdown_factors[band_number]
-        # new_exptimes = kpfcc.recompute_exposure_times(request_df, slow)
-        # request_df['exptime'] = new_exptimes
+        new_exptimes = kpfcc.recompute_exposure_times(request_df, slow)
+        request_df = request_df.copy()
+        request_df["original_exptime"] = request_df["exptime"]
+        request_df["exptime"] = new_exptimes
         request_df.to_csv(os.path.join(savepath, request_file), index=False)
-
         # CAPTURE CUSTOM INFORMATION AND PROCESS
         # --------------------------------------------
         # --------------------------------------------
