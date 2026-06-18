@@ -69,9 +69,10 @@ class SemesterPlanner:
         cf (str): path to the ``config.ini`` file.
     """
 
-    def __init__(self, cf):
+    def __init__(self, cf, *, boost=None):
         """See class docstring."""
         logs.debug("Building the SemesterPlanner.")
+        self.boost = boost
 
         # Read config as text so we can persist it verbatim and recreate the
         # parser on from_hdf5.
@@ -109,6 +110,7 @@ class SemesterPlanner:
         # all_valid_ds_for_request) are read from multiple constraints; the
         # rest live as locals at their call sites.
         self._build_constraint_lookups()
+        self._log_boost_current_day_slots()
 
         self.build_gurobi_model()
 
@@ -291,6 +293,43 @@ class SemesterPlanner:
         self.all_valid_ds_for_request = (
             self.joiner.groupby(["unique_id"])[["d", "s"]].agg(list)
         )
+
+    def _log_boost_current_day_slots(self):
+        """Report observable slot counts on current_day for each boosted target."""
+        if self.boost is None:
+            return
+        current_day = self.config.get("global", "current_day")
+        d_today = self.today_starting_night
+        boost_by_uid = dict(
+            zip(
+                self.boost["unique_id"].astype(str),
+                self.boost["boost"].astype(float),
+            )
+        )
+        uid_to_target = dict(
+            zip(
+                self.requests_frame_all["unique_id"].astype(str),
+                self.requests_frame_all["target"],
+            )
+        )
+        factor = next(iter(boost_by_uid.values()))
+        logs.info(
+            "Boost on current_day=%s (d=%d), factor=%g:",
+            current_day,
+            d_today,
+            factor,
+        )
+        joiner_uids = self.joiner["unique_id"].astype(str)
+        joiner_d = self.joiner["d"]
+        for uid in boost_by_uid:
+            n_slots = int(((joiner_uids == uid) & (joiner_d == d_today)).sum())
+            target = uid_to_target.get(uid, "(unknown unique_id)")
+            logs.info(
+                "  %s (%s): %d observable slot(s) on current_day",
+                uid,
+                target,
+                n_slots,
+            )
 
     def build_gurobi_model(self):
         """Instantiate the Gurobi model and add ``Yrds``, ``Wrd``, ``theta``."""
@@ -712,12 +751,30 @@ class SemesterPlanner:
         t_visit_slots = dict(
             zip(self.requests_frame["unique_id"], self.requests_frame["t_visit_slots"])
         )
-        self.model.setObjective(
-            gp.quicksum(
-                self.theta[uid] * t_visit_slots[uid] for uid in schedulable_uids
-            ),
-            GRB.MINIMIZE,
+        theta_obj = gp.quicksum(
+            self.theta[uid] * t_visit_slots[uid] for uid in schedulable_uids
         )
+        if self.boost is not None:
+            boost_by_uid = dict(
+                zip(
+                    self.boost["unique_id"].astype(str),
+                    self.boost["boost"].astype(float),
+                )
+            )
+            d_today = self.today_starting_night
+            boost_terms = [
+                boost_by_uid[uid] * self.Yrds[uid, d, s]
+                for uid, d, s in self.observability_tuples
+                if d == d_today and uid in boost_by_uid
+            ]
+            if boost_terms:
+                logs.info(
+                    "Objective: boost term for %d unique_id(s) on current_day=%s.",
+                    len(boost_by_uid),
+                    self.config.get("global", "current_day"),
+                )
+                theta_obj -= gp.quicksum(boost_terms)
+        self.model.setObjective(theta_obj, GRB.MINIMIZE)
 
     def set_objective_maximize_slots_used(self):
         """Bonus round: maximize filled slots."""
