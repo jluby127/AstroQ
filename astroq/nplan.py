@@ -134,6 +134,99 @@ def _hygiene_selected_df(selected_df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+_NIGHT_TTP_METHODS = frozenset({"milp", "acs8+milp", "norel+milp", "auto"})
+_AUTO_ACS_TARGET_THRESHOLD = 20
+_ACS_STARTS = 8
+_ACS_NB_MAX = 25
+
+
+def _resolve_slew_fn(queue, n_states: int):
+    """Return the queue slew callable for ``n_states`` wrap states."""
+    n_states = int(n_states)
+    if n_states == 1:
+        return queue.slew_fn
+    if n_states == queue.n_states:
+        if queue.wrap_states is None:
+            raise ValueError(
+                f"n_states={n_states} requires wrap_states on {type(queue).__name__}"
+            )
+        return queue.slew_fn_state
+    raise ValueError(
+        f"n_states={n_states} invalid for {type(queue).__name__} "
+        f"(expected 1 or {queue.n_states})"
+    )
+
+
+def _resolve_night_ttp_config(queue, config: ConfigParser, *, n_targets: int) -> dict:
+    """Parse ``[night]`` TTP solve settings and compute time budgets."""
+    method = config.get("night", "method", fallback="milp").strip().lower()
+    if method not in _NIGHT_TTP_METHODS:
+        raise ValueError(
+            f"[night] method={method!r} invalid; "
+            f"expected one of {sorted(_NIGHT_TTP_METHODS)}"
+        )
+
+    n_states = config.getint("night", "n_states", fallback=1)
+    warmstart_time = config.getfloat("night", "warmstart_time", fallback=0.0)
+    max_solve_time = config.getfloat("night", "max_solve_time", fallback=300.0)
+    max_solve_gap = config.getfloat("night", "max_solve_gap", fallback=0.005)
+    show_gurobi_output = config.getboolean("night", "show_gurobi_output", fallback=True)
+
+    effective_method = method
+    if method == "auto":
+        effective_method = (
+            "milp" if n_targets < _AUTO_ACS_TARGET_THRESHOLD else "acs8+milp"
+        )
+
+    use_acs = effective_method == "acs8+milp"
+    use_norel = effective_method == "norel+milp"
+    use_warmstart = use_acs or use_norel
+
+    if effective_method == "milp" and warmstart_time > 0:
+        logs.warning(
+            "[night] warmstart_time=%g ignored for method=milp",
+            warmstart_time,
+        )
+        warmstart_budget = 0.0
+    elif use_warmstart:
+        warmstart_budget = float(warmstart_time)
+    else:
+        warmstart_budget = 0.0
+
+    milp_time = max(0.0, float(max_solve_time) - warmstart_budget)
+    if use_warmstart and milp_time <= 0:
+        raise ValueError(
+            f"[night] max_solve_time={max_solve_time} must exceed "
+            f"warmstart_time={warmstart_budget} for method={effective_method}"
+        )
+
+    slew_fn = _resolve_slew_fn(queue, n_states)
+
+    logs.info(
+        "TTP: method=%s n_states=%d n_targets=%d warmstart=%gs milp=%gs",
+        effective_method,
+        n_states,
+        n_targets,
+        warmstart_budget,
+        milp_time,
+    )
+
+    return {
+        "method": method,
+        "effective_method": effective_method,
+        "n_states": n_states,
+        "slew_fn": slew_fn,
+        "warmstart_time": warmstart_budget,
+        "milp_time": milp_time,
+        "max_solve_gap": max_solve_gap,
+        "show_gurobi_output": show_gurobi_output,
+        "use_acs": use_acs,
+        "use_norel": use_norel,
+        "acs_starts": _ACS_STARTS,
+        "acs_nb_max": _ACS_NB_MAX,
+    }
+
+
 class NightPlanner:
     """TTP night planner: requires a saved ``semester_planner.h5`` from plan-semester."""
 
@@ -254,6 +347,8 @@ class NightPlanner:
         sp = self.semester_planner
         d = self._night_index()
         selected_df = self._load_selected()
+        if selected_df is None:
+            return None
 
         # SemesterPlanner.from_hdf5 only instantiates Access; populate the
         # accessibility cubes (and the derived first/last_available arrays)
@@ -291,35 +386,38 @@ class NightPlanner:
             copy=False,
         )
 
+        cfg = _resolve_night_ttp_config(
+            self.queue, self.config, n_targets=len(requests)
+        )
         tm = model.TTPModel(
             requests=requests,
             night_start=observation_start_time,
             night_end=observation_stop_time,
-            slew_fn=self.queue.slew_fn,
+            slew_fn=cfg["slew_fn"],
             n_slots=self.queue.nSlots,
+            n_states=cfg["n_states"],
         )
         tm.build_nodes()
         tm.build_arcs()
-
-        # Night solver: 'milp' (Gurobi) or 'acs_seed' (ACS warm-start, then
-        # Gurobi). Default 'milp'. An ACS-only schedule is just 'acs_seed' with a
-        # very short Gurobi TimeLimit, so there is no separate 'acs' engine.
-        ttp_solver = self.config.get("night", "ttp_solver", fallback="milp")
-        # ACS budget: per-start time limit and number of independent (parallel)
-        # restarts kept-best. Defaults match the single-start behavior.
-        acs_time = self.config.getfloat("night", "acs_time_limit_s", fallback=3.0)
-        acs_starts = self.config.getint("night", "acs_starts", fallback=1)
-        acs_params = {"time_limit_s": acs_time}
-
         tm.build_model()
-        if ttp_solver == "acs_seed":
-            tm.seed_from_tour(
-                acs_warm_start(tm, params=acs_params, n_starts=acs_starts)
+
+        if cfg["use_acs"]:
+            seed = acs_warm_start(
+                tm,
+                params={
+                    "time_limit_s": cfg["warmstart_time"],
+                    "nb_max": cfg["acs_nb_max"],
+                },
+                n_starts=cfg["acs_starts"],
+                parallel=True,
             )
-        tm.model.params.TimeLimit = self.config.getint("night", "max_solve_time")
-        tm.model.params.MIPGap = self.config.getfloat("night", "max_solve_gap")
-        tm.model.params.OutputFlag = int(
-            self.config.getboolean("night", "show_gurobi_output")
+            tm.seed_from_tour(seed)
+
+        tm.model.params.TimeLimit = cfg["milp_time"]
+        tm.model.params.MIPGap = cfg["max_solve_gap"]
+        tm.model.params.OutputFlag = int(cfg["show_gurobi_output"])
+        tm.model.params.NoRelHeurTime = (
+            cfg["warmstart_time"] if cfg["use_norel"] else 0.0
         )
         tm.model.params.PreSolve = 2
         tm.model.params.MIPFocus = 1
@@ -434,6 +532,15 @@ class NightPlanner:
         solution.wrap_limit = queue.wrap_limit
         solution.readout_time = queue.readout_time
         solution.n_slots = queue.nSlots
+        try:
+            n_states = int(
+                instance.config.getint("night", "n_states", fallback=1)
+            )
+        except ValueError:
+            n_states = 1
+        solution.wrap_states = (
+            queue.wrap_states if n_states > 1 else None
+        )
 
         instance.solution = solution
         return instance
