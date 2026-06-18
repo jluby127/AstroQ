@@ -1,230 +1,112 @@
 """
-Module for preparing the benchmark test as used in Lubin et al. 2025. 
+Module for preparing the benchmark test as used in Lubin et al. 2025.
+
 """
 
-import matplotlib.pyplot as pt
 import numpy as np
 import pandas as pd
 
-# In the paper, we used random seed = 24.
-np.random.seed(24)
+# Programs from Lubin et al. 2025; 1-indexed to match paper notation.
+# tau_inter: min nights between visits (days)
+# exptime: seconds per visit (program 6 overwritten with ns * 300 at runtime)
+# n_inter_max: max number of nights observed
+# n_intra_max: max visits per night
+PROGRAMS = pd.DataFrame(
+    [
+        (1, 300, 40, 1),    # 1: APF-50
+        (3, 600, 20, 1),    # 2: TKS
+        (10, 1200, 10, 1),  # 3: bi-weekly
+        (1, 300, 8, 5),     # 4: multi-visit
+        (1, 300, 40, 1),    # 5: RA-constrained (Kepler field)
+        (0, 0, 1, 1),       # 6: single shot
+    ],
+    columns=["tau_inter", "exptime", "n_inter_max", "n_intra_max"],
+    index=pd.RangeIndex(1, 7, name="program_num"),
+)
+
 
 def getDec(maxDec=90, minDec=-20):
-    '''
-    Randomly draw a declination from cosine i distribution between two values.
-    The default min/max declination values are chosen based on favorable viewing from Hawaii.
-
-    Args:
-        maxDec (float): the maximum declination (degrees) to draw from
-        minDec (float): the minimum declination (degrees) to draw from
-
-    Returns:
-        dec (float): the randomly drawn declination
-    '''
-    mincosdec = np.cos((90+maxDec)*(np.pi/180.))
-    maxcosdec = np.cos((90+minDec)*(np.pi/180.))
+    """
+    Randomly draw a declination from a cosine distribution between two values.
+    Default min/max are chosen for favorable viewing from Hawaii.
+    """
+    mincosdec = np.cos((90 + maxDec) * (np.pi / 180.0))
+    maxcosdec = np.cos((90 + minDec) * (np.pi / 180.0))
     cosdec = np.random.uniform(mincosdec, maxcosdec)
-    dec = (np.arccos(cosdec)*(180./np.pi))-90
-    return dec
+    return (np.arccos(cosdec) * (180.0 / np.pi)) - 90
 
-def stars_in_program(program, total_hours):
-    '''
-    Determine how many stars should be in a program based on that program's observing strategy
-    and its awarded time.
+
+def build_toy_model_from_paper(ns, hours_per_program=80, seed=24):
+    """
+    Generate the nominal request set used for performance testing in Lubin et al. 2025.
 
     Args:
-        program (list): a list containing the strategy of all stars in the program [tau_inter, t_exp [seconds], n_inter_max, n_intra_max]
-        total_hours (float): the total number of hours to allocate to the program. 
+        ns (int): slots needed to complete each single-shot observation in program 6.
+        hours_per_program (float): hours allocated to each program. Paper value: 80.
+        seed (int): RNG seed. Paper value: 24.
 
     Returns:
-        n_stars (int): the number of stars to allocate to the program
-    '''
-    e = program[1]
-    n = program[2]
-    v = program[3]
-    total_time = (e*n*v)/3600
-    n_stars = int(np.round(total_hours/total_time,0))
-    return n_stars
-
-def build_toy_model_from_paper(ns, hours_per_program = 80, plot = False):
+        pandas.DataFrame: the request frame, equivalent to request.csv.
     """
-    Generate the nominal set of requests used for performance testing in Lubin et al. 2025.
+    np.random.seed(seed)
 
-    Args:
-        ns (int): the number of slots needed to complete each of the single shot observations in program 6. In the paper we start with 12, and work down to increase complexity.
-        hours_per_program (float): the total number of hours to allocate to each program. In the paper, this is 80 hours.
-        plot (bool): True to create a simple plot of the requests' locations on the sky.
+    programs = PROGRAMS.copy()
+    programs.loc[6, "exptime"] = ns * 300
+    programs["n_stars"] = (
+        (hours_per_program * 3600.0)
+        / (programs.exptime * programs.n_inter_max * programs.n_intra_max)
+    ).round().astype(int)
 
-    Returns:
-        requests_data (pandas DataFrame): a DataFrame with the request information, equivalent to the requests.csv file.
-    """
-    # Define programs with their characteristics
-    # [tau_inter, t_exp [seconds], n_inter_max, n_intra_max]
-    program1 = [1, 300, 40, 1]    # APF-50
-    program2 = [3, 600, 20, 1]    # TKS
-    program3 = [10, 1200, 10, 1]  # bi-weekly
-    program4 = [1, 300, 8, 5]     # Multi-visit
-    program5 = [1, 300, 40, 1]    # RA Constrained
-    dynamic_exptime = ns*300
-    program6 = [0, dynamic_exptime, 1, 1]  # Single shots
-    all_programs = [program1, program2, program3, program4, program5, program6]
+    # Cross-join programs to per-star rows; preserves program order (1..6).
+    df = (
+        programs.loc[programs.index.repeat(programs.n_stars)]
+        .reset_index()
+        .drop(columns="n_stars")
+    )
 
-    # Calculate number of stars per program
-    stars_per_program = []
-    for p in range(len(all_programs)):
-        n_stars = stars_in_program(all_programs[p], hours_per_program)
-        stars_per_program.append(n_stars)
-        all_programs[p].append(n_stars)
+    # Per-star RA/Dec. Non-Kepler stars draw RA from [0, 360) deg with the
+    # 12h-18h band excluded (favorable for a B semester).
+    exclude_start, exclude_end = 12 * 15, 18 * 15
+    p_below_exclusion = exclude_start / (360 - (exclude_end - exclude_start))
 
-   # Compute stats for the paper's table
-    stars_per_program = []
-    total_stars = 0
-    prog_numb = []
-    prog_nobs = []
-    prog_inter = []
-    prog_visits = []
-    prog_intra = []
-    prog_nexp = []
-    prog_exptime = []
-    prog_nstars = []
-    prog_nexpos = []
-    prog_nslots = []
-    prog_award = []
-    for p in range(len(all_programs)):
-        nights = all_programs[p][2]
-        inter = all_programs[p][0]
-        viz = all_programs[p][3]
-        exptime = all_programs[p][1]
-
-        prog_numb.append(p)
-        prog_nobs.append(nights)
-        prog_inter.append(inter)
-        prog_visits.append(viz)
-        if viz == 1:
-            prog_intra.append(0)
+    ra = np.empty(len(df))
+    dec = np.empty(len(df))
+    for i, prog in enumerate(df["program_num"].to_numpy()):
+        if prog == 5:
+            ra[i] = np.random.uniform(19 * 15, 19.66 * 15)
+            dec[i] = np.random.uniform(40, 50)
         else:
-            prog_intra.append(1)
-        prog_nexp.append(1)
-        prog_exptime.append(exptime)
+            ra[i] = (
+                np.random.uniform(0, exclude_start)
+                if np.random.random() < p_below_exclusion
+                else np.random.uniform(exclude_end, 360)
+            )
+            dec[i] = getDec()
 
-        n_stars = stars_in_program(all_programs[p], hours_per_program)
-        prog_nstars.append(n_stars)
-        prog_nexpos.append(n_stars*viz*nights)
-        prog_nslots.append(n_stars*viz*nights*int(exptime/300))
-        prog_award.append(np.round((n_stars*viz*nights*exptime)/3600,1))
-        all_programs[p].append(n_stars)
-        total_stars += n_stars
+    df["ra"] = ra
+    df["dec"] = dec
 
-    # Metadata about toy model, currently not returned
-    prog_info = pd.DataFrame({"Program #":prog_numb,
-                            "# Nights":prog_nobs,
-                            "Inter Cadence":prog_inter,
-                            "# Visits":prog_visits,
-                            "Intra Cadence":prog_intra,
-                            "# Exposures":prog_nexp,
-                            "Exp Time":prog_exptime,
-                            "# Stars":prog_nstars,
-                            "Total Exposures":prog_nexpos,
-                            "Total Slots":prog_nslots,
-                            "Award":prog_award,
-                            })
-    # Generate request data
-    starname = []
-    program_code = []
-    RA = []
-    Dec = []
-    exposure_times = []
-    internight_cadences = []
-    intranight_cadences = []
-    visits_per_night_max = []
-    visits_per_night_min = []
-    unique_nights = []
-    exposures_per_visit = []
-    n_intra_max = []
-    tau_inter = []
-    priority = []
+    df.insert(0, "target", [f"Star{i:04d}" for i in range(len(df))])
+    df.insert(1, "program_code", "Program" + df["program_num"].astype(str))
+    df = df.drop(columns="program_num")
 
-    star_idx = 0
-    for p, program in enumerate(all_programs):
-        n_stars = program[4]  # Number of stars for this program
-        for s in range(n_stars):
-            starname.append(f"Star{star_idx:04d}")
-            program_code.append(f"Program{p+1}")
+    # Final schema. n_intra_min == n_intra_max except program 4 (5 -> 3).
+    df["n_exp"] = 1
+    df["n_intra_min"] = np.where(df["n_intra_max"] == 5, df["n_intra_max"] - 2, df["n_intra_max"])
+    df["tau_intra"] = np.where(df["n_intra_max"] == 1, 0, 1)
+    df["unique_id"] = df["target"]
+    df["minimum_elevation"] = 33.0
+    df["minimum_moon_separation"] = 33.0
+    df["inactive"] = False
 
-            # Generate RA/Dec following original logic
-            if p == 4:  # Constrained to Kepler field
-                tmpra = np.random.uniform(19*15, 19.66*15)  # RA between 285-295 degrees
-                tmpdec = np.random.uniform(40, 50)          # Dec between 40-50 degrees
-            else:
-                # only allow RAs that are somewhat favorable to a B semester, exclude hour anges between 12 and 18
-                exclude_start = 12*15
-                exclude_end = 18*15
-                tmpra = np.random.uniform(0, exclude_start) if np.random.random() < (exclude_start / (360 - (exclude_end - exclude_start))) else np.random.uniform(exclude_end, 360)
-                tmpdec = getDec()  # Uses cosine distribution
-            RA.append(tmpra)
-            Dec.append(tmpdec)
-
-            exposure_times.append(program[1])
-            internight_cadences.append(program[0])
-            intranight_cadences.append(0 if program[3] == 1 else 1)
-            visits_per_night_max.append(program[3])
-            if program[3] == 5:
-                visits_per_night_min.append(program[3]-2) # make min visits equal to 3 when max visits is 5
-            else:
-                visits_per_night_min.append(program[3]) # make min visits equal to max visists
-            unique_nights.append(program[2])
-            exposures_per_visit.append(1)
-            n_intra_max.append(program[3])
-            tau_inter.append(program[0])
-            priority.append(np.random.randint(1, 5))
-            star_idx += 1
-
-    # Create DataFrame
-    requests_data = {
-        'starname': starname,
-        'program_code': program_code,
-        'ra': RA,
-        'dec': Dec,
-        'exptime': exposure_times,
-        'n_exp': exposures_per_visit,
-        'n_intra_max': visits_per_night_max,
-        'n_intra_min': visits_per_night_min,
-        'n_inter_max': unique_nights,
-        'tau_inter': internight_cadences,
-        'tau_intra': intranight_cadences,
-    }
-    requests_data = pd.DataFrame(requests_data)
-    requests_data['weather_band_1'] = [True]*len(requests_data)
-    requests_data['weather_band_2'] = [True]*len(requests_data)
-    requests_data['weather_band_3'] = [True]*len(requests_data)
-    requests_data['unique_id'] = requests_data['starname'] #[np.random.randint(1, 1000000) for _ in range(len(requests_data))]
-    requests_data['jmag'] = [10.0]*len(requests_data)
-    requests_data['gmag'] = [10.0]*len(requests_data)
-    requests_data['teff'] = [5800]*len(requests_data)
-    requests_data['pmra'] = [0.00]*len(requests_data)
-    requests_data['pmdec'] = [0.00]*len(requests_data)
-    requests_data['epoch'] = [2000.0]*len(requests_data)
-    requests_data['gaia_id'] = [np.random.randint(1, 1000000) for _ in range(len(requests_data))]
-    requests_data['minimum_elevation'] = [33.0]*len(requests_data)
-    requests_data['minimum_moon_separation'] = [33.0]*len(requests_data)
-    requests_data['exp_meter_threshold'] = [1.6]*len(requests_data)
-    requests_data['weather_band_1'] = [True]*len(requests_data)
-    requests_data['weather_band_2'] = [True]*len(requests_data)
-    requests_data['weather_band_3'] = [True]*len(requests_data)
-    requests_data['inactive'] = [False]*len(requests_data)
-
-    if plot:
-        for i in range(len(all_programs), 0, -1):
-            filt = requests_data[requests_data['program'] == 'Program' + str(i)]
-            if i < 5 and i != 4:
-                c = 'b'
-            elif i == 4:
-                c = 'r'
-            else:
-                c = 'g'
-            pt.plot(filt['ra'], filt['dec'], 'o', color=c)
-        pt.xlim(0,360)
-        pt.ylim(-40,90)
-        pt.show()
-
-    return requests_data
+    return df[
+        [
+            "target", "program_code", "unique_id",
+            "ra", "dec",
+            "exptime", "n_exp",
+            "n_intra_max", "n_intra_min", "tau_intra",
+            "n_inter_max", "tau_inter",
+            "minimum_elevation", "minimum_moon_separation",
+            "inactive",
+        ]
+    ]

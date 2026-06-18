@@ -4,53 +4,45 @@ AstroQ: Optimized observation scheduling for astronomical observations.
 
 # Standard library imports
 import logging
-import os
+import warnings
+
+# Third-party imports
+from erfa import ErfaWarning
+from tables.exceptions import DataTypeWarning
+
+# Booleans persisted via h5py (e.g. run_weather_loss, gurobi_output,
+# run_bonus_round in splan.py) are stored as H5T_ENUM, which PyTables does not
+# recognize. PyTables scans root attributes on every pd.read_hdf() and emits a
+# DataTypeWarning for each unrecognized attribute. The data still round-trips
+# correctly via h5py; silence the cosmetic warning here. Installed before any
+# astroq submodule import so the filter is in place when h5 files are first read.
+warnings.filterwarnings("ignore", category=DataTypeWarning)
+
+# Nightly script generation (hirescps.starlist.format_hires_row,
+# kpfcc.starlist.pm_correcter) propagates catalog RA/Dec to the observation date via
+# SkyCoord.apply_space_motion without parallax. ERFA's pmsafe then warns
+# "distance overridden" once per target; coordinates are still correct.
+warnings.filterwarnings("ignore", category=ErfaWarning)
 
 # Local imports
-from astroq import driver
+from astroq import driver  # noqa: E402
 
-__version__ = '2.1.0'
-DATADIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data')
+__version__ = "2.1.0"
 
 logger = logging.getLogger(__name__)
 
-# Configure logging to capture everything
 logging.basicConfig(
-    level=logging.INFO,  # Lower level to capture more messages
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('astroq.log'),  # Better filename
-        logging.StreamHandler()  # Also show on console
-    ]
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[logging.StreamHandler()],
 )
 
-# Set specific logger levels
 logger.setLevel(logging.INFO)
 
-# Redirect stdout and stderr to also go to the log file
-import sys
-from io import StringIO
-
-class TeeLogger:
-    def __init__(self, original_stream, log_file):
-        self.original_stream = original_stream
-        self.log_file = log_file
-        self.buffer = StringIO()
-    
-    def write(self, text):
-        self.original_stream.write(text)
-        self.log_file.write(text)
-        self.log_file.flush()
-    
-    def flush(self):
-        self.original_stream.flush()
-        self.log_file.flush()
-
-# Open log file for stdout/stderr redirection
-log_file = open('astroq.log', 'a', encoding='utf-8')
-
-# Redirect stdout and stderr to both console and log file
-sys.stdout = TeeLogger(sys.stdout, log_file)
-sys.stderr = TeeLogger(sys.stderr, log_file)
-
-# eval(f'logging{loglevel}')
+# Gurobi prints solver progress to stdout from its C library directly. The
+# ``gurobipy`` Python logger re-emits the same content via Python ``logging``,
+# which our root handler then formats with a timestamp -- producing duplicate
+# lines. Silence the Python-side copy and keep only the raw Gurobi output.
+logging.getLogger("gurobipy").setLevel(logging.WARNING)
+logging.getLogger("gurobipy").propagate = False

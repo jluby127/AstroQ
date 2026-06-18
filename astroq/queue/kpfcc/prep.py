@@ -1,0 +1,1121 @@
+"""KPF-CC data ingestion.
+
+Pulls observing blocks (OBs), allocation info, and OB histories from Keck's
+KPF-CC and schedule APIs; validates/filters OBs into the canonical AstroQ
+request/custom/allocation/past frames. Consumed by
+:func:`astroq.driver.kpfcc_prep` to produce the on-disk ``request.csv``,
+``custom.csv``, ``allocation.csv``, and ``past.csv`` used by the planner.
+"""
+
+# Standard library imports
+import json
+import logging
+import os
+import re
+
+# Third-party imports
+import numpy as np
+import pandas as pd
+import requests
+from astropy.coordinates import SkyCoord
+from astropy.time import Time, TimeDelta
+import astropy.units as u
+import astroplan as apl
+
+logs = logging.getLogger(__name__)
+
+
+# Column definitions: mapping from original names to new names and data types
+column_definitions = {
+    "_id": {"new_name": "unique_id", "type": "string"},
+    "metadata.semid": {"new_name": "program_code", "type": "string"},
+    "target.target_name": {"new_name": "target", "type": "string"},
+    "target.ra": {"new_name": "ra", "type": "string"},
+    "target.dec": {"new_name": "dec", "type": "string"},
+    "observation.exposure_time": {"new_name": "exptime", "type": "Int64"},
+    "observation.num_exposures": {"new_name": "n_exp", "type": "Int64"},
+    "schedule.num_nights_per_semester": {"new_name": "n_inter_max", "type": "Int64"},
+    "schedule.num_internight_cadence": {"new_name": "tau_inter", "type": "Int64"},
+    "schedule.desired_num_visits_per_night": {
+        "new_name": "n_intra_max",
+        "type": "Int64",
+    },
+    "schedule.minimum_num_visits_per_night": {
+        "new_name": "n_intra_min",
+        "type": "Int64",
+    },
+    "schedule.num_intranight_cadence": {"new_name": "tau_intra", "type": "Float64"},
+    "schedule.minimum_elevation": {"new_name": "minimum_elevation", "type": "Float64"},
+    "schedule.minimum_moon_separation": {
+        "new_name": "minimum_moon_separation",
+        "type": "Float64",
+    },
+    "schedule.weather_band_1": {"new_name": "weather_band_1", "type": "boolean"},
+    "schedule.weather_band_2": {"new_name": "weather_band_2", "type": "boolean"},
+    "schedule.weather_band_3": {"new_name": "weather_band_3", "type": "boolean"},
+    "target.gaia_id": {"new_name": "gaia_id", "type": "string"},
+    "target.t_eff": {"new_name": "teff", "type": "Float64"},
+    "target.j_mag": {"new_name": "jmag", "type": "Float64"},
+    "target.g_mag": {"new_name": "gmag", "type": "Float64"},
+    "target.pm_ra": {"new_name": "pmra", "type": "Float64"},
+    "target.pm_dec": {"new_name": "pmdec", "type": "Float64"},
+    "target.epoch": {"new_name": "epoch", "type": "Float64"},
+    "observation.exp_meter_threshold": {
+        "new_name": "exp_meter_threshold",
+        "type": "Float64",
+    },
+    "metadata.ob_inactive": {"new_name": "inactive", "type": "boolean"},
+}
+
+# Required fields for OBs to be considered valid
+# All fields listed here must be present in the OB for it to pass validation
+required_fields = list(column_definitions.keys())
+
+
+def pull_OBs(semester):
+    """
+    Pull the latest info from Keck Observatory's KPF-CC database OBs down to local machine.
+    Note you must set environment variables KECK_OB_DATABASE_API_USERNAME and KECK_OB_DATABASE_API_PASSWORD to your credentials.
+
+    Args:
+        semester (str) - the semester from which to query OBs, format YYYYL
+
+    Returns:
+        data (json) - the OB information in json format
+    """
+    url = "https://www3.keck.hawaii.edu/api/kpfcc/getAllSemesterObservingBlocks"
+    params = {}
+    params["semester"] = semester
+    try:
+        data = requests.get(
+            url,
+            params=params,
+            auth=(
+                os.environ["KECK_OB_DATABASE_API_USERNAME"],
+                os.environ["KECK_OB_DATABASE_API_PASSWORD"],
+            ),
+        )
+        data = data.json()
+        return data
+    except:
+        print("ERROR")
+        return
+
+
+def _validate_datetime_format(datetime_str):
+    """
+    Validate that datetime string follows YYYY-MM-DDTHH:MM or YYYY-MM-DDTHH:MM:SS format.
+
+    Args:
+        datetime_str (str): The datetime string to validate
+
+    Returns:
+        bool: True if format is valid, False otherwise
+    """
+    if not isinstance(datetime_str, str):
+        return False
+    # Accept YYYY-MM-DDTHH:MM or YYYY-MM-DDTHH:MM:SS (Keck API returns the latter)
+    pattern = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$"
+    return bool(re.match(pattern, datetime_str))
+
+
+def format_custom_csv(OBs):
+    """
+    Format the custom.csv file from the OBs.
+
+    Args:
+        OBs (json): the OB information in json format
+
+    Returns:
+        custom_frame (pandas DataFrame): a DataFrame with the custom information, equivalent to the custom.csv file.
+    """
+    rows = []
+    for ob in OBs["observing_blocks"]:
+        if "custom_time_constraints" in ob.get("schedule", {}):
+            ctc = ob["schedule"]["custom_time_constraints"]
+            unique_id = ob["_id"]
+            target_name = ob["target"]["target_name"]
+
+            if isinstance(ctc, list) and len(ctc) > 0:
+                for constraint in ctc:
+                    if isinstance(constraint, dict):
+                        start = constraint.get("start_datetime", "")
+                        stop = constraint.get("end_datetime", "")
+                        if (
+                            start
+                            and stop
+                            and _validate_datetime_format(start)
+                            and _validate_datetime_format(stop)
+                        ):
+                            rows.append(
+                                {
+                                    "unique_id": unique_id,
+                                    "target": target_name,
+                                    "start": start,
+                                    "stop": stop,
+                                }
+                            )
+            elif isinstance(ctc, dict):
+                start = ctc.get("start_datetime", "")
+                stop = ctc.get("end_datetime", "")
+                if (
+                    start
+                    and stop
+                    and _validate_datetime_format(start)
+                    and _validate_datetime_format(stop)
+                ):
+                    rows.append(
+                        {
+                            "unique_id": unique_id,
+                            "target": target_name,
+                            "start": start,
+                            "stop": stop,
+                        }
+                    )
+
+    if len(rows) > 0:
+        custom_frame = pd.DataFrame(rows)
+    else:
+        custom_frame = pd.DataFrame(columns=["unique_id", "target", "start", "stop"])
+
+    return custom_frame
+
+
+def pull_allocation_info(start_date, numdays, instrument, conversion_ratio=12.0):
+    """
+    Pull the allocation information directly from the Keck Observatory's operations schedule via the API.
+
+    Args:
+        start_date (str): the start date of the allocation (day one of the semester)
+        numdays (int): the number of days beyond the start_date to pull allocation information (usually ~180)
+        instrument (str): the instrument to pull allocation data, here it is "KPF-CC"
+        conversion_ratio (float): factor to convert nights to hours (e.g. hours per night). Default 12.0.
+
+    Returns:
+        allocation_frame (pandas DataFrame): a DataFrame with the allocation information, equivalent to the allocation.csv file.
+        hours_by_program (dict): a dictionary mapping the program code to the total hours allocated to that program
+        nights_by_program (dict): a dictionary mapping the program code to the total nights allocated to that program
+    """
+    params = {}
+    params["cmd"] = "getSchedule"
+    params["date"] = start_date
+    params["numdays"] = numdays
+    params["instrument"] = instrument
+    url = "https://www3.keck.hawaii.edu/api/schedule/getSchedule"
+    try:
+        data = requests.get(url, params=params)
+        data_json = json.loads(data.text)
+        df = pd.DataFrame(data_json)
+        awarded_programs = df["ProjCode"].unique()
+        df["start"] = pd.to_datetime(df["Date"] + " " + df["StartTime"]).dt.strftime(
+            "%Y-%m-%dT%H:%M"
+        )
+        df["stop"] = pd.to_datetime(df["Date"] + " " + df["EndTime"]).dt.strftime(
+            "%Y-%m-%dT%H:%M"
+        )
+
+        allocation_frame = df[
+            ["start", "stop"]
+        ].copy()  # TODO: add observer and comment
+
+        nights_by_program = (
+            df.groupby("ProjCode")["FractionOfNight"].sum().round(3).to_dict()
+        )
+        hours_by_program = {
+            k: round(v * conversion_ratio, 3) for k, v in nights_by_program.items()
+        }
+    except:
+        print(
+            "ERROR: allocation information not found. Double check date and instrument. Saving an empty file."
+        )
+        allocation_frame = pd.DataFrame(columns=["start", "stop"])
+        awarded_programs = []
+        hours_by_program = {}
+        nights_by_program = {}
+    return allocation_frame, hours_by_program, nights_by_program
+
+
+def _parse_keck_schedule_time_cell(cell):
+    """
+    Parse a Keck schedule 'Time' cell like '07:49 - 13:21 ( 50%)' or '05:10 - 16:01 (100%)'.
+
+    Returns:
+        tuple: (start_hhmm, end_hhmm, fraction_of_night or None)
+    """
+    s = str(cell).strip()
+    m = re.search(r"(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})", s)
+    if not m:
+        raise ValueError(f"Could not parse start/end times from Time cell: {s!r}")
+    pct_m = re.search(r"\(\s*(\d+)\s*%\s*\)", s)
+    frac = float(pct_m.group(1)) / 100.0 if pct_m else None
+    return m.group(1), m.group(2), frac
+
+
+def format_keck_allocation_info(allocation_file):
+    """
+    An alternate way to produce the allocation.csv file. Read in a Keck operations schedule file.
+
+    Supported CSV shapes:
+
+    1. **KOIP export**: columns ``Date``, ``StartTime``, ``EndTime``, ``ProjCode``, ``FractionOfNight``.
+    2. **Keck schedule export** (HIRES): columns ``Date``, ``Time`` (e.g. ``07:49 - 13:21 ( 50%)``), ``ProjCode``.
+    3. **AstroQ allocation**: columns ``start``, ``stop`` (ISO ``YYYY-MM-DDTHH:MM``). If ``ProjCode`` is
+       present, program hours/nights are aggregated; otherwise returned program dicts are empty.
+
+    Args:
+        allocation_file (str): the path and filename to the downloaded csv
+
+    Returns:
+        allocation_frame (pandas DataFrame): a DataFrame with the allocation information, equivalent to the allocation.csv file.
+        hours_by_program (dict): a dictionary mapping the program code to the total hours allocated to that program
+        nights_by_program (dict): a dictionary mapping the program code to the total nights allocated to that program
+    """
+    allocation = pd.read_csv(allocation_file)
+    allocation.columns = allocation.columns.str.strip()
+    allocation = allocation.loc[:, ~allocation.columns.str.match(r"^Unnamed")]
+    if "StartTime" not in allocation.columns and "Time" in allocation.columns:
+        allocation = expand_keck_ops_schedule_time_column(allocation)
+
+    # Convert start and stop times to datetime for hour calculation
+    allocation["start"] = pd.to_datetime(
+        allocation["Date"] + " " + allocation["StartTime"]
+    ).dt.strftime("%Y-%m-%dT%H:%M")
+    allocation["stop"] = pd.to_datetime(
+        allocation["Date"] + " " + allocation["EndTime"]
+    ).dt.strftime("%Y-%m-%dT%H:%M")
+
+    cols = set(allocation.columns)
+
+    # (3) Already AstroQ-style start/stop
+    if "start" in cols and "stop" in cols:
+        allocation_frame = allocation[["start", "stop"]].copy()
+        start_times = pd.to_datetime(allocation["start"])
+        stop_times = pd.to_datetime(allocation["stop"])
+        allocation = allocation.copy()
+        allocation["hours"] = (stop_times - start_times).dt.total_seconds() / 3600.0
+        if "ProjCode" in cols:
+            hours_by_program = (
+                allocation.groupby("ProjCode")["hours"].sum().round(3).to_dict()
+            )
+            if "FractionOfNight" in cols:
+                nights_by_program = (
+                    allocation.groupby("ProjCode")["FractionOfNight"]
+                    .sum()
+                    .round(3)
+                    .to_dict()
+                )
+            else:
+                nights_by_program = {
+                    k: round(v / 12.0, 3) for k, v in hours_by_program.items()
+                }
+        else:
+            hours_by_program = {}
+            nights_by_program = {}
+        return allocation_frame, hours_by_program, nights_by_program
+
+    # (1) KOIP: separate Date / StartTime / EndTime
+    if {"Date", "StartTime", "EndTime"}.issubset(cols):
+        allocation["start"] = pd.to_datetime(
+            allocation["Date"].astype(str).str.strip()
+            + " "
+            + allocation["StartTime"].astype(str).str.strip()
+        ).dt.strftime("%Y-%m-%dT%H:%M")
+        allocation["stop"] = pd.to_datetime(
+            allocation["Date"].astype(str).str.strip()
+            + " "
+            + allocation["EndTime"].astype(str).str.strip()
+        ).dt.strftime("%Y-%m-%dT%H:%M")
+        start_times = pd.to_datetime(allocation["start"])
+        stop_times = pd.to_datetime(allocation["stop"])
+        allocation["hours"] = (stop_times - start_times).dt.total_seconds() / 3600.0
+        allocation_frame = allocation[["start", "stop"]].copy()
+        hours_by_program = (
+            allocation.groupby("ProjCode")["hours"].sum().round(3).to_dict()
+        )
+        nights_by_program = (
+            allocation.groupby("ProjCode")["FractionOfNight"].sum().round(3).to_dict()
+        )
+        return allocation_frame, hours_by_program, nights_by_program
+
+    # (2) Keck schedule: Date + single Time cell + ProjCode
+    if {"Date", "Time", "ProjCode"}.issubset(cols):
+        triples = [_parse_keck_schedule_time_cell(x) for x in allocation["Time"]]
+        allocation = allocation.copy()
+        allocation["StartTime"] = [t[0] for t in triples]
+        allocation["EndTime"] = [t[1] for t in triples]
+        allocation["FractionOfNight"] = [
+            (t[2] if t[2] is not None else 0.5) for t in triples
+        ]
+        allocation["start"] = pd.to_datetime(
+            allocation["Date"].astype(str).str.strip() + " " + allocation["StartTime"]
+        ).dt.strftime("%Y-%m-%dT%H:%M")
+        allocation["stop"] = pd.to_datetime(
+            allocation["Date"].astype(str).str.strip() + " " + allocation["EndTime"]
+        ).dt.strftime("%Y-%m-%dT%H:%M")
+        start_times = pd.to_datetime(allocation["start"])
+        stop_times = pd.to_datetime(allocation["stop"])
+        allocation["hours"] = (stop_times - start_times).dt.total_seconds() / 3600.0
+        allocation_frame = allocation[["start", "stop"]].copy()
+        allocation["ProjCode"] = allocation["ProjCode"].astype(str).str.strip()
+        hours_by_program = (
+            allocation.groupby("ProjCode")["hours"].sum().round(3).to_dict()
+        )
+        nights_by_program = (
+            allocation.groupby("ProjCode")["FractionOfNight"].sum().round(3).to_dict()
+        )
+        return allocation_frame, hours_by_program, nights_by_program
+
+    raise ValueError(
+        "Unrecognized allocation CSV format. Expected either "
+        "(Date, StartTime, EndTime, ProjCode, FractionOfNight), or "
+        "(Date, Time, ProjCode) with Time like '07:49 - 13:21 ( 50%)', or "
+        "(start, stop) ISO columns."
+    )
+
+
+def expand_keck_ops_schedule_time_column(df):
+    """
+    Build StartTime, EndTime, and FractionOfNight from a compact Keck ops schedule ``Time`` column.
+
+    Expected ``Time`` format per row, e.g. ``07:49 - 13:21 ( 50%)``:
+    - StartTime = 07:49, EndTime = 13:21
+    - FractionOfNight = 0.5 from the percentage in parentheses
+
+    Also accepts rows without a parenthetical fraction (treated as 1.0).
+
+    Args:
+        df (pandas.DataFrame): Must include ``Date``, ``Time``, and ``ProjCode`` columns.
+
+    Returns:
+        pandas.DataFrame: Copy of ``df`` with ``StartTime``, ``EndTime``, and ``FractionOfNight`` added.
+    """
+    required = {"Date", "Time", "ProjCode"}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(
+            f"expand_keck_ops_schedule_time_column: missing columns {sorted(missing)}"
+        )
+    pattern = re.compile(
+        r"^\s*(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\s*(?:\(\s*(\d+)\s*%\s*\))?\s*$",
+        re.IGNORECASE,
+    )
+    starts, ends, fracs = [], [], []
+    for raw in df["Time"].astype(str):
+        m = pattern.match(raw.strip())
+        if not m:
+            raise ValueError(
+                f"expand_keck_ops_schedule_time_column: could not parse Time cell: {raw!r}"
+            )
+        starts.append(m.group(1))
+        ends.append(m.group(2))
+        pct = m.group(3)
+        fracs.append(int(pct) / 100.0 if pct is not None else 1.0)
+    out = df.copy()
+    out["StartTime"] = starts
+    out["EndTime"] = ends
+    out["FractionOfNight"] = fracs
+    return out
+
+
+def pull_OB_histories(semester):
+    """
+    Pull the latest database OBs down to local.
+
+    Args:
+        semester (str) - the semester from which to query OBs, format YYYYL
+        histories (bool) - if True, pull the history of OBs for the semester, if False, pull the latest OBs for the semester
+
+    Returns:
+        data (json) - the OB information in json format
+    """
+    url = "https://www3.keck.hawaii.edu/api/kpfcc/getObservingBlockHistory"
+    params = {}
+    params["semester"] = semester
+    try:
+        data = requests.get(
+            url,
+            params=params,
+            auth=(
+                os.environ["KECK_OB_DATABASE_API_USERNAME"],
+                os.environ["KECK_OB_DATABASE_API_PASSWORD"],
+            ),
+        )
+        data = data.json()
+        return data
+    except:
+        print("ERROR")
+        return
+
+
+def write_OB_histories_to_csv(histories):
+    """Prepare dataframe of past history for writing to CSV.
+
+    Output schema: ``unique_id, target, timestamp, exposure_time``. For KPFCC
+    ``unique_id`` is the OB id from the database; the (UT) ``timestamp`` is
+    one row per exposure (``exposure_start_times`` zipped with
+    ``exposure_times``).
+
+    Args:
+        histories (dict): the OB histories in JSON-decoded form
+
+    Returns:
+        df (pandas DataFrame): the OB histories in dataframe format
+    """
+    cols = ["unique_id", "target", "timestamp", "exposure_time"]
+    rows = []
+    for entry in histories["history"]:
+        for start_time, duration in zip(
+            entry["exposure_start_times"], entry["exposure_times"]
+        ):
+            rows.append(
+                {
+                    "unique_id": entry.get("id", ""),
+                    "target": entry.get("target", ""),
+                    "timestamp": start_time,
+                    "exposure_time": duration,
+                }
+            )
+    df = pd.DataFrame(rows)
+    if len(df) == 0:
+        return pd.DataFrame(columns=cols)
+    df.sort_values(by="timestamp", inplace=True)
+    return df[cols]
+
+
+def get_request_sheet(OBs, awarded_programs, savepath):
+    """
+    Produce the request.csv file from the json OBs.
+
+    Args:
+        OBs (json): the OB information in json format
+        awarded_programs (list): a list of the awarded programs
+        savepath (str): the path and filename where to save the request sheet
+
+    Returns:
+        good_obs (pandas DataFrame): a DataFrame with the OBs that pass the checks
+        bad_obs_values (pandas DataFrame): a DataFrame with the values of the bad OBs fields
+        bad_obs_hasFields (pandas DataFrame): a DataFrame with the indication of fields existing or not for thebad OBs
+        bad_obs_count_by_semid (pandas DataFrame): a DataFrame with the count of bad OBs by semester, for admin plotting purposes
+        bad_field_histogram (pandas DataFrame): a DataFrame with the histogram of bad OBs by field, for admin plotting purposes
+    """
+    good_obs, bad_obs_values, bad_obs_hasFields = sort_good_bad(OBs, awarded_programs)
+
+    # Filter bad OBs to only those in awarded programs
+    if "metadata.semid" in bad_obs_values.columns:
+        mask = bad_obs_values["metadata.semid"].isin(awarded_programs)
+        bad_obs_values = bad_obs_values[mask].reset_index(drop=True)
+        bad_obs_hasFields = bad_obs_hasFields[mask].reset_index(drop=True)
+
+    bad_obs_count_by_semid, bad_field_histogram = analyze_bad_obs(
+        good_obs, bad_obs_values, bad_obs_hasFields, awarded_programs
+    )
+    good_obs.sort_values(by="program_code", inplace=True)
+    good_obs.reset_index(inplace=True, drop=True)
+
+    # Cast target column to strings to ensure proper matching
+    if "target" in good_obs.columns:
+        good_obs["target"] = good_obs["target"].astype(str)
+
+    os.makedirs(os.path.dirname(savepath), exist_ok=True)
+    return (
+        good_obs,
+        bad_obs_values,
+        bad_obs_hasFields,
+        bad_obs_count_by_semid,
+        bad_field_histogram,
+    )
+
+
+def flatten(d, parent_key="", sep="."):
+    """
+    Flatten a dictionary into a single level.
+
+    Args:
+        d (dict): the nested dictionary to flatten
+        parent_key (str): the parent key
+        sep (str): the separator between the parent key and the child key
+
+    Returns:
+        items (dict): a dictionary with the flattened keys and values
+    """
+    items = {}
+    for k, v in d.items():
+        new_key = f"{parent_key}{sep}{k}" if parent_key else k
+        if isinstance(v, dict):
+            items.update(flatten(v, new_key, sep=sep))
+        else:
+            items[new_key] = v
+    return items
+
+
+def apply_safety_valves(value_df, presence_df):
+    """
+    Apply safety valve defaults to fill in missing or empty values for certain fields.
+    This function modifies value_df and presence_df in place.
+
+    Args:
+        value_df (pandas DataFrame): DataFrame with OB values
+        presence_df (pandas DataFrame): DataFrame indicating field presence
+
+    Returns:
+        value_df (pandas DataFrame): Modified DataFrame with safety valve defaults applied
+        presence_df (pandas DataFrame): Modified DataFrame with presence updated
+    """
+    # Define default values for safety valves
+    safety_valve_defaults = {
+        "target.gaia_id": "NoGaiaName",
+        "target.t_eff": -1000.0,
+        # absurdly high so that it is not used in the computation of exposure times
+        "observation.exp_meter_threshold": 50000.0,
+        "schedule.num_intranight_cadence": 0,
+        "schedule.num_intranight_cadence": 0,
+        "schedule.num_inter_cadence": 0,
+        "schedule.n_inter_max": 0,
+        "schedule.n_intra_max": 1,
+        "schedule.n_inter_min": 1,
+        "schedule.n_exp": 1,
+        "schedule.minimum_elevation": 33,
+        "schedule.minimum_moon_separation": 33,
+        "schedule.weather_band_1": True,
+        "schedule.weather_band_2": True,
+        "schedule.weather_band_3": False,
+        "metadata.ob_inactive": False,
+    }
+
+    # Apply safety valves using a loop
+    for col_name, default_value in safety_valve_defaults.items():
+        if col_name not in value_df.columns:
+            value_df[col_name] = default_value
+            presence_df[col_name] = True
+        else:
+            value_df[col_name] = value_df[col_name].fillna(default_value)
+            # Also handle empty strings for string columns
+            if isinstance(default_value, str):
+                value_df[col_name] = value_df[col_name].replace("", default_value)
+            presence_df[col_name] = presence_df[col_name] | value_df[col_name].notna()
+
+    # Special case for weather bands based on metadata.semid
+    # this was only for 2025B while weather bands were being developed
+    if "metadata.semid" in value_df.columns:
+        # Check for 2025B_E473 semid and set opposite weather band values
+        mask_2025B_E473 = value_df["metadata.semid"] == "2025B_E473"
+        if mask_2025B_E473.any():
+            if "schedule.weather_band_1" in value_df.columns:
+                value_df.loc[mask_2025B_E473, "schedule.weather_band_1"] = False
+            if "schedule.weather_band_2" in value_df.columns:
+                value_df.loc[mask_2025B_E473, "schedule.weather_band_2"] = False
+            if "schedule.weather_band_3" in value_df.columns:
+                value_df.loc[mask_2025B_E473, "schedule.weather_band_3"] = True
+
+    return value_df, presence_df
+
+
+def create_checks_dataframes(OBs, required_fields):
+    """
+    Create the dataframes to determine the good and bad OBs.
+
+    Args:
+        OBs (json): the OB information in json format
+        required_fields (list): a list of the required fields that must be present
+
+    Returns:
+        value_df (pandas DataFrame): a DataFrame with the values of the OBs
+        presence_df (pandas DataFrame): a DataFrame with the indication of fields existing or not for the OBs
+        all_true_mask (pandas Series): a mask indicating which OBs in the list are good.
+    """
+    # Store flattened rows and collect all keys
+    flat_value_rows = []
+    flat_presence_rows = []
+    all_keys = set()
+    for entry in OBs["observing_blocks"]:
+        flat = flatten(entry)
+        flat_value_rows.append(flat)
+        presence_row = {k: True for k in flat}
+        flat_presence_rows.append(presence_row)
+        all_keys.update(flat.keys())
+
+    columns = sorted(all_keys)
+
+    value_df = pd.DataFrame(
+        [[row.get(col, np.nan) for col in columns] for row in flat_value_rows],
+        columns=columns,
+    )
+
+    presence_df = pd.DataFrame(
+        [[row.get(col, False) for col in columns] for row in flat_presence_rows],
+        columns=columns,
+    )
+
+    # Optional: add row labels
+    index_labels = [f"entry_{i + 1}" for i in range(len(value_df))]
+    value_df.index = index_labels
+    presence_df.index = index_labels
+
+    # Catch values that exist, but are None, "<NA>", or blank
+    for col in columns:
+        for idx in index_labels:
+            val = value_df.at[idx, col]
+            if not pd.api.types.is_scalar(val) or pd.isna(val):
+                presence_df.at[idx, col] = False
+            elif isinstance(val, str) and val.strip() == "":
+                # Catch empty strings or whitespace-only strings
+                presence_df.at[idx, col] = False
+
+    return value_df, presence_df
+
+
+def cast_columns(df):
+    """
+    Cast columns to their appropriate data types based on the column_definitions dictionary.
+
+    Args:
+        df (pandas DataFrame): the DataFrame to cast the columns of
+
+    Returns:
+        df (pandas DataFrame): the DataFrame with the columns cast to the appropriate data types
+    """
+    df = df.copy()
+    for col, col_info in column_definitions.items():
+        if col in df.columns:
+            dtype = col_info["type"]
+            if dtype in ["Int64", "Float64"]:
+                df[col] = pd.to_numeric(df[col], errors="coerce").astype(dtype)
+            elif dtype == "string":
+                df[col] = df[col].astype("string")
+            elif dtype == "boolean":
+                df[col] = df[col].astype("boolean")
+            else:
+                raise ValueError(
+                    f"Unsupported dtype: {dtype}. Only 'Int64', 'Float64', 'string', and 'boolean' are allowed."
+                )
+    return df
+
+
+def validate_and_convert_coordinates(df):
+    """
+    Validate and convert RA/Dec coordinates from string format (hourangle/deg) to degrees.
+    Removes rows with invalid coordinates and prints warnings for removed targets.
+
+    Args:
+        df (pandas DataFrame): DataFrame with 'ra' and 'dec' columns as strings in hourangle/deg format
+
+    Returns:
+        df (pandas DataFrame): DataFrame with valid coordinates converted to degrees, invalid rows removed
+    """
+    ra_list = df["ra"].astype(str).tolist()
+    dec_list = df["dec"].astype(str).tolist()
+
+    # Try to create SkyCoord and handle invalid coordinates
+    valid_indices = []
+    invalid_targets = []
+
+    for i, (ra, dec) in enumerate(zip(ra_list, dec_list)):
+        try:
+            test_coord = SkyCoord(ra=ra, dec=dec, unit=(u.hourangle, u.deg))
+            valid_indices.append(i)
+        except Exception as e:
+            target_id = df.iloc[i].get("unique_id", "Unknown ID")
+            target_name = df.iloc[i].get("target", "Unknown Name")
+            invalid_targets.append(
+                {
+                    "id": target_id,
+                    "target": target_name,
+                    "ra": ra,
+                    "dec": dec,
+                    "error": str(e),
+                }
+            )
+
+    if invalid_targets:
+        print(
+            f"Warning: {len(invalid_targets)} targets have invalid coordinates and will be removed:"
+        )
+        for t in invalid_targets:
+            print(
+                f"  ID: {t['id']}, Target: {t['target']}, RA: {t['ra']}, Dec: {t['dec']}"
+            )
+            print(f"    Error: {t['error']}")
+
+    # Filter to only valid coordinates
+    if len(valid_indices) < len(df):
+        df = df.iloc[valid_indices].reset_index(drop=True)
+        ra_list = [ra_list[i] for i in valid_indices]
+        dec_list = [dec_list[i] for i in valid_indices]
+
+    # Now create SkyCoord with only valid coordinates
+    coords = SkyCoord(ra=ra_list, dec=dec_list, unit=(u.hourangle, u.deg))
+    df["ra"] = coords.ra.deg
+    df["dec"] = coords.dec.deg
+
+    return df
+
+
+def sort_good_bad(OBs, awarded_programs):
+    """
+    Sort the OBs into good and bad buckets.
+
+    Args:
+        OBs (json): the OB information in json format
+        awarded_programs (list): a list of the awarded programs
+
+    Returns:
+        trimmed_good (pandas DataFrame): a DataFrame with the good OBs
+        bad_OBs_values (pandas DataFrame): a DataFrame with the values of the bad OBs fields
+        bad_OBs_hasFields (pandas DataFrame): a DataFrame with the indication of fields existing or not for the bad OBs
+    """
+
+    OB_values, OB_hasFields = create_checks_dataframes(OBs, required_fields)
+
+    # Apply safety valves
+    run_safety_valves = True
+    if run_safety_valves:
+        OB_values, OB_hasFields = apply_safety_valves(OB_values, OB_hasFields)
+
+    def row_is_good(row):
+        # Check that all required fields are present
+        # If a required field is missing from the dataframe, row.get returns False (default)
+        return all(row.get(col, False) for col in required_fields)
+
+    pass_OBs_mask = OB_hasFields.apply(row_is_good, axis=1)
+
+    bad_OBs_values = OB_values[~pass_OBs_mask]
+    bad_OBs_values.reset_index(inplace=True, drop="True")
+    bad_OBs_hasFields = OB_hasFields[~pass_OBs_mask]
+    bad_OBs_hasFields.reset_index(inplace=True, drop="True")
+
+    mask = bad_OBs_values["metadata.semid"].isin(awarded_programs)
+    bad_OBs_values = bad_OBs_values[mask].reset_index(drop=True)
+    bad_OBs_hasFields = bad_OBs_hasFields[mask].reset_index(drop=True)
+
+    good_OB_values = OB_values[pass_OBs_mask]
+    good_OB_values.reset_index(inplace=True, drop="True")
+    good_OBs = cast_columns(good_OB_values)
+
+    good_OBs_awarded = good_OBs[good_OBs["metadata.semid"].isin(awarded_programs)]
+    good_OBs_awarded.reset_index(inplace=True, drop="True")
+
+    new_column_names = {
+        col: col_info["new_name"] for col, col_info in column_definitions.items()
+    }
+    trimmed_good = good_OBs_awarded[list(column_definitions.keys())].rename(
+        columns=new_column_names
+    )
+
+    trimmed_good = validate_and_convert_coordinates(trimmed_good)
+
+    return trimmed_good, bad_OBs_values, bad_OBs_hasFields
+
+
+def recompute_exposure_times(request_frame, slowdown_factor):
+    """
+    Recompute the exposure times for the request frame based on the band number slowdown factor.
+
+    Args:
+        request_frame (pandas DataFrame): the request.csv in dataframe format
+        slowdown_factor (float): the slowdown factor to apply to the exposure times
+
+    Returns:
+        new_exptimes (list): a list of the new exposure times based on slowdown.
+    """
+    # These values determined emperically using KPF data spanning a year.
+    # Do not change unless you have good reason.
+    factor = 40
+    slope_median = -0.362
+    intercept_median = 8.889
+
+    rate = slope_median * request_frame["gmag"] + intercept_median
+    time = (request_frame["exp_meter_threshold"] * factor * 10**6) / (10**rate)
+    time = time.clip(lower=12)
+    if slowdown_factor > 1:
+        newtime = (
+            (time * slowdown_factor)
+            .clip(upper=request_frame["exptime"])
+            .round()
+            .astype("Int64")
+        )
+    else:
+        newtime = (
+            (time * slowdown_factor)
+            .clip(lower=request_frame["exptime"])
+            .round()
+            .astype("Int64")
+        )
+    return newtime
+
+
+def analyze_bad_obs(
+    trimmed_good,
+    bad_OBs_values,
+    bad_OBs_hasFields,
+    awarded_programs,
+    required_fields=required_fields,
+):
+    """
+    Analyze the bad OBs and produce a count of bad OBs by semester and a histogram of bad OBs by field.
+
+    Args:
+        trimmed_good (pandas DataFrame): the good OBs
+        bad_OBs_values (pandas DataFrame): the values of the fields in the bad OBs
+        bad_OBs_hasFields (pandas DataFrame): the existence of the fields in the bad OBs
+        awarded_programs (list): a list of the awarded programs
+        required_fields (list): a list of the required fields
+
+    Returns:
+        - bad_obs_count_by_semid: dict {metadata.semid: count of bad OBs}
+        - bad_field_histogram: dict {field: count of times field was missing in a bad OB}
+    """
+    # 1. Count bad OBs per metadata.semid
+    if "metadata.semid" in bad_OBs_values.columns:
+        bad_obs_count_by_semid = (
+            bad_OBs_values["metadata.semid"].value_counts().to_dict()
+        )
+    else:
+        bad_obs_count_by_semid = {}
+    # Ensure all awarded_programs are present as keys
+    if awarded_programs is not None:
+        for semid in awarded_programs:
+            if semid not in bad_obs_count_by_semid:
+                bad_obs_count_by_semid[semid] = 0
+
+    # 2. Histogram of missing fields (reasons for bad OBs) - only check required fields
+    bad_field_histogram = {
+        col: 0 for col in required_fields if col in bad_OBs_hasFields.columns
+    }
+    for idx, row in bad_OBs_hasFields.iterrows():
+        for col in bad_field_histogram:
+            if not bool(row.get(col, False)):
+                bad_field_histogram[col] += 1
+
+    return bad_obs_count_by_semid, bad_field_histogram
+
+
+def plot_bad_obs_histograms(bad_obs_count_by_semid, bad_field_histogram):
+    """
+    Plots histograms for bad_obs_count_by_semid and bad_field_histogram.
+    X: keys, Y: values.
+
+    Args:
+        bad_obs_count_by_semid (dict): a dictionary mapping the program code to the count of bad OBs
+        bad_field_histogram (dict): a dictionary mapping the field to the count of times field was missing in a bad OB
+
+    Returns:
+        None
+    """
+    import plotly.graph_objects as go
+
+    fig1 = go.Figure(
+        go.Bar(
+            x=list(bad_obs_count_by_semid.keys()),
+            y=list(bad_obs_count_by_semid.values()),
+        )
+    )
+    fig1.update_layout(
+        title="Number of Bad OBs per Program",
+        xaxis_title="Program (metadata.semid)",
+        yaxis_title="Number of Bad OBs",
+        xaxis=dict(tickangle=-45),
+        width=900,
+        height=400,
+    )
+    fig1.show()
+
+    fig2 = go.Figure(
+        go.Bar(
+            x=list(bad_field_histogram.keys()),
+            y=list(bad_field_histogram.values()),
+        )
+    )
+    fig2.update_layout(
+        title="Frequency of Each Field as Reason for Bad OB",
+        xaxis_title="Field",
+        yaxis_title="Count as Reason for Bad OB",
+        xaxis=dict(tickangle=-90),
+        width=1100,
+        height=400,
+    )
+    fig2.show()
+
+
+def inspect_row(df_exists, df_values, row_num, required_fields=required_fields):
+    """
+    Inspect and print a summary of a specific row's key existence and requirement status.
+
+    Args:
+        df_exists (pandas DataFrame): the existence of the fields in the OBs
+        df_values (pandas DataFrame): the values of the fields in the OBs
+        row_num (int): the row number to inspect
+        required_fields (list): a list of the required fields
+
+    Returns:
+        email_body (str): the email body for the inspection
+    """
+    row_exists = df_exists.iloc[row_num]
+    row_values = df_values.iloc[row_num]
+
+    lines = []
+    lines.append(f"_id:         {row_values['_id']}")
+    lines.append(f"target_name: {row_values['target.target_name']}")
+    lines.append(f"semester_id: {row_values['metadata.semid']}")
+    lines.append("-" * 40)
+    lines.append(f"{'Missing But Required Fields':<40}")
+    lines.append("-" * 40)
+
+    for col in required_fields:
+        if col in df_exists.columns:
+            exists = bool(row_exists[col])
+            if not exists:
+                lines.append(f"{col:<40}")
+
+    email_body = email_template.format(
+        semid=row_values["metadata.semid"],
+        target=row_values["target.target_name"],
+        _id=row_values["_id"],
+        badparams="\n".join(lines),
+    )
+    return email_body
+
+
+email_template = """
+Hello,
+
+As the PI of a KPFCC program, {semid}, you are receiving this email because at least one of the OBs
+you submitted to the queue is incorrect, insufficient, or both. This email is a courtesy notice that the
+following OB has been rejected by the Community Cadence system and therefore is not scheduled for any
+observations. When this OB has been remedied, the system will automatically begin including it in the
+optimal scheduling algorithm. Each day the algorithm pulls from the OB database and performs these checks and so
+each day that the OB is not in compliance, you will receive this email. To effectively shut off this email, either
+1) fix the affected OB
+2) delete the OB
+
+The following OB id/target_name was rejected for the follwowing reason(s). These fields are missing or incorrectly formatted: \n
+{badparams}
+
+Note: for fields that begin with "target", you may just need to hit the bullseye button again on the webform and then resubmit.
+
+If you have any questions about why this OB was rejected or on the process of remedy/resubmission, please reach out
+to KPF-CC Project Scientist Jack Lubin (jblubin@ucla.edu)
+
+Very best,
+Jack
+"""
+
+
+def filter_request_csv(request_df, weather_band_num):
+    """
+    Filter request.csv file to only keep rows where weather_band_X = True
+
+    Args:
+        request_file_path (str): Path to the request.csv file
+        weather_band_num (int): Weather band number to filter by
+
+    Returns:
+        bool: True if filtering was successful, False otherwise
+    """
+    weather_band_col = f"weather_band_{weather_band_num}"
+
+    if weather_band_col in request_df.columns:
+        filtered_df = request_df[request_df[weather_band_col] == True]
+    else:
+        print(
+            f"Warning: Column {weather_band_col} not found in request.csv. No filtering applied."
+        )
+    return filtered_df
+
+
+def update_allocation_file(allocation_df, current_date):
+    """
+    Update allocation.csv file with today's 12-degree twilight times
+
+    Args:
+        allocation_file_path (str): Path to the allocation.csv file
+        current_date (str): Current date in YYYY-MM-DD format
+
+    Returns:
+        bool: True if update was successful, False otherwise
+    """
+    date_exists = False
+    date_idx = -1
+
+    # Check if current date exists in allocation file
+    for idx, row in allocation_df.iterrows():
+        row_date = str(row["start"])[:10]  # Get YYYY-MM-DD portion
+        if row_date == current_date:
+            date_exists = True
+            date_idx = idx
+            break
+
+    # Get 12-degree twilight times for current date
+    observatory = "Keck Observatory"
+    keck = apl.Observer.at_site(observatory)
+    day = Time(current_date, format="isot", scale="utc")
+
+    evening_12 = keck.twilight_evening_nautical(day, which="next")
+    morning_12 = keck.twilight_morning_nautical(day, which="next")
+
+    if not date_exists:
+        print(f"Adding allocation row for current_day: {current_date}")
+        new_row = pd.DataFrame(
+            {
+                "start": [evening_12.strftime("%Y-%m-%dT%H:%M")],
+                "stop": [morning_12.strftime("%Y-%m-%dT%H:%M")],
+            }
+        )
+        allocation_df = pd.concat([allocation_df, new_row], ignore_index=True)
+        allocation_df.loc[len(allocation_df) - 1, "comment"] = (
+            "added as part of full-band processing"
+        )
+        print(f"Added allocation: {evening_12.iso} to {morning_12.iso}")
+    else:
+        print(f"Updating existing allocation row for current_day: {current_date}")
+        allocation_df.loc[date_idx, "start"] = evening_12.strftime("%Y-%m-%dT%H:%M")
+        allocation_df.loc[date_idx, "stop"] = morning_12.strftime("%Y-%m-%dT%H:%M")
+        allocation_df.loc[date_idx, "comment"] = "added as part of full-band processing"
+        print(f"Updated allocation: {evening_12.iso} to {morning_12.iso}")
+
+    return allocation_df
+
+
+def expand_allocation_for_band3(
+    allocation_df, observatory, buffer_minutes=20, tol_minutes=10
+):
+    """Extend allocation rows whose start/stop matches 12-deg nautical
+    twilight by ``buffer_minutes`` on each side.
+
+    Used at prep time when ``-band 3`` is requested: claims a small
+    band-3 (filler) buffer at the edges of allocated nights without
+    overlapping band-1/2 time.
+
+    Args:
+        allocation_df (pandas.DataFrame): allocation frame with ISO
+            ``start`` / ``stop`` columns (``YYYY-MM-DDTHH:MM``).
+        observatory (astroplan.Observer): the observing site, used to
+            compute nautical twilight times for each row's date.
+        buffer_minutes (int): minutes added on each end at twilight
+            boundaries. Defaults to 20.
+        tol_minutes (int): tolerance for the twilight-match heuristic.
+            Defaults to 10.
+
+    Returns:
+        pandas.DataFrame: a new frame; the input is not mutated.
+    """
+    df = allocation_df.copy()
+    tol = TimeDelta(tol_minutes * 60.0, format="sec")
+    buf = TimeDelta(buffer_minutes * 60.0, format="sec")
+
+    for idx, row in df.iterrows():
+        date_str = str(row["start"])[:10]
+        day = Time(date_str, format="iso", scale="utc")
+        evening_12 = observatory.twilight_evening_nautical(day, which="next")
+        morning_12 = observatory.twilight_morning_nautical(day, which="next")
+
+        start_time = Time(row["start"])
+        if abs(start_time - evening_12) <= tol:
+            df.loc[idx, "start"] = (start_time - buf).strftime("%Y-%m-%dT%H:%M")
+            print(f"Adjusted start time for {date_str}: subtracted {buffer_minutes} min")
+
+        stop_time = Time(row["stop"])
+        if abs(stop_time - morning_12) <= tol:
+            df.loc[idx, "stop"] = (stop_time + buf).strftime("%Y-%m-%dT%H:%M")
+            print(f"Adjusted stop time for {date_str}: added {buffer_minutes} min")
+
+    return df

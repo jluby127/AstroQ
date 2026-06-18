@@ -1,772 +1,744 @@
 """
-Module that defines the SemesterPlanner class. This class is responsible for defining, building, and solving the
-Gurobi model for semester-level observation planning. It is nearly completely agnostic to all astronomy knowledge.
-
+Module that defines the SemesterPlanner class. This class is responsible for defining,
+building, and solving the Gurobi model for semester-level observation planning. It is
+nearly completely agnostic to all astronomy knowledge.
 """
 
-# Standard library imports
 import logging
 import os
 import time
-import warnings
 from configparser import ConfigParser
-from datetime import datetime, timedelta
-import pickle
-import json
-import h5py
+from datetime import datetime
+from pathlib import Path
 
-# Third-party imports
 import gurobipy as gp
-from gurobipy import GRB
+import h5py
 import numpy as np
 import pandas as pd
-from astropy.time import Time, TimeDelta
-import astroplan as apl
-
-# Local imports
+from gurobipy import GRB
 import astroq.access as ac
-import astroq.history as hs
-import astroq.io as io
-
-# Suppress warnings
-warnings.filterwarnings('ignore')
+import astroq.queue
 
 logs = logging.getLogger(__name__)
 
-class SemesterPlanner(object):
+# Schema for h5 serialization bump when the on-disk layout changes
+SEMESTER_PLANNER_H5_SCHEMA = 4
+
+# Canonical past.csv column schema. ``junk`` is optional.
+PAST_COLS = ["unique_id", "target", "timestamp", "exposure_time"]
+
+
+class SemesterPlanner:
+    """Semester-level scheduler: pick which targets get observed when.
+
+    Formulates the cadenced-scheduling problem of Lubin et al. 2025
+    (arXiv:2506.08195) as a Gurobi MILP over a (request, day, slot) grid
+    and produces a sparse schedule for the entire semester. The night-level
+    slew ordering is handled separately by :class:`astroq.nplan.NightPlanner`.
+
+    Inputs (resolved relative to ``[global] workdir`` in the config):
+        - ``request.csv``  -- observing requests, one row per target.
+        - ``allocation.csv`` -- telescope time blocks for the semester.
+        - ``past.csv`` -- prior observations (caps future ``n_inter_max``).
+        - ``custom.csv`` -- PI-supplied per-target observability windows.
+        - ``programs.csv`` -- awarded nights per program (drives throttling).
+
+    Key outputs (written to ``<workdir>/outputs``):
+        - ``semester_plan.csv`` -- sparse schedule with columns
+          ``unique_id, d, s, target``
+        - ``request_selected.csv`` -- tonight's targets, the handoff to
+          :class:`astroq.nplan.NightPlanner`.
+        - ``semester_planner.h5`` -- round-trippable snapshot consumed by
+          :class:`astroq.nplan.NightPlanner` and the plotting layer.
+
+    The per-round run report is emitted via :meth:`log_report` (logged at
+    INFO) rather than persisted to disk.
+
+    Lifecycle:
+
+        >>> sp = SemesterPlanner("config.ini")
+        >>> sp.run_model()       # builds constraints, solves, writes outputs
+
+    Persistence:
+        :meth:`to_hdf5` stores the config text plus a handful of DataFrames
+        and the precomputed ``access_record``; :meth:`from_hdf5` rehydrates
+        a planner suitable for downstream consumers (no Gurobi state). The
+        on-disk schema version is :data:`SEMESTER_PLANNER_H5_SCHEMA`.
+
+    Args:
+        cf (str): path to the ``config.ini`` file.
     """
-    Define the SemesterPlanner object. This is the heart of AstroQ.
-    This object:
-    - manages and holds the parameters defined in the config.ini
-    - constructs additional metadata for easy sharing/storage across functions
-    - builds the Gurobi model
-    - defines the constraints
-    - sets the objective function
-    - kicks off the model solver
-    - serializes the results to a csv file
-    - saves the object to an hdf5 file for use later by the nplan and plot modules
-    """
 
-    def __init__(self, cf, run_band3):
-        """
-        Initialize the SemesterPlanner object.
-
-        Args:
-            cf (str): the path to the config.ini file
-            run_band3 (bool): whether to run the band 3 weather loss model (this will be unnecessary in the 2026A semester)
-
-        Returns:
-            None
-        """
-
+    def __init__(self, cf):
+        """See class docstring."""
         logs.debug("Building the SemesterPlanner.")
-        self.start_the_clock = time.time()
 
-        # Read config file directly
-        config = ConfigParser()
-        config.read(cf)
-        self.run_band3 = run_band3
-        self.config = config 
+        # Read config as text so we can persist it verbatim and recreate the
+        # parser on from_hdf5.
+        self._config_ini_text = Path(cf).read_text()
+        self.config = ConfigParser()
+        self.config.read_string(self._config_ini_text)
+        self.queue = astroq.queue.from_config(self.config)
+        self.schedule = None
 
-        # Extract configuration parameters from new format
-        workdir = str(config.get('global', 'workdir'))
-        self.semester_directory = workdir
-        self.current_day = str(config.get('global', 'current_day'))
-        self.observatory = config.get('global', 'observatory')
-        self.utc_offset_hours = config.getfloat('global', 'UTCoffset', fallback=-10)
-
-        # Get semester parameters from semester section
-        self.slot_size = config.getint('semester', 'slot_size')
-        self.run_weather_loss = config.getboolean('semester', 'run_weather_loss')
-        self.solve_time_limit = config.getint('semester', 'max_solve_time')
-        self.gurobi_output = config.getboolean('semester', 'show_gurobi_output')
-        self.solve_max_gap = config.getfloat('semester', 'max_solve_gap')
-        self.max_bonus = config.getfloat('semester', 'maximum_bonus_size')
-        self.run_bonus_round = config.getboolean('semester', 'run_bonus_round')
-
-        self.semester_start_date = config.get('global', 'semester_start_day')
-        semester_end_date = config.get('global', 'semester_end_day')
-        start_date = datetime.strptime(self.semester_start_date, '%Y-%m-%d')
-        end_date = datetime.strptime(semester_end_date, '%Y-%m-%d')
-        self.semester_length = int((end_date - start_date).days + 1)
-        self.semester_letter = config.get('global', 'semester')[-1]
-
-        self.throttle_grace = config.getfloat('semester', 'throttle_grace')
-        self.hours_per_night = config.getfloat('semester', 'hours_per_night')
-
-        # Output directory
+        workdir = self.config.get("global", "workdir")
         self.output_directory = os.path.join(workdir, "outputs")
-        check = os.path.isdir(self.output_directory)
-        if not check:
-            os.makedirs(self.output_directory)
+        self.allocation_file = self._resolve_path("allocation_file")
+        self.custom_file = self._resolve_path("custom_file")
+        self.programs_file = self._resolve_path("programs_file")
+        os.makedirs(self.output_directory, exist_ok=True)
 
-        # Set up file paths from data section
-        programs_file_config = str(config.get('data', 'programs_file'))
-        if os.path.isabs(programs_file_config):
-            self.programs_file = programs_file_config
-        else:
-            self.programs_file = os.path.join(self.semester_directory, programs_file_config)
-        
-        allocation_file_config = str(config.get('data', 'allocation_file'))
-        if os.path.isabs(allocation_file_config):
-            self.allocation_file = allocation_file_config
-        else:
-            self.allocation_file = os.path.join(self.semester_directory, allocation_file_config)
+        self.requests_frame_all, self.requests_frame = self._load_requests_frame()
+        self.past_df = self._load_past()
 
-        # Define the input files 
-        if self.run_band3:
-            request_file_config = str(config.get('data', 'filler_file'))
-            self.add_twilights()
-        else:
-            request_file_config = str(config.get('data', 'request_file'))
-        if os.path.isabs(request_file_config):
-            self.request_file = request_file_config
-        else:
-            self.request_file = os.path.join(self.semester_directory, request_file_config)
-        
-        past_file_config = str(config.get('data', 'past_file'))
-        if os.path.isabs(past_file_config):
-            self.past_file = past_file_config
-        else:
-            self.past_file = os.path.join(self.semester_directory, past_file_config)
-        
-        custom_file_config = str(config.get('data', 'custom_file'))
-        if os.path.isabs(custom_file_config):
-            self.custom_file = custom_file_config
-        else:
-            self.custom_file = os.path.join(self.semester_directory, custom_file_config)
-        
-        if not os.path.exists(self.request_file):
-            raise FileNotFoundError(f"Requests file not found: {self.request_file}")
-        self.requests_frame_all = pd.read_csv(self.request_file)
-        # splan must only know about the active requests
-        mask = self.requests_frame_all['inactive'] == False
-        logs.warning(f"There are {len(self.requests_frame_all[~mask])} inactive of {len(self.requests_frame_all)} requests.")
-        self.requests_frame = self.requests_frame_all[mask]
-        self.requests_frame.reset_index(drop=True, inplace=True)
+        # Per-request derived columns that depend on past_df live on
+        # requests_frame (single source of truth, no parallel dict
+        # attributes). Constraint methods derive `dict(zip(...))` adapters
+        # locally where Gurobi's quicksum needs O(1) keyed lookup.
+        self._attach_past_columns()
 
-        # Data cleaning
-        # Fill NaN values with defaults --- for now in early 2025B since we had issues with the webform.
-        # Replace "None" strings with NaN first, then fill with defaults to make sure we get them all 
-        self.requests_frame['n_intra_max'] = self.requests_frame['n_intra_max'].replace('None', np.nan).fillna(1)
-        self.requests_frame['n_intra_min'] = self.requests_frame['n_intra_min'].replace('None', np.nan).fillna(1)
-        self.requests_frame['tau_intra'] = self.requests_frame['tau_intra'].replace('None', np.nan).fillna(0)
-        # Handle weather band columns - process each band column individually
-        for band_num in [1, 2, 3]:
-            weather_band_col = f'weather_band_{band_num}'
-            if weather_band_col in self.requests_frame.columns:
-                self.requests_frame[weather_band_col] = self.requests_frame[weather_band_col].replace('None', np.nan).fillna(False)
-        self.requests_frame['unique_id'] = self.requests_frame['unique_id'].astype(str)
-        self.requests_frame['starname'] = self.requests_frame['starname'].astype(str)
-
-        # Build the "strategy" dataframe. Note exptime is in minutes and tau_intra is in hours they are both converted to slots here
-        strategy = self.requests_frame[['starname', 'unique_id', 'n_intra_min','n_intra_max','n_inter_max','tau_inter']]
-        strategy['t_visit'] = (self.requests_frame['exptime'] / 60 / self.slot_size).clip(lower=1).round().astype(int) 
-        strategy['tau_intra'] = (self.requests_frame['tau_intra'] * 60 / self.slot_size).round().astype(int) 
-        self.strategy = strategy
-
-        # Compile additional data and metadata 
-        self.past_history = hs.process_star_history(
-            self.past_file, self.utc_offset_hours, observatory=self.observatory
+        # Observability cube (single source of truth for which slots are valid).
+        self.access_obj = ac.Access.from_planner(self)
+        self.access_record = self.access_obj.build_access()
+        self.observability = self.access_obj.observability(
+            self.access_record.is_observable
         )
-        self.slots_needed_for_exposure_dict = self._build_slots_required_dictionary()
-        self.all_dates_dict, self.all_dates_array = self._build_date_dictionary()
-        self._calculate_slot_info()
-        
-        # Observability represents the indices of the slots where targets are observable
-        self.observability = self._build_observability()
-        self.observability_tuples = list(self.observability.itertuples(index=False, name=None))
 
-        # Joiner combines strategy and observability
-        self.joiner = pd.merge(self.strategy, self.observability, on=['unique_id'])
-        # add dummy columns for easier joins
-        self.joiner['unique_id2'] = self.joiner['unique_id']
-        self.joiner['d2'] = self.joiner['d']
-        self.joiner['s2'] = self.joiner['s']
+        # Pre-computed aggregations consumed by the constraint methods. The
+        # ones stored on self (joiner, observability_tuples,
+        # all_valid_ds_for_request) are read from multiple constraints; the
+        # rest live as locals at their call sites.
+        self._build_constraint_lookups()
 
-        # Determine the nights where multi-visit requests are observable and the list of multi-visit requests
-        self.observability_nights = self.joiner[self.joiner['n_intra_max'] > 1][['unique_id', 'd']].drop_duplicates().copy()
-        self.multi_visit_requests = list(self.observability_nights['unique_id'].unique())
+        self.build_gurobi_model()
 
-        # Define subsets of requests 
-        self.all_requests = list(self.requests_frame['unique_id'])
-        self.schedulable_requests =  list(self.joiner['unique_id'].unique())
-        self.single_visit_requests = [item for item in self.schedulable_requests if item not in self.multi_visit_requests]
-        warncount = 0
-        for starid in list(self.requests_frame['unique_id']):
-            if starid not in self.schedulable_requests:
-                starname = self.requests_frame[self.requests_frame['unique_id']==starid]['starname'].values[0]
-                #logs.warning("Target " + starname + " with unique id " + starid +  " has no valid day/slot pairs and therefore is effectively removed from the model.")
-                warncount += 1
-        logs.warning("There are " + str(warncount) + " targets out of " + str(len(list(self.requests_frame['unique_id']))) + " that have no valid day/slot pairs and therefore are effectively removed from the model.")
-
-        # Get each request's full list of valid d/s pairs
-        self.all_valid_ds_for_request = self.joiner.groupby(['unique_id'])[['d', 's']].agg(list)
-        # Get all requests which are valid in slot (d, s)
-        requests_valid_for_ds = pd.merge(
-            self.joiner.drop_duplicates(['d', 's']),
-            self.joiner[['unique_id', 'd', 's']],
-            suffixes=['', '3'],
-            on=['d', 's'])
-        self.requests_valid_for_ds = requests_valid_for_ds.groupby(['d','s'])[['unique_id3']].agg(list)
-
-        # Get all valid d/s pairs
-        self.valid_ds_pairs = self.joiner.copy()
-        # Get all requests that require multiple slots to complete one observation
-        self.multislot_mask = self.joiner.t_visit > 1
-        self.multi_slot_frame = self.joiner[self.multislot_mask]
-        # Get all valid slots s for request r on day d
-        valid_s_for_rd = pd.merge(
-            self.joiner.drop_duplicates(['unique_id','d',]),
-            self.joiner[['unique_id','d','s']],
-            suffixes=['','3'],on=['unique_id']
-        ).query('d == d3')
-        self.slots_on_day_for_r = valid_s_for_rd.groupby(['unique_id','d'])[['s3']].agg(list)
-        # Get all request id's that are valid on a given day
-        self.unique_request_on_day_pairs = self.joiner.copy().drop_duplicates(['unique_id','d'])
-
-        # Define the Gurobi model
-        self.model = gp.Model('Semester_Scheduler')
-        # Yrds is technically a 1D matrix indexed by tuples.
-        # But in practice best think of it as a 3D ragged matrix of requests r, nights d, and slots s, with gaps.
-        # Day d / Slot s for request r will be 1 to indicate starting an exposure for that request in that day/slot
-        observability_array = list(self.observability.itertuples(index=False, name=None))
-        self.Yrds = self.model.addVars(observability_array, vtype = GRB.BINARY, name = 'Requests_Slots')
-
-        if len(self.observability_nights) != 0:
-            # Wrd is technically a 1D matrix indexed by tuples.
-            # But in practice best think of it as a 2D ragged matrix of requests r and nights d, with gaps.
-            # Night d for request r will be 1 to indicate at least one exposure is scheduled for this night.
-            # Note that Wrd is only valid for requests r which have at least 2 visits requested in the night.
-            observability_array_onsky = list(self.observability_nights.itertuples(index=False, name=None))
-            self.Wrd = self.model.addVars(observability_array_onsky, vtype = GRB.BINARY, name = 'OnSky')
-
-        # theta is the "shortfall" variable, continous in natural numbers.
-        self.theta = self.model.addVars(self.all_requests, name = 'Shortfall')
-
-        # Set the max allowed number of observations for each request based on the past history and the requested number of observations
-        desired_max_obs_allowed_dict = {}
-        absolute_max_obs_allowed_dict = {}
-        past_nights_observed_dict = {}
-        for name in self.all_requests:
-            idx = self.requests_frame.index[self.requests_frame['unique_id']==name][0]
-            if name in list(self.past_history.keys()):
-                past_nights_observed = self.past_history[name].total_n_unique_nights
-            else:
-                past_nights_observed = 0
-
-            # Safety valve for if the target is over-observed for any reason
-            # if past_nights_observed > self.requests_frame['n_inter_max'][idx] + \
-            #             int(self.requests_frame['n_inter_max'][idx]*self.max_bonus):
-            if past_nights_observed > self.requests_frame['n_inter_max'][idx]:
-                desired_max_obs = past_nights_observed
-            else:
-                desired_max_obs = (self.requests_frame['n_inter_max'][idx] - past_nights_observed)
-                absolute_max_obs = (self.requests_frame['n_inter_max'][idx] - past_nights_observed) \
-                        + int(self.requests_frame['n_inter_max'][idx]*self.max_bonus)
-                # second safety valve
-                if past_nights_observed > absolute_max_obs:
-                    absolute_max_obs = past_nights_observed
-            
-            past_nights_observed_dict[name] = past_nights_observed
-            desired_max_obs_allowed_dict[name] = desired_max_obs
-            absolute_max_obs_allowed_dict[name] = absolute_max_obs
-            self.desired_max_obs_allowed_dict = desired_max_obs_allowed_dict
-            self.absolute_max_obs_allowed_dict = absolute_max_obs_allowed_dict
-            self.past_nights_observed_dict = past_nights_observed_dict
         logs.debug("Initializing complete.")
 
-    def _build_date_dictionary(self):
-        """
-        Construct useful data structures that are used throughout the semester planner.
+    def _resolve_path(self, key):
+        """Resolve a ``[data]`` config key against ``[global] workdir``."""
+        raw = self.config.get("data", key)
+        workdir = self.config.get("global", "workdir")
+        return raw if os.path.isabs(raw) else os.path.join(workdir, raw)
 
-        Returns:
-            all_dates_dict (dict): a dictionary where keys are the dates in the semester and values are the day index
-            all_dates_array (list): a list of the dates in the semester
-        """
-        start_date = datetime.strptime(self.semester_start_date, '%Y-%m-%d')
-        end_date = datetime.strptime(self.semester_start_date, '%Y-%m-%d') + timedelta(days=self.semester_length - 1)
-        
-        all_dates_dict = {}
-        all_dates_array = []
-        
-        current_date = start_date
-        day_index = 0
-        
-        while current_date <= end_date:
-            date_str = current_date.strftime('%Y-%m-%d')
-            all_dates_dict[date_str] = day_index
-            all_dates_array.append(date_str)
-            current_date += timedelta(days=1)
-            day_index += 1
-        
-        return all_dates_dict, all_dates_array
+    def _load_past(self):
+        """Read ``past.csv``, drop junk-flagged visits, return a DataFrame.
 
-    def _calculate_slot_info(self):
+        Empty/missing files yield an empty frame with the canonical schema.
+        Junk filter: drop a visit (``unique_id, timestamp`` group) when at
+        least half of its rows are flagged ``junk=True``.
         """
-        Compute important numbers relating to the quantity of slots.
+        path = self._resolve_path("past_file")
+        if not path or not os.path.exists(path) or os.path.getsize(path) == 0:
+            return pd.DataFrame(columns=PAST_COLS)
+        try:
+            df = pd.read_csv(path)
+        except pd.errors.EmptyDataError:
+            return pd.DataFrame(columns=PAST_COLS)
+        if "junk" in df.columns:
+            df["junk"] = df["junk"].fillna(False).astype(bool)
+            keep = df.groupby(["unique_id", "timestamp"])["junk"].transform(
+                lambda s: s.sum() < len(s) / 2
+            )
+            df = df.loc[keep]
+        return df.reset_index(drop=True)
 
-        Returns:
-            None
-        """
-        # Calculate slots per quarter and night
-        self.n_slots_in_night = int(24 * 60 / self.slot_size)
-        
-        # Calculate remaining semester info
-        self.n_nights_in_semester = len(self.all_dates_dict) - self.all_dates_dict[self.current_day]
-        self.n_slots_in_semester = self.n_slots_in_night * self.n_nights_in_semester
-        
-        # Calculate today's starting positions
-        self.today_starting_slot = self.all_dates_dict[self.current_day] * self.n_slots_in_night
-        self.today_starting_night = self.all_dates_dict[self.current_day]
+    # ------------------------------------------------------------------
+    # Properties (date-derived; path attrs are set in __init__).
+    # ------------------------------------------------------------------
 
-    def _build_slots_required_dictionary(self, always_round_up_flag=False):
-        """
-        Determine the number of slots required to complete for each visit of a given request.
-
-        Returns:
-            slots_needed_for_exposure_dict (dict): a dictionary where keys are the star names and values are the number of slots required for each exposure
-        """
-        slots_needed_for_exposure_dict = {}
-        for n, row in self.requests_frame.iterrows():
-            starid = row['unique_id']
-            exposure_time = float(row['exptime']*row['n_exp'])
-            overhead = 45*float(row['n_exp'] - 1) + 180*float(row['n_intra_max'])
-            
-            if always_round_up_flag:
-                slots_needed = int(np.ceil((exposure_time + overhead) / (self.slot_size * 60.0)))
-            else:
-                slots_needed = int(np.round((exposure_time + overhead) / (self.slot_size * 60.0)))
-            if slots_needed < 1:
-                slots_needed = 1
-            
-            slots_needed_for_exposure_dict[starid] = slots_needed
-        
-        return slots_needed_for_exposure_dict
-
-    def _build_observability(self):
-        """
-        Determine the indices of the slots where targets are observable using the Access object.
-
-        Returns:
-            observability (dict): a dictionary where keys are the star names and values are the indices of the slots where the target is observable
-        """
-        # Create Access object with parameters from config
-        # Use KPFCC-specific Access class for Keck Observatory, otherwise use base Access class
-        if 'Keck' in self.observatory or 'keck' in self.observatory.lower():
-            from astroq.queue.kpfcc import Access_KPFCC
-            AccessClass = Access_KPFCC
-        else:
-            AccessClass = ac.Access
-        
-        self.access_obj = AccessClass(
-            semester_start_date=self.semester_start_date,
-            semester_length=self.semester_length,
-            n_nights_in_semester=self.n_nights_in_semester,
-            today_starting_night=self.today_starting_night,
-            current_day=self.current_day,
-            all_dates_dict=self.all_dates_dict,
-            all_dates_array=self.all_dates_array,
-            slot_size=self.slot_size,
-            slots_needed_for_exposure_dict=self.slots_needed_for_exposure_dict,
-            custom_file=self.custom_file,
-            allocation_file=self.allocation_file,
-            past_history=self.past_history,
-            output_directory=self.output_directory,
-            run_weather_loss=self.run_weather_loss,
-            run_band3=self.run_band3,
-            observatory_string=self.observatory,
-            request_frame=self.requests_frame
+    @property
+    def semester_length(self):
+        start = datetime.strptime(
+            self.config.get("global", "semester_start_day"), "%Y-%m-%d"
         )
-
-        # Store the full access record array for later use
-        self.access_record = self.access_obj.produce_ultimate_map()
-        observability = self.access_obj.observability(self.requests_frame, access=self.access_record)
-
-        return observability
-
-    def _compute_slots_required_for_exposure(self, exposure_time, slot_size, always_round_up_flag):
-        """
-        Compute the number of slots required for a given exposure time.
-        
-        Args:
-            exposure_time: Exposure time in minutes
-            slot_size: Slot size in minutes
-            always_round_up_flag: If True, always round up to the next slot
-            
-        Returns:
-            slots_needed (int): the number of slots required for the given exposure time
-        """
-        time_per_slot = slot_size / 60.0  # Convert slot_size to hours
-        
-        if always_round_up_flag:
-            return math.ceil(exposure_time / time_per_slot)
-        else:
-            return round(exposure_time / time_per_slot)
-
-    def constraint_throttle(self):
-        """
-        Not described in Lubin et al. 2025.
-
-        Ensure that no program is scheduled for more time than they bring to the queue, 
-        within a grace amount, decided by the observatory.
-        There is one constraint per program. 
-        """
-        logs.info("Constraint: Throttling over-requested programs.")
-        merged_df = self.requests_frame[['unique_id', 'program_code']].copy()
-        program_frame = pd.read_csv(self.programs_file)
-        
-        # Convert past_history dict to DataFrame and merge
-        past_df = pd.DataFrame([{**{'unique_id': k}, **v._asdict()} for k, v in self.past_history.items()], 
-                               columns=['unique_id', 'name', 'date_last_observed', 'total_n_exposures', 
-                                       'total_n_visits', 'total_n_unique_nights', 'total_open_shutter_time',
-                                       'n_obs_on_nights', 'n_visits_on_nights'])
-        # Ensure unique_id is string type to match merged_df
-        past_df['unique_id'] = past_df['unique_id'].astype(str)
-        past_df['past_slots_used'] = past_df['total_n_exposures'] * past_df['unique_id'].map(self.slots_needed_for_exposure_dict).fillna(1)
-        merged_df = merged_df.merge(past_df[['unique_id', 'past_slots_used']], on='unique_id', how='left')
-        merged_df['past_slots_used'] = merged_df['past_slots_used'].fillna(0)
-        
-        # Merge with program_frame (program_code from requests matches 'program' from program_frame)
-        merged_df = merged_df.merge(
-            program_frame[['program', 'nights']],
-            left_on='program_code',
-            right_on='program',
-            how='inner'
+        end = datetime.strptime(
+            self.config.get("global", "semester_end_day"), "%Y-%m-%d"
         )
-        
-        # Use groupby to calculate past_used_slots per program
-        past_used_slots_by_program = (
-            merged_df.groupby('program')['past_slots_used']
-            .sum()
-            .to_dict()
-        )
-        
-        # Use groupby to create program_requests_map
-        program_requests_map = (
-            merged_df.groupby('program')['unique_id']
-            .apply(set)
-            .to_dict()
-        )
-        
-        # Iterate through programs to build Gurobi constraints
-        for program in program_frame['program']:
-            program_row = program_frame.loc[program_frame['program'] == program].iloc[0]
-            awarded_time_slots = (program_row['nights'] * self.hours_per_night * 60) / self.slot_size
-            awarded_time_slots_grace = int(awarded_time_slots * self.throttle_grace)
+        return int((end - start).days + 1)
 
-            max_slots_allowed_for_scheduling_program = gp.quicksum(
-                self.Yrds[r, d, s] * self.slots_needed_for_exposure_dict[r]
-                for r, d, s in self.observability_tuples
-                if r in program_requests_map.get(program, set())
+    @property
+    def all_dates_array(self):
+        return self.access_obj.all_dates_array
+
+    @property
+    def all_dates_dict(self):
+        return self.access_obj.all_dates_dict
+
+    @property
+    def today_starting_night(self):
+        return self.all_dates_dict[self.config.get("global", "current_day")]
+
+    # ------------------------------------------------------------------
+    # Construction helpers.
+    # ------------------------------------------------------------------
+
+    def _load_requests_frame(self):
+        """Read request.csv, clean, validate. Returns ``(all_frame, active_frame)``.
+
+        Cleaning rules (applied once at CSV ingest; not repeated on HDF5
+        rehydrate): tolerate "None" strings left over from the early-2025B
+        webform, ensure ``comments`` column exists, normalize ``unique_id``
+        and ``target`` to strings, and fail on duplicate active unique_id
+        (which would otherwise produce a cryptic Gurobi error later).
+
+        Also appends two derived slot-unit columns to the active frame:
+
+        - ``t_visit_slots`` -- full per-visit duration in slots, computed
+          from :meth:`astroq.queue.base.Queue.visit_seconds` (includes
+          inter-shot readouts and slew overhead), rounded and clipped to
+          >= 1. This is the slot reservation charged by every Gurobi
+          consumer (constraint_reserve_multislot_exposures, objectives,
+          throttle, Access multi-slot windowing).
+        - ``tau_intra_slots`` -- minimum intra-night spacing between
+          visits, in slots.
+
+        Original units of ``exptime`` (seconds) and ``tau_intra`` (hours)
+        are left untouched.
+        """
+        request_file = self._resolve_path("request_file")
+        if not os.path.exists(request_file):
+            raise FileNotFoundError(f"Requests file not found: {request_file}")
+
+        rfa = pd.read_csv(request_file)
+        if "comments" not in rfa.columns:
+            rfa["comments"] = ""
+        rfa["inactive"] = rfa["inactive"].fillna(False).astype(bool)
+        mask = ~rfa["inactive"]
+        logs.warning(
+            f"There are {len(rfa[~mask])} inactive of {len(rfa)} requests."
+        )
+        rf = rfa[mask].reset_index(drop=True).copy()
+
+        for col, default in (("n_intra_max", 1), ("n_intra_min", 1), ("tau_intra", 0)):
+            rf[col] = rf[col].replace("None", np.nan).fillna(default)
+        for band in (1, 2, 3):
+            col = f"weather_band_{band}"
+            if col in rf.columns:
+                rf[col] = rf[col].replace("None", np.nan).fillna(False)
+        rf["unique_id"] = rf["unique_id"].astype(str)
+        rf["target"] = rf["target"].astype(str)
+
+        dup_mask = rf["unique_id"].duplicated(keep=False)
+        if dup_mask.any():
+            dup_ids = sorted(rf.loc[dup_mask, "unique_id"].unique())
+            raise ValueError(
+                f"Duplicate unique_id among active requests in {request_file!r}: "
+                f"{dup_ids}. Remove or merge duplicate rows so each active "
+                f"request has one row."
             )
 
-            # Get past used slots for this program (default to 0 if not found)
-            past_used_slots = past_used_slots_by_program.get(program, 0)
+        self._attach_slot_columns(rf)
+        return rfa, rf
 
-            # Graceful failure. If a program has already been over-observed, we don't want the model to be infeasible.
-            if awarded_time_slots_grace < past_used_slots:
-                logs.warning(f"Program {program} has already been over-observed. Setting award equal to past used.")
-                logs.warning(f"Therefore, Program {program}, will not be scheduled for any additional observations.")
-                awarded_time_slots_grace = past_used_slots
+    def _attach_slot_columns(self, rf):
+        """Append ``t_visit_slots`` and ``tau_intra_slots`` columns to ``rf``.
 
-            lhs = awarded_time_slots_grace - past_used_slots
-            rhs = max_slots_allowed_for_scheduling_program
-            self.model.addConstr(lhs >= rhs, f'throttle_program_{program}')
+        - ``t_visit_slots`` -- full per-visit duration in slots, from
+          :meth:`Queue.visit_seconds` (includes inter-shot readouts and
+          slew overhead). Rounded; clipped to >= 1.
+        - ``tau_intra_slots`` -- minimum intra-night spacing between
+          visits, in slots.
+
+        Mutates and returns ``rf`` (idempotent).
+        """
+        slot_size = self.config.getint("semester", "slot_size")
+        visit_s = self.queue.visit_seconds(
+            rf["exptime"].astype(float),
+            rf["n_exp"].astype(int),
+            rf["n_intra_max"].astype(int),
+        )
+        rf["t_visit_slots"] = (
+            (visit_s / (slot_size * 60.0)).round().clip(lower=1).astype(int)
+        )
+        rf["tau_intra_slots"] = (
+            (rf["tau_intra"].astype(float) * 60 / slot_size).round().astype(int)
+        )
+        return rf
+
+    def _build_constraint_lookups(self):
+        """Build aggregation tables consumed by the constraint methods.
+
+        Only the three multi-consumer tables (observability_tuples, joiner,
+        all_valid_ds_for_request) are stored on self. Single-consumer
+        derivations live at their call sites.
+        """
+        self.observability_tuples = list(
+            self.observability.itertuples(index=False, name=None)
+        )
+        strategy_cols = [
+            "unique_id",
+            "target",
+            "n_intra_min",
+            "n_intra_max",
+            "n_inter_max",
+            "tau_inter",
+            "t_visit_slots",
+            "tau_intra_slots",
+        ]
+        self.joiner = pd.merge(
+            self.requests_frame[strategy_cols], self.observability, on=["unique_id"]
+        )
+
+        schedulable_requests = set(self.joiner["unique_id"].unique())
+        all_requests = list(self.requests_frame["unique_id"])
+        missing = sum(uid not in schedulable_requests for uid in all_requests)
+        logs.warning(
+            f"There are {missing} targets out of {len(all_requests)} "
+            f"that have no valid day/slot pairs and therefore are effectively "
+            f"removed from the model."
+        )
+
+        self.all_valid_ds_for_request = (
+            self.joiner.groupby(["unique_id"])[["d", "s"]].agg(list)
+        )
+
+    def build_gurobi_model(self):
+        """Instantiate the Gurobi model and add ``Yrds``, ``Wrd``, ``theta``."""
+        self.model = gp.Model("Semester_Scheduler")
+        observability_nights = (
+            self.joiner.loc[self.joiner["n_intra_max"] > 1, ["unique_id", "d"]]
+            .drop_duplicates()
+        )
+        self.Yrds = self.model.addVars(
+            self.observability_tuples, vtype=GRB.BINARY, name="Requests_Slots"
+        )
+        if not observability_nights.empty:
+            self.Wrd = self.model.addVars(
+                list(observability_nights.itertuples(index=False, name=None)),
+                vtype=GRB.BINARY,
+                name="OnSky",
+            )
+        self.theta = self.model.addVars(
+            list(self.requests_frame["unique_id"]), name="Shortfall"
+        )
+
+    def _attach_past_columns(self):
+        """Attach past-history aggregates and max-obs caps to ``requests_frame``.
+
+        Aggregates are indexed by ``unique_id`` over UT calendar nights
+        (``timestamp[:10]``); missing uids default to 0 (or ``""``).
+        ``desired_max_obs`` is the Round-1 night cap; ``absolute_max_obs``
+        relaxes it by ``maximum_bonus_size`` for the bonus round. Both
+        collapse to ``past_nights_observed`` when a target is over-observed
+        so the model stays feasible.
+        """
+        rf = self.requests_frame
+        uids = rf["unique_id"]
+
+        if self.past_df.empty:
+            agg = pd.DataFrame(
+                {"nights": 0, "n_exp": 0, "last": ""}, index=uids,
+            )
+        else:
+            night = self.past_df["timestamp"].astype(str).str[:10]
+            g = self.past_df.assign(_night=night).groupby("unique_id")
+            agg = pd.DataFrame({
+                "nights": g["_night"].nunique(),
+                "n_exp": g.size(),
+                "last": g["_night"].max(),
+            }).reindex(uids).fillna({"nights": 0, "n_exp": 0, "last": ""})
+
+        rf["past_nights_observed"] = agg["nights"].astype(int).to_numpy()
+        rf["past_n_exposures"] = agg["n_exp"].astype(int).to_numpy()
+        rf["past_date_last_observed"] = agg["last"].astype(str).to_numpy()
+
+        bonus = self.config.getfloat("semester", "maximum_bonus_size")
+        n_max = rf["n_inter_max"].astype(int).to_numpy()
+        past = rf["past_nights_observed"].to_numpy()
+        over = past > n_max
+        desired = np.where(over, past, n_max - past)
+        absolute = np.where(
+            over, past,
+            np.maximum(desired + (n_max * bonus).astype(int), past),
+        )
+        rf["desired_max_obs"] = desired.astype(int)
+        rf["absolute_max_obs"] = absolute.astype(int)
+
+    # ==================================================================
+    # Constraints 
+    # ==================================================================
+
+    def constraint_build_theta_multivisit(self):
+        """Build the shortfall matrix, Theta.
+
+        Notes:  
+            Equation 3 in Lubin et al. 2025.
+        """
+        logs.info("Constraint: Build theta variable")
+        rf_indexed = self.requests_frame.set_index("unique_id")
+        for uid in self.joiner["unique_id"].unique():
+            self.model.addConstr(
+                self.theta[uid] >= 0, f"greater_than_zero_shortfall_{uid}"
+            )
+            ds_pairs = list(
+                zip(
+                    self.all_valid_ds_for_request.loc[uid].d,
+                    self.all_valid_ds_for_request.loc[uid].s,
+                )
+            )
+            row = rf_indexed.loc[uid]
+            rhs = (
+                row["n_inter_max"]
+                - row["past_nights_observed"]
+                - gp.quicksum(self.Yrds[uid, d, s] for d, s in ds_pairs)
+                / row["n_intra_max"]
+            )
+            self.model.addConstr(
+                self.theta[uid] >= rhs,
+                f"greater_than_nobs_shortfall_{uid}",
+            )
 
     def constraint_reserve_multislot_exposures(self):
         """
         See Constraint 1 in Lubin et al. 2025.
 
-        Reserve multiple time slots for exposures that require
-        more than one time slot to complete, and ensure that
-        no other observations are scheduled during these slots.
+        Reserve multiple time slots for exposures that require more than one time slot
+        to complete, ensuring no other observations are scheduled during these slots.
         """
-        logs.info("Constraint: Reserve slots for for multi-slot exposures.")
-        max_t_visit = self.strategy.t_visit.max() # longest exposure time
-        R_ds = self.observability.groupby(['d','s'])['unique_id'].apply(set).to_dict()
-        R_geq_t_visit = {} # dictionary of requests where t_visit is greater than or equal to t_visit
-        strategy = self.strategy
-        for t_visit in range(1,max_t_visit+1):
-            R_geq_t_visit[t_visit] = set(strategy[strategy.t_visit >= t_visit]['unique_id'])
+        logs.info("Constraint: Reserve slots for multi-slot exposures.")
+        rf = self.requests_frame
+        max_t_visit = int(rf["t_visit_slots"].max())
+        R_ds = (
+            self.observability.groupby(["d", "s"])["unique_id"].apply(set).to_dict()
+        )
+        R_geq_t_visit = {
+            t: set(rf.loc[rf["t_visit_slots"] >= t, "unique_id"])
+            for t in range(1, max_t_visit + 1)
+        }
 
-        for d,s in self.observability.drop_duplicates(['d','s'])[['d','s']].itertuples(index=False, name=None):
+        for d, s in self.observability.drop_duplicates(["d", "s"])[
+            ["d", "s"]
+        ].itertuples(index=False, name=None):
             rhs = []
-            for delta in range(1,max_t_visit):
+            for delta in range(1, max_t_visit):
                 s_shift = s - delta
-                if (d,s_shift) in R_ds:
-                    rhs.extend(self.Yrds[r,d,s_shift] for r in R_ds[d,s_shift] & R_geq_t_visit[delta+1])
-
-            lhs = 1 - gp.quicksum(self.Yrds[r,d,s] for r in R_ds[d,s])
-            rhs = gp.quicksum(rhs)
-            self.model.addConstr(lhs >= rhs, f'reserve_multislot_{d}d_{s}s')
+                if (d, s_shift) in R_ds:
+                    rhs.extend(
+                        self.Yrds[uid, d, s_shift]
+                        for uid in R_ds[d, s_shift] & R_geq_t_visit[delta + 1]
+                    )
+            lhs = 1 - gp.quicksum(self.Yrds[uid, d, s] for uid in R_ds[d, s])
+            self.model.addConstr(
+                lhs >= gp.quicksum(rhs), f"reserve_multislot_{d}d_{s}s"
+            )
 
     def constraint_enforce_internight_cadence(self):
         """
         See Constraint 3 in Lubin et al. 2025.
 
-        Ensure that the minimum number of days pass between
-        consecutive observations of a given target. If a
-        target is scheduled for observation on a given date,
-        prevent it from being scheduled again until the
-        minimum number of days have passed.
+        Ensure that the minimum number of days pass between consecutive observations of
+        a given target.
         """
         logs.info("Constraint: Enforce inter-night cadence.")
-        # Get all (d',s') pairs for a request that must be zero if a (d,s) pair is selected
-        # Ensure tau_inter is numeric before the query
-        joiner_for_intercadence = self.joiner.copy()
-        joiner_for_intercadence['tau_inter'] = pd.to_numeric(joiner_for_intercadence['tau_inter'], errors='coerce')
-        
+        joiner = self.joiner
         intercadence = pd.merge(
-            joiner_for_intercadence.drop_duplicates(['unique_id','d',]),
-            joiner_for_intercadence[['unique_id','d','s']],
-            suffixes=['','3'],on=['unique_id']
-        ).query('d + 0 < d3 < d + tau_inter')
-        self.intercadence_tracker = intercadence.groupby(['unique_id','d'])[['d3','s3']].agg(list)
-        # When inter-night cadence is 1, there will be no keys to constrain so skip
-        # While the if/else statement would catch these, by shrinking the list here we do fewer
-        # total steps in the loop.
-        intercadence_valid_tuples = self.joiner.copy()[self.joiner['tau_inter'] > 1]
-        # We don't want duplicate slots on day d because we only need this constraint once per day
-        # With duplicates, the same constraint would be applied to (r, d, s) and (r, d, s+1) which
-        # is superfluous since we are summing over tonight's slots
-        intercadence_valid_tuples = intercadence_valid_tuples.drop_duplicates(subset=['unique_id', 'd'])
-        for i, row in intercadence_valid_tuples.iterrows():
-            constrained_slots_tonight = np.array(self.slots_on_day_for_r.loc[(row.unique_id2, row.d2)][0])
-            # Get all slots for pair (r, d) where valid
-            if (row.unique_id, row.d) in self.intercadence_tracker.index:
-                slots_to_constrain_future = self.intercadence_tracker.loc[(row.unique_id2, row.d2)]
-                ds_pairs = zip(list(np.array(slots_to_constrain_future.d3).flatten()), list(np.array(slots_to_constrain_future.s3).flatten()))
+            joiner.drop_duplicates(["unique_id", "d"]),
+            joiner[["unique_id", "d", "s"]],
+            suffixes=["", "3"],
+            on=["unique_id"],
+        ).query("d + 0 < d3 < d + tau_inter")
+        intercadence_tracker = intercadence.groupby(["unique_id", "d"])[
+            ["d3", "s3"]
+        ].agg(list)
+        slots_on_day_for_r = (
+            self.observability.groupby(["unique_id", "d"])["s"]
+            .apply(list)
+            .to_frame("s3")
+        )
 
-                lhs = gp.quicksum(self.Yrds[row.unique_id,row.d,s2] for s2 in constrained_slots_tonight)/row.n_intra_max 
-                rhs = 1 - (gp.quicksum(self.Yrds[row.unique_id,d3,s3] for d3, s3 in ds_pairs))
-                self.model.addConstr(lhs <= rhs, 'enforce_internight_cadence_' + row.unique_id + "_" + str(row.d) + "d_" + str(row.s) + "s")
-
-    def constraint_fix_previous_objective(self, epsilon=0.03):
-        """
-        Bonus round constraint: not featured in Lubin et al. 2025.
-
-        This constraint ensures that the
-        objective function value calculated during
-        Round 2 be within a given tolerance of the
-        Round 1 value. This constraint ensures that
-        Round 2 result in only small changes to the
-        optimal solution found in Round 1.
-        """
-        logs.info("Constraint: Fixing the previous solution's objective value.")
-        lhs = gp.quicksum(self.theta[name] for name in self.requests_frame['unique_id'])
-        rhs = self.model.objval + epsilon
-        self.model.addConstr(lhs <= rhs, 'fix_previous_objective')
-
-    def set_objective_maximize_slots_used(self):
-        """
-        Bonus round constraint: not featured in Lubin et al. 2025.
-
-        In Round 2, maximize the number of filled slots,
-        i.e., slots during which an exposure occurs.
-        """
-        logs.info("Objective: Maximize the number of slots used.")
-        self.model.setObjective(gp.quicksum(self.slots_needed_for_exposure_dict[id]*self.Yrds[id,d,s]
-                        for id, d, s in self.observability_tuples), GRB.MAXIMIZE)
-
-    def set_objective_minimize_theta_time_normalized(self):
-        """
-        See Equation 1 in Lubin et al. 2025.
-
-        Minimize the total shortfall for the number
-        of targets that receive their requested number
-        of observations, weighted by the time needed
-        to complete one observation.
-        """
-        self.model.setObjective(gp.quicksum(self.theta[name]*self.slots_needed_for_exposure_dict[name] for name in self.schedulable_requests), GRB.MINIMIZE)
-
-    def constraint_build_theta_multivisit(self):
-        """
-        See Equation 3 in Lubin et al. 2025.
-
-        Definition of the "shortfall" matrix, Theta.
-        The shortfall is defined for each target,
-        giving for each target the difference between
-        the number of requested nights for that target
-        and the sum of the past and future scheduled
-        observations of that target.
-        """
-        logs.info("Constraint: Build theta variable")
-        for starid in self.schedulable_requests:
-            idx = self.requests_frame.index[self.requests_frame['unique_id']==starid][0]
-            lhs1 = self.theta[starid]
-            rhs1 = 0
-            self.model.addConstr(lhs1 >= rhs1, 'greater_than_zero_shortfall_' + str(starid))
-            
-            # Get all (d,s) pairs for which this request is valid.
-            all_d = list(set(list(self.all_valid_ds_for_request.loc[starid].d)))
-            available = list(zip(list(self.all_valid_ds_for_request.loc[starid].d), list(self.all_valid_ds_for_request.loc[starid].s)))
-            lhs2 = self.theta[starid]
-            rhs2 = self.requests_frame['n_inter_max'][idx] - self.past_nights_observed_dict[starid] - (gp.quicksum(self.Yrds[starid, d, s] for d, s in available))/self.requests_frame['n_intra_max'][idx]
-            self.model.addConstr(lhs2 >= rhs2, 'greater_than_nobs_shortfall_' + str(starid))
-
-    def constraint_set_max_desired_unique_nights_Wrd(self):
-        """
-        See Constraint 2 in Lubin et al. 2025.
-
-        Limit the number of observations scheduled for a given
-        target to the maximum value provided by the PI. This
-        constraint may later be relaxed if Round 2 of scheduling
-        is invoked.
-        """
-        logs.info("Constraint: Set desired maximum observations.")
-        for name in self.multi_visit_requests:
-            all_d = list(set(list(self.all_valid_ds_for_request.loc[name].d)))
-            lhs1 = gp.quicksum(self.Wrd[name, d] for d in all_d)
-            rhs1 = self.desired_max_obs_allowed_dict[name]
-            self.model.addConstr(lhs1 <= rhs1, 'max_desired_unique_nights_for_request_' + str(name))
-        
-        for name in self.single_visit_requests:
-            available = list(zip(list(self.all_valid_ds_for_request.loc[name].d), list(self.all_valid_ds_for_request.loc[name].s)))
-            lhs2 = gp.quicksum(self.Yrds[name, d, s] for d, s in available)
-            rhs2 = self.desired_max_obs_allowed_dict[name]
-            self.model.addConstr(lhs2 <= rhs2, 'max_desired_unique_nights_for_request_' + str(name))
-
-    def remove_constraint_set_max_desired_unique_nights_Wrd(self):
-        """
-        Bonus round constraint: not featured in Lubin et al. 2025.
-
-        Remove the maximum number of observations set by
-        constraints_set_max_desired_unique_nights_Wrd.
-        """
-        logs.info("Constraint: Removing previous maximum observations constraint.")
-        for name in self.multi_visit_requests:
-            rm_const = self.model.getConstrByName("max_desired_unique_nights_for_request_" + str(name))
-            self.model.remove(rm_const)
-
-    def constraint_set_max_absolute_unique_nights_Wrd(self):
-        """
-        Bonus round constraint: not featured in Lubin et al. 2025.
-
-        Set the maximum number of observations for a target to
-        150% of the original requested number.
-        """
-        logs.info("Constraint: Set absolute maximum observations.")
-        for name in self.multi_visit_requests:
-            all_d = list(set(list(self.all_valid_ds_for_request.loc[name].d)))
-            lhs = gp.quicksum(self.Wrd[name, d] for d in all_d)
-            rhs = self.absolute_max_obs_allowed_dict[name]
-            self.model.addConstr(lhs <= rhs, 'max_absolute_unique_nights_for_request_' + str(name))
+        # Inter-night cadence of 1 day has no forbidden future slots; skip
+        # those rows and drop the duplicates-per-day rows up front.
+        valid = joiner[joiner["tau_inter"] > 1].drop_duplicates(
+            subset=["unique_id", "d"]
+        )
+        for _, row in valid.iterrows():
+            constrained_slots_tonight = np.array(
+                slots_on_day_for_r.loc[(row.unique_id, row.d)][0]
+            )
+            if (row.unique_id, row.d) not in intercadence_tracker.index:
+                continue
+            future = intercadence_tracker.loc[(row.unique_id, row.d)]
+            ds_pairs = zip(
+                np.array(future.d3).flatten(),
+                np.array(future.s3).flatten(),
+            )
+            lhs = (
+                gp.quicksum(
+                    self.Yrds[row.unique_id, row.d, s2]
+                    for s2 in constrained_slots_tonight
+                )
+                / row.n_intra_max
+            )
+            rhs = 1 - gp.quicksum(
+                self.Yrds[row.unique_id, d3, s3] for d3, s3 in ds_pairs
+            )
+            self.model.addConstr(
+                lhs <= rhs,
+                f"enforce_internight_cadence_{row.unique_id}_{row.d}d_{row.s}s",
+            )
 
     def constraint_build_enforce_intranight_cadence(self):
         """
         Constraint 4 in Lubin et al. 2025.
 
-        Ensure that the minimum number of hours pass between
-        consecutive observations of a given target on the same
-        night. If a target is scheduled for observation at
-        a given time, prevent it from being scheduled again
-        until the minimum number of hours have passed.
+        Ensure that the minimum number of hours pass between consecutive observations of
+        a given target on the same night.
         """
         logs.info("Constraint: Enforce intra-night cadence.")
-        # get all combos of slots that must be constrained if given slot is scheduled
-        # # When intra-night cadence is 0, there will be no keys to constrain so skip
-        intracadence_valid_tuples = self.joiner.copy()[self.joiner['n_intra_max'] > 1]
+        valid = self.joiner[self.joiner["n_intra_max"] > 1]
         intracadence_frame = pd.merge(
-            intracadence_valid_tuples.drop_duplicates(['unique_id','d','s']),
-            intracadence_valid_tuples[['unique_id','d','s']],
-            suffixes=['','3'],on=['unique_id', 'd']
-            ).query('s + 0 < s3 < s + tau_intra')
-        intracadence_frame = intracadence_frame.groupby(['unique_id','d','s'])[['s3']].agg(list)
-        for i, row in intracadence_valid_tuples.iterrows():
-            if (row.unique_id, row.d, row.s) in intracadence_frame.index:
-                # Get all slots tonight which are too soon after given slot for another visit
-                slots_to_constrain_tonight_intra = list(intracadence_frame.loc[(row.unique_id, row.d, row.s)][0])
-                lhs = self.Yrds[row.unique_id,row.d,row.s]
-                rhs = self.Wrd[row.unique_id, row.d] - (gp.quicksum(self.Yrds[row.unique_id,row.d,s3] for s3 in slots_to_constrain_tonight_intra))
-                self.model.addConstr(lhs <= rhs, 'enforce_intranight_cadence_' + row.unique_id + "_" + str(row.d) + "d_" + str(row.s) + "s")
+            valid.drop_duplicates(["unique_id", "d", "s"]),
+            valid[["unique_id", "d", "s"]],
+            suffixes=["", "3"],
+            on=["unique_id", "d"],
+        ).query("s + 0 < s3 < s + tau_intra_slots")
+        intracadence_frame = intracadence_frame.groupby(
+            ["unique_id", "d", "s"]
+        )[["s3"]].agg(list)
+
+        for _, row in valid.iterrows():
+            key = (row.unique_id, row.d, row.s)
+            if key not in intracadence_frame.index:
+                continue
+            slots_to_constrain = list(intracadence_frame.loc[key][0])
+            lhs = self.Yrds[row.unique_id, row.d, row.s]
+            rhs = self.Wrd[row.unique_id, row.d] - gp.quicksum(
+                self.Yrds[row.unique_id, row.d, s3] for s3 in slots_to_constrain
+            )
+            self.model.addConstr(
+                lhs <= rhs,
+                f"enforce_intranight_cadence_{row.unique_id}_{row.d}d_{row.s}s",
+            )
+
+    def constraint_set_max_desired_unique_nights_Wrd(self):
+        """
+        See Constraint 2 in Lubin et al. 2025.
+
+        Limit the number of observations scheduled for a given target to the
+        maximum value provided by the PI. This constraint may later be relaxed
+        if Round 2 of scheduling is invoked.
+        """
+        logs.info("Constraint: Set desired maximum observations.")
+        multi_visit_uids = self.multi_visit_uids
+        schedulable_uids = set(self.joiner["unique_id"].unique())
+        single_visit_uids = [
+            uid for uid in schedulable_uids if uid not in multi_visit_uids
+        ]
+        desired_max_obs = self.requests_frame.set_index("unique_id")["desired_max_obs"]
+        for uid in multi_visit_uids:
+            all_d = list(set(self.all_valid_ds_for_request.loc[uid].d))
+            self.model.addConstr(
+                gp.quicksum(self.Wrd[uid, d] for d in all_d)
+                <= desired_max_obs.loc[uid],
+                f"max_desired_unique_nights_for_request_{uid}",
+            )
+        for uid in single_visit_uids:
+            available = list(
+                zip(
+                    self.all_valid_ds_for_request.loc[uid].d,
+                    self.all_valid_ds_for_request.loc[uid].s,
+                )
+            )
+            self.model.addConstr(
+                gp.quicksum(self.Yrds[uid, d, s] for d, s in available)
+                <= desired_max_obs.loc[uid],
+                f"max_desired_unique_nights_for_request_{uid}",
+            )
+
+    def remove_constraint_set_max_desired_unique_nights_Wrd(self):
+        """
+        Bonus round: not in Lubin et al. 2025.
+
+        Remove the maximum number of observations set by
+        :meth:`constraint_set_max_desired_unique_nights_Wrd`.
+        """
+        logs.info("Constraint: Removing previous maximum observations constraint.")
+        for uid in self.multi_visit_uids:
+            rm_const = self.model.getConstrByName(
+                f"max_desired_unique_nights_for_request_{uid}"
+            )
+            self.model.remove(rm_const)
+
+    def constraint_set_max_absolute_unique_nights_Wrd(self):
+        """
+        Bonus round: not in Lubin et al. 2025.
+
+        Set the maximum number of observations for a target to 150% of the
+        original requested number.
+        """
+        logs.info("Constraint: Set absolute maximum observations.")
+        absolute_max_obs = self.requests_frame.set_index("unique_id")["absolute_max_obs"]
+        for uid in self.multi_visit_uids:
+            all_d = list(set(self.all_valid_ds_for_request.loc[uid].d))
+            self.model.addConstr(
+                gp.quicksum(self.Wrd[uid, d] for d in all_d)
+                <= absolute_max_obs.loc[uid],
+                f"max_absolute_unique_nights_for_request_{uid}",
+            )
 
     def constraint_set_min_max_visits_per_night(self):
         """
         See Constraint 5 in Lubin et al. 2025.
 
-        Require that the number of scheduled visits to a target
-        in a given night falls between the minimum and maximum
-        values supplied by the PI.
+        Require that the number of scheduled visits to a target in a given
+        night falls between the minimum and maximum values supplied by the PI.
         """
         logs.info("Constraint: Bound minimum and maximum visits per night.")
-        intracadence_frame_on_day = self.joiner.copy().drop_duplicates(subset=['unique_id', 'd'])
-        grouped_s = self.joiner.copy().groupby(['unique_id', 'd'])['s'].unique().reset_index()
-        grouped_s.set_index(['unique_id', 'd'], inplace=True)
-        for i, row in intracadence_frame_on_day.iterrows():
-            all_valid_slots_tonight = list(grouped_s.loc[(row.unique_id, row.d)]['s'])
-            if row.unique_id in self.multi_visit_requests:
-                lhs1 = gp.quicksum(self.Yrds[row.unique_id, row.d,s3] for s3 in all_valid_slots_tonight)
-                rhs1 = row.n_intra_max*self.Wrd[row.unique_id, row.d]
-                self.model.addConstr(lhs1 <= rhs1, 'enforce_max_visits1_' + row.unique_id + "_" + str(row.d) + "d_" + str(row.s) + "s")
-                
-                lhs2 = gp.quicksum(self.Yrds[row.unique_id,row.d,s3] for s3 in all_valid_slots_tonight)
-                rhs2 = row.n_intra_min*self.Wrd[row.unique_id, row.d]
-                self.model.addConstr(lhs2 >= rhs2, 'enforce_min_visits_' + row.unique_id + "_" + str(row.d) + "d_" + str(row.s) + "s")
+        per_day = self.joiner.drop_duplicates(subset=["unique_id", "d"])
+        grouped_s = (
+            self.joiner.groupby(["unique_id", "d"])["s"].unique().reset_index()
+        )
+        grouped_s.set_index(["unique_id", "d"], inplace=True)
+        multi_visit_uids = self.multi_visit_uids
+        for _, row in per_day.iterrows():
+            slots_tonight = list(grouped_s.loc[(row.unique_id, row.d)]["s"])
+            name_tag = f"{row.unique_id}_{row.d}d_{row.s}s"
+            visits_tonight = gp.quicksum(
+                self.Yrds[row.unique_id, row.d, s3] for s3 in slots_tonight
+            )
+            if row.unique_id in multi_visit_uids:
+                self.model.addConstr(
+                    visits_tonight <= row.n_intra_max * self.Wrd[row.unique_id, row.d],
+                    f"enforce_max_visits1_{name_tag}",
+                )
+                self.model.addConstr(
+                    visits_tonight >= row.n_intra_min * self.Wrd[row.unique_id, row.d],
+                    f"enforce_min_visits_{name_tag}",
+                )
             else:
-                lhs3 = gp.quicksum(self.Yrds[row.unique_id,row.d,s3] for s3 in all_valid_slots_tonight)
-                rhs3 = row.n_intra_max
-                self.model.addConstr(lhs3 <= rhs3, 'enforce_min_visits_' + row.unique_id + "_" + str(row.d) + "d_" + str(row.s) + "s")
+                self.model.addConstr(
+                    visits_tonight <= row.n_intra_max,
+                    f"enforce_max_visits_{name_tag}",
+                )
 
-    def optimize_model(self):
+    @property
+    def multi_visit_uids(self):
+        """uids that may receive >1 visit per night (Wrd is defined for these)."""
+        return set(
+            self.joiner.loc[self.joiner["n_intra_max"] > 1, "unique_id"].unique()
+        )
+
+    # ---- throttling & bonus round ----
+
+    def constraint_throttle(self):
         """
-        Solve the Gurobi model.
+        Not described in Lubin et al. 2025.
 
-        Returns:
-            None
+        Ensure that no program is scheduled for more time than they bring to
+        the queue (within a grace amount).
         """
+        logs.info("Constraint: Throttling over-requested programs.")
+        program_frame = pd.read_csv(self.programs_file).set_index("program")
+        slot_size = self.config.getint("semester", "slot_size")
+        hours_per_night = self.config.getfloat("semester", "hours_per_night")
+        throttle_grace = self.config.getfloat("semester", "throttle_grace")
 
-        logs.debug("Begin model solve.")
-        t1 = time.time()
-        self.model.params.TimeLimit = self.solve_time_limit
-        self.model.Params.OutputFlag = self.gurobi_output
-        # Allow stop at 5% gap to prevent from spending lots of time on marginally better solution
-        self.model.params.MIPGap = self.solve_max_gap
-        # More aggressive presolve gives better solution in shorter time
-        self.model.params.Presolve = 2
-        #self.model.params.Presolve = 0
-        self.model.update()
-        self.model.optimize()
+        program_frame["awarded_slots"] = (
+            program_frame["nights"] * hours_per_night * 60 / slot_size
+        )
+        program_frame["awarded_slots_grace"] = (
+            program_frame["awarded_slots"] * throttle_grace
+        ).astype(int)
 
-        if self.model.Status == GRB.INFEASIBLE:
-            logs.critical('Model remains infeasible. Searching for invalid constraints.')
-            search = self.model.computeIIS()
-            logs.critical("Printing bad constraints:")
-            for c in self.model.getConstrs():
-                if c.IISConstr:
-                    logs.critical('%s' % c.ConstrName)
-            for c in self.model.getGenConstrs():
-                if c.IISGenConstr:
-                    logs.critical('%s' % c.GenConstrName)
-        else:
-            logs.debug("Model Successfully Solved.")
-        logs.info("Time to finish solver: {:.3f}".format(time.time()-t1))
+        rf = self.requests_frame
+        t_visit_slots = dict(zip(rf["unique_id"], rf["t_visit_slots"]))
+        merged_df = rf[
+            ["unique_id", "program_code", "past_n_exposures", "t_visit_slots"]
+        ].copy()
+        merged_df["past_slots_used"] = (
+            merged_df["past_n_exposures"].astype(int)
+            * merged_df["t_visit_slots"].astype(int)
+        )
+        merged_df = merged_df.drop(columns=["past_n_exposures", "t_visit_slots"])
+        merged_df = merged_df.merge(
+            program_frame[["nights"]],
+            left_on="program_code",
+            right_index=True,
+            how="inner",
+        )
 
-    def run_model(self):
+        past_used_slots_by_program = (
+            merged_df.groupby("program_code")["past_slots_used"].sum().to_dict()
+        )
+        program_requests_map = (
+            merged_df.groupby("program_code")["unique_id"].apply(set).to_dict()
+        )
+
+        for program, row in program_frame.iterrows():
+            awarded_slots_grace = int(row["awarded_slots_grace"])
+            uids_for_program = program_requests_map.get(program, set())
+            schedulable_slots = gp.quicksum(
+                self.Yrds[r, d, s] * t_visit_slots[r]
+                for r, d, s in self.observability_tuples
+                if r in uids_for_program
+            )
+            past_used = past_used_slots_by_program.get(program, 0)
+            if awarded_slots_grace < past_used:
+                logs.warning(
+                    f"Program {program} has already been over-observed. "
+                    f"Setting award equal to past used."
+                )
+                logs.warning(
+                    f"Therefore, Program {program}, will not be scheduled "
+                    f"for any additional observations."
+                )
+                awarded_slots_grace = past_used
+
+            self.model.addConstr(
+                awarded_slots_grace - past_used >= schedulable_slots,
+                f"throttle_program_{program}",
+            )
+
+    def constraint_fix_previous_objective(self, epsilon=0.03):
         """
-        Construct and solve the Gurobi model.
+        Bonus round: not in Lubin et al. 2025.
 
-        Returns:
-            None
+        Ensure that the Round-2 objective is within ``epsilon`` of Round-1.
         """
-        self.round_info = 'Round1'
-        self.build_model_round1()
-        self.optimize_model()
-        self.serialize_results_csv()
-        if self.run_bonus_round:
-            self.round_info = 'Round2'
-            self.build_model_round2()
-            self.optimize_model()
-            self.serialize_results_csv()
-        logs.info("Scheduling complete, clear skies!")
+        logs.info("Constraint: Fixing the previous solution's objective value.")
+        self.model.addConstr(
+            gp.quicksum(self.theta[uid] for uid in self.requests_frame["unique_id"])
+            <= self.model.objval + epsilon,
+            "fix_previous_objective",
+        )
+
+    # ==================================================================
+    # Objectives.
+    # ==================================================================
+
+    def set_objective_minimize_theta_time_normalized(self):
+        """See Equation 1 in Lubin et al. 2025."""
+        schedulable_uids = list(self.joiner["unique_id"].unique())
+        t_visit_slots = dict(
+            zip(self.requests_frame["unique_id"], self.requests_frame["t_visit_slots"])
+        )
+        self.model.setObjective(
+            gp.quicksum(
+                self.theta[uid] * t_visit_slots[uid] for uid in schedulable_uids
+            ),
+            GRB.MINIMIZE,
+        )
+
+    def set_objective_maximize_slots_used(self):
+        """Bonus round: maximize filled slots."""
+        logs.info("Objective: Maximize the number of slots used.")
+        t_visit_slots = dict(
+            zip(self.requests_frame["unique_id"], self.requests_frame["t_visit_slots"])
+        )
+        self.model.setObjective(
+            gp.quicksum(
+                t_visit_slots[uid] * self.Yrds[uid, d, s]
+                for uid, d, s in self.observability_tuples
+            ),
+            GRB.MAXIMIZE,
+        )
+
+    # ==================================================================
+    # Model orchestration.
+    # ==================================================================
 
     def build_model_round1(self):
-        """
-        Implement the constraints and objective function for Round 1 as described in Lubin et al. 2025.
-
-        Returns:
-            None
-        """
+        """Round 1 constraints + objective per Lubin et al. 2025."""
         t1 = time.time()
         self.constraint_reserve_multislot_exposures()
         self.constraint_enforce_internight_cadence()
@@ -776,359 +748,326 @@ class SemesterPlanner(object):
         self.constraint_build_theta_multivisit()
         self.constraint_throttle()
         self.set_objective_minimize_theta_time_normalized()
-        logs.info(f"Time to build constraints: {np.round(time.time()-t1,3):.3f}")
+        logs.info(f"Time to build constraints: {np.round(time.time() - t1, 3):.3f}")
 
     def build_model_round2(self):
-        """
-        Implement the constraints and objective function for Round 2. Not described in Lubin et al. 2025.
-
-        Returns:
-            None
-        """
+        """Round 2 constraints + objective (bonus round)."""
         t1 = time.time()
         self.remove_constraint_set_max_desired_unique_nights_Wrd()
         self.constraint_set_max_absolute_unique_nights_Wrd()
         self.constraint_fix_previous_objective()
         self.set_objective_maximize_slots_used()
-        logs.info(f"Time to build constraints: {np.round(time.time()-t1,3):.3f}")
+        logs.info(f"Time to build constraints: {np.round(time.time() - t1, 3):.3f}")
 
-    def serialize_results_csv(self):
-        """
-        Serialize the results to a CSV file.
+    def optimize_model(self):
+        """Solve the Gurobi model (with IIS diagnostics on infeasibility)."""
+        logs.debug("Begin model solve.")
+        t1 = time.time()
+        self.model.params.TimeLimit = self.config.getint("semester", "max_solve_time")
+        self.model.Params.OutputFlag = self.config.getboolean(
+            "semester", "show_gurobi_output"
+        )
+        # Allow stop at solver gap to prevent spending time on marginal gains.
+        self.model.params.MIPGap = self.config.getfloat("semester", "max_solve_gap")
+        self.model.params.Presolve = 2
+        self.model.update()
+        self.model.optimize()
 
-        Returns:
-            None
-        """
+        if self.model.Status == GRB.INFEASIBLE:
+            logs.critical(
+                "Model remains infeasible. Searching for invalid constraints."
+            )
+            self.model.computeIIS()
+            logs.critical("Printing bad constraints:")
+            for c in self.model.getConstrs():
+                if c.IISConstr:
+                    logs.critical("%s", c.ConstrName)
+            for c in self.model.getGenConstrs():
+                if c.IISGenConstr:
+                    logs.critical("%s", c.GenConstrName)
+        else:
+            logs.debug("Model Successfully Solved.")
+        logs.info(f"Time to finish solver: {time.time() - t1:.3f}")
 
-        logs.debug("Building human readable schedule.")
-        serialized_schedule = io.serialize_schedule(self.Yrds, self)
-        self.serialized_schedule = serialized_schedule
-        today_idx = self.all_dates_dict[self.current_day]
-        selected = [k[0] for k, v in self.Yrds.items() if v.x > 0 and k[1] == today_idx]
-        selected = list(set(selected))
-        selected_df = self.requests_frame[self.requests_frame['unique_id'].isin(selected)].copy()
-        selected_df.to_csv(os.path.join(self.output_directory, 'request_selected.csv'), index=False)
+    def run_model(self):
+        """Construct and solve the Gurobi model (with optional bonus round)."""
+        self.build_model_round1()
+        self.optimize_model()
+        self._finalize_round("Round1")
+        if self.config.getboolean("semester", "run_bonus_round"):
+            self.build_model_round2()
+            self.optimize_model()
+            self._finalize_round("Round2")
+        logs.info("Scheduling complete, clear skies!")
+
+    def _finalize_round(self, round_label):
+        """Build schedule, log report, persist per-night handoff + snapshot."""
+        self.build_schedule()
+        self.log_report(round_label)
+        self.write_request_selected()
         self.to_hdf5()
 
-    def to_hdf5(self, hdf5_path=None):
+    # ==================================================================
+    # Output.
+    # ==================================================================
+
+    def build_schedule(self):
         """
-        Save the SemesterPlanner object to an HDF5 file.
-        
+        Build the sparse schedule DataFrame from ``self.Yrds`` and write
+        ``semester_plan.csv``.
+
+        Sets ``self.schedule`` to a DataFrame with columns
+        ``unique_id, d, s, target`` -- one row per scheduled exposure start.
+        """
+        df = pd.DataFrame(self.Yrds.keys(), columns=["unique_id", "d", "s"])
+        df["value"] = [self.Yrds[k].x for k in self.Yrds.keys()]
+        sparse = df.query("value > 0").drop(columns=["value"]).copy()
+        sparse = sparse.merge(
+            self.requests_frame[["unique_id", "target"]],
+            on="unique_id",
+            how="left",
+        )
+        sparse["target"] = sparse["target"].fillna("NO MATCHING NAME")
+        sparse.to_csv(
+            os.path.join(self.output_directory, "semester_plan.csv"),
+            index=False,
+            na_rep="",
+        )
+        self.schedule = sparse
+
+    def to_string(self, *, header="Stats for Round1"):
+        """Run report: top-level summary Series + per-program hours DataFrame.
+
+        Requires that :meth:`build_schedule` has been called so
+        ``self.schedule`` is set.
+        """
+        if self.schedule is None:
+            raise RuntimeError("call build_schedule() before to_string()")
+
+        slot_size = self.config.getint("semester", "slot_size")
+        hours_per_night = self.config.getfloat("semester", "hours_per_night")
+        slots_per_hour = 60 / slot_size
+
+        # ---- top-level summary as a Series ----
+        is_alloc_2d = self.access_record["is_allocated"][0]
+        sched = self.schedule
+        t_visit_slots = self.requests_frame.set_index("unique_id")["t_visit_slots"]
+        slots_per_visit = sched["unique_id"].map(t_visit_slots).fillna(1)
+        scheduled_starting = len(sched)
+        reserved = int((slots_per_visit - 1).clip(lower=0).sum())
+        total_scheduled = scheduled_starting + reserved
+        allocated = int(is_alloc_2d.sum())
+        rf_slots = self.requests_frame["t_visit_slots"]
+        total_requested = int(
+            (
+                rf_slots
+                * self.requests_frame["n_intra_max"]
+                * self.requests_frame["n_inter_max"]
+            ).sum()
+        )
+
+        summary = pd.Series(
+            {
+                "N slots in semester": is_alloc_2d.size,
+                "N available slots": allocated,
+                "N starting slots scheduled": scheduled_starting,
+                "N reserved slots": reserved,
+                "N total slots scheduled": total_scheduled,
+                "N slots left empty": allocated - total_scheduled,
+                "N slots requested (total)": total_requested,
+                "Utilization (% of available slots)": (
+                    100 * total_scheduled / allocated if allocated else 0.0
+                ),
+                "Utilization (% of requested slots)": (
+                    100 * total_scheduled / total_requested
+                    if total_requested
+                    else 0.0
+                ),
+            }
+        )
+
+        # ---- per-program table (hours only) ----
+        progs = (
+            pd.read_csv(self.programs_file)
+            .rename(columns={"program": "program_code", "nights": "awarded_nights"})
+            .set_index("program_code")
+        )
+        awarded = progs["awarded_nights"] * hours_per_night
+
+        rf = self.requests_frame.copy()
+        rf["requested_h"] = (
+            rf["t_visit_slots"] * rf["n_intra_max"] * rf["n_inter_max"]
+        ) / slots_per_hour
+        rf["past_h"] = (rf["past_n_exposures"] * rf["t_visit_slots"]) / slots_per_hour
+        by_prog = rf.groupby("program_code")[["requested_h", "past_h"]].sum()
+
+        sched_with_prog = sched.merge(
+            self.requests_frame[["unique_id", "program_code", "t_visit_slots"]],
+            on="unique_id",
+            how="left",
+        )
+        sched_with_prog["scheduled_h"] = (
+            sched_with_prog["t_visit_slots"].fillna(1) / slots_per_hour
+        )
+        scheduled_h = sched_with_prog.groupby("program_code")["scheduled_h"].sum()
+
+        table = (
+            pd.DataFrame({"awarded": awarded})
+            .join(by_prog, how="left")
+            .join(scheduled_h, how="left")
+            .fillna(0.0)
+            .rename(
+                columns={
+                    "requested_h": "requested",
+                    "past_h": "past",
+                    "scheduled_h": "scheduled",
+                }
+            )
+        )
+        done = table["past"] + table["scheduled"]
+        table["req/aw%"] = np.where(
+            table["awarded"] > 0, 100 * table["requested"] / table["awarded"], 0.0
+        )
+        table["done/req%"] = np.where(
+            table["requested"] > 0, 100 * done / table["requested"], 0.0
+        )
+        table["done/aw%"] = np.where(
+            table["awarded"] > 0, 100 * done / table["awarded"], 0.0
+        )
+        table = table.sort_index()
+
+        divider = "-" * 54
+        parts = [
+            header,
+            divider,
+            summary.to_string(float_format=lambda x: f"{x:.2f}"),
+            "",
+            "Program Statistics (hours):",
+            divider,
+            table.to_string(float_format=lambda x: f"{x:.2f}"),
+            "",
+        ]
+        return "\n".join(parts) + "\n"
+
+    def log_report(self, round_label):
+        """Log the run-report text (the same content that used to land in runReport.txt)."""
+        report = self.to_string(header=f"Stats for {round_label}")
+        for line in report.splitlines():
+            logs.info(line)
+
+    def write_request_selected(self):
+        """Write ``request_selected.csv`` -- the handoff to ``NightPlanner``."""
+        today_idx = self.all_dates_dict[self.config.get("global", "current_day")]
+        selected = {
+            k[0] for k, v in self.Yrds.items() if v.x > 0 and k[1] == today_idx
+        }
+        self.requests_frame[
+            self.requests_frame["unique_id"].isin(selected)
+        ].to_csv(
+            os.path.join(self.output_directory, "request_selected.csv"),
+            index=False,
+        )
+
+    # ==================================================================
+    # Serialization
+    # ==================================================================
+
+    def to_hdf5(self, hdf5_path=None):
+        """Persist ``config_ini_text`` + a few DataFrames + ``access_record``.
+
+        Write is atomic: the snapshot lands at a ``.tmp`` sibling and is
+        renamed into place once all writes succeed. A crash midway never
+        clobbers the previous snapshot.
+
         Args:
-            hdf5_path (str, optional): Path to save the HDF5 file. 
-                                      If None, saves to output_directory/semester_planner.h5
+            hdf5_path (str, optional): defaults to
+                ``<output_directory>/semester_planner.h5``.
         """
         if hdf5_path is None:
-            hdf5_path = os.path.join(self.output_directory, 'semester_planner.h5')
-        # Remove existing file if it exists
-        if os.path.exists(hdf5_path):
-            os.remove(hdf5_path)
-        
-        # Define serialization mappings
-        # Format: (hdf5_key, attribute_name, data_type, conversion_func)
-        # data_type: 'scalar', 'string', 'array', 'dict_json', 'dataframe', 'structured_array', 'list'
-        
-        # DataFrames (saved using pandas HDF5 support)
-        dataframe_attrs = [
-            ('requests_frame', 'requests_frame', 'dataframe', None),
-            ('requests_frame_all', 'requests_frame_all', 'dataframe', None),
-            ('serialized_schedule', 'serialized_schedule', 'dataframe', None),
-        ]
-        
-        # Scalar/string attributes
-        scalar_attrs = [
-            ('current_day', 'current_day', 'string', None),
-            ('semester_start_date', 'semester_start_date', 'string', None),
-            ('semester_length', 'semester_length', 'scalar', None),
-            ('semester_letter', 'semester_letter', 'string', None),
-            ('slot_size', 'slot_size', 'scalar', None),
-            ('n_slots_in_night', 'n_slots_in_night', 'scalar', None),
-            ('n_nights_in_semester', 'n_nights_in_semester', 'scalar', None),
-            ('n_slots_in_semester', 'n_slots_in_semester', 'scalar', None),
-            ('today_starting_slot', 'today_starting_slot', 'scalar', None),
-            ('today_starting_night', 'today_starting_night', 'scalar', None),
-            ('run_band3', 'run_band3', 'scalar', None),
-            ('observatory', 'observatory', 'string', None),
-            ('output_directory', 'output_directory', 'string', None),
-            ('run_weather_loss', 'run_weather_loss', 'scalar', None),
-            ('solve_time_limit', 'solve_time_limit', 'scalar', None),
-            ('gurobi_output', 'gurobi_output', 'scalar', None),
-            ('solve_max_gap', 'solve_max_gap', 'scalar', None),
-            ('max_bonus', 'max_bonus', 'scalar', None),
-            ('run_bonus_round', 'run_bonus_round', 'scalar', None),
-            ('semester_directory', 'semester_directory', 'string', None),
-            ('custom_file', 'custom_file', 'string', None),
-            ('allocation_file', 'allocation_file', 'string', None),
-            ('throttle_grace', 'throttle_grace', 'scalar', None),
-            ('hours_per_night', 'hours_per_night', 'scalar', None),
-        ]
-        
-        # Dictionary attributes (saved as JSON)
-        dict_attrs = [
-            ('all_dates_dict_json', 'all_dates_dict', 'dict_json', None),
-            ('slots_needed_for_exposure_dict_json', 'slots_needed_for_exposure_dict', 'dict_json', None),
-            ('past_nights_observed_dict_json', 'past_nights_observed_dict', 'dict_json', None),
-            ('past_history_json', 'past_history', 'past_history_dict', None),
-        ]
-        
-        # Array/list attributes
-        array_attrs = [
-            ('all_dates_array', 'all_dates_array', 'list', None),
-            ('access_record', 'access_record', 'structured_array', None),
-        ]
-        
-        # Save DataFrames first
-        for hdf5_key, attr_name, data_type, _ in dataframe_attrs:
-            df = getattr(self, attr_name)
-            df.to_hdf(hdf5_path, key=hdf5_key, mode='a', format='table')
-        
-        # Save other attributes using h5py
-        with h5py.File(hdf5_path, 'a') as f:
-            # Save scalar/string attributes
-            for hdf5_key, attr_name, data_type, _ in scalar_attrs:
-                value = getattr(self, attr_name)
-                f.attrs[hdf5_key] = value
-            
-            # Save dictionary attributes
-            for hdf5_key, attr_name, data_type, _ in dict_attrs:
-                if data_type == 'past_history_dict':
-                    # Special handling for past_history (StarHistory namedtuples)
-                    past_history = getattr(self, attr_name)
-                    past_history_serialized = {}
-                    for star_id, star_hist in past_history.items():
-                        past_history_serialized[star_id] = {
-                            'name': star_hist.name,
-                            'date_last_observed': star_hist.date_last_observed,
-                            'total_n_exposures': star_hist.total_n_exposures,
-                            'total_n_visits': star_hist.total_n_visits,
-                            'total_n_unique_nights': star_hist.total_n_unique_nights,
-                            'total_open_shutter_time': star_hist.total_open_shutter_time,
-                            'n_obs_on_nights': star_hist.n_obs_on_nights,
-                            'n_visits_on_nights': star_hist.n_visits_on_nights,
-                            'exposure_start_times': getattr(star_hist, 'exposure_start_times', []),
-                        }
-                    f.attrs[hdf5_key] = json.dumps(past_history_serialized)
-                else:
-                    # Regular dictionary
-                    value = getattr(self, attr_name)
-                    f.attrs[hdf5_key] = json.dumps(value)
-            
-            # Save array/list attributes
-            for hdf5_key, attr_name, data_type, _ in array_attrs:
-                if data_type == 'list':
-                    value = getattr(self, attr_name)
-                    f.create_dataset(hdf5_key, data=np.array(value, dtype='S'))
-                elif data_type == 'structured_array':
-                    access_record = getattr(self, attr_name)
-                    # Save each field of the structured array
-                    for field_name in access_record.dtype.names:
-                        f.create_dataset(f'{hdf5_key}/{field_name}', 
-                                       data=access_record[field_name], 
-                                       compression='gzip')
-        
+            hdf5_path = os.path.join(self.output_directory, "semester_planner.h5")
+        tmp_path = hdf5_path + ".tmp"
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
+        self.requests_frame_all.to_hdf(
+            tmp_path, key="requests_frame_all", mode="a", format="table"
+        )
+        past_fmt = "fixed" if self.past_df.empty else "table"
+        self.past_df.to_hdf(tmp_path, key="past_df", mode="a", format=past_fmt)
+        if self.schedule is not None:
+            fmt = "fixed" if self.schedule.empty else "table"
+            self.schedule.to_hdf(tmp_path, key="schedule", mode="a", format=fmt)
+
+        with h5py.File(tmp_path, "a") as f:
+            f.attrs["schema_version"] = SEMESTER_PLANNER_H5_SCHEMA
+            f.attrs["config_ini_text"] = self._config_ini_text
+            f.create_dataset(
+                "access_record", data=self.access_record, compression="gzip"
+            )
+
+        os.replace(tmp_path, hdf5_path)
         logs.info(f"SemesterPlanner saved to HDF5: {hdf5_path}")
         return hdf5_path
 
     @classmethod
     def from_hdf5(cls, hdf5_path):
+        """Rehydrate a SemesterPlanner from a snapshot written by :meth:`to_hdf5`.
+
+        Skips Gurobi-only state (model, Yrds, Wrd, theta) and the constraint
+        lookup tables -- those are only meaningful when solving. Downstream
+        consumers (plot.py, nplan.py) read requests_frame*, schedule,
+        access_record, past_df, and queue, all of which are restored.
         """
-        Load a SemesterPlanner object from an HDF5 file.
-        
-        Args:
-            hdf5_path (str): Path to the HDF5 file
-            
-        Returns:
-            SemesterPlanner: Reconstructed SemesterPlanner object
-        """        
-        import json
-        from astroq.history import StarHistory
-        
-        # Create a new instance without calling __init__
+        with h5py.File(hdf5_path, "r") as f:
+            schema = int(f.attrs.get("schema_version", 0))
+            if schema != SEMESTER_PLANNER_H5_SCHEMA:
+                raise ValueError(
+                    f"semester_planner.h5 schema_version={schema} is unsupported "
+                    f"(expected {SEMESTER_PLANNER_H5_SCHEMA}). Re-run plan-semester."
+                )
+            config_ini_text = f.attrs["config_ini_text"]
+            if isinstance(config_ini_text, bytes):
+                config_ini_text = config_ini_text.decode("utf-8")
+            access_record = f["access_record"][:].view(np.recarray)
+
+        requests_frame_all = pd.read_hdf(hdf5_path, key="requests_frame_all")
+        try:
+            past_df = pd.read_hdf(hdf5_path, key="past_df")
+        except KeyError:
+            past_df = pd.DataFrame(columns=PAST_COLS)
+        try:
+            schedule = pd.read_hdf(hdf5_path, key="schedule")
+        except KeyError:
+            schedule = None
+
         instance = cls.__new__(cls)
-        
-        # Define deserialization mappings (inverse of to_hdf5)
-        # Format: (hdf5_key, attribute_name, data_type, conversion_func)
-        
-        # DataFrames (loaded using pandas HDF5 support)
-        dataframe_attrs = [
-            ('requests_frame', 'requests_frame', 'dataframe', None),
-            ('requests_frame_all', 'requests_frame_all', 'dataframe', None),
-            ('serialized_schedule', 'serialized_schedule', 'dataframe', None),
-        ]
-        
-        # Scalar/string attributes
-        scalar_attrs = [
-            ('current_day', 'current_day', 'string', None),
-            ('semester_start_date', 'semester_start_date', 'string', None),
-            ('semester_length', 'semester_length', 'scalar', None),
-            ('semester_letter', 'semester_letter', 'string', None),
-            ('slot_size', 'slot_size', 'scalar', None),
-            ('n_slots_in_night', 'n_slots_in_night', 'scalar', None),
-            ('n_nights_in_semester', 'n_nights_in_semester', 'scalar', None),
-            ('n_slots_in_semester', 'n_slots_in_semester', 'scalar', None),
-            ('today_starting_slot', 'today_starting_slot', 'scalar', None),
-            ('today_starting_night', 'today_starting_night', 'scalar', None),
-            ('run_band3', 'run_band3', 'scalar', None),
-            ('observatory', 'observatory', 'string', None),
-            ('output_directory', 'output_directory', 'string', None),
-            ('run_weather_loss', 'run_weather_loss', 'scalar', None),
-            ('solve_time_limit', 'solve_time_limit', 'scalar', None),
-            ('gurobi_output', 'gurobi_output', 'scalar', None),
-            ('solve_max_gap', 'solve_max_gap', 'scalar', None),
-            ('max_bonus', 'max_bonus', 'scalar', None),
-            ('run_bonus_round', 'run_bonus_round', 'scalar', None),
-            ('semester_directory', 'semester_directory', 'string', None),
-            ('custom_file', 'custom_file', 'string', None),
-            ('allocation_file', 'allocation_file', 'string', None),
-        ]
-        
-        # Dictionary attributes (loaded from JSON)
-        dict_attrs = [
-            ('all_dates_dict_json', 'all_dates_dict', 'dict_json', None),
-            ('slots_needed_for_exposure_dict_json', 'slots_needed_for_exposure_dict', 'dict_json', None),
-            ('past_nights_observed_dict_json', 'past_nights_observed_dict', 'dict_json', None),
-            ('past_history_json', 'past_history', 'past_history_dict', None),
-        ]
-        
-        # Array/list attributes
-        array_attrs = [
-            ('all_dates_array', 'all_dates_array', 'list', None),
-            ('access_record', 'access_record', 'structured_array', None),
-        ]
-        
-        # Load DataFrames first
-        for hdf5_key, attr_name, data_type, _ in dataframe_attrs:
-            setattr(instance, attr_name, pd.read_hdf(hdf5_path, key=hdf5_key))
-        
-        # Load other attributes from HDF5
-        with h5py.File(hdf5_path, 'r') as f:
-            # Load scalar/string attributes
-            for hdf5_key, attr_name, data_type, _ in scalar_attrs:
-                setattr(instance, attr_name, f.attrs[hdf5_key])
-            # Optional: backwards compat for HDF5 files saved before these were stored
-            instance.throttle_grace = float(f.attrs.get('throttle_grace', 1.25))
-            instance.hours_per_night = float(f.attrs.get('hours_per_night', 12.0))
-            
-            # Load dictionary attributes
-            for hdf5_key, attr_name, data_type, _ in dict_attrs:
-                data = json.loads(f.attrs[hdf5_key])
-                if data_type == 'past_history_dict':
-                    # Special handling for past_history (reconstruct StarHistory namedtuples)
-                    past_history = {}
-                    for star_id, hist_data in data.items():
-                        star_hist = StarHistory(
-                            name=hist_data['name'],
-                            date_last_observed=hist_data['date_last_observed'],
-                            total_n_exposures=hist_data['total_n_exposures'],
-                            total_n_visits=hist_data['total_n_visits'],
-                            total_n_unique_nights=hist_data['total_n_unique_nights'],
-                            total_open_shutter_time=hist_data['total_open_shutter_time'],
-                            n_obs_on_nights=hist_data['n_obs_on_nights'],
-                            n_visits_on_nights=hist_data['n_visits_on_nights'],
-                            exposure_start_times=hist_data.get('exposure_start_times', [])
-                        )
-                        past_history[star_id] = star_hist
-                    setattr(instance, attr_name, past_history)
-                else:
-                    # Regular dictionary
-                    setattr(instance, attr_name, data)
-            
-            # Load array/list attributes
-            for hdf5_key, attr_name, data_type, _ in array_attrs:
-                if data_type == 'list':
-                    data = f[hdf5_key][:]
-                    setattr(instance, attr_name, [d.decode('utf-8') if isinstance(d, bytes) else d for d in data])
-                elif data_type == 'structured_array':
-                # Reconstruct structured array from saved fields
-                    field_names = list(f[hdf5_key].keys())
-                    # Load all field data first
-                    field_data = {}
-                    for field_name in field_names:
-                        field_data[field_name] = f[f'{hdf5_key}/{field_name}'][:]
-                    
-                    # Determine the number of records (first dimension of first field)
-                    first_field = field_data[field_names[0]]
-                    n_records = first_field.shape[0]
-                    
-                    # Create dtype list with proper shapes for multidimensional fields
-                    dtype_list = []
-                    for field_name in field_names:
-                        data = field_data[field_name]
-                        if data.ndim == 1:
-                            # 1D field: just use the dtype
-                            dtype_list.append((field_name, data.dtype))
-                        else:
-                            # Multidimensional field: include shape (excluding first dimension)
-                            dtype_list.append((field_name, data.dtype, data.shape[1:]))
-                    
-                    # Create structured array and populate it
-                    struct_array = np.zeros(n_records, dtype=dtype_list)
-                    for field_name in field_names:
-                        struct_array[field_name] = field_data[field_name]
-                    
-                    # Convert to recarray so we can use dot notation
-                    setattr(instance, attr_name, struct_array.view(np.recarray))
-        
-        # Recreate access_obj using the loaded parameters
-        # Use KPFCC-specific Access class for Keck Observatory, otherwise use base Access class
-        if 'Keck' in instance.observatory or 'keck' in instance.observatory.lower():
-            from astroq.queue.kpfcc import Access_KPFCC
-            AccessClass = Access_KPFCC
-        else:
-            AccessClass = ac.Access
-        
-        instance.access_obj = AccessClass(
-            semester_start_date=instance.semester_start_date,
-            semester_length=instance.semester_length,
-            n_nights_in_semester=instance.n_nights_in_semester,
-            today_starting_night=instance.today_starting_night,
-            current_day=instance.current_day,
-            all_dates_dict=instance.all_dates_dict,
-            all_dates_array=instance.all_dates_array,
-            slot_size=instance.slot_size,
-            slots_needed_for_exposure_dict=instance.slots_needed_for_exposure_dict,
-            custom_file=instance.custom_file,
-            allocation_file=instance.allocation_file,
-            past_history=instance.past_history,
-            output_directory=instance.output_directory,
-            run_weather_loss=instance.run_weather_loss,
-            run_band3=instance.run_band3,
-            observatory_string=instance.observatory,
-            request_frame=instance.requests_frame
-        )        
+        instance._config_ini_text = config_ini_text
+        instance.config = ConfigParser()
+        instance.config.read_string(config_ini_text)
+        instance.queue = astroq.queue.from_config(instance.config)
+
+        workdir = instance.config.get("global", "workdir")
+        instance.output_directory = os.path.join(workdir, "outputs")
+        instance.allocation_file = instance._resolve_path("allocation_file")
+        instance.custom_file = instance._resolve_path("custom_file")
+        instance.programs_file = instance._resolve_path("programs_file")
+
+        # Cleaning was done at original CSV ingest; on rehydrate we just split
+        # active vs. all, then re-derive the slot/past columns (they're pure
+        # functions of the persisted data so we don't ship them on disk).
+        instance.requests_frame_all = requests_frame_all
+        instance.requests_frame = (
+            requests_frame_all[~requests_frame_all["inactive"].astype(bool)]
+            .reset_index(drop=True)
+            .copy()
+        )
+        instance._attach_slot_columns(instance.requests_frame)
+
+        instance.past_df = past_df
+        instance._attach_past_columns()
+        instance.access_obj = ac.Access.from_planner(instance)
+        instance.access_record = access_record
+        instance.schedule = schedule
+
         logs.info(f"SemesterPlanner loaded from HDF5: {hdf5_path}")
         return instance
-
-    def add_twilights(self):
-        """Add 20-minute buffer to allocation times that match 12-degree twilight."""
-        observatory = self.config.get('global', 'observatory')
-        keck = apl.Observer.at_site(observatory)
-        allocation_df = pd.read_csv(self.allocation_file)
-        
-        for idx, row in allocation_df.iterrows():
-            # Get date from start time (first 10 chars = YYYY-MM-DD)
-            date_str = str(row['start'])[:10]
-            day = Time(date_str, format='iso', scale='utc')
-            
-            # Get 12-degree twilight times
-            evening_12 = keck.twilight_evening_nautical(day, which='next')
-            morning_12 = keck.twilight_morning_nautical(day, which='next')
-            
-            # Check if start time matches evening twilight (within 10 min)
-            start_time = Time(row['start'])
-            if abs(start_time - evening_12) <= TimeDelta(10, format='jd') / 1440:  # 10 minutes
-                adjusted_start = start_time - TimeDelta(20, format='jd') / 1440
-                allocation_df.loc[idx, 'start'] = adjusted_start.strftime('%Y-%m-%dT%H:%M')
-                logs.info(f"Adjusted start time for {date_str}: subtracted 20 min")
-            
-            # Check if stop time matches morning twilight (within 10 min)
-            stop_time = Time(row['stop'])
-            if abs(stop_time - morning_12) <= TimeDelta(10, format='jd') / 1440:  # 10 minutes
-                adjusted_stop = stop_time + TimeDelta(20, format='jd') / 1440
-                allocation_df.loc[idx, 'stop'] = adjusted_stop.strftime('%Y-%m-%dT%H:%M')
-                logs.info(f"Adjusted stop time for {date_str}: added 20 min")
-        
-        # Save updated allocation file
-        allocation_df.to_csv(self.allocation_file, index=False)
-        logs.info("Allocation file updated with twilight adjustments")

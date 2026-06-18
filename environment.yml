@@ -23,4 +23,3 @@ dependencies:
   - pip:
      - gurobipy==11.0
      - kaleido==0.2.1
-     - git+https://github.com/lukehandley/ttp.git@main#egg=ttpsolver

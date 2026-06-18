@@ -1,0 +1,8 @@
+{# Legacy generic DataTable used by driver.py to write standalone HTML files.
+
+Variables (in addition to those required by the partials):
+  table_html (str)     : pre-rendered <table>...</table>
+#}
+{% include 'partials/datatable.css.j2' %}
+{{ table_html | safe }}
+{% include 'partials/datatable.js.j2' %}

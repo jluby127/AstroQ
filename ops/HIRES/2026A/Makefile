@@ -3,18 +3,30 @@
 
 # Configuration variables
 # Conda environment to use for all commands
-CONDA_ENV ?= astroq
+CONDA_ENV ?= $(CONDA_DEFAULT_ENV) # can edit this to run with a different conda environment if needed.
 WORKDIR ?= $(CC_OUTPUT_PATH)
-HOLDERS_DIR ?= $(CC_RESULTS_COPY_PATH)/$(SEMESTER)/$(DATE)
 SEMESTER_DIR = $(WORKDIR)/$(SEMESTER)
 DATE_DIR = $(SEMESTER_DIR)/$(DATE)
+
+# Directory containing this Makefile (stable even if make is run from elsewhere)
+MAKEFILE_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+ENV_FILE ?= $(MAKEFILE_DIR).env
+LOAD_ENV = if [ -f "$(ENV_FILE)" ]; then set -a; . "$(ENV_FILE)"; set +a; fi
+# Optional offline allocation file. By default `astroq prep hirescps` pulls the
+# Keck schedule live and crossmatches against REQUEST_URLS_CSV (passed via -ru).
+# To run offline, append   -as "$(ALLOCATION_FILE)"   to the prep recipes below.
+ALLOCATION_FILE ?= $(MAKEFILE_DIR)allocation_hires_cps.csv
+REQUEST_URLS_CSV ?= $(MAKEFILE_DIR)request_urls.csv
+
+# Shared config template lives in ops/HIRES/common/ (one level up).
+CONFIG_TEMPLATE ?= $(MAKEFILE_DIR)../common/config_template.ini
 
 # Changed only once per semester
 SEMESTER ?= 2026A
 START_DATE ?= 2026-02-01
 END_DATE ?= 2026-07-31
-BANDS ?= band1 band2 band3 full-band1 full-band2 full-band3
-FILLER_PROGRAM ?= 2026A_E475
+BANDS ?= band1 full-band1
+FILLER_PROGRAM ?= 2026A_N012
 
 # Cross-platform sed in-place flag (Darwin uses -i '')
 UNAME_S := $(shell uname)
@@ -39,10 +51,6 @@ all: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/plan-night-complete)
 	@for band in $(BANDS); do \
 		echo "  $(DATE_DIR)/$$band/"; \
 	done
-	@echo "📋 Creating holders directories and copying ObserveOrder files..."
-	@$(MAKE) copy_observe_orders
-	@echo "📋 Copying Magiq script files to holders..."
-	@$(MAKE) copy_magiq_scripts
 	@echo "📝 Combining all band logs..."
 	@$(MAKE) combine_logs
 	@echo "🔍 Checking night plans..."
@@ -56,26 +64,30 @@ $(DATE_DIR)/%/plan-night-complete: $(DATE_DIR)/%/plan-night-run
 # Run plan-night command
 $(DATE_DIR)/%/plan-night-run: $(DATE_DIR)/%/plan-semester-run
 	@echo "🌙 Running plan-night for band $(notdir $(@D))..."
-	@cd $(@D) && conda run -n $(CONDA_ENV) astroq plan-night -cf config.ini 2>&1 | tee -a astroq.log
+	@cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq plan-night -cf config.ini 2>&1 | tee -a astroq.log
 	@touch $@
 
 # Run plan-semester command (unified for all bands)
 $(DATE_DIR)/%/plan-semester-run: $(DATE_DIR)/%/prep-run
 	@echo "📅 Running plan-semester for band $(notdir $(@D))..."
-	@cd $(@D) && conda run -n $(CONDA_ENV) astroq plan-semester -cf config.ini 2>&1 | tee -a astroq.log
+	@cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq plan-semester -cf config.ini 2>&1 | tee -a astroq.log
 	@touch $@
 
-# Unified prep command for all bands
+# Unified prep command for all bands (queue read from config.ini; the queue
+# name is also the `astroq prep` subcommand name, e.g. hirescps / kpfcc).
 $(DATE_DIR)/%/prep-run: $(DATE_DIR)/%/config.ini
 	@echo "🔧 Running prep for band $(notdir $(@D))..."
-	@BAND_NUM=$$(echo $(notdir $(@D)) | sed 's/band//' | sed 's/full-//'); \
+	@test -f "$(REQUEST_URLS_CSV)" || (echo "Missing $(REQUEST_URLS_CSV)" && exit 1)
+	@: > $(@D)/astroq.log
+	@QUEUE=$$(sed -n 's/^[[:space:]]*queue[[:space:]]*=[[:space:]]*//p' $(@D)/config.ini | tr -d ' \r\n'); \
+	BAND_NUM=$$(echo $(notdir $(@D)) | sed 's/band//' | sed 's/full-//'); \
 	IS_FULL_BAND=$$(echo $(notdir $(@D)) | grep -q '^full-' && echo "true" || echo "false"); \
 	if [ "$$IS_FULL_BAND" = "true" ]; then \
-		echo "📅 Running prep for full-band $$BAND_NUM..." && \
-		cd $(@D) && conda run -n $(CONDA_ENV) astroq prep kpfcc -cf config.ini -fillers $(FILLER_PROGRAM) -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
+		echo "📅 Running prep for full-band $$BAND_NUM (queue=$$QUEUE)..." && \
+		cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -fillers $(FILLER_PROGRAM) -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
 	else \
-		echo "📊 Running prep for band $$BAND_NUM..." && \
-		cd $(@D) && conda run -n $(CONDA_ENV) astroq prep kpfcc -cf config.ini -fillers $(FILLER_PROGRAM) -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
+		echo "📊 Running prep for band $$BAND_NUM (queue=$$QUEUE)..." && \
+		cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -fillers $(FILLER_PROGRAM) -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
 	fi
 	@touch $@
 
@@ -83,7 +95,7 @@ $(DATE_DIR)/%/prep-run: $(DATE_DIR)/%/config.ini
 $(DATE_DIR)/%/config.ini: create_dirs
 	@echo "📋 Copying config template for band $(notdir $(@D))..."
 	@mkdir -p $(@D)
-	@cp config_template.ini $@
+	@cp $(CONFIG_TEMPLATE) $@
 	@sed -i $(SED_I_FLAG) "s|CURRENT_DATE_PLACEHOLDER|$(DATE)|g" $@
 	@sed -i $(SED_I_FLAG) "s|START_DATE_PLACEHOLDER|$(START_DATE)|g" $@
 	@sed -i $(SED_I_FLAG) "s|END_DATE_PLACEHOLDER|$(END_DATE)|g" $@
@@ -128,28 +140,6 @@ create_dirs: validate_date
 	@mkdir -p $(DATE_DIR)
 	@echo "✅ Directories created"
 
-# Copy ObserveOrder files to holders directories (doesn't depend on workflow)
-copy_observe_orders:
-	@echo "📋 Copying ObserveOrder files to holders directories..."
-	@for band in $(BANDS); do \
-		echo "📋 Copying ObserveOrder file for band $$band..."; \
-		mkdir -p $(HOLDERS_DIR)/$$band/output; \
-		cp $(DATE_DIR)/$$band/outputs/ObserveOrder_$(DATE).txt $(HOLDERS_DIR)/$$band/output/night_plan.csv; \
-		echo "✅ ObserveOrder file copied for band $$band"; \
-	done
-	@echo "✅ All ObserveOrder files copied to holders directories!"
-
-# Copy script_{date}_nominal.txt to holders as magiq_backup_{band}.txt
-copy_magiq_scripts:
-	@echo "📋 Copying Magiq script files to holders directories..."
-	@for band in $(BANDS); do \
-		echo "📋 Copying script for band $$band..."; \
-		mkdir -p $(HOLDERS_DIR)/$$band/output; \
-		cp $(DATE_DIR)/$$band/outputs/script_$(DATE)_nominal.txt $(HOLDERS_DIR)/$$band/output/magiq_backup_$$band.txt; \
-		echo "✅ Magiq script copied for band $$band"; \
-	done
-	@echo "✅ All Magiq script files copied to holders directories!"
-
 # Combine all band logs into a single file
 combine_logs:
 	@echo "📝 Combining logs from all bands..."
@@ -177,8 +167,8 @@ combine_logs:
 
 # Check night plans
 check_night_plans:
-	@echo "🔍 Running check_night_plans.py..."
-	@cd $(shell dirname $(firstword $(MAKEFILE_LIST))) && conda run -n $(CONDA_ENV) python check_night_plans.py -s $(SEMESTER) -d $(DATE) $(HOLDERS_DIR)
+	@echo "🔍 Running astroq.scripts.check_night_plans..."
+	@$(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) python -m astroq.scripts.check_night_plans -s $(SEMESTER) -d $(DATE) $(DATE_DIR)
 	@echo "✅ Night plans check complete!"
 
 # Launch webapp
@@ -210,14 +200,14 @@ status:
 	@echo "  End Date: $(END_DATE)"
 	@echo "  Bands: $(BANDS)"
 	@echo "  Filler Program: $(FILLER_PROGRAM)"
+	@echo "  Allocation file (-as): $(ALLOCATION_FILE)"
+	@echo "  Program sheet URLs CSV (-ru): $(REQUEST_URLS_CSV)"
 	@echo "  Work Directory: $(WORKDIR)"
 	@echo "  Date Directory: $(DATE_DIR)"
 
-# Complete workflow (workflow + copy + webapp)
+# Complete workflow (workflow + webapp)
 complete: all
-	@echo "📋 Creating holders directories and copying ObserveOrder files..."
-	@$(MAKE) copy_observe_orders
 	@echo "🌐 Launching webapp..."
 	@$(MAKE) webapp
 
-.PHONY: all create_dirs clean status copy_observe_orders copy_only webapp complete combine_logs check_night_plans 
+.PHONY: all create_dirs clean status webapp complete combine_logs check_night_plans

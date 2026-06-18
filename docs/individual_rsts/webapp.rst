@@ -3,7 +3,7 @@
 webapp
 ======
 
-.. automodule:: astroq.webapp
+.. automodule:: astroq.webapp.app
    :members:
    :undoc-members:
    :private-members:

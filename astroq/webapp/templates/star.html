@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>{% if starname %}{{ starname }}{% else %}Star Page{% endif %}</title>
+    <title>{% if target %}{{ target }}{% else %}Target Page{% endif %}</title>
 
     <!-- Plotly -->
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
@@ -46,10 +46,10 @@
 <body>
 
     <h1>
-        {% if starname %}
-            Data for {{ starname }}
+        {% if target %}
+            Data for {{ target }}
         {% else %}
-            Select a star to view its plots
+            Select a target to view its plots
         {% endif %}
     </h1>
     {% if timestamp %}

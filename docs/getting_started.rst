@@ -96,7 +96,7 @@ AstroQ requires six files to run. All example file paths are relative the astroq
 
 3. ``request.csv`` - Contains information about the targets and their observational strategies. It must contain appropriate column headers.
     - ``unique_id`` - A unique identifier for the target.
-    - ``starname`` - The human-readable name of the target.
+    - ``target`` - The human-readable name of the target.
     - ``program_code`` - The program code of the target. 
     - ``ra`` - The right ascension of the target.
     - ``dec`` - The declination of the target.
@@ -118,14 +118,12 @@ AstroQ requires six files to run. All example file paths are relative the astroq
       :header-rows: 1
       :widths: auto
 
-4. ``past.csv`` - Contains information about the past history of observations. While it may be blank, it must contain appropriate column headers:
-    - ``id`` - the unique identifier for the target.
+4. ``past.csv`` - Contains information about the past history of observations. One row per exposure. While it may be blank, it must contain appropriate column headers:
+    - ``unique_id`` - the unique identifier for the target (matches ``unique_id`` in ``request.csv``).
     - ``target`` - the human-readable name of the target.
-    - ``semid`` - the program code of the target.
-    - ``exposure_start_time_UT`` - exposure start in UT (legacy column name ``exposure_start_time`` is still accepted).
-    - ``exposure_start_time_local`` - optional; wall time from ``UTCoffset`` when exporting from the OB database.
+    - ``timestamp`` - the start time of the recorded exposure (UT ISO).
     - ``exposure_time`` - the recorded duration of the exposure.
-    - ``NightOf`` - optional ``YYYY-MM-DD`` observing-night label: local calendar date of the most recent sunset at the observatory (from config ``observatory``) before the exposure. Groups pre-midnight and post-midnight data on the same night. If omitted, it is computed when past history is loaded (sunset if the site resolves in astroplan, else a local-noon night boundary).
+    - ``junk`` (optional) - boolean flag for bad/junk exposures.
 
    Example ``examples/hello_world/2018B/2018-08-05/band1/past.csv``:
 
@@ -148,7 +146,7 @@ AstroQ requires six files to run. All example file paths are relative the astroq
 
 6. ``custom.csv`` - Contains information about the specific time windows when targets may be observed. While it may be blank, it must contain appropriate column headers:
     - ``unique_id`` - the unique identifier for the target.
-    - ``starname`` - the human-readable name of the target.
+    - ``target`` - the human-readable name of the target.
     - ``start`` - the start time of the time window.
     - ``stop`` - the stop time of the time window.
     Times are in format "YYYY-MM-DD HH:MM"
@@ -222,8 +220,6 @@ Let's take a look at the outputs produced:
         $ ls -ltr examples/hello_world/2018B/2018-08-05/band1/outputs
         
             -rw-r--r--@ 1 jack  staff    3153 Oct 29 12:15 semester_plan.csv
-            -rw-r--r--@ 1 jack  staff  230542 Oct 29 12:15 serialized_outputs_dense_v1.csv
-            -rw-r--r--@ 1 jack  staff  253640 Oct 29 12:15 serialized_outputs_dense_v2.csv
             -rw-r--r--@ 1 jack  staff     346 Oct 29 12:15 runReport.txt
             -rw-r--r--@ 1 jack  staff     873 Oct 29 12:15 request_selected.csv
             -rw-r--r--@ 1 jack  staff  244512 Oct 29 12:15 semester_planner.h5
@@ -248,54 +244,6 @@ Let's take a look at the outputs produced:
        e2, 5, 35, TOI-1670
        e2, 8, 41, TOI-1670
 
-- ``serialized_outputs_dense_v1.csv`` contains the same information, but now all slots, even those not scheduled to have an observation are included, and it is ordered by time. See example:
-
-    .. csv-table::
-       :header: "d", "s", "r", "name"
-       :widths: auto
-
-       0, 0, , 
-       0, 1, , 
-       0, 2, , 
-       0, 3, , 
-       0, 4, , 
-       0, 5, , 
-       0, 6, , 
-       0, 7, , 
-       0, 8, , 
-       0, 9, , 
-       0, 10, , 
-       0, 11, , 
-       0, 12, , 
-       0, 13, , 
-       0, 14, , 
-       ..., ..., ..., ...
-       4, 62, e2, HIP1532
-       4, 63, , 
-
-- ``serialized_outputs_dense_v2.csv`` is identical to ``serialized_outputs_dense_v1.csv``, but now slots that cannot be filled for all stars (like sky brightness or telescope allocation, are denoted with an "X"). See example:
-
-    .. csv-table::
-       :header: "d", "s", "r", "name"
-       :widths: auto
-
-       0, 0, X, 
-       0, 1, X, 
-       0, 2, X, 
-       0, 3, X, 
-       0, 4, X, 
-       0, 5, X, 
-       0, 6, X, 
-       0, 7, X, 
-       0, 8, X, 
-       0, 9, X, 
-       0, 10, X, 
-       0, 11, X, 
-       0, 12, X, 
-       ..., ..., ..., ...
-       4, 62, e2, HIP1532
-       4, 63, , 
-    
 - ``runReport.txt``: contains some basic statistics about the fullness of the schedule. See example (note, this schedule is not supposed to be a good one!):
     
     ::
@@ -327,22 +275,10 @@ Here are the new files in ``examples/hello_world/outputs/``:
 
     .. code-block:: bash
         
-        -rw-r--r--@ 1 jack  staff     447 Oct 29 13:36 ttp_prepared.csv
         -rw-r--r--@ 1 jack  staff     433 Oct 29 13:36 TTPstatistics.txt
         -rw-r--r--@ 1 jack  staff     158 Oct 29 13:36 ObserveOrder_2018-08-05.txt
         -rw-r--r--@ 1 jack  staff    1157 Oct 29 13:36 script_2018-08-05_nominal.txt
         -rw-r--r--@ 1 jack  staff   16080 Oct 29 13:36 night_planner.h5
-
-- ``ttp_prepared.csv`` is the input to the TTP solver. It contains the target information in the format required by the TTP solver. See example and the TTP repository for more info:
-
-    .. csv-table::
-       :header: "Starname", "RA", "Dec", "Exposure Time", "Exposures Per Visit", "Visits In Night", "Intra_Night_Cadence", "Priority", "First Available", "Last Available"
-       :widths: auto
-
-       e1, 4.77317661843625, -9.964852409, 360, 2, 1, 0, 10, 2018-08-05 10:20, 2018-08-05 15:00
-       e2, 259.0173367, 72.16115935, 1200, 1, 1, 0, 10, 2018-08-05 05:50, 2018-08-05 08:50
-       e7, 285.679422455377, 50.2413060048164, 50, 1, 4, 1, 10, 2018-08-05 05:50, 2018-08-05 12:20
-       e9, 348.320729001503, 57.1683566176719, 60, 3, 1, 0, 10, 2018-08-05 08:40, 2018-08-05 15:00
 
 - ``TTPstatistics.txt`` contains some basic statistics about the TTP solution. See example:
 

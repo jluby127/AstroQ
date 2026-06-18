@@ -1,0 +1,133 @@
+{# Shared DataTable stylesheet.
+
+Variables:
+  table_id (str)                   : id of the rendered <table>
+  variant (str)                    : 'compact' (request_frame, nightplan) or 'card' (legacy generic)
+  column_widths (list[str])        : compact-only; ch units, one per column, applied via :nth-child
+  has_band_padding (bool)          : compact-only; tighter padding overrides for band columns
+  has_tooltips (bool)              : enable :hover::after data-tooltip box on <th>
+  has_column_filters (bool)        : enable tfoot column-filter input styling
+  has_dt_controls_styling (bool)   : card-only; style DataTables length/filter/buttons/paginate controls
+#}
+<style>
+{%- if variant == 'compact' %}
+#{{ table_id }} {
+    width: auto !important;
+    max-width: 100%;
+    border-collapse: collapse;
+    font-size: 21px;
+    margin: 10px 0;
+    table-layout: fixed !important;
+}
+{%- for w in column_widths %}
+#{{ table_id }} th:nth-child({{ loop.index }}), #{{ table_id }} td:nth-child({{ loop.index }}) { width: {{ w }} !important; max-width: {{ w }} !important; }
+{%- endfor %}
+#{{ table_id }} thead th {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    font-weight: 600;
+    padding: 3pt;
+    text-align: center;
+    font-size: 20px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: help;
+}
+#{{ table_id }} tbody td {
+    padding: 3pt;
+    text-align: center;
+    font-size: 20px;
+    border-bottom: 1px solid #e9ecef;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+{%- if has_band_padding %}
+#{{ table_id }} tbody td:nth-child(7), #{{ table_id }} thead th:nth-child(7) { padding: 3pt !important; }
+#{{ table_id }} tbody td:nth-child(8), #{{ table_id }} tbody td:nth-child(9), #{{ table_id }} tbody td:nth-child(10), #{{ table_id }} tbody td:nth-child(11), #{{ table_id }} tbody td:nth-child(12),
+#{{ table_id }} thead th:nth-child(8), #{{ table_id }} thead th:nth-child(9), #{{ table_id }} thead th:nth-child(10), #{{ table_id }} thead th:nth-child(11), #{{ table_id }} thead th:nth-child(12) { padding: 0 !important; }
+#{{ table_id }} tbody td:nth-child(13), #{{ table_id }} tbody td:nth-child(14), #{{ table_id }} tbody td:nth-child(15), #{{ table_id }} tbody td:nth-child(16),
+#{{ table_id }} thead th:nth-child(13), #{{ table_id }} thead th:nth-child(14), #{{ table_id }} thead th:nth-child(15), #{{ table_id }} thead th:nth-child(16) { padding: 3pt !important; }
+{%- endif %}
+#{{ table_id }} tbody tr:nth-child(even) { background-color: #dee2e6 !important; }
+#{{ table_id }} tbody tr:nth-child(odd) { background-color: white !important; }
+#{{ table_id }} tbody tr:hover { background-color: #e3f2fd !important; }
+{%- if has_column_filters %}
+#{{ table_id }} tfoot th { padding: 8px 4px; background: #f1f3f5; border-top: 2px solid #dee2e6; }
+#{{ table_id }} tfoot .column-filter { width: 100%; padding: 4px 8px; font-size: 14px; border: 1px solid #ced4da; border-radius: 4px; box-sizing: border-box; }
+{%- endif %}
+{%- elif variant == 'card' %}
+#{{ table_id }} {
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
+    border-radius: 8px !important;
+    overflow: hidden !important;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
+    margin: 20px 0 !important;
+}
+#{{ table_id }} thead th {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    color: white !important;
+    font-weight: 600 !important;
+    padding: 15px 12px !important;
+    border: none !important;
+    text-align: center !important;
+    font-size: 14px !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.5px !important;
+}
+#{{ table_id }} tbody tr { transition: all 0.2s ease !important; }
+#{{ table_id }} tbody tr:nth-child(even) { background-color: #f8f9fa !important; }
+#{{ table_id }} tbody tr:nth-child(odd) { background-color: white !important; }
+#{{ table_id }} tbody tr:hover {
+    background-color: #e3f2fd !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+}
+#{{ table_id }} tbody td {
+    padding: 12px !important;
+    border: none !important;
+    border-bottom: 1px solid #e9ecef !important;
+    font-size: 14px !important;
+    color: #495057 !important;
+    text-align: center !important;
+}
+#{{ table_id }} tbody tr:last-child td { border-bottom: none !important; }
+{%- if has_dt_controls_styling %}
+.dataTables_length select { border: 1px solid #ddd !important; border-radius: 4px !important; padding: 4px 8px !important; background: white !important; }
+.dataTables_filter input { border: 1px solid #ddd !important; border-radius: 4px !important; padding: 6px 12px !important; background: white !important; }
+.dt-buttons .dt-button { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important; color: white !important; border: none !important; border-radius: 4px !important; padding: 8px 16px !important; margin: 2px !important; font-size: 12px !important; transition: all 0.2s ease !important; }
+.dt-buttons .dt-button:hover { background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%) !important; transform: translateY(-1px) !important; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2) !important; }
+.dataTables_info { color: #6c757d !important; font-size: 14px !important; margin-top: 10px !important; }
+.dataTables_paginate .paginate_button { border: 1px solid #ddd !important; border-radius: 4px !important; padding: 6px 12px !important; margin: 2px !important; background: white !important; color: #495057 !important; transition: all 0.2s ease !important; }
+.dataTables_paginate .paginate_button:hover { background: #e9ecef !important; border-color: #adb5bd !important; }
+.dataTables_paginate .paginate_button.current { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important; color: white !important; border-color: #667eea !important; }
+{%- endif %}
+{%- endif %}
+{%- if has_tooltips %}
+#{{ table_id }} thead th[data-tooltip] { position: relative; }
+#{{ table_id }} thead th[data-tooltip]:hover::after {
+    content: attr(data-tooltip);
+    position: fixed;
+    top: 140px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 16px 24px;
+    background: #5a4d9e !important;
+    color: white !important;
+    font-size: 18px !important;
+    font-weight: 700 !important;
+    white-space: normal;
+    max-width: 675px;
+    width: 675px;
+    text-align: center;
+    border-radius: 8px;
+    border: 3px solid #4a3d8e;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.5);
+    z-index: 10000;
+    pointer-events: none;
+    opacity: 1 !important;
+}
+{%- endif %}
+</style>

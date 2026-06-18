@@ -9,11 +9,19 @@ This package contains the code for solving two related problems:
 
 For information on the installation and use of the ``AstroQ`` code, please visit the [documentation page](https://astroq.readthedocs.io).
 
-
-
 # More Info
 More information on the KPF-CC program and the algorithm can be found in these places:
 - The original autoscheduler paper: https://ui.adsabs.harvard.edu/abs/2024AJ....167..122H/abstract
 - The original TTP paper (please cite this if you obtain observations through KPF-CC):  https://ui.adsabs.harvard.edu/abs/2024AJ....167...33H/abstract
 - The updated autoscheduler paper (describes this new algorithm, please cite this if you obtain observations through KPF-CC):
 - A FAQ page: https://docs.google.com/document/d/1-TfR6lNEtHO3muw_2Sc7l9Klveb3yovMUu28Jeq21t0/edit?usp=sharing
+
+# Notes on HIRES implementation
+
+These are notes for the HIRES implementation starting in 2026A. You'll need the following extra environment variables to be set
+
+CC_OUTPUT_PATH = Where the outputs will be stored. 
+If CC_OUTPUT_PATH = AstroQ, look for AstroQ/2026A/2026-05-15/band1/
+
+It is expected for the code to be run from the repo root.
+
