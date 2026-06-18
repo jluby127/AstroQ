@@ -21,6 +21,7 @@ from astropy.table import QTable
 
 from astroq.splan import SemesterPlanner
 from astroq.ttp import model
+from astroq.ttp.acs import acs_warm_start
 
 logs = logging.getLogger(__name__)
 
@@ -299,7 +300,22 @@ class NightPlanner:
         )
         tm.build_nodes()
         tm.build_arcs()
+
+        # Night solver: 'milp' (Gurobi) or 'acs_seed' (ACS warm-start, then
+        # Gurobi). Default 'milp'. An ACS-only schedule is just 'acs_seed' with a
+        # very short Gurobi TimeLimit, so there is no separate 'acs' engine.
+        ttp_solver = self.config.get("night", "ttp_solver", fallback="milp")
+        # ACS budget: per-start time limit and number of independent (parallel)
+        # restarts kept-best. Defaults match the single-start behavior.
+        acs_time = self.config.getfloat("night", "acs_time_limit_s", fallback=3.0)
+        acs_starts = self.config.getint("night", "acs_starts", fallback=1)
+        acs_params = {"time_limit_s": acs_time}
+
         tm.build_model()
+        if ttp_solver == "acs_seed":
+            tm.seed_from_tour(
+                acs_warm_start(tm, params=acs_params, n_starts=acs_starts)
+            )
         tm.model.params.TimeLimit = self.config.getint("night", "max_solve_time")
         tm.model.params.MIPGap = self.config.getfloat("night", "max_solve_gap")
         tm.model.params.OutputFlag = int(

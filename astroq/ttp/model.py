@@ -6,7 +6,6 @@ The model implements the MILP of Handley et al. 2024 (arXiv:2310.18497).
 # Standard library imports
 import logging
 import time
-from itertools import product
 
 # Third-party imports
 import numpy as np
@@ -117,6 +116,7 @@ class TTPModel:
         *,
         slew_fn,
         n_slots=1,
+        n_states=1,
     ):
         if not isinstance(requests, QTable):
             raise TypeError(
@@ -158,6 +158,11 @@ class TTPModel:
 
         self.slew_fn = slew_fn
         self.n_slots = n_slots
+        #: Number of cable-wrap states. ``1`` selects the legacy single-cut
+        #: path; ``>1`` enables the state-aware MILP (``slew_fn`` must then
+        #: return a ``(P, M, S, S)`` tensor with ``NaN`` for impossible arcs).
+        self.n_states = int(n_states)
+        self.S = self.n_states
         self.dur_min = float(
             np.round((night_end - night_start).to_value(u.min), 0)
         )
@@ -237,13 +242,21 @@ class TTPModel:
         }
 
     def build_arcs(self):
-        """Build precomputed arc catalog ``self.arcs``.
+        """Build the precomputed, state-indexed arc catalog ``self.arcs``.
 
         Splits ``[night_start, night_end]`` into ``M`` equal-length windows
         and asks ``self.slew_fn`` for the worst-case slew (minutes) on each
         ordered pair of real nodes within each window. The per-window
         sampling cadence and reduction policy live inside ``slew_fn``; see
         the class docstring for the callable contract.
+
+        The catalog is *always* keyed ``(i, j, m, si, sj)`` (departure window
+        ``m``, wrap states ``si``/``sj``). A legacy single-state ``slew_fn`` may
+        return a 2-D ``(P, M)`` array; it is promoted to ``(P, M, 1, 1)`` so the
+        single-state model is just the ``S = 1`` degenerate case (one state,
+        ``si = sj = 0``). Arcs with a non-finite slew (an unreachable winding)
+        are dropped, and ``self.node_states`` records the wrap states each real
+        node can actually be observed in (``{n: [0]}`` when ``S == 1``).
         """
         if not hasattr(self, "nodes"):
             raise RuntimeError("call build_nodes() before build_arcs()")
@@ -267,199 +280,258 @@ class TTPModel:
         j_pos = jj[mask]  # ending node of arc
         n_pair = len(i_pos)
 
-        # slew_fn returns shape (n_pair, M): worst-case slew per (pair, window).
-        tau_per_slot = self.slew_fn(
-            node_coords[i_pos], node_coords[j_pos], window_start, window_end
-        )
-
-        p_idx, m_lev = np.mgrid[0:n_pair, 0 : self.M]
-        i_id = i_pos[p_idx.ravel()] + 1  # account for anchor nodes
-        j_id = j_pos[p_idx.ravel()] + 1  # account for anchor nodes
-
         uid = self.nodes["unique_id"].to_numpy()
+
+        # slew_fn returns (n_pair, M, S, S) with NaN where a winding is
+        # unreachable; a legacy single-state slew_fn returns (n_pair, M), which
+        # we promote to (n_pair, M, 1, 1). Flatten, then drop the NaN
+        # (impossible) arcs so they can never be selected.
+        tau = np.asarray(
+            self.slew_fn(
+                node_coords[i_pos], node_coords[j_pos], window_start, window_end
+            )
+        )
+        if tau.ndim == 2:
+            tau = tau[:, :, None, None]
+        if tau.shape != (n_pair, self.M, self.S, self.S):
+            raise ValueError(
+                f"slew_fn returned shape {tau.shape}; expected "
+                f"{(n_pair, self.M, self.S, self.S)} for n_states={self.S}"
+            )
+        p_g, m_g, si_g, sj_g = np.mgrid[
+            0:n_pair, 0 : self.M, 0 : self.S, 0 : self.S
+        ]
+        i_id = i_pos[p_g.ravel()] + 1
+        j_id = j_pos[p_g.ravel()] + 1
+        m_lev = m_g.ravel()
+        si = si_g.ravel()
+        sj = sj_g.ravel()
+        t_slew = tau.ravel()
+        keep = np.isfinite(t_slew)
         self.arcs = pd.DataFrame(
             {
-                "i_id": uid[i_id],
-                "j_id": uid[j_id],
-                "t_slew": tau_per_slot.ravel(),
+                "i_id": uid[i_id[keep]],
+                "j_id": uid[j_id[keep]],
+                "t_slew": t_slew[keep],
             },
             index=pd.MultiIndex.from_arrays(
-                [i_id, j_id, m_lev.ravel()], names=("i", "j", "m")
+                [i_id[keep], j_id[keep], m_lev[keep], si[keep], sj[keep]],
+                names=("i", "j", "m", "si", "sj"),
             ),
         )
+        # Feasible states per real node: states in which the node appears as
+        # either endpoint of a surviving arc (``[0]`` for every node if S == 1).
+        node_states = {n: set() for n in range(1, self.N - 1)}
+        for n, s in zip(i_id[keep], si[keep]):
+            node_states[n].add(int(s))
+        for n, s in zip(j_id[keep], sj[keep]):
+            node_states[n].add(int(s))
+        self.node_states = {n: sorted(s) for n, s in node_states.items()}
 
         # Slot bounds (minutes from night_start) used by build_model.
         self.w = self.dur_min * fractions
 
     # ------------------------------------------------------------- MILP build
     def build_model(self):
-        """Construct the TTP MILP (Handley+ 2024, eqs. 2-9, B3, 10).
+        """Construct the (state-indexed) TTP MILP.
 
-        Constraints are added in the order they appear in Handley+ 2024 §2.4.
+        This is the Handley+ 2024 formulation (eqs. 2-9, B3, 10) generalized
+        with a cable-wrap state index. The single-state model is the degenerate
+        ``S == 1`` case (every node has one state ``0``), so there is a single
+        code path for both.
+
+        Paper map (Handley+ 2024 -> this code):
+          * ``X_{ijm}`` (arc i->j departing in window m) -> ``Xijm[(i, j, m, si,
+            sj)]`` with the extra wrap states ``si`` (at i) and ``sj`` (at j).
+          * ``Y_i`` (node i visited) -> ``Yi[(i, s)]`` (node i visited in wrap
+            state s). ``one_state`` caps ``sum_s Yi[(i, s)] <= 1``.
+          * eqs. 2/3 (one arc out of start / into end), eq. 4 (visit once),
+            eq. 5 (flow conservation), eq. 6 (``ti`` <-> ``tijm``), eq. 7
+            (exposure/slew timing), eq. 8 (slot bounds), eq. 9 (rise/set),
+            eq. B3 (intra-night separation), eq. 10 (objective) all carry their
+            paper labels in the comments below.
+
+        Divergence from Handley+ 2024:
+          * Wrap states: arcs/visits are state-indexed and flow conservation is
+            enforced per ``(node, state)`` so the telescope holds its winding
+            through a visit (state continuity). Impossible windings were dropped
+            (NaN) in :meth:`build_arcs`, so only feasible arcs exist. Anchors
+            (start ``0`` / end ``N-1``) are stateless and their arcs cost 0.
+          * ``Yi`` is left continuous in ``[0, 1]``: ``visit_once`` pins it to a
+            sum of binary in-arcs (and ``one_state`` caps it), so it is 0/1 at
+            every integer-feasible point. This removes redundant binaries and
+            attacks the wrap-state branching symmetry.
+          * ``first_exposure`` pins the first visit to the night start (or the
+            earliest feasible time), preventing leading idle in underfilled
+            schedules (not in Handley+ 2024).
+
+        Variables are built over the sparse set of feasible arc keys via
+        adjacency tables (``out_by_node`` / ``in_by_ns`` / ...) rather than dense
+        ``range(N) x range(N) x range(M)`` loops, which keeps the model small
+        when many windings are infeasible.
         """
         if not hasattr(self, "arcs"):
             raise RuntimeError("call build_arcs() before build_model()")
         self.model = gp.Model("TTP")
-
         N, M = self.N, self.M
         nodes = self.nodes
-        # O(1) slew lookup for hot loops (anchor arcs absent => .get(..., 0.0)).
-        arcs_lookup = self.arcs["t_slew"].to_dict()
+        real_nodes = range(1, N - 1)
 
+        # Per-node feasible states (computed in build_arcs from surviving arcs).
+        node_states = self.node_states
+
+        # Slew cost for the internal (real-real) arcs that survived NaN drop.
+        arc_cost = self.arcs["t_slew"].to_dict()  # keys (i, j, m, si, sj)
+
+        # ---- Enumerate every arc key used by the model + adjacency tables.
+        arc_keys = list(arc_cost.keys())          # internal feasible arcs
+        cost = dict(arc_cost)                      # anchor arcs default to 0
+        # start-anchor -> real node-state (one per window); end real -> end anchor.
+        for j in real_nodes:
+            for sj in node_states[j]:
+                for m in range(M):
+                    key = (0, j, m, 0, sj)
+                    arc_keys.append(key)
+                    cost[key] = 0.0
+        for i in real_nodes:
+            for si in node_states[i]:
+                for m in range(M):
+                    key = (i, N - 1, m, si, 0)
+                    arc_keys.append(key)
+                    cost[key] = 0.0
+
+        out_by_node = {i: [] for i in range(N)}    # keyed by source node id
+        in_by_node = {j: [] for j in range(N)}     # keyed by dest node id
+        out_by_ns = {}                             # keyed by (node, state)
+        in_by_ns = {}
+        for key in arc_keys:
+            i, j, m, si, sj = key
+            out_by_node[i].append(key)
+            in_by_node[j].append(key)
+            out_by_ns.setdefault((i, si), []).append(key)
+            in_by_ns.setdefault((j, sj), []).append(key)
+
+        # Real node-states that actually exist (have a Y variable).
+        ns_keys = [(i, s) for i in real_nodes for s in node_states[i]]
+
+        # ---- Variables.
+        # Yi is implied-integer: visit_once pins Yi[(j,s)] = sum of binary in-arcs
+        # (<=1 via one_state), so it is 0/1 at every integer-feasible point. Leaving
+        # it continuous keeps integrality on the arcs (Xijm) and removes ~|states|
+        # redundant binaries from the branch set -- this attacks the wrap-state
+        # branching symmetry directly. (build_schedule reads only Xijm/ti.)
         self.Yi = self.model.addVars(
-            range(N),
-            vtype=GRB.BINARY,
-            name="Yi",
+            ns_keys, vtype=GRB.CONTINUOUS, lb=0.0, ub=1.0, name="Yi"
         )
-        self.Xijm = self.model.addVars(
-            range(N),
-            range(N),
-            range(M),
-            vtype=GRB.BINARY,
-            name="Xijm",
-        )
-        self.tijm = self.model.addVars(
-            range(N),
-            range(N),
-            range(M),
-            vtype=GRB.CONTINUOUS,
-            name="tijm",
-        )
-        self.ti = self.model.addVars(
-            range(N),
-            vtype=GRB.CONTINUOUS,
-            lb=0,
-            name="ti",
-        )
+        self.Xijm = self.model.addVars(arc_keys, vtype=GRB.BINARY, name="Xijm")
+        self.tijm = self.model.addVars(arc_keys, vtype=GRB.CONTINUOUS, name="tijm")
+        self.ti = self.model.addVars(range(N), vtype=GRB.CONTINUOUS, lb=0, name="ti")
 
-        # Anchor visitation is always true
-        self.model.addConstr(self.Yi[0] == 1, "start_anchor_visit")
-        self.model.addConstr(self.Yi[N - 1] == 1, "end_anchor_visit")
         self.model.addConstr(self.ti[0] == 0.0, "anchor_start_time")
 
-        # Not in Handley et al. We wish to force the first exposure to occur at the
-        # start of the night or at the earliest feasible time, whichever is later.
-        # This prevents idle time from being at the front of underfilled schedules.
+        # First exposure pinned to start (or earliest feasible) -- same policy
+        # as the single-state model, now per start-anchor arc.
         t_earliest = nodes[~nodes.is_anchor].t_early.min()
         t_start = max(0.0, t_earliest)
-        for j in range(1, N - 1):
+        for key in out_by_node[0]:
+            _, j, _, _, _ = key
             t_visit_j = float(nodes.at[j, "t_visit"])
-            for m in range(M):
-                self.model.addGenConstrIndicator(
-                    self.Xijm[0, j, m],
-                    1,
-                    self.ti[j],
-                    GRB.EQUAL,
-                    t_start + t_visit_j,
-                    name=f"first_exposure_at_start_{j}_{m}",
-                )
+            self.model.addGenConstrIndicator(
+                self.Xijm[key], 1, self.ti[j], GRB.EQUAL,
+                t_start + t_visit_j, name=f"first_exposure_{key}",
+            )
 
         # eq. 2 - exactly one arc out of the start anchor.
         self.model.addConstr(
-            gp.quicksum(self.Xijm[0, j, m] for j in range(1, N) for m in range(M)) == 1,
-            "start_anchor",
+            gp.quicksum(self.Xijm[k] for k in out_by_node[0]) == 1, "start_anchor"
         )
-
         # eq. 3 - exactly one arc into the end anchor.
         self.model.addConstr(
-            gp.quicksum(self.Xijm[i, N - 1, m] for i in range(N - 1) for m in range(M))
-            == 1,
-            "end_anchor",
+            gp.quicksum(self.Xijm[k] for k in in_by_node[N - 1]) == 1, "end_anchor"
         )
 
-        # eq. 4 - visit indicator (one constraint per non-start node).
-        for j in range(1, N):
+        # eq. 4 - visit indicator per real node-state; at most one state used.
+        for j in real_nodes:
+            for sj in node_states[j]:
+                self.model.addConstr(
+                    gp.quicksum(self.Xijm[k] for k in in_by_ns.get((j, sj), []))
+                    == self.Yi[(j, sj)],
+                    f"visit_once_{j}_{sj}",
+                )
             self.model.addConstr(
-                gp.quicksum(self.Xijm[i, j, m] for i in range(N - 1) for m in range(M))
-                == self.Yi[j],
-                f"visit_once_{j}",
+                gp.quicksum(self.Yi[(j, s)] for s in node_states[j]) <= 1,
+                f"one_state_{j}",
             )
 
-        # eq. 5 - flow conservation (one constraint per real node).
-        for k in range(1, N - 1):
-            self.model.addConstr(
-                gp.quicksum(self.Xijm[i, k, m] for i in range(N - 1) for m in range(M))
-                - gp.quicksum(self.Xijm[k, j, m] for j in range(1, N) for m in range(M))
-                == 0,
-                f"flow_constr_{k}",
-            )
+        # eq. 5 - flow conservation per (real node, state): in == out. Keying by
+        # the same state on both sides enforces wrap-state continuity.
+        for k in real_nodes:
+            for sk in node_states[k]:
+                self.model.addConstr(
+                    gp.quicksum(self.Xijm[a] for a in in_by_ns.get((k, sk), []))
+                    - gp.quicksum(self.Xijm[a] for a in out_by_ns.get((k, sk), []))
+                    == 0,
+                    f"flow_{k}_{sk}",
+                )
 
-        # eq. 6 - link ti to tijm (one constraint per non-end node).
+        # eq. 6 - link ti to tijm (per non-end node; sum over its out-arcs).
         for i in range(N - 1):
             self.model.addConstr(
-                self.ti[i]
-                == gp.quicksum(
-                    self.tijm[i, j, m] for j in range(1, N) for m in range(M)
-                ),
+                self.ti[i] == gp.quicksum(self.tijm[k] for k in out_by_node[i]),
                 f"tijm_def_{i}",
             )
 
-        # eq. 7 - exposure/slew time linking (one constraint per non-start
-        # node). Anchor arcs (i=0) are MILP bookkeeping with t_slew = 0; the
-        # .get(..., 0.0) fallback keeps arcs restricted to real arcs.
+        # eq. 7 - exposure/slew time linking (per non-start node).
         for j in range(1, N):
-            t_visit_j = nodes.at[j, "t_visit"]
+            t_visit_j = float(nodes.at[j, "t_visit"])
             self.model.addConstr(
                 self.ti[j]
                 >= gp.quicksum(
-                    self.tijm[i, j, m]
-                    + (arcs_lookup.get((i, j, m), 0.0) + t_visit_j) * self.Xijm[i, j, m]
-                    for i in range(N - 1)
-                    for m in range(M)
+                    self.tijm[k] + (cost[k] + t_visit_j) * self.Xijm[k]
+                    for k in in_by_node[j]
                 ),
                 f"exp_constr_{j}",
             )
 
-        # eq. 8 - slot bounds on tijm (one pair per (i, j, m)).
-        for i, j, m in product(range(N), range(N), range(M)):
+        # eq. 8 - slot bounds on tijm (per arc).
+        for k in arc_keys:
+            m = k[2]
             self.model.addConstr(
-                self.tijm[i, j, m] >= self.w[m] * self.Xijm[i, j, m],
-                f"t_min_{i}_{j}_{m}",
+                self.tijm[k] >= self.w[m] * self.Xijm[k], f"t_min_{k}"
             )
             self.model.addConstr(
-                self.tijm[i, j, m] <= self.w[m + 1] * self.Xijm[i, j, m],
-                f"t_max_{i}_{j}_{m}",
+                self.tijm[k] <= self.w[m + 1] * self.Xijm[k], f"t_max_{k}"
             )
 
-        # eq. 9 - node accessibility (one pair per node).
-        for i in range(N):
+        # eq. 9 - node accessibility (per real node; visited = sum over states).
+        for i in real_nodes:
             row = nodes.loc[i]
+            visited = gp.quicksum(self.Yi[(i, s)] for s in node_states[i])
             self.model.addConstr(
-                self.ti[i] >= (row.t_early + row.t_visit) * self.Yi[i],
+                self.ti[i] >= (row.t_early + row.t_visit) * visited,
                 f"rise_constr_{i}",
             )
             self.model.addConstr(
-                self.ti[i] <= row.t_late * self.Yi[i],
-                f"set_constr_{i}",
+                self.ti[i] <= row.t_late * visited, f"set_constr_{i}"
             )
 
         # eq. B3 - intra-night separation (multi-visit only).
         for indices in self.multi_visit_groups.values():
             for k in range(1, len(indices)):
+                cur, prev = indices[k], indices[k - 1]
                 self.model.addConstr(
-                    gp.quicksum(
-                        self.tijm[indices[k], j, m]
-                        for j in range(1, N)
-                        for m in range(M)
-                    )
-                    >= gp.quicksum(
-                        self.tijm[indices[k - 1], j, m]
-                        for j in range(1, N)
-                        for m in range(M)
-                    )
-                    + self.Yi[indices[k]] * nodes.at[indices[k], "tau_intra"],
-                    f"intra_sep_constr_{indices[k - 1]}_{indices[k]}",
+                    gp.quicksum(self.tijm[a] for a in out_by_node[cur])
+                    >= gp.quicksum(self.tijm[a] for a in out_by_node[prev])
+                    + gp.quicksum(self.Yi[(cur, s)] for s in node_states[cur])
+                    * nodes.at[cur, "tau_intra"],
+                    f"intra_sep_constr_{prev}_{cur}",
                 )
 
+        # Total slew over internal (real-real) arcs only.
         self.t_slew = self.model.addVar(lb=0.0, name="t_slew")
         self.model.addConstr(
             self.t_slew
-            == gp.quicksum(
-                arcs_lookup.get((i, j, m), 0.0) * self.Xijm[i, j, m]
-                for i in range(1, N - 1)
-                for j in range(1, N - 1)
-                for m in range(M)
-            ),
+            == gp.quicksum(arc_cost[k] * self.Xijm[k] for k in arc_cost),
             "t_slew_def",
         )
 
@@ -467,7 +539,9 @@ class TTPModel:
         self.model.addConstr(
             self.t_visit
             == gp.quicksum(
-                nodes.at[j, "t_visit"] * self.Yi[j] for j in range(1, N - 1)
+                nodes.at[j, "t_visit"] * self.Yi[(j, s)]
+                for j in real_nodes
+                for s in node_states[j]
             ),
             "t_visit_def",
         )
@@ -478,16 +552,19 @@ class TTPModel:
             name="t_idle_between_def",
         )
 
-        # eq. 10 - objective: priority-weighted visit count minus slew tie-breaker.
+        # eq. 10 - objective.
         P_max = float(self.nodes.loc[1 : N - 1, "priority"].max())
         slew_penalty = P_max / self._SLEW_MINUTES_FOR_TOP_TARGET
         self.model.setObjective(
-            gp.quicksum(nodes.at[j, "priority"] * self.Yi[j] for j in range(1, N - 1))
+            gp.quicksum(
+                nodes.at[j, "priority"] * self.Yi[(j, s)]
+                for j in real_nodes
+                for s in node_states[j]
+            )
             - slew_penalty * self.t_slew
             - slew_penalty * self._SLEW_IDLE_PENALTY_RATIO * self.t_idle_between,
             GRB.MAXIMIZE,
         )
-
         self.model.update()
 
     def run_model(self):
@@ -516,6 +593,275 @@ class TTPModel:
                 "Try raising ``self.model.params.TimeLimit`` before solving."
             )
 
+    # ------------------------------------------------ batched warm-start
+    #
+    # Incremental "partial solve" warm-start (works for single- AND two-state).
+    # Nodes are activated in waves (sorted by ``t_late``/``t_early``); each wave
+    # is solved with the previously-scheduled assignments either hard-fixed
+    # (``warm_start="fix"``) or soft-hinted (``warm_start="hint"``), then a final
+    # polish frees everything. For the two-state model the accumulated incumbent
+    # keys are state-indexed (``Yi[(j, s)]`` / ``Xijm[(i, j, m, si, sj)]``), so
+    # committing an early wave also commits its wrap state -- progressively
+    # breaking the N/S cable-wrap symmetry.
+    #
+    # Key handling is mode-agnostic:
+    #   - node id of a ``Yi`` key:  ``k if isinstance(k, int) else k[0]``
+    #   - ``(i, j)`` of an ``Xijm`` key: always ``k[0], k[1]`` (states trail).
+
+    @staticmethod
+    def _yi_node(key):
+        """Node id for a ``Yi`` key (int in single-state, ``(j, s)`` in two)."""
+        return key if isinstance(key, (int, np.integer)) else key[0]
+
+    def _ordered_real_nodes(self):
+        """Non-anchor node indices sorted for batch activation."""
+        real = self.nodes[~self.nodes.is_anchor]
+        return real.sort_values(["t_late", "t_early"], kind="stable").index.tolist()
+
+    def _batch_slices(self, n_batches):
+        """Disjoint node-index slices by cumulative ``t_visit`` budget per batch."""
+        ordered = self._ordered_real_nodes()
+        budget = self.dur_min / n_batches
+        slices = []
+        start = 0
+        for b in range(n_batches):
+            if start >= len(ordered):
+                slices.append([])
+                continue
+            cum_t = 0.0
+            end = start
+            while end < len(ordered):
+                cum_t += float(self.nodes.at[ordered[end], "t_visit"])
+                end += 1
+                if cum_t > budget:
+                    break
+            if end == start:
+                end = start + 1
+            if b == n_batches - 1:
+                end = len(ordered)
+            slices.append(ordered[start:end])
+            start = end
+        return slices
+
+    def _reset_var_bounds(self):
+        """Restore every non-anchor Yi / Xijm variable to [0, 1] (polish stage)."""
+        for var in self.Yi.values():
+            var.LB = 0.0
+            var.UB = 1.0
+        for var in self.Xijm.values():
+            var.LB = 0.0
+            var.UB = 1.0
+
+    def _apply_batch_bounds_excluded(self, activated):
+        """Keep only excluded nodes/arcs off; activated variables stay in [0, 1]."""
+        real = set(range(1, self.N - 1))
+        activated = set(activated)
+        excluded = real - activated
+
+        for key, var in self.Yi.items():
+            if self._yi_node(key) in excluded:
+                var.LB = 0.0
+                var.UB = 0.0
+            else:
+                var.LB = 0.0
+                var.UB = 1.0
+
+        for key, var in self.Xijm.items():
+            i, j = key[0], key[1]
+            if j in excluded or (i in excluded and i in real):
+                var.LB = 0.0
+                var.UB = 0.0
+            else:
+                var.LB = 0.0
+                var.UB = 1.0
+
+    def _apply_batch_bounds(self, activated, frozen_yi, frozen_xijm):
+        """Set Yi / Xijm bounds for one incremental batch (``fix`` mode)."""
+        real = set(range(1, self.N - 1))
+        activated = set(activated)
+        excluded = real - activated
+        frozen_yi = set(frozen_yi)
+        frozen_xijm = set(frozen_xijm)
+
+        for key, var in self.Yi.items():
+            node = self._yi_node(key)
+            if key in frozen_yi:
+                var.LB = 1.0
+                var.UB = 1.0
+            elif node in excluded:
+                var.LB = 0.0
+                var.UB = 0.0
+            else:
+                var.LB = 0.0
+                var.UB = 1.0
+
+        for key, var in self.Xijm.items():
+            i, j = key[0], key[1]
+            if key in frozen_xijm:
+                var.LB = 1.0
+                var.UB = 1.0
+                continue
+            if j in excluded or (i in excluded and i in real):
+                var.LB = 0.0
+                var.UB = 0.0
+            else:
+                var.LB = 0.0
+                var.UB = 1.0
+
+    def _clear_var_hints(self):
+        """Remove all VarHintVal entries on Yi / Xijm variables."""
+        for var in self.Yi.values():
+            var.VarHintVal = GRB.UNDEFINED
+        for var in self.Xijm.values():
+            var.VarHintVal = GRB.UNDEFINED
+
+    def _apply_var_hints(self, hint_yi, hint_xijm, *, priority=10):
+        """Set soft hints (=1) on scheduled node-states and interior arcs."""
+        for key in hint_yi:
+            self.Yi[key].VarHintVal = 1.0
+            self.Yi[key].VarHintPri = priority
+        for key in hint_xijm:
+            var = self.Xijm[key]
+            var.VarHintVal = 1.0
+            var.VarHintPri = priority
+
+    def _accumulate_ones_from_solution(self, scheduled_yi, interior_xijm):
+        """Add Yi=1 and interior Xijm=1 keys from the incumbent to the sets.
+
+        For the two-state model the captured keys carry the wrap state, so the
+        accumulated commitments pin both *which* node and *which winding*.
+        """
+        if self.model.SolCount == 0:
+            return scheduled_yi, interior_xijm
+        scheduled_yi = set(scheduled_yi)
+        interior_xijm = set(interior_xijm)
+        last_real = self.N - 2
+        for key, var in self.Yi.items():
+            if var.X > 0.5:
+                scheduled_yi.add(key)
+        for key, var in self.Xijm.items():
+            i, j = key[0], key[1]
+            if var.X > 0.5 and 1 <= i <= last_real and 1 <= j <= last_real:
+                interior_xijm.add(key)
+        return scheduled_yi, interior_xijm
+
+    def _optimize_stage(self, time_limit, label):
+        """Run one Gurobi optimize pass; return stage stats."""
+        self.model.params.TimeLimit = time_limit
+        self.model.update()
+        t0 = time.time()
+        self.model.optimize()
+        wall = time.time() - t0
+        if self.model.Status == GRB.INFEASIBLE:
+            logs.critical(f"TTP infeasible during {label}; computing IIS.")
+            self.model.computeIIS()
+            for c in self.model.getConstrs():
+                if c.IISConstr:
+                    logs.critical(c.ConstrName)
+        n_sched = sum(
+            1 for v in self.Yi.values() if self.model.SolCount and v.X > 0.5
+        )
+        stats = {
+            "label": label,
+            "wall_s": wall,
+            "gurobi_runtime_s": float(self.model.Runtime),
+            "status": int(self.model.Status),
+            "n_scheduled": n_sched,
+        }
+        if self.model.SolCount > 0:
+            stats["objective"] = float(self.model.ObjVal)
+            stats["mip_gap"] = float(self.model.MIPGap)
+            stats["objective_bound"] = float(self.model.ObjBound)
+        logs.info(
+            f"TTP {label}: scheduled={n_sched} wall={wall:.1f}s "
+            f"status={stats['status']}"
+        )
+        return stats
+
+    def run_model_batched(
+        self,
+        *,
+        n_batches=4,
+        batch_time_fraction=0.15,
+        polish_time_fraction=0.40,
+        warm_start="fix",
+        after_stage=None,
+    ):
+        """Incremental batch warm-start (single- or two-state).
+
+        Activates targets in ``t_late``/``t_early`` order quarter-by-quarter,
+        then runs a polish pass with all variables free.
+
+        Args:
+            warm_start: ``"fix"`` hard-freezes scheduled ``Yi``=1 and interior
+                ``Xijm``=1 between batches; ``"hint"`` keeps bounds at [0, 1] and
+                sets ``VarHintVal`` on those variables instead.
+            after_stage: optional ``callback(label, stats, model)`` invoked after
+                each batch and after polish.
+
+        Returns a dict with per-batch and polish stage stats.
+        """
+        if not hasattr(self, "model"):
+            raise RuntimeError("call build_model() before run_model_batched()")
+        if warm_start not in ("fix", "hint"):
+            raise ValueError("warm_start must be 'fix' or 'hint'")
+
+        total_limit = float(self.model.params.TimeLimit or 240.0)
+        batch_limit = total_limit * batch_time_fraction
+        polish_limit = total_limit * polish_time_fraction
+
+        slices = self._batch_slices(n_batches)
+        activated = []
+        scheduled_yi = set()
+        interior_xijm = set()
+        stage_stats = []
+
+        logs.info(
+            f"Batched TTP warm-start ({warm_start}, S={self.S}): "
+            f"{self.N - 2} visits, {n_batches} batches, "
+            f"total limit={total_limit:.0f}s"
+        )
+        for b, slc in enumerate(slices, start=1):
+            activated = activated + slc
+            if warm_start == "fix":
+                self._apply_batch_bounds(activated, scheduled_yi, interior_xijm)
+            else:
+                self._clear_var_hints()
+                self._apply_batch_bounds_excluded(activated)
+                self._apply_var_hints(scheduled_yi, interior_xijm)
+            stats = self._optimize_stage(batch_limit, f"batch-{b}/{n_batches}")
+            stage_stats.append(stats)
+            scheduled_yi, interior_xijm = self._accumulate_ones_from_solution(
+                scheduled_yi, interior_xijm
+            )
+            if after_stage is not None:
+                after_stage(stats["label"], stats, self)
+
+        self._reset_var_bounds()
+        if warm_start == "hint":
+            self._clear_var_hints()
+            self._apply_var_hints(scheduled_yi, interior_xijm)
+        self.model.update()
+        stats = self._optimize_stage(polish_limit, "polish")
+        stage_stats.append(stats)
+        if after_stage is not None:
+            after_stage(stats["label"], stats, self)
+
+        if self.model.SolCount == 0:
+            logs.warning(
+                "No incumbent TTP solution after batched warm-start. "
+                "Try raising ``self.model.params.TimeLimit``."
+            )
+
+        return {
+            "warm_start": warm_start,
+            "n_batches": n_batches,
+            "batch_slices": slices,
+            "scheduled_yi": sorted(scheduled_yi, key=str),
+            "interior_xijm_count": len(interior_xijm),
+            "stages": stage_stats,
+        }
+
     # ---------------------------------------------------------- post-process
 
     def build_schedule(self):
@@ -528,10 +874,26 @@ class TTPModel:
             raise RuntimeError("call build_model() before build_schedule()")
 
         arcs_selected = []
-        for (i, j, m), var in self.Xijm.items():
+        for key, var in self.Xijm.items():
+            i, j, m, si, sj = key
             if var.X > 0.5 and j != 0 and i != self.N - 1:
-                arcs_selected.append({"i": i, "j": j, "m": m, "ti": self.ti[i].X})
+                arcs_selected.append(
+                    {"i": i, "j": j, "m": m, "si": si, "sj": sj, "ti": self.ti[i].X}
+                )
         arcs_selected = pd.DataFrame(arcs_selected)
+        self._finalize_schedule(arcs_selected)
+
+    def _finalize_schedule(self, arcs_selected):
+        """Assemble ``self.schedule`` / ``self.stats`` from selected arcs.
+
+        ``arcs_selected`` has one row per scheduled real node (its outgoing arc)
+        with columns ``i, j, m, si, sj, ti``. ``wrap_state`` is always present
+        (``0`` for every node when ``S == 1``).
+        """
+        # Guarantee the merge keys exist even when nothing was scheduled.
+        cols = ["i", "j", "m", "si", "sj", "ti"]
+        if arcs_selected is None or len(arcs_selected) == 0:
+            arcs_selected = pd.DataFrame(columns=cols)
 
         # merge selected arcs with nodes, unvisited nodes will have NaN for ti
         schedule = pd.merge(
@@ -544,11 +906,14 @@ class TTPModel:
         schedule["t_start"] = schedule["ti"] - schedule["t_visit"]
         schedule["t_end"] = schedule["ti"]
         schedule["scheduled"] = ~schedule["ti"].isna()
+        # wrap_state = the winding node ``i`` is observed in (0 when S == 1).
+        schedule["wrap_state"] = schedule["si"]
 
+        merge_on = ["i", "j", "m", "si", "sj"]
         schedule = pd.merge(
             schedule,
             self.arcs["t_slew"],
-            left_on=["i", "j", "m"],
+            left_on=merge_on,
             right_index=True,
             how="left",
         ).sort_values(by="t_start", na_position="last")
@@ -573,6 +938,81 @@ class TTPModel:
         stats["t_idle_after_last"] = self.dur_min - stats["t_last_end"]
         stats["t_idle_before_last"] = stats["t_idle_sum"] - stats["t_idle_after_last"]
         self.stats = stats
+
+    # ------------------------------------------------------- ACS warm start
+    def _window_of(self, t_depart):
+        """Slot index ``m`` (in ``0..M-1``) containing departure minute ``t``."""
+        m = int(np.searchsorted(self.w, t_depart, side="right") - 1)
+        return min(max(m, 0), self.M - 1)
+
+    def _tour_arcs_dataframe(self, result):
+        """Build an ``arcs_selected`` frame from an ACS/heuristic tour dict."""
+        order = result.get("order", [])
+        if not order:
+            return pd.DataFrame(columns=["i", "j", "m", "si", "sj", "ti"])
+        states = result.get("states") or {n: 0 for n in order}
+        ti = list(result["ti"])
+        seq = [0, *order, self.N - 1]
+        ti_full = [0.0, *ti, float(ti[-1])]
+        rows = []
+        for k in range(len(seq) - 2):
+            i = seq[k + 1]
+            j = seq[k + 2]
+            m = self._window_of(ti_full[k])
+            si = states.get(i, 0)
+            sj = 0 if j == self.N - 1 else states.get(j, 0)
+            rows.append(
+                {"i": i, "j": j, "m": m, "si": si, "sj": sj, "ti": ti_full[k + 1]}
+            )
+        return pd.DataFrame(rows)
+
+    def schedule_from_tour(self, result):
+        """Populate ``schedule`` / ``stats`` from a tour dict without Gurobi.
+
+        Requires ``build_nodes`` and ``build_arcs`` (not ``build_model``).
+        """
+        if not hasattr(self, "nodes"):
+            raise RuntimeError("call build_nodes() before schedule_from_tour()")
+        self._finalize_schedule(self._tour_arcs_dataframe(result))
+
+    def seed_from_tour(self, result):
+        """Set a Gurobi MIPStart from an ACS warm-start ``result``.
+
+        Call after :meth:`build_model`. ``result`` is the dict returned by
+        :func:`astroq.ttp.acs.acs_warm_start` (``order`` / ``states`` / ``ti`` /
+        ``feasible``). Sets ``.Start`` on the tour's arc / visit variables so
+        Gurobi begins from a strong incumbent; unset variables are completed by
+        Gurobi. Safe no-op if the tour is empty or infeasible.
+        """
+        if not hasattr(self, "model"):
+            raise RuntimeError("call build_model() before seed_from_tour()")
+        order = result.get("order", [])
+        if not order or not result.get("feasible", False):
+            return
+        states = result.get("states") or {n: 0 for n in order}
+        ti = list(result["ti"])
+        seq = [0, *order, self.N - 1]
+        ti_full = [0.0, *ti, float(ti[-1])]
+
+        # Clear any stale starts, then set the tour's arcs / visits to 1.
+        for var in self.Xijm.values():
+            var.Start = 0.0
+        for var in self.Yi.values():
+            var.Start = 0.0
+
+        for k in range(len(seq) - 1):
+            i, j = seq[k], seq[k + 1]
+            m = self._window_of(ti_full[k])
+            si = 0 if i == 0 else states.get(i, 0)
+            sj = 0 if j == self.N - 1 else states.get(j, 0)
+            key = (i, j, m, si, sj)
+            if key in self.Xijm:
+                self.Xijm[key].Start = 1.0
+        for nid in order:
+            ykey = (nid, states.get(nid, 0))
+            if ykey in self.Yi:
+                self.Yi[ykey].Start = 1.0
+        self.model.update()
 
     def to_string(self, *, header="Stats for TTP Solution"):
         """Return a human-readable summary of the solve from ``self.stats``."""
