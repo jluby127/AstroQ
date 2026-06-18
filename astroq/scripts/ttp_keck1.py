@@ -55,6 +55,10 @@ def parse_args():
                     help="Gurobi time limit, seconds (default: 300).")
     ap.add_argument("--optgap", type=float, default=0.01,
                     help="Gurobi MIP gap (default: 0.01).")
+    ap.add_argument("--states", type=int, default=None,
+                    help="Number of cable-wrap states: 1 = legacy single-cut "
+                         "model, 2 = state-aware N/S wrap. Default: the "
+                         "queue's `n_states` (2 for HIRES-CPS).")
     return ap.parse_args()
 
 
@@ -126,12 +130,15 @@ def main():
         copy=False,
     )
 
+    n_states = args.states if args.states is not None else queue.n_states
+    slew_fn = queue.slew_fn_state if n_states > 1 else queue.slew_fn
     tm = TTPModel(
         requests=requests,
         night_start=night_start,
         night_end=night_end,
-        slew_fn=queue.slew_fn,
+        slew_fn=slew_fn,
         n_slots=queue.nSlots,
+        n_states=n_states,
     )
     tm.build_nodes()
     tm.build_arcs()
@@ -157,6 +164,7 @@ def main():
     # Plot adapters expect observatory metadata on the model (set by plan-night / from_hdf5).
     tm.observer = queue.observatory
     tm.wrap_limit = queue.wrap_limit
+    tm.wrap_states = queue.wrap_states if n_states > 1 else None
     tm.slew_rate = queue.slew_rate
     tm.readout_time = queue.readout_time
 

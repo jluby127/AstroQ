@@ -67,6 +67,15 @@ class Queue:
     observatory = None
     slew_rate: float
     wrap_limit: float | None = None
+    #: Cable-wrap states for the state-aware TTP slew model. ``None`` selects
+    #: the legacy single-cut behavior driven by :attr:`wrap_limit`. When set,
+    #: it is an ordered list of ``(name, enc_min, enc_max)`` tuples giving each
+    #: winding's accessible *encoder* azimuth range (degrees). A sky azimuth
+    #: ``A`` is reachable in a state iff ``A + k*360`` (``k in {-1, 0, +1}``)
+    #: lands inside ``[enc_min, enc_max]``; the slew distance between two
+    #: pointings is the straight-line encoder-azimuth difference (no wrap
+    #: discontinuity). See :meth:`slew_fn_state`.
+    wrap_states: list[tuple[str, float, float]] | None = None
     nSlots: int = 1
     readout_time: float
     slew_overhead_mean: float
@@ -163,6 +172,83 @@ class Queue:
         tau = np.maximum(az_sep, alt_sep) / (60.0 * float(self.slew_rate))
         # tau shape: (P, M*n_samples). Reduce per window.
         return tau.reshape(-1, M, n_samples).max(axis=2)
+
+    @property
+    def n_states(self):
+        """Number of cable-wrap states (1 for the legacy single-cut model)."""
+        return 1 if self.wrap_states is None else len(self.wrap_states)
+
+    @staticmethod
+    def _encoder_az(az_deg, enc_min, enc_max):
+        """Map sky azimuth(s) to encoder azimuth for one wrap state.
+
+        Returns ``A + k*360`` (``k in {-1, 0, +1}``) that lands inside
+        ``[enc_min, enc_max]``, else ``NaN``. Each wrap range here is narrower
+        than 360 deg, so at most one winding is valid per state.
+        """
+        az = np.asarray(az_deg, dtype=float)
+        out = np.full(az.shape, np.nan)
+        for k in (-360.0, 0.0, 360.0):
+            cand = az + k
+            in_range = (cand >= enc_min) & (cand <= enc_max)
+            out = np.where(np.isnan(out) & in_range, cand, out)
+        return out
+
+    def slew_fn_state(self, coord_a, coord_b, window_start, window_end):
+        """State-aware worst-case slew minutes per (pair, window, si, sj).
+
+        Like :meth:`slew_fn`, but resolves each pointing into every cable-wrap
+        state in :attr:`wrap_states` and returns an array of shape
+        ``(P, M, S, S)`` whose ``[k, m, si, sj]`` entry is the worst-case slew
+        (minutes) from ``coord_a[k]`` (observed in state ``si``) to
+        ``coord_b[k]`` (observed in state ``sj``) over window ``m``. The entry
+        is ``NaN`` when either pointing is unreachable in its state anywhere in
+        the window, so ``TTPModel.build_arcs`` drops that arc.
+
+        The slew distance is the straight-line *encoder* azimuth difference
+        (no wrap discontinuity), maxed against the elevation difference and
+        divided by ``slew_rate``.
+        """
+        if self.wrap_states is None:
+            raise RuntimeError(
+                "slew_fn_state requires `wrap_states` to be defined on the queue"
+            )
+        states = self.wrap_states
+        S = len(states)
+        M = len(window_start)
+        win_dur_min = (window_end[0] - window_start[0]).to_value(u.min)
+        n_samples = int(max(
+            win_dur_min / self._SLEW_SAMPLE_CADENCE_MIN,
+            self._SLEW_SAMPLES_PER_WINDOW_FLOOR,
+        ))
+
+        fracs = np.linspace(0.0, 1.0, n_samples)
+        delta = window_end - window_start
+        times_grid = window_start[:, None] + delta[:, None] * fracs[None, :]
+        times = times_grid.ravel()
+
+        altaz_a = self.observatory.altaz(times, coord_a, grid_times_targets=True)
+        altaz_b = self.observatory.altaz(times, coord_b, grid_times_targets=True)
+        az_a = altaz_a.az.deg
+        az_b = altaz_b.az.deg
+        alt_a = altaz_a.alt.deg
+        alt_b = altaz_b.alt.deg
+
+        # Encoder azimuth per state: shape (S, P, M*n_samples).
+        enc_a = np.stack([self._encoder_az(az_a, lo, hi) for _, lo, hi in states])
+        enc_b = np.stack([self._encoder_az(az_b, lo, hi) for _, lo, hi in states])
+
+        # (Si, Sj, P, T); NaN propagates from unreachable windings.
+        az_sep = np.abs(enc_a[:, None, :, :] - enc_b[None, :, :, :])
+        alt_sep = np.abs(alt_a - alt_b)[None, None, :, :]
+        tau = np.maximum(az_sep, alt_sep) / (60.0 * float(self.slew_rate))
+
+        # Reduce per window with plain max so a single unreachable sample makes
+        # the whole window infeasible (NaN). Shape -> (Si, Sj, P, M).
+        P = az_a.shape[0]
+        tau = tau.reshape(S, S, P, M, n_samples).max(axis=4)
+        # Return (P, M, Si, Sj).
+        return np.transpose(tau, (2, 3, 0, 1))
 
     def visit_seconds(self, exptime_s, n_exp, n_intra_max):
         """Splan-canonical per-visit seconds.
