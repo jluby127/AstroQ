@@ -172,39 +172,34 @@ def _resolve_night_ttp_config(queue, config: ConfigParser, *, n_targets: int) ->
     max_solve_gap = config.getfloat("night", "max_solve_gap", fallback=0.005)
     show_gurobi_output = config.getboolean("night", "show_gurobi_output", fallback=True)
 
-    effective_method = method
     if method == "auto":
-        effective_method = (
+        method = (
             "milp" if n_targets < _AUTO_ACS_TARGET_THRESHOLD else "acs8+milp"
         )
 
-    use_acs = effective_method == "acs8+milp"
-    use_norel = effective_method == "norel+milp"
-    use_warmstart = use_acs or use_norel
-
-    if effective_method == "milp" and warmstart_time > 0:
+    if method == "milp" and warmstart_time > 0:
         logs.warning(
             "[night] warmstart_time=%g ignored for method=milp",
             warmstart_time,
         )
         warmstart_budget = 0.0
-    elif use_warmstart:
+    elif method in ("acs8+milp", "norel+milp"):
         warmstart_budget = float(warmstart_time)
     else:
         warmstart_budget = 0.0
 
     milp_time = max(0.0, float(max_solve_time) - warmstart_budget)
-    if use_warmstart and milp_time <= 0:
+    if method in ("acs8+milp", "norel+milp") and milp_time <= 0:
         raise ValueError(
             f"[night] max_solve_time={max_solve_time} must exceed "
-            f"warmstart_time={warmstart_budget} for method={effective_method}"
+            f"warmstart_time={warmstart_budget} for method={method}"
         )
 
     slew_fn = _resolve_slew_fn(queue, n_states)
 
     logs.info(
         "TTP: method=%s n_states=%d n_targets=%d warmstart=%gs milp=%gs",
-        effective_method,
+        method,
         n_states,
         n_targets,
         warmstart_budget,
@@ -213,15 +208,12 @@ def _resolve_night_ttp_config(queue, config: ConfigParser, *, n_targets: int) ->
 
     return {
         "method": method,
-        "effective_method": effective_method,
         "n_states": n_states,
         "slew_fn": slew_fn,
         "warmstart_time": warmstart_budget,
         "milp_time": milp_time,
         "max_solve_gap": max_solve_gap,
         "show_gurobi_output": show_gurobi_output,
-        "use_acs": use_acs,
-        "use_norel": use_norel,
         "acs_starts": _ACS_STARTS,
         "acs_nb_max": _ACS_NB_MAX,
     }
@@ -401,7 +393,7 @@ class NightPlanner:
         tm.build_arcs()
         tm.build_model()
 
-        if cfg["use_acs"]:
+        if cfg["method"] == "acs8+milp":
             seed = acs_warm_start(
                 tm,
                 params={
@@ -417,7 +409,7 @@ class NightPlanner:
         tm.model.params.MIPGap = cfg["max_solve_gap"]
         tm.model.params.OutputFlag = int(cfg["show_gurobi_output"])
         tm.model.params.NoRelHeurTime = (
-            cfg["warmstart_time"] if cfg["use_norel"] else 0.0
+            cfg["warmstart_time"] if cfg["method"] == "norel+milp" else 0.0
         )
         tm.model.params.PreSolve = 2
         tm.model.params.MIPFocus = 1
