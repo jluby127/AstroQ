@@ -6,12 +6,15 @@
 """
 
 import os
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from astropy.coordinates import SkyCoord
 from astropy.time import Time, TimeDelta
 import astropy.units as u
+
+from astroq.queue.hirescps.bstars import build_bstars_section
 
 
 def write_starlist(
@@ -157,8 +160,9 @@ def write_starlist(
             backup_df[backup_df["_vmag_float"] < 8],
         )
 
-    # add buffer lines to end of file
-    lines.append("")
+    cache_dir = Path(outputdir).parent / "cache"
+    lines.extend(build_bstars_section(current_day, cache_dir))
+
     lines.append("")
 
     with open(script_file, "w") as f:
