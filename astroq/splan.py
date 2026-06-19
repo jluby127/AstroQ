@@ -1051,20 +1051,52 @@ class SemesterPlanner:
         """Solve the Gurobi model (with IIS diagnostics on infeasibility)."""
         logs.debug("Begin model solve.")
         t1 = time.time()
-        self.model.params.TimeLimit = self.config.getint("semester", "max_solve_time")
+        if not self.config.has_option("semester", "method"):
+            raise ValueError(
+                "[semester] method is required; expected milp or norel+milp"
+            )
+        method = self.config.get("semester", "method").strip().lower()
+        if method not in ("milp", "norel+milp"):
+            raise ValueError(
+                f"[semester] method={method!r} invalid; expected milp or norel+milp"
+            )
+
+        max_solve_time = self.config.getfloat("semester", "max_solve_time")
+        warmstart_time = self.config.getfloat("semester", "warmstart_time", fallback=0.0)
+        if method == "norel+milp":
+            if warmstart_time >= max_solve_time:
+                raise ValueError(
+                    f"[semester] max_solve_time={max_solve_time} must exceed "
+                    f"warmstart_time={warmstart_time} for method=norel+milp"
+                )
+            norel_budget = warmstart_time
+            milp_time = max_solve_time - warmstart_time
+        else:
+            if warmstart_time > 0:
+                logs.warning(
+                    "[semester] warmstart_time=%g ignored for method=milp",
+                    warmstart_time,
+                )
+            norel_budget = 0.0
+            milp_time = max_solve_time
+
+        logs.info(
+            "Semester: method=%s warmstart=%gs milp=%gs",
+            method,
+            norel_budget,
+            milp_time,
+        )
+
+        self.model.params.TimeLimit = milp_time
         self.model.Params.OutputFlag = self.config.getboolean(
             "semester", "show_gurobi_output"
         )
-        # Allow stop at solver gap to prevent spending time on marginal gains.
         self.model.params.MIPGap = self.config.getfloat("semester", "max_solve_gap")
+        self.model.params.NoRelHeurTime = norel_budget
         self.model.params.Presolve = 2
         self.model.params.MIPFocus = 1 # 0 means balance objective and feasibility, 1 means feasibility, 2 means optimality
         # -1 means default degeneracy moves. helps find feasible solutions in highly degenerate cases.
         self.model.params.DegenMoves = -1
-        norel_heur_time = self.config.getfloat("semester", "norel_heur_time", fallback=0.0)
-        if norel_heur_time > 0:
-            self.model.params.NoRelHeurTime = norel_heur_time
-            logs.info("Gurobi NoRelHeurTime = %g s", norel_heur_time)
         self.model.update()
         self.model.optimize()
 
