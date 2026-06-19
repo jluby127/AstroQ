@@ -1,7 +1,7 @@
 .. _driver:
 
-driver
-======
+driver.py
+=========
 
 .. automodule:: astroq.driver
    :members:

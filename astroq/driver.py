@@ -406,10 +406,11 @@ def kpfcc_prep(args):
         # Compute nominal exposure times and increase exposure times for different bands
         slowdown_factors = {1: 1.0, 2: 2.0, 3: 4.0}
         slow = slowdown_factors[band_number]
-        # new_exptimes = kpfcc.recompute_exposure_times(request_df, slow)
-        # request_df['exptime'] = new_exptimes
+        new_exptimes = kpfcc.recompute_exposure_times(request_df, slow)
+        request_df = request_df.copy()
+        request_df["original_exptime"] = request_df["exptime"]
+        request_df["exptime"] = new_exptimes
         request_df.to_csv(os.path.join(savepath, request_file), index=False)
-
         # CAPTURE CUSTOM INFORMATION AND PROCESS
         # --------------------------------------------
         # --------------------------------------------
@@ -496,13 +497,28 @@ def plan_semester(args):
     Args:
         args (argparse.Namespace): the command line arguments with flags:
             -cf (str): the path to the config file.
+            --boost (list[str], optional): [comma-separated unique_ids, factor]
+                soft-bias those targets onto current_day in the semester solve.
 
     Returns:
         None
     """
     cf = args.config_file
     print(f"plan_semester function: config_file is {cf}")
-    semester_planner = splan.SemesterPlanner(cf)
+    boost_arg = getattr(args, "boost", None)
+    boost = None
+    if boost_arg:
+        targets_part, factor_part = boost_arg[0], boost_arg[1]
+        factor = float(factor_part.strip())
+        uids = [u.strip() for u in targets_part.split(",") if u.strip()]
+        if not uids:
+            raise ValueError("--boost: no unique_id values in first argument")
+        boost = pd.DataFrame({"unique_id": uids, "boost": factor})
+        print(
+            f"Boost: {len(uids)} unique_id(s), factor={factor}: "
+            f"{', '.join(uids)}"
+        )
+    semester_planner = splan.SemesterPlanner(cf, boost=boost)
     semester_planner.run_model()
     return
 
