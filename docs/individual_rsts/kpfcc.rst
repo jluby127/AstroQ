@@ -1,7 +1,7 @@
 .. _kpfcc:
 
-kpfcc
-=====
+kpfcc.py
+========
 
 .. automodule:: astroq.queue.kpfcc
    :members:

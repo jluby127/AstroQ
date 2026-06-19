@@ -14,6 +14,13 @@
 allocation_hires_all_scheduled.csv
 allocation_hires_cps*.csv
 
+# astroq/data/ — ignore bulk, whitelist tracked templates + ETC
+astroq/data/*
+!astroq/data/maunakea_weather_loss_data.csv
+!astroq/data/template_OB.json
+!astroq/data/template_OB_annotated.json
+!astroq/data/KPF_Empirical_ETC_Feb2026_fits.h5
+
 # ----------------------------------------------------------------------------
 # Byte-compiled / optimized / DLL files
 # ----------------------------------------------------------------------------
