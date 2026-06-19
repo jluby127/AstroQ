@@ -3,6 +3,7 @@ channels:
   - defaults
 dependencies:
   - astroplan==0.8
+  - astroquery
   - astropy==5.0.1
   - beautifulsoup4==4.12.3
   - coverage
