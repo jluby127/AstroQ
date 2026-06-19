@@ -1001,9 +1001,13 @@ class SemesterPlanner:
         # Allow stop at solver gap to prevent spending time on marginal gains.
         self.model.params.MIPGap = self.config.getfloat("semester", "max_solve_gap")
         self.model.params.Presolve = 2
-        self.model.params.MIPFocus = 1 # 0 means balance objective and feasibility, 1 means feasibility, 2 means optimality 
+        self.model.params.MIPFocus = 1 # 0 means balance objective and feasibility, 1 means feasibility, 2 means optimality
         # -1 means default degeneracy moves. helps find feasible solutions in highly degenerate cases.
-        self.model.params.DegenMoves = -1 
+        self.model.params.DegenMoves = -1
+        norel_heur_time = self.config.getfloat("semester", "norel_heur_time", fallback=0.0)
+        if norel_heur_time > 0:
+            self.model.params.NoRelHeurTime = norel_heur_time
+            logs.info("Gurobi NoRelHeurTime = %g s", norel_heur_time)
         self.model.update()
         self.model.optimize()
 
