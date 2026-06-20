@@ -37,9 +37,13 @@ class HIRESCPS(Queue):
     # A sky point is excluded iff it lies inside ANY box. See Queue.is_accessible.
     # Duplicated independently in HIRESCPS and KPFCC; the two queues may
     # legitimately diverge on elevation policy.
+
+    # Note 2026A Because of the issues with the ropes on the Keck shutters, the Keck 1 bottom
+    # shutter is only opening to a position of 10 degrees (normally 2 degrees). In this
+    # configuration, vignetting begins at elevation 28 degrees. 
     inaccessible_zones = [
         (5.3, 146.2, 0.0, 33.3),  # Nasmyth deck obstruction
-        (0.0, 360.0, -90.0, 18.0),  # below 18 deg elevation clamp (incl. below horizon)
+        (0.0, 360.0, -90.0, 28.0),  # below 28 degerees.
         (0.0, 360.0, 85.0, 90.0),  # above 85 deg elevation clamp
     ]
 
