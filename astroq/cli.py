@@ -80,6 +80,22 @@ def main():
     )
     psr_plot.set_defaults(func=astroq.driver.plot)
 
+    ## subcommand of astroq: archive -- export static webapp HTML pages
+    psr_archive = subpsr.add_parser(
+        "archive",
+        parents=[psr_parent],
+        description="Export static HTML copies of webapp admin and nightplan pages",
+        prefix_chars="-",
+    )
+    psr_archive.add_argument(
+        "-cf",
+        "--config_file",
+        type=str,
+        required=True,
+        help="Relative path of config file.",
+    )
+    psr_archive.set_defaults(func=astroq.driver.archive)
+
     ## subcommand of astroq: prep -- preparation workflows (with subcommands)
     psr_prep = subpsr.add_parser(
         "prep",
@@ -257,6 +273,16 @@ def main():
         type=str,
         required=True,
         help="Relative path of config file.",
+    )
+    psr_plan_semester.add_argument(
+        "--boost",
+        nargs=2,
+        metavar=("UNIQUE_IDS", "FACTOR"),
+        default=None,
+        help=(
+            "Soft-bias targets onto current_day: comma-separated unique_ids, "
+            "then boost factor."
+        ),
     )
     psr_plan_semester.set_defaults(func=astroq.driver.plan_semester)
 

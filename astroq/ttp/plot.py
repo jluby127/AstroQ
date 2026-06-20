@@ -28,6 +28,21 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 
+def _encoder_az_display(az_deg, enc_min, enc_max):
+    """Sky az -> encoder az in ``[enc_min, enc_max]`` (else nearest, for display).
+
+    Mirrors ``astroq.queue.base.Queue._encoder_az`` but never returns NaN so a
+    scheduled point always plots somewhere sensible.
+    """
+    az = np.asarray(az_deg, dtype=float)
+    out = az.copy()
+    for k in (-360.0, 0.0, 360.0):
+        cand = az + k
+        in_range = (cand >= enc_min) & (cand <= enc_max)
+        out = np.where(in_range, cand, out)
+    return out
+
+
 def _as_model(data):
     """Accept ``TTPModel`` or legacy ``[TTPModel]`` wrapper."""
     return data[0] if isinstance(data, (list, tuple)) else data
@@ -137,8 +152,99 @@ def _inaccessible_zone_traces(inaccessible_zones):
     return traces
 
 
+def _telescope_track(model, scheduled, sample_s=15.0):
+    """Fine telescope trajectory ``(jd, sky_az_deg, zen_deg)`` for the tour.
+
+    During each visit the telescope tracks the target (sidereal motion); between
+    visits it slews, interpolated linearly in the telescope's *wrap frame* and
+    sampled every ``sample_s`` seconds so the drawn line follows the actual
+    cable-wrap route -- short south-wrap moves for the two-state model, long
+    unwinds for the legacy single-cut model. Falls back to shortest-arc azimuth
+    interpolation if no wrap information is available on ``model``.
+    """
+    n = len(scheduled)
+    if n == 0:
+        return np.array([]), np.array([]), np.array([])
+
+    ns_jd = model.night_start.jd
+    t_start = scheduled["t_start"].to_numpy(dtype=float)
+    t_end = (scheduled["t_end"].to_numpy(dtype=float)
+             if "t_end" in scheduled.columns else t_start.copy())
+    t_end = np.where(np.isfinite(t_end) & (t_end > t_start), t_end, t_start)
+    coords = SkyCoord(scheduled.ra.values * u.deg, scheduled.dec.values * u.deg, frame="icrs")
+
+    wrap_states = getattr(model, "wrap_states", None)
+    wrap_limit = getattr(model, "wrap_limit", None)
+    has_state = (
+        wrap_states is not None
+        and "wrap_state" in scheduled.columns
+        and scheduled["wrap_state"].notna().any()
+    )
+    st = scheduled["wrap_state"].to_numpy() if has_state else None
+
+    def to_enc(az, i):
+        """Sky az (deg) -> continuous encoder az for node ``i``'s wrap frame."""
+        if has_state and np.isfinite(st[i]):
+            lo, hi = wrap_states[int(st[i])][1], wrap_states[int(st[i])][2]
+            return float(_encoder_az_display(np.array([az]), lo, hi)[0])
+        if wrap_limit:
+            return float(np.mod(az + (360.0 - wrap_limit), 360.0))
+        return None
+
+    def to_sky(enc, i):
+        if has_state and np.isfinite(st[i]):
+            return float(np.mod(enc, 360.0))
+        if wrap_limit:
+            return float(np.mod(enc - (360.0 - wrap_limit), 360.0))
+        return float(np.mod(enc, 360.0))
+
+    sample_jd = TimeDelta(sample_s, format="sec").jd
+    seg_t, seg_az, seg_zen = [], [], []
+
+    def track_visit(i):
+        a = ns_jd + t_start[i] / (24 * 60)
+        b = ns_jd + t_end[i] / (24 * 60)
+        m = max(int((b - a) / sample_jd) + 1, 1) if b > a else 1
+        tt = Time(np.linspace(a, b, m), format="jd")
+        aa = model.observer.altaz(tt, coords[i])
+        seg_t.append(np.atleast_1d(tt.jd))
+        seg_az.append(np.atleast_1d(aa.az.deg))
+        seg_zen.append(90.0 - np.atleast_1d(aa.alt.deg))
+
+    track_visit(0)
+    for i in range(1, n):
+        a = ns_jd + t_end[i - 1] / (24 * 60)
+        b = ns_jd + t_start[i] / (24 * 60)
+        if b > a:
+            aa0 = model.observer.altaz(Time(a, format="jd"), coords[i - 1])
+            aa1 = model.observer.altaz(Time(b, format="jd"), coords[i])
+            az0, alt0 = float(aa0.az.deg), float(aa0.alt.deg)
+            az1, alt1 = float(aa1.az.deg), float(aa1.alt.deg)
+            m = max(int((b - a) / sample_jd) + 1, 2)
+            fr = np.linspace(0.0, 1.0, m)
+            alt = alt0 + fr * (alt1 - alt0)
+            e0, e1 = to_enc(az0, i - 1), to_enc(az1, i)
+            if e0 is not None and e1 is not None:
+                enc = e0 + fr * (e1 - e0)
+                azs = np.array([to_sky(e, i) for e in enc])
+            else:  # shortest-arc fallback
+                daz = ((az1 - az0 + 180.0) % 360.0) - 180.0
+                azs = np.mod(az0 + fr * daz, 360.0)
+            seg_t.append(a + fr * (b - a))
+            seg_az.append(azs)
+            seg_zen.append(90.0 - alt)
+        track_visit(i)
+
+    T = np.concatenate(seg_t)
+    A = np.concatenate(seg_az)
+    Z = np.concatenate(seg_zen)
+    o = np.argsort(T)
+    return T[o], A[o], Z[o]
+
+
 def get_slew_animation_plotly(
-    data, request_selected_path, animationStep=120, inaccessible_zones=None
+    data, request_selected_path, animationStep=120, inaccessible_zones=None,
+    slew_sample_s=15.0,
 ):
     """Create a Plotly animated polar plot showing telescope slew path during observations.
 
@@ -148,6 +254,8 @@ def get_slew_animation_plotly(
             ``unique_id`` -> human-readable ``target`` for the hover text).
         animationStep (int): the time, in seconds, between animation frames. Default 120s.
         inaccessible_zones: optional list of obstruction boxes from ``Queue``.
+        slew_sample_s (float): cadence, in seconds, at which the telescope slew
+            path is sampled so the drawn line traces the actual motion. Default 15s.
 
     Returns:
         fig (plotly figure): an interactive animated figure with play/pause controls
@@ -166,26 +274,34 @@ def get_slew_animation_plotly(
 
     on_sky = model.schedule[~model.schedule["is_anchor"]]
     scheduled = on_sky[on_sky["scheduled"]].sort_values("order")
-    list_targets = SkyCoord(
-        scheduled.ra.values * u.deg,
-        scheduled.dec.values * u.deg,
+
+    # Actual telescope trajectory, finely sampled (wrap-aware) so the path line
+    # traces the real slew motion instead of jumping between targets.
+    track_jd, track_az, track_zen = _telescope_track(
+        model, scheduled, sample_s=slew_sample_s
+    )
+
+    # Plot every attempted target (scheduled + considered-but-not-hit). Targets
+    # that are never hit stay gray for the whole animation; hit targets turn
+    # orange once their observation time passes.
+    attempted = on_sky
+    all_targets = SkyCoord(
+        attempted.ra.values * u.deg,
+        attempted.dec.values * u.deg,
         frame="icrs",
     )
-    names = scheduled["unique_id"].tolist()
-
-    AZ = model.observer.altaz(t, list_targets, grid_times_targets=True)
+    AZ = model.observer.altaz(t, all_targets, grid_times_targets=True)
     alt = np.round(AZ.az.rad, 2)
     az = 90 - np.round(AZ.alt.deg, 2)
 
-    schedule_times = model.night_start.jd + scheduled["t_start"].to_numpy() / (24 * 60)
+    # Observation time per attempted target; inf (never observed) when unscheduled.
+    obs_time = np.where(
+        attempted["scheduled"].to_numpy(),
+        model.night_start.jd + attempted["t_start"].to_numpy() / (24 * 60),
+        np.inf,
+    )
 
-    stamps = [0] * len(t)
-    slewPath = createTelSlewPath(stamps, schedule_times, list_targets)
-    AZ1 = model.observer.altaz(t, slewPath, grid_times_targets=False)
-    tel_az = np.round(AZ1.az.rad, 2)
-    tel_zen = 90 - np.round(AZ1.alt.deg, 2)
-
-    names_array = np.array(names)
+    names_array = np.array(attempted["unique_id"].tolist())
 
     unique_id_to_target = dict(
         zip(
@@ -202,7 +318,7 @@ def get_slew_animation_plotly(
 
     frames = []
     for i in range(len(t)):
-        is_observed = schedule_times <= float(t[i].jd)
+        is_observed = obs_time <= float(t[i].jd)
 
         # Per-frame: rebuild zone traces so the (first-frame-only) legend flag
         # is on for frame 0 and off for subsequent frames.
@@ -217,6 +333,16 @@ def get_slew_animation_plotly(
 
         frame_data = list(zones_this_frame) + [
             go.Scatterpolar(
+                r=az[:, i][~is_observed],
+                theta=np.degrees(alt[:, i][~is_observed]),
+                mode="markers",
+                marker=dict(size=10, color="gray", symbol="star"),
+                name="Attempted",
+                showlegend=(i == 0),
+                text=human_target_array[~is_observed],
+                hovertemplate="<b>%{text}</b><br>Az: %{theta:.1f}°<br>ZD: %{r:.1f}°<extra></extra>",
+            ),
+            go.Scatterpolar(
                 r=az[:, i][is_observed],
                 theta=np.degrees(alt[:, i][is_observed]),
                 mode="markers",
@@ -227,18 +353,8 @@ def get_slew_animation_plotly(
                 hovertemplate="<b>%{text}</b><br>Az: %{theta:.1f}°<br>ZD: %{r:.1f}°<extra></extra>",
             ),
             go.Scatterpolar(
-                r=az[:, i][~is_observed],
-                theta=np.degrees(alt[:, i][~is_observed]),
-                mode="markers",
-                marker=dict(size=10, color="white", symbol="star"),
-                name="Scheduled",
-                showlegend=(i == 0),
-                text=human_target_array[~is_observed],
-                hovertemplate="<b>%{text}</b><br>Az: %{theta:.1f}°<br>ZD: %{r:.1f}°<extra></extra>",
-            ),
-            go.Scatterpolar(
-                r=tel_zen[: i + 1] if i > 0 else tel_zen[:1],
-                theta=np.degrees(tel_az[: i + 1] if i > 0 else tel_az[:1]),
+                r=track_zen[track_jd <= float(t[i].jd)],
+                theta=track_az[track_jd <= float(t[i].jd)],
                 mode="lines",
                 line=dict(color="orange", width=2),
                 name="Telescope Path",
@@ -398,6 +514,64 @@ def get_slew_animation_plotly(
     return fig
 
 
+def save_slew_animation(fig, html_path, gif_path=None, **gif_kw):
+    """Write interactive HTML and a GIF copy of a slew-animation figure."""
+    fig.write_html(html_path)
+    if gif_path is None:
+        gif_path = html_path.rsplit(".", 1)[0] + ".gif"
+    write_slew_animation_gif(fig, gif_path, **gif_kw)
+
+
+def write_slew_animation_gif(
+    fig,
+    path,
+    *,
+    max_frames=90,
+    fps=3,
+    width=640,
+    height=640,
+):
+    """Export a Plotly slew-animation figure to an animated GIF via Kaleido.
+
+    Long nights produce hundreds of Plotly frames; this subsamples evenly to
+    ``max_frames`` so GIF size stays reasonable.
+    """
+    import io
+
+    from PIL import Image
+
+    if not fig.frames:
+        raise ValueError("figure has no animation frames")
+
+    n = len(fig.frames)
+    if n > max_frames:
+        indices = np.unique(np.round(np.linspace(0, n - 1, max_frames)).astype(int))
+    else:
+        indices = np.arange(n)
+
+    layout = fig.layout.to_plotly_json()
+    layout.pop("updatemenus", None)
+    layout.pop("sliders", None)
+
+    images = []
+    for i in indices:
+        frame = fig.frames[int(i)]
+        frame_fig = go.Figure(data=frame.data, layout=layout)
+        png = frame_fig.to_image(
+            format="png", width=width, height=height, engine="kaleido"
+        )
+        images.append(Image.open(io.BytesIO(png)))
+
+    images[0].save(
+        path,
+        save_all=True,
+        append_images=images[1:],
+        duration=int(1000 / fps),
+        loop=0,
+        optimize=True,
+    )
+
+
 def plot_path_2D_interactive(data, night_start_time=None):
     """Create an interactive Plotly plot showing telescope azimuth and altitude paths with UTC times and white background.
 
@@ -447,15 +621,28 @@ def plot_path_2D_interactive(data, night_start_time=None):
     az_end = np.atleast_1d(aa_end.az.deg)
     alt_end = np.atleast_1d(aa_end.alt.deg)
 
+    # State-aware (cable-wrap) plotting: when the schedule carries per-node
+    # wrap_state and the model knows its wrap_states, draw the azimuth path in
+    # continuous encoder coordinates of the chosen winding instead of sky az.
+    wrap_states = getattr(model, "wrap_states", None)
+    state_aware = wrap_states is not None and "wrap_state" in scheduled.columns
+    node_state = (
+        scheduled["wrap_state"].to_numpy() if state_aware else None
+    )
+
     obs_time = np.empty(2 * len(scheduled))
     az_path = np.empty(2 * len(scheduled))
     alt_path = np.empty(2 * len(scheduled))
+    state_path = np.empty(2 * len(scheduled))
     names = []
     for i in range(len(scheduled)):
         obs_time[2 * i] = t_start_time[i].jd
         obs_time[2 * i + 1] = t_end_time[i].jd
         az_path[2 * i], az_path[2 * i + 1] = az_start[i], az_end[i]
         alt_path[2 * i], alt_path[2 * i + 1] = alt_start[i], alt_end[i]
+        if state_aware:
+            state_path[2 * i] = node_state[i]
+            state_path[2 * i + 1] = node_state[i]
         names.extend([target.iloc[i], target.iloc[i]])
 
     if len(obs_time) == 2 * len(names):
@@ -477,9 +664,17 @@ def plot_path_2D_interactive(data, night_start_time=None):
     az_path = np.mod(az_path, 360)
     az_path_original = az_path.copy()
 
-    # Values above 270° displayed as negative (subtract 360) so e.g. 350° → -10°.
-    az_path_display = az_path.copy()
-    az_path_display[az_path_display > 270] -= 360
+    if state_aware:
+        # Encoder azimuth of each node's chosen winding (continuous, physical).
+        state_path = state_path[:min_len].astype(int)
+        az_path_display = az_path.copy()
+        for s, (_, lo, hi) in enumerate(wrap_states):
+            sel = state_path == s
+            az_path_display[sel] = _encoder_az_display(az_path[sel], lo, hi)
+    else:
+        # Values above 270° displayed as negative (subtract 360) so e.g. 350° → -10°.
+        az_path_display = az_path.copy()
+        az_path_display[az_path_display > 270] -= 360
 
     time_labels = [Time(t, format="jd").isot[11:16] for t in obs_time]
 
@@ -528,7 +723,25 @@ def plot_path_2D_interactive(data, night_start_time=None):
         col=1,
     )
 
-    if wrap is not None:
+    if state_aware:
+        # Draw each used winding's encoder-azimuth bounds as reference lines.
+        for s, (name, lo, hi) in enumerate(wrap_states):
+            if not (state_path == s).any():
+                continue
+            for edge in (lo, hi):
+                fig.add_shape(
+                    type="line",
+                    x0=obs_time[0], x1=obs_time[-1], y0=edge, y1=edge,
+                    line=dict(color="red", dash="dash", width=1),
+                    row=1, col=1,
+                )
+            fig.add_annotation(
+                x=obs_time[-1], y=hi,
+                text=f"{name}-wrap [{lo:g}, {hi:g}]\u00b0",
+                showarrow=False, font=dict(color="red", size=10),
+                row=1, col=1,
+            )
+    elif wrap is not None:
         wrap_normalized = wrap % 360
         wrap_display = wrap_normalized
         if wrap_display > 270:
