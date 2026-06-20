@@ -18,7 +18,6 @@ import pandas as pd
 from gurobipy import GRB
 import astroq.access as ac
 import astroq.queue
-from astroq.logutil import print_block
 
 logs = logging.getLogger(__name__)
 
@@ -1280,7 +1279,8 @@ class SemesterPlanner:
     def log_report(self, round_label):
         """Emit the run-report text to stdout (no log prefix on table lines)."""
         report = self.to_string(header=f"Stats for {round_label}")
-        print_block(report)
+        if report:
+            print(report.rstrip(), flush=True)
 
     def write_request_selected(self):
         """Write ``request_selected.csv`` -- the handoff to ``NightPlanner``."""
