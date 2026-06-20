@@ -122,6 +122,7 @@ class Access:
         self.queue = queue
         self.observatory = queue.observatory
 
+        slot_size = float(slot_size)
         if 1440 % slot_size != 0:
             raise ValueError(
                 f"slot_size={slot_size} must evenly divide 1440 minutes/day."
@@ -129,7 +130,7 @@ class Access:
 
         self.semester_start_date = semester_start_date
         self.semester_length = int(semester_length)
-        self.slot_size = int(slot_size)
+        self.slot_size = slot_size
         self.current_day = (
             current_day if current_day is not None else semester_start_date
         )
@@ -218,7 +219,7 @@ class Access:
             request_frame=planner.requests_frame,
             semester_start_date=cfg.get("global", "semester_start_day"),
             semester_length=planner.semester_length,
-            slot_size=cfg.getint("semester", "slot_size"),
+            slot_size=cfg.getfloat("semester", "slot_size"),
             current_day=cfg.get("global", "current_day"),
             allocation_file=planner.allocation_file,
             custom_file=planner.custom_file,
