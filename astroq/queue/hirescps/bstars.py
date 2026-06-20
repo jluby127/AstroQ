@@ -16,6 +16,11 @@ from astropy.coordinates import SkyCoord
 from astropy.time import Time
 import astropy.units as u
 
+from astroq.queue.hirescps.script_columns import (
+    format_exposure_token,
+    format_vmag_token,
+)
+
 logs = logging.getLogger(__name__)
 
 _BSTARS_FILE = Path(__file__).with_name("bstars.txt")
@@ -214,26 +219,13 @@ def _display_name(name: str) -> str:
 
 
 def _format_vmag_token(vmag: float) -> str:
-    """Match ``format_hires_row`` vmag padding (``vmag=6.6   ``)."""
-    if not np.isfinite(vmag):
-        vmag_val = 15.0
-    else:
-        vmag_val = float(vmag)
-    vmag_round = np.round(vmag_val, 1)
-    vmag_text = str(vmag_round)
-    return "vmag=" + vmag_text + " " * (4 - len(vmag_text))
+    """Match ``format_hires_row`` vmag padding."""
+    return format_vmag_token(vmag)
 
 
 def _format_bstar_exposure() -> str:
     """Fixed B-star exposure token matching ``format_hires_row`` spacing."""
-    exptime, maxtime = 5, 500
-    return (
-        " " * (4 - len(str(exptime)))
-        + str(exptime)
-        + "/"
-        + str(maxtime)
-        + " " * (4 - len(str(maxtime)))
-    )
+    return format_exposure_token(5, 500)
 
 
 def format_bstar_row(

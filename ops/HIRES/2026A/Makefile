@@ -101,18 +101,6 @@ $(DATE_DIR)/%/config.ini: create_dirs
 	@sed -i $(SED_I_FLAG) "s|END_DATE_PLACEHOLDER|$(END_DATE)|g" $@
 	@sed -i $(SED_I_FLAG) "s|SEMESTER_PLACEHOLDER|$(SEMESTER)|g" $@
 	@sed -i $(SED_I_FLAG) "s|WORKDIR_PLACEHOLDER|$(@D)|g" $@
-	# If this is band3 or full-band3, tighten the max_solve_gap for semester solver
-	@BAND_NAME=$(notdir $(@D)); \
-	if [ "$$BAND_NAME" = "band3" ] || [ "$$BAND_NAME" = "full-band3" ]; then \
-		echo "⚙️  Detected $$BAND_NAME: setting [semester] max_solve_gap = 0.0005"; \
-		sed -i $(SED_I_FLAG) -e '/^\[semester\]/,/^\[/{s/^max_solve_gap.*/max_solve_gap = 0.0005/;}' $@; \
-	fi
-	# If this is a full band (full-band1, full-band2, full-band3), set max_solve_time for night solver
-	@BAND_NAME=$(notdir $(@D)); \
-	if echo "$$BAND_NAME" | grep -q "^full-band"; then \
-		echo "⚙️  Detected $$BAND_NAME: setting [night] max_solve_time = 300"; \
-		sed -i $(SED_I_FLAG) -e '/^\[night\]/,/^\[/{s/^max_solve_time.*/max_solve_time = 300/;}' $@; \
-	fi
 	@echo "✅ Config file created and updated for band $(notdir $(@D))"
 
 # Validate date format

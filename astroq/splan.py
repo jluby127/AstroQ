@@ -18,6 +18,7 @@ import pandas as pd
 from gurobipy import GRB
 import astroq.access as ac
 import astroq.queue
+from astroq.logutil import print_block
 
 logs = logging.getLogger(__name__)
 
@@ -1267,20 +1268,19 @@ class SemesterPlanner:
         parts = [
             header,
             divider,
-            summary.to_string(float_format=lambda x: f"{x:.2f}"),
+            summary.to_string(float_format=lambda x: f"{int(round(x))}"),
             "",
             "Program Statistics (hours):",
             divider,
-            table.to_string(float_format=lambda x: f"{x:.2f}"),
+            table.to_string(float_format=lambda x: f"{x:.1f}"),
             "",
         ]
         return "\n".join(parts) + "\n"
 
     def log_report(self, round_label):
-        """Log the run-report text (the same content that used to land in runReport.txt)."""
+        """Emit the run-report text to stdout (no log prefix on table lines)."""
         report = self.to_string(header=f"Stats for {round_label}")
-        for line in report.splitlines():
-            logs.info(line)
+        print_block(report)
 
     def write_request_selected(self):
         """Write ``request_selected.csv`` -- the handoff to ``NightPlanner``."""
