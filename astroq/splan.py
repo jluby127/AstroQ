@@ -243,7 +243,7 @@ class SemesterPlanner:
 
         Mutates and returns ``rf`` (idempotent).
         """
-        slot_size = self.config.getint("semester", "slot_size")
+        slot_size = self.config.getfloat("semester", "slot_size")
         visit_s = self.queue.visit_seconds(
             rf["exptime"].astype(float),
             rf["n_exp"].astype(int),
@@ -310,7 +310,7 @@ class SemesterPlanner:
         min_overlap = self.config.getint("semester", "chain_min_overlap")
         max_chain_slots = int(
             self.config.getfloat("semester", "chain_max_minutes")
-            / self.config.getint("semester", "slot_size")
+            / self.config.getfloat("semester", "slot_size")
         )
 
         pool = rf[
@@ -898,7 +898,7 @@ class SemesterPlanner:
         """
         logs.info("Constraint: Throttling over-requested programs.")
         program_frame = pd.read_csv(self.programs_file).set_index("program")
-        slot_size = self.config.getint("semester", "slot_size")
+        slot_size = self.config.getfloat("semester", "slot_size")
         hours_per_night = self.config.getfloat("semester", "hours_per_night")
         throttle_grace = self.config.getfloat("semester", "throttle_grace")
 
@@ -1171,7 +1171,7 @@ class SemesterPlanner:
         if self.schedule is None:
             raise RuntimeError("call build_schedule() before to_string()")
 
-        slot_size = self.config.getint("semester", "slot_size")
+        slot_size = self.config.getfloat("semester", "slot_size")
         hours_per_night = self.config.getfloat("semester", "hours_per_night")
         slots_per_hour = 60 / slot_size
 
