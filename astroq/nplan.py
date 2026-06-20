@@ -307,7 +307,7 @@ class NightPlanner:
                 {
                     "unique_id": str(row["unique_id"]),
                     "Target": row["target"],
-                    "StartExposure": str(ts)[11:16],
+                    "StartExposure": ts.strftime("%H:%M"),
                 }
             )
         for _, row in extras_df.iterrows():
