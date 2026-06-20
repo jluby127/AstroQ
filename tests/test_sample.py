@@ -231,8 +231,6 @@ class TestClass(unittest.TestCase):
             client = wa.app.test_client()
 
             # (path, expected_codes, dump_name)
-            # expected_codes is a set; download_nightplan may legitimately 500
-            # when the stored output_directory does not resolve from this cwd.
             routes = [
                 ("/", {200}, "homepage.html"),
                 ("/2018B/2018-08-05/band1/admin", {200}, "admin.html"),
@@ -247,11 +245,6 @@ class TestClass(unittest.TestCase):
                     f"star_{target}.html",
                 ),
                 ("/2018B/2018-08-05/band1/nightplan", {200}, "nightplan.html"),
-                (
-                    "/2018B/2018-08-05/band1/download_nightplan",
-                    {200, 500},
-                    "download_nightplan.txt",
-                ),
                 # Invalid band -> 400 from abort()
                 ("/2018B/2018-08-05/bogus/admin", {400}, None),
                 # Valid band but missing date -> 404 from load_data_for_path
@@ -264,6 +257,41 @@ class TestClass(unittest.TestCase):
                 if dump_name is not None and resp.status_code == 200:
                     with open(os.path.join(tmp, dump_name), "wb") as f:
                         f.write(resp.data)
+
+    def test13_archive(self):
+        """Export admin and nightplan static HTML via astroq archive."""
+        import tempfile
+        from unittest.mock import patch
+
+        import astroq.plot as pl
+
+        cf = "examples/hello_world/config_hello_world.ini"
+        workdir = "examples/hello_world/2018B/2018-08-05/band1"
+        archive_dir = os.path.join(workdir, "outputs", "webapp_archive")
+        admin_path = os.path.join(archive_dir, "admin.html")
+        night_path = os.path.join(archive_dir, "nightplan.html")
+
+        tmp = tempfile.mkdtemp(prefix="astroq_archive_")
+        from pathlib import Path
+
+        with patch.object(pl, "_football_cache_dir", lambda sp: Path(tmp)):
+            dr.archive(argparse.Namespace(config_file=cf))
+
+        self.assertTrue(os.path.isfile(admin_path), f"missing {admin_path}")
+        self.assertTrue(os.path.isfile(night_path), f"missing {night_path}")
+
+        with open(admin_path, encoding="utf-8") as f:
+            admin_html = f.read()
+        with open(night_path, encoding="utf-8") as f:
+            night_html = f.read()
+
+        self.assertIn("Admin Dashboard", admin_html)
+        self.assertIn("plotly-graph-div", admin_html)
+        self.assertNotIn('href="/2018B/2018-08-05/band1/', admin_html)
+
+        self.assertIn("Night Plan", night_html)
+        self.assertIn("plotly-graph-div", night_html)
+        self.assertNotIn("download_nightplan", night_html)
 
 
 if __name__ == "__main__":

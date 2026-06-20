@@ -80,6 +80,22 @@ def main():
     )
     psr_plot.set_defaults(func=astroq.driver.plot)
 
+    ## subcommand of astroq: archive -- export static webapp HTML pages
+    psr_archive = subpsr.add_parser(
+        "archive",
+        parents=[psr_parent],
+        description="Export static HTML copies of webapp admin and nightplan pages",
+        prefix_chars="-",
+    )
+    psr_archive.add_argument(
+        "-cf",
+        "--config_file",
+        type=str,
+        required=True,
+        help="Relative path of config file.",
+    )
+    psr_archive.set_defaults(func=astroq.driver.archive)
+
     ## subcommand of astroq: prep -- preparation workflows (with subcommands)
     psr_prep = subpsr.add_parser(
         "prep",
