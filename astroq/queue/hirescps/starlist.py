@@ -6,12 +6,30 @@
 """
 
 import os
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from astropy.coordinates import SkyCoord
 from astropy.time import Time, TimeDelta
 import astropy.units as u
+
+from astroq.queue.hirescps.bstars import build_bstars_section
+from astroq.queue.hirescps.script_columns import (
+    format_cell_token,
+    format_decker_token,
+    format_exposure_token,
+    format_meter_token,
+    format_nexp_token,
+    format_priority_token,
+    format_vmag_token,
+)
+
+
+def _offset_minutes_to_hhmm(night_start_time, offset_min) -> str:
+    """Format a night-start offset (minutes) as ``HH:MM`` for the script."""
+    t = night_start_time + TimeDelta(float(offset_min) * 60, format="sec")
+    return t.strftime("%H:%M")
 
 
 def write_starlist(
@@ -65,15 +83,9 @@ def write_starlist(
         row.reset_index(inplace=True)
         total_exptime += float(row["exptime"].iloc[0])
 
-        start_exposure_hst = str(
-            TimeDelta(srow["t_start"] * 60, format="sec") + night_start_time
-        )[11:16]
-        first_available_hst = str(
-            TimeDelta(srow["t_early"] * 60, format="sec") + night_start_time
-        )[11:16]
-        last_available_hst = str(
-            TimeDelta(srow["t_late"] * 60, format="sec") + night_start_time
-        )[11:16]
+        start_exposure_hst = _offset_minutes_to_hhmm(night_start_time, srow["t_start"])
+        first_available_hst = _offset_minutes_to_hhmm(night_start_time, srow["t_early"])
+        last_available_hst = _offset_minutes_to_hhmm(night_start_time, srow["t_late"])
         lines.append(
             format_hires_row(
                 row,
@@ -94,12 +106,8 @@ def write_starlist(
         filler_flag = uid in filler_stars
         row = frame.loc[frame["unique_id"] == uid]
         row.reset_index(inplace=True)
-        first_available_hst = str(
-            TimeDelta(erow["t_early"] * 60, format="sec") + night_start_time
-        )[11:16]
-        last_available_hst = str(
-            TimeDelta(erow["t_late"] * 60, format="sec") + night_start_time
-        )[11:16]
+        first_available_hst = _offset_minutes_to_hhmm(night_start_time, erow["t_early"])
+        last_available_hst = _offset_minutes_to_hhmm(night_start_time, erow["t_late"])
         lines.append(
             format_hires_row(
                 row,
@@ -157,8 +165,9 @@ def write_starlist(
             backup_df[backup_df["_vmag_float"] < 8],
         )
 
-    # add buffer lines to end of file
-    lines.append("")
+    cache_dir = Path(outputdir).parent / "cache"
+    lines.extend(build_bstars_section(current_day, cache_dir))
+
     lines.append("")
 
     with open(script_file, "w") as f:
@@ -248,28 +257,16 @@ def format_hires_row(
     except (ValueError, TypeError):
         vmag_val = 25.0
 
-    exposurestring = (
-        " " * (4 - len(str(int(row["exptime"].iloc[0]))))
-        + str(int(row["exptime"].iloc[0]))
-        + "/"
-        + str(int(row["maxtime"].iloc[0]))
-        + " " * (4 - len(str(int(row["maxtime"].iloc[0]))))
+    vmagstring = format_vmag_token(vmag_val)
+    exposurestring = format_exposure_token(
+        int(row["exptime"].iloc[0]), int(row["maxtime"].iloc[0])
     )
-
-    ofstring = "1of" + str(int(row["n_intra_max"].iloc[0]))
-
-    numstring = str(int(row["n_exp"].iloc[0])) + "x"
-    vmagstring = (
-        "vmag="
-        + str(np.round(float(vmag_val), 1))
-        + " " * (4 - len(str(np.round(float(vmag_val), 1))))
-    )
-
+    exp_meter_thresholdstring = format_meter_token(row["exp_meter_threshold"].iloc[0])
+    deckerstring = format_decker_token(row["decker"].iloc[0])
+    numstring = format_nexp_token(int(row["n_exp"].iloc[0]))
+    cellstring = format_cell_token(row["cell in/out?"].iloc[0])
+    priostring = format_priority_token(row["priority"].iloc[0])
     programstring = row["program_code"].iloc[0]
-    priostring = row["priority"].iloc[0]
-    deckerstring = row["decker"].iloc[0]
-    cellstring = row["cell in/out?"].iloc[0]
-    exp_meter_thresholdstring = row["exp_meter_threshold"].iloc[0]
 
     if extra == False:
         timestring2 = str(obs_time)

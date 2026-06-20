@@ -18,6 +18,7 @@ import pandas as pd
 from gurobipy import GRB
 import astroq.access as ac
 import astroq.queue
+from astroq.logutil import print_block
 
 logs = logging.getLogger(__name__)
 
@@ -69,9 +70,10 @@ class SemesterPlanner:
         cf (str): path to the ``config.ini`` file.
     """
 
-    def __init__(self, cf):
+    def __init__(self, cf, *, boost=None):
         """See class docstring."""
         logs.debug("Building the SemesterPlanner.")
+        self.boost = boost
 
         # Read config as text so we can persist it verbatim and recreate the
         # parser on from_hdf5.
@@ -109,6 +111,7 @@ class SemesterPlanner:
         # all_valid_ds_for_request) are read from multiple constraints; the
         # rest live as locals at their call sites.
         self._build_constraint_lookups()
+        self._log_boost_current_day_slots()
 
         self.build_gurobi_model()
 
@@ -241,7 +244,7 @@ class SemesterPlanner:
 
         Mutates and returns ``rf`` (idempotent).
         """
-        slot_size = self.config.getint("semester", "slot_size")
+        slot_size = self.config.getfloat("semester", "slot_size")
         visit_s = self.queue.visit_seconds(
             rf["exptime"].astype(float),
             rf["n_exp"].astype(int),
@@ -291,6 +294,238 @@ class SemesterPlanner:
         self.all_valid_ds_for_request = (
             self.joiner.groupby(["unique_id"])[["d", "s"]].agg(list)
         )
+        self.build_observation_chains()
+        self.build_yrds_tuples()
+
+    def build_observation_chains(self):
+        """Group single-shot targets; write ``ss_chain`` / ``ss_chain_idx``."""
+        rf = self.requests_frame.copy()
+        rf["ss_chain"] = pd.Series(pd.NA, index=rf.index, dtype="Int64")
+        rf["ss_chain_idx"] = pd.Series(pd.NA, index=rf.index, dtype="Int64")
+
+        if not self.config.getboolean("semester", "use_observation_chains"):
+            self.requests_frame = rf
+            return
+
+        max_chain_len = self.config.getint("semester", "chain_max_length")
+        min_overlap = self.config.getint("semester", "chain_min_overlap")
+        max_chain_slots = int(
+            self.config.getfloat("semester", "chain_max_minutes")
+            / self.config.getfloat("semester", "slot_size")
+        )
+
+        pool = rf[
+            (rf["n_inter_max"].astype(int) == 1)
+            & (rf["n_intra_max"].astype(int) == 1)
+        ]
+        pool_uids = pool["unique_id"].tolist()
+        uid_to_tvisit = pool.set_index("unique_id")["t_visit_slots"].astype(int)
+
+        obs = self.observability[["unique_id", "d", "s"]]
+        rng = np.random.default_rng(self.config.getint("semester", "random_seed"))
+
+        chain_id = 0
+        n_chained = 0
+        remaining = set(pool_uids)
+        uid_order = list(pool_uids)
+        rng.shuffle(uid_order)
+
+        while remaining:
+            seed_uid = next(u for u in uid_order if u in remaining)
+            remaining.remove(seed_uid)
+
+            chain = [seed_uid]
+            chain_slots_used = int(uid_to_tvisit.at[seed_uid])
+            offset_next = chain_slots_used
+
+            while len(chain) < max_chain_len and remaining:
+                anchor_uid = chain[0]
+                offset = offset_next
+
+                anchor = obs.query("unique_id == @anchor_uid")[["d", "s"]].rename(
+                    columns={"s": "s_anchor"},
+                )
+                cands = obs.loc[
+                    obs["unique_id"].isin(remaining), ["unique_id", "d", "s"]
+                ]
+                aligned = anchor.merge(cands, on="d").query("s == s_anchor + @offset")
+                scores = aligned.groupby("unique_id").size()
+                scores = scores[
+                    scores.index.map(
+                        lambda uid: chain_slots_used + int(uid_to_tvisit.at[uid])
+                        <= max_chain_slots
+                    )
+                ]
+                if scores.empty or scores.max() < min_overlap:
+                    break
+
+                best_uid = scores.idxmax()
+                remaining.remove(best_uid)
+                chain.append(best_uid)
+                chain_slots_used += int(uid_to_tvisit.at[best_uid])
+                offset_next = chain_slots_used
+
+            if len(chain) < 2:
+                continue
+
+            for chain_idx, uid in enumerate(chain):
+                mask = rf["unique_id"] == uid
+                rf.loc[mask, "ss_chain"] = chain_id
+                rf.loc[mask, "ss_chain_idx"] = chain_idx
+            chain_id += 1
+            n_chained += len(chain)
+
+        self.requests_frame = rf
+        logs.info(
+            "Built %d observation chains covering %d / %d pool targets",
+            chain_id,
+            n_chained,
+            len(pool_uids),
+        )
+
+    def build_yrds_tuples(self):
+        """``yrds_tuples``: full observability minus orphan slots for chained followers."""
+        if not self.config.getboolean("semester", "use_observation_chains"):
+            self.yrds_tuples = list(self.observability_tuples)
+            self._index_yrds_tuples()
+            return
+
+        keep = set(self.observability_tuples)
+        obs = self.observability
+        rf = self.requests_frame
+        chained = rf[rf["ss_chain"].notna()]
+
+        if not chained.empty:
+            for _chain_id, grp in chained.groupby("ss_chain"):
+                members = grp.sort_values("ss_chain_idx")
+                anchor = members.loc[
+                    members["ss_chain_idx"] == 0, "unique_id"
+                ].iloc[0]
+                offsets = (
+                    members.set_index("ss_chain_idx")["t_visit_slots"]
+                    .astype(int)
+                    .cumsum()
+                    .shift(1, fill_value=0)
+                )
+                anchor_starts = obs.loc[
+                    obs["unique_id"] == anchor, ["d", "s"]
+                ].rename(columns={"s": "s_anchor"})
+
+                for _, row in members[members["ss_chain_idx"] > 0].iterrows():
+                    follower = row["unique_id"]
+                    offset = int(offsets.loc[row["ss_chain_idx"]])
+                    follower_at = obs.loc[
+                        obs["unique_id"] == follower, ["d", "s"]
+                    ]
+                    on_chain = anchor_starts.merge(follower_at, on="d").query(
+                        "s == s_anchor + @offset"
+                    )[["d", "s"]]
+                    on_chain_set = {
+                        (int(d), int(s))
+                        for d, s in on_chain.itertuples(index=False, name=None)
+                    }
+
+                    for d, s in obs.loc[
+                        obs["unique_id"] == follower, ["d", "s"]
+                    ].itertuples(index=False, name=None):
+                        if (int(d), int(s)) not in on_chain_set:
+                            keep.discard((follower, int(d), int(s)))
+
+        self.yrds_tuples = list(keep)
+        yrds_df = pd.DataFrame(self.yrds_tuples, columns=["unique_id", "d", "s"])
+        self.all_valid_ds_for_request = yrds_df.groupby("unique_id")[["d", "s"]].agg(
+            list
+        )
+        self._index_yrds_tuples()
+        logs.info(
+            "Yrds tuples: %d (observability %d)",
+            len(self.yrds_tuples),
+            len(self.observability_tuples),
+        )
+
+    def _index_yrds_tuples(self):
+        """Build ``_yrds_keys`` and ``_yrds_by_ds`` from ``yrds_tuples``."""
+        self._yrds_keys = set(self.yrds_tuples)
+        by_ds = {}
+        for uid, d, s in self.yrds_tuples:
+            by_ds.setdefault((int(d), int(s)), set()).add(uid)
+        self._yrds_by_ds = by_ds
+
+    def _build_chain_link_rows(self):
+        """Rows for batched chain equalities: anchor, follower, d, s, offset."""
+        obs = self.observability
+        rf = self.requests_frame
+        parts = []
+
+        for _chain_id, grp in rf[rf["ss_chain"].notna()].groupby("ss_chain"):
+            members = grp.sort_values("ss_chain_idx")
+            anchor = members.loc[members["ss_chain_idx"] == 0, "unique_id"].iloc[0]
+            offsets = (
+                members.set_index("ss_chain_idx")["t_visit_slots"]
+                .astype(int)
+                .cumsum()
+                .shift(1, fill_value=0)
+            )
+            anchor_starts = obs.loc[
+                obs["unique_id"] == anchor, ["d", "s"]
+            ].rename(columns={"s": "s_anchor"})
+
+            for _, row in members[members["ss_chain_idx"] > 0].iterrows():
+                follower = row["unique_id"]
+                offset = int(offsets.loc[row["ss_chain_idx"]])
+                follower_at = obs.loc[
+                    obs["unique_id"] == follower, ["d", "s"]
+                ].rename(columns={"s": "s_follower"})
+                links = anchor_starts.merge(follower_at, on="d").query(
+                    "s_follower == s_anchor + @offset"
+                )
+                parts.append(
+                    links.assign(anchor=anchor, follower=follower, offset=offset)
+                    .rename(columns={"s_anchor": "s"})[
+                        ["anchor", "follower", "d", "s", "offset"]
+                    ]
+                )
+
+        if not parts:
+            return pd.DataFrame(columns=["anchor", "follower", "d", "s", "offset"])
+        return pd.concat(parts, ignore_index=True)
+
+    def _log_boost_current_day_slots(self):
+        """Report observable slot counts on current_day for each boosted target."""
+        if self.boost is None:
+            return
+        current_day = self.config.get("global", "current_day")
+        d_today = self.today_starting_night
+        boost_by_uid = dict(
+            zip(
+                self.boost["unique_id"].astype(str),
+                self.boost["boost"].astype(float),
+            )
+        )
+        uid_to_target = dict(
+            zip(
+                self.requests_frame_all["unique_id"].astype(str),
+                self.requests_frame_all["target"],
+            )
+        )
+        factor = next(iter(boost_by_uid.values()))
+        logs.info(
+            "Boost on current_day=%s (d=%d), factor=%g:",
+            current_day,
+            d_today,
+            factor,
+        )
+        joiner_uids = self.joiner["unique_id"].astype(str)
+        joiner_d = self.joiner["d"]
+        for uid in boost_by_uid:
+            n_slots = int(((joiner_uids == uid) & (joiner_d == d_today)).sum())
+            target = uid_to_target.get(uid, "(unknown unique_id)")
+            logs.info(
+                "  %s (%s): %d observable slot(s) on current_day",
+                uid,
+                target,
+                n_slots,
+            )
 
     def build_gurobi_model(self):
         """Instantiate the Gurobi model and add ``Yrds``, ``Wrd``, ``theta``."""
@@ -300,7 +535,7 @@ class SemesterPlanner:
             .drop_duplicates()
         )
         self.Yrds = self.model.addVars(
-            self.observability_tuples, vtype=GRB.BINARY, name="Requests_Slots"
+            self.yrds_tuples, vtype=GRB.BINARY, name="Requests_Slots"
         )
         if not observability_nights.empty:
             self.Wrd = self.model.addVars(
@@ -358,6 +593,29 @@ class SemesterPlanner:
     # Constraints 
     # ==================================================================
 
+    def constraint_link_observation_chains(self):
+        """Tie follower Yrds to anchor Yrds via one batched addConstrs call."""
+        if not self.config.getboolean("semester", "use_observation_chains"):
+            return
+        if self.requests_frame["ss_chain"].notna().sum() == 0:
+            return
+
+        chain_links = self._build_chain_link_rows()
+        if chain_links.empty:
+            return
+
+        logs.info(
+            "Constraint: Link observation chains (%d equalities).",
+            len(chain_links),
+        )
+        self.model.addConstrs(
+            (
+                self.Yrds[r, d, s + o] == self.Yrds[a, d, s]
+                for a, r, d, s, o in chain_links.itertuples(index=False)
+            ),
+            name="chain",
+        )
+
     def constraint_build_theta_multivisit(self):
         """Build the shortfall matrix, Theta.
 
@@ -398,9 +656,6 @@ class SemesterPlanner:
         logs.info("Constraint: Reserve slots for multi-slot exposures.")
         rf = self.requests_frame
         max_t_visit = int(rf["t_visit_slots"].max())
-        R_ds = (
-            self.observability.groupby(["d", "s"])["unique_id"].apply(set).to_dict()
-        )
         R_geq_t_visit = {
             t: set(rf.loc[rf["t_visit_slots"] >= t, "unique_id"])
             for t in range(1, max_t_visit + 1)
@@ -409,15 +664,16 @@ class SemesterPlanner:
         for d, s in self.observability.drop_duplicates(["d", "s"])[
             ["d", "s"]
         ].itertuples(index=False, name=None):
+            uids_at = self._yrds_by_ds.get((int(d), int(s)), set())
+            if not uids_at:
+                continue
             rhs = []
             for delta in range(1, max_t_visit):
                 s_shift = s - delta
-                if (d, s_shift) in R_ds:
-                    rhs.extend(
-                        self.Yrds[uid, d, s_shift]
-                        for uid in R_ds[d, s_shift] & R_geq_t_visit[delta + 1]
-                    )
-            lhs = 1 - gp.quicksum(self.Yrds[uid, d, s] for uid in R_ds[d, s])
+                uids_shift = self._yrds_by_ds.get((int(d), int(s_shift)), set())
+                for uid in uids_shift & R_geq_t_visit[delta + 1]:
+                    rhs.append(self.Yrds[uid, d, s_shift])
+            lhs = 1 - gp.quicksum(self.Yrds[uid, d, s] for uid in uids_at)
             self.model.addConstr(
                 lhs >= gp.quicksum(rhs), f"reserve_multislot_{d}d_{s}s"
             )
@@ -452,16 +708,24 @@ class SemesterPlanner:
             subset=["unique_id", "d"]
         )
         for _, row in valid.iterrows():
-            constrained_slots_tonight = np.array(
-                slots_on_day_for_r.loc[(row.unique_id, row.d)][0]
-            )
+            constrained_slots_tonight = [
+                int(s2)
+                for s2 in slots_on_day_for_r.loc[(row.unique_id, row.d)][0]
+                if (row.unique_id, int(row.d), int(s2)) in self._yrds_keys
+            ]
+            if not constrained_slots_tonight:
+                continue
             if (row.unique_id, row.d) not in intercadence_tracker.index:
                 continue
             future = intercadence_tracker.loc[(row.unique_id, row.d)]
-            ds_pairs = zip(
-                np.array(future.d3).flatten(),
-                np.array(future.s3).flatten(),
-            )
+            ds_pairs = [
+                (int(d3), int(s3))
+                for d3, s3 in zip(
+                    np.array(future.d3).flatten(),
+                    np.array(future.s3).flatten(),
+                )
+                if (row.unique_id, int(d3), int(s3)) in self._yrds_keys
+            ]
             lhs = (
                 gp.quicksum(
                     self.Yrds[row.unique_id, row.d, s2]
@@ -591,7 +855,13 @@ class SemesterPlanner:
         grouped_s.set_index(["unique_id", "d"], inplace=True)
         multi_visit_uids = self.multi_visit_uids
         for _, row in per_day.iterrows():
-            slots_tonight = list(grouped_s.loc[(row.unique_id, row.d)]["s"])
+            slots_tonight = [
+                int(s3)
+                for s3 in grouped_s.loc[(row.unique_id, row.d)]["s"]
+                if (row.unique_id, int(row.d), int(s3)) in self._yrds_keys
+            ]
+            if not slots_tonight:
+                continue
             name_tag = f"{row.unique_id}_{row.d}d_{row.s}s"
             visits_tonight = gp.quicksum(
                 self.Yrds[row.unique_id, row.d, s3] for s3 in slots_tonight
@@ -629,7 +899,7 @@ class SemesterPlanner:
         """
         logs.info("Constraint: Throttling over-requested programs.")
         program_frame = pd.read_csv(self.programs_file).set_index("program")
-        slot_size = self.config.getint("semester", "slot_size")
+        slot_size = self.config.getfloat("semester", "slot_size")
         hours_per_night = self.config.getfloat("semester", "hours_per_night")
         throttle_grace = self.config.getfloat("semester", "throttle_grace")
 
@@ -669,7 +939,7 @@ class SemesterPlanner:
             uids_for_program = program_requests_map.get(program, set())
             schedulable_slots = gp.quicksum(
                 self.Yrds[r, d, s] * t_visit_slots[r]
-                for r, d, s in self.observability_tuples
+                for r, d, s in self.yrds_tuples
                 if r in uids_for_program
             )
             past_used = past_used_slots_by_program.get(program, 0)
@@ -712,12 +982,30 @@ class SemesterPlanner:
         t_visit_slots = dict(
             zip(self.requests_frame["unique_id"], self.requests_frame["t_visit_slots"])
         )
-        self.model.setObjective(
-            gp.quicksum(
-                self.theta[uid] * t_visit_slots[uid] for uid in schedulable_uids
-            ),
-            GRB.MINIMIZE,
+        theta_obj = gp.quicksum(
+            self.theta[uid] * t_visit_slots[uid] for uid in schedulable_uids
         )
+        if self.boost is not None:
+            boost_by_uid = dict(
+                zip(
+                    self.boost["unique_id"].astype(str),
+                    self.boost["boost"].astype(float),
+                )
+            )
+            d_today = self.today_starting_night
+            boost_terms = [
+                boost_by_uid[uid] * self.Yrds[uid, d, s]
+                for uid, d, s in self.observability_tuples
+                if d == d_today and uid in boost_by_uid
+            ]
+            if boost_terms:
+                logs.info(
+                    "Objective: boost term for %d unique_id(s) on current_day=%s.",
+                    len(boost_by_uid),
+                    self.config.get("global", "current_day"),
+                )
+                theta_obj -= gp.quicksum(boost_terms)
+        self.model.setObjective(theta_obj, GRB.MINIMIZE)
 
     def set_objective_maximize_slots_used(self):
         """Bonus round: maximize filled slots."""
@@ -728,7 +1016,7 @@ class SemesterPlanner:
         self.model.setObjective(
             gp.quicksum(
                 t_visit_slots[uid] * self.Yrds[uid, d, s]
-                for uid, d, s in self.observability_tuples
+                for uid, d, s in self.yrds_tuples
             ),
             GRB.MAXIMIZE,
         )
@@ -740,6 +1028,7 @@ class SemesterPlanner:
     def build_model_round1(self):
         """Round 1 constraints + objective per Lubin et al. 2025."""
         t1 = time.time()
+        self.constraint_link_observation_chains()
         self.constraint_reserve_multislot_exposures()
         self.constraint_enforce_internight_cadence()
         self.constraint_set_max_desired_unique_nights_Wrd()
@@ -763,13 +1052,52 @@ class SemesterPlanner:
         """Solve the Gurobi model (with IIS diagnostics on infeasibility)."""
         logs.debug("Begin model solve.")
         t1 = time.time()
-        self.model.params.TimeLimit = self.config.getint("semester", "max_solve_time")
+        if not self.config.has_option("semester", "method"):
+            raise ValueError(
+                "[semester] method is required; expected milp or norel+milp"
+            )
+        method = self.config.get("semester", "method").strip().lower()
+        if method not in ("milp", "norel+milp"):
+            raise ValueError(
+                f"[semester] method={method!r} invalid; expected milp or norel+milp"
+            )
+
+        max_solve_time = self.config.getfloat("semester", "max_solve_time")
+        warmstart_time = self.config.getfloat("semester", "warmstart_time", fallback=0.0)
+        if method == "norel+milp":
+            if warmstart_time >= max_solve_time:
+                raise ValueError(
+                    f"[semester] max_solve_time={max_solve_time} must exceed "
+                    f"warmstart_time={warmstart_time} for method=norel+milp"
+                )
+            norel_budget = warmstart_time
+            milp_time = max_solve_time - warmstart_time
+        else:
+            if warmstart_time > 0:
+                logs.warning(
+                    "[semester] warmstart_time=%g ignored for method=milp",
+                    warmstart_time,
+                )
+            norel_budget = 0.0
+            milp_time = max_solve_time
+
+        logs.info(
+            "Semester: method=%s warmstart=%gs milp=%gs",
+            method,
+            norel_budget,
+            milp_time,
+        )
+
+        self.model.params.TimeLimit = milp_time
         self.model.Params.OutputFlag = self.config.getboolean(
             "semester", "show_gurobi_output"
         )
-        # Allow stop at solver gap to prevent spending time on marginal gains.
         self.model.params.MIPGap = self.config.getfloat("semester", "max_solve_gap")
+        self.model.params.NoRelHeurTime = norel_budget
         self.model.params.Presolve = 2
+        self.model.params.MIPFocus = 1 # 0 means balance objective and feasibility, 1 means feasibility, 2 means optimality
+        # -1 means default degeneracy moves. helps find feasible solutions in highly degenerate cases.
+        self.model.params.DegenMoves = -1
         self.model.update()
         self.model.optimize()
 
@@ -844,7 +1172,7 @@ class SemesterPlanner:
         if self.schedule is None:
             raise RuntimeError("call build_schedule() before to_string()")
 
-        slot_size = self.config.getint("semester", "slot_size")
+        slot_size = self.config.getfloat("semester", "slot_size")
         hours_per_night = self.config.getfloat("semester", "hours_per_night")
         slots_per_hour = 60 / slot_size
 
@@ -940,20 +1268,19 @@ class SemesterPlanner:
         parts = [
             header,
             divider,
-            summary.to_string(float_format=lambda x: f"{x:.2f}"),
+            summary.to_string(float_format=lambda x: f"{int(round(x))}"),
             "",
             "Program Statistics (hours):",
             divider,
-            table.to_string(float_format=lambda x: f"{x:.2f}"),
+            table.to_string(float_format=lambda x: f"{x:.1f}"),
             "",
         ]
         return "\n".join(parts) + "\n"
 
     def log_report(self, round_label):
-        """Log the run-report text (the same content that used to land in runReport.txt)."""
+        """Emit the run-report text to stdout (no log prefix on table lines)."""
         report = self.to_string(header=f"Stats for {round_label}")
-        for line in report.splitlines():
-            logs.info(line)
+        print_block(report)
 
     def write_request_selected(self):
         """Write ``request_selected.csv`` -- the handoff to ``NightPlanner``."""

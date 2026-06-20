@@ -24,6 +24,7 @@ import astroq.plot as pl
 import astroq.splan as splan
 import astroq.ttp.plot as tplot
 import astroq.webapp.app as app
+import astroq.webapp.render as webrender
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)  # Lower level to capture more messages
@@ -406,10 +407,11 @@ def kpfcc_prep(args):
         # Compute nominal exposure times and increase exposure times for different bands
         slowdown_factors = {1: 1.0, 2: 2.0, 3: 4.0}
         slow = slowdown_factors[band_number]
-        # new_exptimes = kpfcc.recompute_exposure_times(request_df, slow)
-        # request_df['exptime'] = new_exptimes
+        new_exptimes = kpfcc.recompute_exposure_times(request_df, slow)
+        request_df = request_df.copy()
+        request_df["original_exptime"] = request_df["exptime"]
+        request_df["exptime"] = new_exptimes
         request_df.to_csv(os.path.join(savepath, request_file), index=False)
-
         # CAPTURE CUSTOM INFORMATION AND PROCESS
         # --------------------------------------------
         # --------------------------------------------
@@ -496,13 +498,28 @@ def plan_semester(args):
     Args:
         args (argparse.Namespace): the command line arguments with flags:
             -cf (str): the path to the config file.
+            --boost (list[str], optional): [comma-separated unique_ids, factor]
+                soft-bias those targets onto current_day in the semester solve.
 
     Returns:
         None
     """
     cf = args.config_file
     print(f"plan_semester function: config_file is {cf}")
-    semester_planner = splan.SemesterPlanner(cf)
+    boost_arg = getattr(args, "boost", None)
+    boost = None
+    if boost_arg:
+        targets_part, factor_part = boost_arg[0], boost_arg[1]
+        factor = float(factor_part.strip())
+        uids = [u.strip() for u in targets_part.split(",") if u.strip()]
+        if not uids:
+            raise ValueError("--boost: no unique_id values in first argument")
+        boost = pd.DataFrame({"unique_id": uids, "boost": factor})
+        print(
+            f"Boost: {len(uids)} unique_id(s), factor={factor}: "
+            f"{', '.join(uids)}"
+        )
+    semester_planner = splan.SemesterPlanner(cf, boost=boost)
     semester_planner.run_model()
     return
 
@@ -654,6 +671,52 @@ def plot(args):
         print(
             f"No night_planner.pkl found in {semester_directory}/outputs/. No plots will be generated."
         )
+    return
+
+
+def archive(args):
+    """
+    Export static HTML copies of the webapp admin and nightplan pages.
+
+    Args:
+        args (argparse.Namespace): the command line arguments with flags:
+            -cf (str): the path to the config file.
+
+    Returns:
+        None
+    """
+    cf = args.config_file
+    log.info("archive: using config file %s", cf)
+    config = ConfigParser()
+    config.read(cf)
+    workdir = config.get("global", "workdir")
+    semester = config.get("global", "semester")
+    date = config.get("global", "current_day")
+    band = os.path.basename(os.path.normpath(workdir))
+
+    outputs_dir = os.path.join(workdir, "outputs")
+    archive_dir = os.path.join(outputs_dir, "webapp_archive")
+    os.makedirs(archive_dir, exist_ok=True)
+
+    loaded = webrender.load_planners_from_outputs(outputs_dir)
+
+    admin_path = os.path.join(archive_dir, "admin.html")
+    with open(admin_path, "w", encoding="utf-8") as f:
+        f.write(
+            webrender.build_admin_html(
+                loaded, semester, date, band, link_targets=False
+            )
+        )
+    log.info("Wrote %s", admin_path)
+
+    if loaded.night_planner is not None:
+        night_path = os.path.join(archive_dir, "nightplan.html")
+        with open(night_path, "w", encoding="utf-8") as f:
+            f.write(webrender.build_nightplan_html(loaded, band))
+        log.info("Wrote %s", night_path)
+    else:
+        log.info("No night_planner.h5 in %s; skipping nightplan.html", outputs_dir)
+
     return
 
 
