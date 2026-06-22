@@ -14,7 +14,7 @@ import logging
 import os
 import re
 import urllib.parse
-from datetime import date
+from datetime import date, datetime, timedelta
 
 # Third-party imports
 import pandas as pd
@@ -543,6 +543,47 @@ def login_JUMP():
     return s
 
 
+JUMP_BASE_URL = "https://jump.caltech.edu"
+# Parameterized JUMP explorer query returning all HIRES observations between
+# ``start_date`` and ``end_date`` (UTC). Replaces the legacy named saved query
+# "HIRES2026A - All Observations".
+JUMP_HIRES_PAST_EXPLORER_ID = 285
+
+
+def get_explorer_by_id(session, explorer_id, params, path_for_csv):
+    """Download a CSV from a parameterized JUMP explorer query.
+
+    Args:
+        session (requests.Session): An authenticated JUMP session (see
+            :func:`login_JUMP`).
+        explorer_id (int): The numeric explorer query ID.
+        params (dict): Ordered ``key -> value`` pairs encoded into the
+            ``?params=key1:val1|key2:val2`` slug.
+        path_for_csv (str): Output CSV path.
+
+    Raises:
+        requests.HTTPError: if JUMP returns a non-200 for the download.
+    """
+    param_str = "|".join(f"{k}:{v}" for k, v in params.items())
+    param_slug = urllib.parse.quote(param_str, safe="")
+    query_url = f"{JUMP_BASE_URL}/explorer/{explorer_id}/?params={param_slug}"
+    # Build the download URL directly. Scraping the page's download <a href>
+    # corrupts the query string: BeautifulSoup decodes the literal ``&params``
+    # as the legacy HTML entity ``&para`` -> ``¶``, yielding ``¶ms=`` and a
+    # 500 from JUMP.
+    download_url = (
+        f"{JUMP_BASE_URL}/explorer/{explorer_id}/download"
+        f"?format=csv&params={param_slug}"
+    )
+    print(f"JUMP query URL: {query_url}")
+    print(f"JUMP download URL: {download_url}")
+
+    csv_response = session.get(download_url)
+    csv_response.raise_for_status()
+    with open(path_for_csv, "wb") as f:
+        f.write(csv_response.content)
+
+
 def get_database_explorer(
     name, path_for_csv, url="https://jump.caltech.edu/explorer/", links=None
 ):
@@ -594,14 +635,27 @@ def get_database_explorer(
     return
 
 
-def get_hires_past_history(path_to_csv, semester_start_day=None):
+def get_hires_past_history(
+    path_to_csv, semester_start_day=None, semester_end_day=None
+):
     """Pull HIRES past history from Jump and write ``path_to_csv``.
+
+    Fetches the parameterized JUMP explorer query
+    :data:`JUMP_HIRES_PAST_EXPLORER_ID` (285), which returns all HIRES
+    observations between ``start_date`` and ``end_date`` (UTC). The query
+    columns (``starname, timestamp, exposure_time`` plus extras like
+    ``decker, iodine_in, counts``) are reduced to the canonical schema below.
 
     Output schema: ``unique_id, target, timestamp, exposure_time`` (plus
     ``junk`` if Jump returns it). For HIRES, ``unique_id`` is set equal to
-    ``target`` (the target name); the legacy ``id``/``target`` duplication and
-    the unused ``semid`` / ``observer`` / ``exposure_start_time`` columns
-    are not written.
+    ``target``. Rows with ``decker`` B1/B3 and ``iodine_in`` False get ``_t``
+    appended to ``target`` so they match template request ``unique_id``s.
+
+    The explorer slug filters on UTC ``utctime`` while the semester dates are
+    civil (HST). To avoid any per-row timezone conversion we simply widen the
+    JUMP window by one day on each side (``start_date - 1``, ``end_date + 1``);
+    the leading pad is trimmed back out by the ``semester_start_day`` filter
+    below and the trailing pad is harmless.
 
     Args:
         path_to_csv (str): Output CSV path.
@@ -609,11 +663,35 @@ def get_hires_past_history(path_to_csv, semester_start_day=None):
             ``timestamp`` strictly before this calendar instant are dropped
             so ``past.csv`` matches the current semester (avoids KeyError in
             internight logic when last obs is outside planned nights).
+        semester_end_day (str, optional): ``YYYY-MM-DD``; the semester end,
+            used (padded by +1 day) as the JUMP query ``end_date``.
+
+    Raises:
+        ValueError: if ``semester_start_day`` or ``semester_end_day`` is
+            missing (both are required to build the query window).
     """
-    name = "HIRES2026A - All Observations"
-    # comment this line out when playing with synthetic schedules
-    get_database_explorer(name, path_to_csv)
-    print("All KPF observations pulled from Jump. Saved to csv: " + path_to_csv)
+    if not semester_start_day or not semester_end_day:
+        raise ValueError(
+            "get_hires_past_history requires both semester_start_day and "
+            "semester_end_day to build the JUMP explorer query window."
+        )
+
+    slug_start = (
+        datetime.strptime(semester_start_day, "%Y-%m-%d") - timedelta(days=1)
+    ).strftime("%Y-%m-%d")
+    slug_end = (
+        datetime.strptime(semester_end_day, "%Y-%m-%d") + timedelta(days=1)
+    ).strftime("%Y-%m-%d")
+
+    # comment this block out when playing with synthetic schedules
+    session = login_JUMP()
+    get_explorer_by_id(
+        session,
+        JUMP_HIRES_PAST_EXPLORER_ID,
+        {"start_date": slug_start, "end_date": slug_end},
+        path_to_csv,
+    )
+    print("All HIRES observations pulled from Jump. Saved to csv: " + path_to_csv)
 
     data = pd.read_csv(path_to_csv)
     data = data.rename(columns={"starname": "target"})
@@ -632,6 +710,15 @@ def get_hires_past_history(path_to_csv, semester_start_day=None):
                 f"{semester_start_day}."
             )
 
+    if {"decker", "iodine_in"}.issubset(data.columns):
+        is_template = (
+            data["decker"].astype(str).str.upper().isin(["B1", "B3"])
+            & (data["iodine_in"] == False)
+        )
+        data.loc[is_template, "target"] = (
+            data.loc[is_template, "target"].astype(str) + "_t"
+        )
+    import pdb; pdb.set_trace()
     data["unique_id"] = data["target"].astype(str)
     data["exposure_time"] = data["exposure_time"].astype(int)
 
