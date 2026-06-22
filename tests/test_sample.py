@@ -293,6 +293,103 @@ class TestClass(unittest.TestCase):
         self.assertIn("plotly-graph-div", night_html)
         self.assertNotIn("download_nightplan", night_html)
 
+    def test14_collapse_jump_to_visits(self):
+        """Visit groups need >=50% of n_exp frames; one row per accepted visit."""
+        import astroq.queue.hirescps.prep as prep
+
+        frames = pd.DataFrame(
+            {
+                "target": ["T1", "T1", "T1", "T2", "T2", "T2"],
+                "timestamp": [
+                    "2026-03-02 14:15",
+                    "2026-03-02 14:17",
+                    "2026-03-02 14:20",
+                    "2026-04-04 06:20",
+                    "2026-04-05 07:13",
+                    "2026-04-05 07:15",
+                ],
+                "exposure_time": [95, 128, 169, 95, 16, 16],
+            }
+        )
+        n_exp = {"T1": 3, "T2": 3}
+        out = prep.collapse_jump_to_visits(frames, n_exp)
+        self.assertEqual(len(out), 2)
+        t1 = out.loc[out["unique_id"] == "T1"].iloc[0]
+        self.assertEqual(t1["timestamp"], "2026-03-02 14:15")
+        self.assertEqual(t1["exposure_time"], 392)
+        t2 = out.loc[out["unique_id"] == "T2"].iloc[0]
+        self.assertEqual(t2["timestamp"], "2026-04-05 07:13")
+        self.assertEqual(t2["exposure_time"], 32)
+        # Lone 1/3 frame on 2026-04-04 must not appear.
+        self.assertNotIn("2026-04-04 06:20", out["timestamp"].tolist())
+
+    def test15_hires_past_history_query(self):
+        """JUMP pull writes tmp file and collapses frames to visit rows."""
+        import tempfile
+        from unittest.mock import MagicMock, patch
+
+        import astroq.queue.hirescps.prep as prep
+
+        raw_csv = (
+            "starname,timestamp,exposure_time,decker,iodine_in,counts\n"
+            "109358,2026-03-02 14:15,95,C2,True,250000\n"
+            "109358,2026-03-02 14:17,128,C2,True,250000\n"
+            "109358,2026-03-02 14:20,169,C2,True,250000\n"
+            "109358,2026-04-04 06:20,95,C2,True,250000\n"
+            "156079,2026-05-31 13:46,85,B3,False,2000\n"
+            "OLD,2026-01-15 10:00,300,B1,True,500\n"
+        )
+        captured = {}
+
+        def fake_get(url, *args, **kwargs):
+            captured["url"] = url
+            resp = MagicMock()
+            resp.content = raw_csv.encode("utf-8")
+            resp.raise_for_status = lambda: None
+            return resp
+
+        fake_session = MagicMock()
+        fake_session.get.side_effect = fake_get
+
+        tmp = tempfile.mkdtemp(prefix="astroq_past_")
+        out_csv = os.path.join(tmp, "past.csv")
+        req_csv = os.path.join(tmp, "request.csv")
+        pd.DataFrame(
+            {"unique_id": ["109358", "156079_t"], "n_exp": [3, 1]}
+        ).to_csv(req_csv, index=False)
+
+        with patch.object(prep, "login_JUMP", lambda: fake_session):
+            prep.get_hires_past_history(
+                out_csv,
+                semester_start_day="2026-02-01",
+                semester_end_day="2026-07-31",
+                request_csv_path=req_csv,
+            )
+
+        tmp_csv = os.path.join(tmp, prep.JUMP_PAST_QUERY_TMP_FILENAME)
+        self.assertTrue(os.path.isfile(tmp_csv))
+        self.assertIn(f"/explorer/{prep.JUMP_HIRES_PAST_EXPLORER_ID}/download", captured["url"])
+
+        out = pd.read_csv(out_csv)
+        self.assertEqual(
+            list(out.columns), ["unique_id", "target", "timestamp", "exposure_time"]
+        )
+        self.assertNotIn("OLD", out["target"].tolist())
+        self.assertIn("109358", out["target"].tolist())
+        self.assertIn("156079_t", out["target"].tolist())
+        self.assertEqual(len(out.loc[out["unique_id"] == "109358"]), 1)
+        self.assertEqual(
+            out.loc[out["unique_id"] == "109358", "timestamp"].iloc[0],
+            "2026-03-02 14:15",
+        )
+
+    def test16_hires_past_history_requires_dates(self):
+        """Live JUMP pull needs both semester dates."""
+        import astroq.queue.hirescps.prep as prep
+
+        with self.assertRaises(ValueError):
+            prep.get_hires_past_history("unused.csv", semester_start_day="2026-02-01")
+
 
 if __name__ == "__main__":
     unittest.main()
