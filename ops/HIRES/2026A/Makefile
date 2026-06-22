@@ -28,6 +28,16 @@ END_DATE ?= 2026-07-31
 BANDS ?= band1 full-band1
 FILLER_PROGRAM ?= 2026A_N012
 
+# Optional soft-bias for plan-semester: nudge listed unique_ids onto current_day.
+# Example: make DATE=2026-06-22 BANDS=band1 BOOST_UIDS="140538A,109358" BOOST_FACTOR=5
+BOOST_UIDS ?=
+BOOST_FACTOR ?= 5.0
+ifneq ($(strip $(BOOST_UIDS)),)
+  BOOST_ARGS = --boost "$(BOOST_UIDS)" $(BOOST_FACTOR)
+else
+  BOOST_ARGS =
+endif
+
 # Cross-platform sed in-place flag (Darwin uses -i '')
 UNAME_S := $(shell uname)
 SED_I_FLAG :=
@@ -70,7 +80,10 @@ $(DATE_DIR)/%/plan-night-run: $(DATE_DIR)/%/plan-semester-run
 # Run plan-semester command (unified for all bands)
 $(DATE_DIR)/%/plan-semester-run: $(DATE_DIR)/%/prep-run
 	@echo "📅 Running plan-semester for band $(notdir $(@D))..."
-	@cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq plan-semester -cf config.ini 2>&1 | tee -a astroq.log
+ifneq ($(strip $(BOOST_UIDS)),)
+	@echo "   Boost: $(BOOST_UIDS) (factor $(BOOST_FACTOR))"
+endif
+	@cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq plan-semester -cf config.ini $(BOOST_ARGS) 2>&1 | tee -a astroq.log
 	@touch $@
 
 # Unified prep command for all bands (queue read from config.ini; the queue
@@ -188,6 +201,11 @@ status:
 	@echo "  End Date: $(END_DATE)"
 	@echo "  Bands: $(BANDS)"
 	@echo "  Filler Program: $(FILLER_PROGRAM)"
+ifneq ($(strip $(BOOST_UIDS)),)
+	@echo "  Boost UIDs: $(BOOST_UIDS) (factor $(BOOST_FACTOR))"
+else
+	@echo "  Boost: (disabled)"
+endif
 	@echo "  Allocation file (-as): $(ALLOCATION_FILE)"
 	@echo "  Program sheet URLs CSV (-ru): $(REQUEST_URLS_CSV)"
 	@echo "  Work Directory: $(WORKDIR)"
@@ -198,4 +216,9 @@ complete: all
 	@echo "🌐 Launching webapp..."
 	@$(MAKE) webapp
 
-.PHONY: all create_dirs clean status webapp complete combine_logs check_night_plans
+.PHONY: all create_dirs clean status webapp complete combine_logs check_night_plans prep plan-semester plan-night
+
+# Run only selected pipeline stages (respects DATE, BANDS, BOOST_*).
+prep: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/prep-run)
+plan-semester: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/plan-semester-run)
+plan-night: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/plan-night-run)
