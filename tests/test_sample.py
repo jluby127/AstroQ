@@ -293,6 +293,72 @@ class TestClass(unittest.TestCase):
         self.assertIn("plotly-graph-div", night_html)
         self.assertNotIn("download_nightplan", night_html)
 
+    def test14_hires_past_history_query(self):
+        """JUMP past pull pads the date window and reduces to canonical cols."""
+        import tempfile
+        from unittest.mock import MagicMock, patch
+
+        import astroq.queue.hirescps.prep as prep
+
+        raw_csv = (
+            "starname,timestamp,exposure_time,decker,iodine_in,counts\n"
+            "42182,2026-03-02 15:37,500,B1,True,1000\n"
+            "156079,2026-05-31 13:46,85,B3,False,2000\n"
+            "T004478,2026-05-31 13:46,1799,B3,False,2000\n"
+            # Pre-semester row: must be dropped by the start-day filter.
+            "OLD,2026-01-15 10:00,300,B1,True,500\n"
+        )
+
+        captured = {}
+
+        def fake_get(url, *args, **kwargs):
+            captured["url"] = url
+            resp = MagicMock()
+            resp.content = raw_csv.encode("utf-8")
+            resp.raise_for_status = lambda: None
+            return resp
+
+        fake_session = MagicMock()
+        fake_session.get.side_effect = fake_get
+
+        tmp = tempfile.mkdtemp(prefix="astroq_past_")
+        out_csv = os.path.join(tmp, "past.csv")
+
+        with patch.object(prep, "login_JUMP", lambda: fake_session):
+            prep.get_hires_past_history(
+                out_csv,
+                semester_start_day="2026-02-01",
+                semester_end_day="2026-07-31",
+            )
+
+        # Date window padded by one day on each side, and the download URL must
+        # carry a real ``&params=`` (regression: BeautifulSoup turned it into
+        # ``¶ms=`` and JUMP 500'd).
+        self.assertIn(f"/explorer/{prep.JUMP_HIRES_PAST_EXPLORER_ID}/download", captured["url"])
+        self.assertIn("&params=", captured["url"])
+        self.assertNotIn("\u00b6", captured["url"])
+        self.assertIn("start_date%3A2026-01-31", captured["url"])
+        self.assertIn("end_date%3A2026-08-01", captured["url"])
+
+        out = pd.read_csv(out_csv)
+        self.assertEqual(
+            list(out.columns), ["unique_id", "target", "timestamp", "exposure_time"]
+        )
+        # Pre-semester row dropped; unique_id mirrors target.
+        self.assertNotIn("OLD", out["target"].tolist())
+        self.assertEqual(out["unique_id"].tolist(), out["target"].tolist())
+        self.assertIn("42182", out["target"].tolist())
+        self.assertIn("156079_t", out["target"].tolist())
+        self.assertIn("T004478_t", out["target"].tolist())
+        self.assertNotIn("156079", out["target"].tolist())
+
+    def test15_hires_past_history_requires_dates(self):
+        """Live JUMP pull needs both semester dates."""
+        import astroq.queue.hirescps.prep as prep
+
+        with self.assertRaises(ValueError):
+            prep.get_hires_past_history("unused.csv", semester_start_day="2026-02-01")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -229,6 +229,7 @@ def hirescps_prep(args):
         hirescps.get_hires_past_history(
             path_to_csv=os.path.join(savepath, past_file),
             semester_start_day=start_date,
+            semester_end_day=end_date,
         )
 
     else:
