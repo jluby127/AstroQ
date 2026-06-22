@@ -254,6 +254,27 @@ class Access:
         idx = np.clip(np.searchsorted(x, x_new, side="left"), 0, len(x) - 1)
         return is_altaz0[:, idx]
 
+    def accessible_at(self, times):
+        """Per-target telescope accessibility at arbitrary ``times``.
+
+        Same accessibility gate as :meth:`compute_altaz` (hard ``is_accessible``
+        pointing geometry plus the PI ``minimum_elevation`` overlay), but
+        evaluated directly at the supplied ``times`` rather than on the semester
+        slot grid. Used for ad-hoc windows such as the twilight backup sections.
+
+        Args:
+            times (astropy.time.Time): scalar or array of evaluation times.
+
+        Returns:
+            np.ndarray: boolean mask shaped ``(ntargets, ntimes)`` (rows aligned
+            with ``self.request_frame``).
+        """
+        altazes = self.observatory.altaz(times, self.targets, grid_times_targets=True)
+        alts = altazes.alt.deg
+        mask = self.queue.is_accessible(alts, altazes.az.deg)
+        mask &= alts >= self.request_frame["minimum_elevation"].values[:, np.newaxis]
+        return mask
+
     def compute_future(self):
         """Mask out nights before ``self.current_day`` for every target."""
         cube = np.ones(self._access_shape, dtype=bool)

@@ -23,6 +23,7 @@ def write_starlist(
     outputdir,
     version="nominal",
     all_active_requests=None,
+    **kwargs,
 ):
     """
     Generate the nightly script in the format required by the Keck "Magiq" software.

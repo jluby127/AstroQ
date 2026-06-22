@@ -320,6 +320,8 @@ class NightPlanner:
             )
         pd.DataFrame(rows).to_csv(observe_order_file, index=False)
 
+        evening_uids, morning_uids = self._twilight_visible_uids()
+
         self.queue.write_starlist(
             selected_df,
             tm.schedule,
@@ -328,7 +330,45 @@ class NightPlanner:
             str(self.current_day),
             observers_path,
             all_active_requests=self.semester_planner.requests_frame,
+            evening_twilight_uids=evening_uids,
+            morning_twilight_uids=morning_uids,
         )
+
+    def _twilight_visible_uids(self, buffer_minutes=20):
+        """Sets of unique_ids accessible during the twilight backup windows.
+
+        Reuses the semester planner's :class:`~astroq.access.Access` object to
+        evaluate telescope accessibility (same gate as the semester model) over
+        two short windows adjacent to 12-degree (nautical) twilight:
+
+        - Evening: ``[evening_12deg - buffer, evening_12deg]``
+        - Morning: ``[morning_12deg, morning_12deg + buffer]``
+
+        A target is included if it is accessible at *any* sampled instant within
+        the window (1-minute cadence). Returns ``(None, None)`` if twilight can
+        not be resolved so the script simply omits the sections.
+
+        Returns:
+            tuple[set | None, set | None]: ``(evening_uids, morning_uids)``.
+        """
+        try:
+            access = self.semester_planner.access_obj
+            obs = access.observatory
+            day = Time(str(self.current_day))
+            evening_12 = obs.twilight_evening_nautical(day, which="next")
+            morning_12 = obs.twilight_morning_nautical(day, which="next")
+        except Exception as exc:  # pragma: no cover - defensive
+            logs.warning("Could not resolve twilight windows: %s", exc)
+            return None, None
+
+        n_samples = int(buffer_minutes) + 1
+        evening_times = evening_12 + np.linspace(-buffer_minutes, 0, n_samples) * u.min
+        morning_times = morning_12 + np.linspace(0, buffer_minutes, n_samples) * u.min
+
+        uids = access.request_frame["unique_id"].to_numpy()
+        evening_mask = access.accessible_at(evening_times).any(axis=1)
+        morning_mask = access.accessible_at(morning_times).any(axis=1)
+        return set(uids[evening_mask]), set(uids[morning_mask])
 
     def run_ttp(self):
         """Run TTP for tonight's ``request_selected.csv`` targets."""
