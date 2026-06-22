@@ -33,7 +33,7 @@ class TTPModel:
             t_visit          Quantity column (time)         per-visit duration
             n_intra_max      int column                     max visits per night
             tau_intra        Quantity column (time)         min spacing between visits within a night
-            priority         float column                   objective weight; higher = more important
+            weight           float column                   objective weight; higher = more important
 
         night_start (astropy.time.Time): start of the observing interval.
         night_end (astropy.time.Time): end of the observing interval.
@@ -89,7 +89,7 @@ class TTPModel:
     #: recover total slew time inside :meth:`build_schedule`.
 
     # Constant that balances slew time vs. number of targets.
-    # Interpretation: if dropping the highest priority target saves this many
+    # Interpretation: if dropping the highest-weight target saves this many
     # minutes of slew time, drop it
     _SLEW_MINUTES_FOR_TOP_TARGET = 30
     _SLEW_IDLE_PENALTY_RATIO = 0.5  # idle-between weight, as fraction of slew penalty
@@ -105,7 +105,7 @@ class TTPModel:
         "t_visit":         u.s,       # Quantity with time units
         "n_intra_max":     None,      # int
         "tau_intra":       u.s,       # Quantity with time units
-        "priority":        None,      # float
+        "weight":          None,      # float
     }
 
     def __init__(
@@ -186,7 +186,7 @@ class TTPModel:
         # for the relational joins below. Built fresh here so the QTable
         # remains the single source of truth on the model.
         r = self.requests
-        rdf = self.requests["unique_id","n_intra_max","priority"].to_pandas()
+        rdf = self.requests["unique_id","n_intra_max","weight"].to_pandas()
         rdf["t_early"] = (r["first_available"] - self.night_start).to_value(u.min).astype(float)
         rdf["t_late"] =  (r["last_available"] - self.night_start).to_value(u.min).astype(float)
         rdf["tau_intra"] = r["tau_intra"].to_value(u.min).astype(float)
@@ -219,7 +219,7 @@ class TTPModel:
             "t_late": self.dur_min,
             "t_visit": 0.0,
             "tau_intra": 0.0,
-            "priority": 0.0,
+            "weight": 0.0,
             "n_intra_max": 0,
             "ra": np.nan,
             "dec": np.nan,
@@ -549,11 +549,11 @@ class TTPModel:
         )
 
         # eq. 10 - objective.
-        P_max = float(self.nodes.loc[1 : N - 1, "priority"].max())
-        slew_penalty = P_max / self._SLEW_MINUTES_FOR_TOP_TARGET
+        W_max = float(self.nodes.loc[1 : N - 1, "weight"].max())
+        slew_penalty = W_max / self._SLEW_MINUTES_FOR_TOP_TARGET
         self.model.setObjective(
             gp.quicksum(
-                nodes.at[j, "priority"] * self.Yi[(j, s)]
+                nodes.at[j, "weight"] * self.Yi[(j, s)]
                 for j in real_nodes
                 for s in node_states[j]
             )

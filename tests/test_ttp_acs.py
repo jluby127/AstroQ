@@ -35,7 +35,7 @@ def _requests(ras, decs, *, t_visit_min=5.0):
             "t_visit": np.full(n, t_visit_min) * u.min,
             "n_intra_max": np.ones(n, dtype=int),
             "tau_intra": np.zeros(n) * u.hr,
-            "priority": np.full(n, 10.0),
+            "weight": np.full(n, 1.0),
         },
         copy=False,
     )
@@ -150,7 +150,7 @@ class TestACSHeuristic(unittest.TestCase):
                 "t_visit": np.full(2, 5.0) * u.min,
                 "n_intra_max": np.array([2, 1], dtype=int),
                 "tau_intra": np.array([0.5, 0.0]) * u.hr,  # 30 min for A
-                "priority": np.full(2, 10.0),
+                "weight": np.full(2, 1.0),
             },
             copy=False,
         )

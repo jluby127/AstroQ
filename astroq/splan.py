@@ -1288,9 +1288,11 @@ class SemesterPlanner:
         selected = {
             k[0] for k, v in self.Yrds.items() if v.x > 0 and k[1] == today_idx
         }
-        self.requests_frame[
+        selected_df = self.requests_frame[
             self.requests_frame["unique_id"].isin(selected)
-        ].to_csv(
+        ].copy()
+        selected_df["nplan_weight"] = 1.0
+        selected_df.to_csv(
             os.path.join(self.output_directory, "request_selected.csv"),
             index=False,
         )

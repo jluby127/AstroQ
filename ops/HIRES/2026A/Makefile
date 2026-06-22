@@ -69,6 +69,8 @@ all: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/plan-night-complete)
 # Final target for each band - depends on plan-night completion
 $(DATE_DIR)/%/plan-night-complete: $(DATE_DIR)/%/plan-night-run
 	@echo "✅ Band $(notdir $(@D)) workflow complete!"
+	@echo "📦 Archiving webapp HTML for band $(notdir $(@D))..."
+	@cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq archive -cf config.ini 2>&1 | tee -a astroq.log
 	@touch $@
 
 # Run plan-night command

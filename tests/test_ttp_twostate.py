@@ -33,7 +33,7 @@ def _requests(ras, decs, queue, *, t_visit_min=5.0):
             "t_visit": np.full(n, t_visit_min) * u.min,
             "n_intra_max": np.ones(n, dtype=int),
             "tau_intra": np.zeros(n) * u.hr,
-            "priority": np.full(n, 10.0),
+            "weight": np.full(n, 1.0),
         },
         copy=False,
     )

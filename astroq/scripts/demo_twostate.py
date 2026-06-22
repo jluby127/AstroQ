@@ -58,7 +58,7 @@ def build_requests(df, queue, night_start, night_end, *, n_samples=120):
             "t_visit": np.asarray(visit_min, dtype=float) * u.min,
             "n_intra_max": df.n_intra_max.to_numpy(dtype=int),
             "tau_intra": df.tau_intra.to_numpy(dtype=float) * u.hr,
-            "priority": np.full(len(df), 10.0),
+            "weight": np.ones(len(df), dtype=float),
         },
         copy=False,
     )

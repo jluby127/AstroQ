@@ -15,7 +15,7 @@ Vansteenwegen & Aghezzaf (2017, Ann. Oper. Res. 254:481-505):
 * **Construction** (:meth:`_ACS._construct`): each "ant" builds a tour by repeatedly
   choosing the next target with probability proportional to ``tau^alpha * eta^beta`` --
   where ``tau`` is the learned pheromone on the arc and ``eta`` is a greedy desirability
-  ``priority / (t_visit + slew)`` -- biased away from long waits. Candidate targets are
+  ``weight / (t_visit + slew)`` -- biased away from long waits. Candidate targets are
   restricted to a precomputed, reward-ranked neighbor list
   (:meth:`_ACS._build_neighbors`).
 * **Local search** (:meth:`_ACS._local_search`): each constructed tour is improved by
@@ -33,7 +33,7 @@ Vansteenwegen & Aghezzaf (2017, Ann. Oper. Res. 254:481-505):
 Objective and feasibility
 --------------------------
 The heuristic optimizes the same objective as the MILP (Handley+ 2024 eq. 10):
-``sum(priority over visited) - slew_penalty * t_slew - slew_penalty * idle_ratio *
+``sum(weight over visited) - slew_penalty * t_slew - slew_penalty * idle_ratio *
 t_idle_between``. Time-dependent slew is modeled exactly as in the MILP: the slew
 minutes from node ``i`` to ``j`` departing at minute ``t`` is the precomputed worst-case
 value ``arcs[(i, j, window_of(t), si, sj)]``. Time windows map as ``o_i -> t_early`` and
@@ -151,11 +151,11 @@ class _ACS:
         self.t_late = nodes["t_late"].to_numpy(dtype=float)
         self.t_visit = nodes["t_visit"].to_numpy(dtype=float)
         self.tau_intra = nodes["tau_intra"].to_numpy(dtype=float)
-        self.priority = nodes["priority"].to_numpy(dtype=float)
+        self.weight = nodes["weight"].to_numpy(dtype=float)
 
         # Objective weights, derived exactly as in TTPModel.build_model.
-        P_max = float(nodes.loc[1 : self.N - 2, "priority"].max())
-        self.slew_penalty = P_max / tm._SLEW_MINUTES_FOR_TOP_TARGET
+        W_max = float(nodes.loc[1 : self.N - 2, "weight"].max())
+        self.slew_penalty = W_max / tm._SLEW_MINUTES_FOR_TOP_TARGET
         self.idle_ratio = float(tm._SLEW_IDLE_PENALTY_RATIO)
 
         self.rng = rng if rng is not None else np.random.default_rng(0)
@@ -215,7 +215,7 @@ class _ACS:
         """Reward-ranked, reachability-pruned neighbor lists per node.
 
         ``j`` is a neighbor of ``i`` when it is time-window-reachable from
-        ``i`` at the earliest departure, ranked by ``priority_j / (t_visit_j +
+        ``i`` at the earliest departure, ranked by ``weight_j / (t_visit_j +
         slew)`` (Verbeeck eq. 5). Capped at ``nb_max``.
         """
         nb_max = int(self.params["nb_max"])
@@ -235,7 +235,7 @@ class _ACS:
                 comp = arrive + self.t_visit[j]
                 if comp > min(self.t_late[j], self.dur_min) + 1e-9:
                     continue
-                ratio = self.priority[j] / max(self.t_visit[j] + slew, 1e-6)
+                ratio = self.weight[j] / max(self.t_visit[j] + slew, 1e-6)
                 cands.append((ratio, j))
             cands.sort(reverse=True)
             neighbors[i] = [j for _, j in cands[:nb_max]]
@@ -308,7 +308,7 @@ class _ACS:
         sum_visit = float(self.t_visit[kept].sum())
         idle = ti[-1] - sum_visit - total_slew
         obj = (
-            float(self.priority[kept].sum())
+            float(self.weight[kept].sum())
             - self.slew_penalty * total_slew
             - self.slew_penalty * self.idle_ratio * idle
         )
@@ -337,7 +337,7 @@ class _ACS:
                     continue
                 if not self._group_ready(j, comp, group_last):
                     continue
-                eta = self.priority[j] / max(slew + self.t_visit[j], 1e-6)
+                eta = self.weight[j] / max(slew + self.t_visit[j], 1e-6)
                 # discourage long waits (Verbeeck eq. 11)
                 wait = max(0.0, self.t_early[j] - (ti_last + slew))
                 li = max(1e-6, 1.0 - wait / max(self.dur_min, 1e-6))

@@ -68,7 +68,7 @@ def schedule_to_ladder_frame(model):
                 "Total Exp Time (min)": df["t_visit"],
                 "Exposure Time (min)": df["exptime"],
                 "N_shots": df["n_exp"],
-                "Priority": df["priority"],
+                "Weight": df["weight"],
                 "Slew to Next (min)": df["t_slew"].fillna(0.0),
                 "Minutes the from Start of the Night": (
                     (df["t_start"] + df["t_end"]) / 2 if scheduled_rows else 0.0
