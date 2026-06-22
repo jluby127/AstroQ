@@ -92,10 +92,10 @@ def main():
     os.makedirs(args.outdir, exist_ok=True)
 
     df = pd.read_csv(args.requests_csv)
-    # Force numeric priority; the request CSV's ``p1``/``p2``/``p3`` strings
+    # Force numeric weight; the request CSV's ``p1``/``p2``/``p3`` strings
     # are user-facing labels and not multiplication-compatible with Gurobi
     # variables. Matches the default in ``nplan.NightPlanner``.
-    df["priority"] = 10
+    df["weight"] = 1.0
 
     night_start = Time(args.night_start, format="isot")
     night_end = Time(args.night_end, format="isot")
@@ -125,7 +125,7 @@ def main():
             "t_visit": np.asarray(visit_minutes, dtype=float) * u.min,
             "n_intra_max": df["n_intra_max"].to_numpy(dtype=int),
             "tau_intra": df["tau_intra"].to_numpy(dtype=float) * u.hr,
-            "priority": df["priority"].to_numpy(dtype=float),
+            "weight": df["weight"].to_numpy(dtype=float),
         },
         copy=False,
     )

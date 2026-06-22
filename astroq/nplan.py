@@ -25,7 +25,7 @@ from astroq.ttp.acs import acs_warm_start
 
 logs = logging.getLogger(__name__)
 
-NIGHT_PLANNER_H5_SCHEMA = 6
+NIGHT_PLANNER_H5_SCHEMA = 7
 
 _SOLUTION_ATTRS = (
     ("night_start_jd", "night_start", "time"),
@@ -61,6 +61,17 @@ def _json_to_native(x):
     return x
 
 
+def _resolve_nplan_weights(selected_df: pd.DataFrame) -> np.ndarray:
+    """Return per-target TTP objective weights from ``nplan_weight`` (default 1.0)."""
+    if "nplan_weight" not in selected_df.columns:
+        return np.ones(len(selected_df), dtype=float)
+    return (
+        pd.to_numeric(selected_df["nplan_weight"], errors="coerce")
+        .fillna(1.0)
+        .to_numpy(dtype=float)
+    )
+
+
 def _solution_to_requests_dataframe(solution: "model.TTPModel") -> pd.DataFrame:
     """Flatten ``solution.requests`` (QTable) into a scalar h5 frame."""
     r = solution.requests
@@ -74,7 +85,7 @@ def _solution_to_requests_dataframe(solution: "model.TTPModel") -> pd.DataFrame:
             "t_visit_min": np.asarray(r["t_visit"].to_value(u.min), dtype=float),
             "tau_intra_min": np.asarray(r["tau_intra"].to_value(u.min), dtype=float),
             "n_intra_max": np.asarray(r["n_intra_max"], dtype=int),
-            "priority": np.asarray(r["priority"], dtype=float),
+            "weight": np.asarray(r["weight"], dtype=float),
         }
     )
 
@@ -98,7 +109,7 @@ def _requests_dataframe_to_qtable(df: pd.DataFrame) -> QTable:
             "t_visit": df["t_visit_min"].to_numpy() * u.min,
             "n_intra_max": df["n_intra_max"].to_numpy(dtype=int),
             "tau_intra": df["tau_intra_min"].to_numpy() * u.min,
-            "priority": df["priority"].to_numpy(dtype=float),
+            "weight": df["weight"].to_numpy(dtype=float),
         },
         copy=False,
     )
@@ -413,7 +424,7 @@ class NightPlanner:
                 "t_visit": np.asarray(visit_min, dtype=float) * u.min,
                 "n_intra_max": selected_df["n_intra_max"].to_numpy(dtype=int),
                 "tau_intra": selected_df["tau_intra"].to_numpy(dtype=float) * u.hr,
-                "priority": np.full(len(selected_df), 10.0),
+                "weight": _resolve_nplan_weights(selected_df),
             },
             copy=False,
         )
