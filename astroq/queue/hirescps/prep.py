@@ -545,15 +545,34 @@ def login_JUMP():
 
 
 JUMP_BASE_URL = "https://jump.caltech.edu"
+# Parameterized JUMP explorer query returning all HIRES observations between
+# ``start_date`` and ``end_date`` (UTC). Replaces the legacy named saved query
+# "HIRES2026A - All Observations".
 JUMP_HIRES_PAST_EXPLORER_ID = 285
 JUMP_PAST_QUERY_TMP_FILENAME = "past_jump-query-tmp.csv"
 
 
 def get_explorer_by_id(session, explorer_id, params, path_for_csv):
-    """Download a CSV from a parameterized JUMP explorer query."""
+    """Download a CSV from a parameterized JUMP explorer query.
+
+    Args:
+        session (requests.Session): An authenticated JUMP session (see
+            :func:`login_JUMP`).
+        explorer_id (int): The numeric explorer query ID.
+        params (dict): Ordered ``key -> value`` pairs encoded into the
+            ``?params=key1:val1|key2:val2`` slug.
+        path_for_csv (str): Output CSV path.
+
+    Raises:
+        requests.HTTPError: if JUMP returns a non-200 for the download.
+    """
     param_str = "|".join(f"{k}:{v}" for k, v in params.items())
     param_slug = urllib.parse.quote(param_str, safe="")
     query_url = f"{JUMP_BASE_URL}/explorer/{explorer_id}/?params={param_slug}"
+    # Build the download URL directly. Scraping the page's download <a href>
+    # corrupts the query string: BeautifulSoup decodes the literal ``&params``
+    # as the legacy HTML entity ``&para`` -> ``¶``, yielding ``¶ms=`` and a
+    # 500 from JUMP.
     download_url = (
         f"{JUMP_BASE_URL}/explorer/{explorer_id}/download"
         f"?format=csv&params={param_slug}"
@@ -730,14 +749,36 @@ def get_hires_past_history(
 ):
     """Pull HIRES past history from JUMP and write processed ``path_to_csv``.
 
-    Downloads the raw explorer CSV to ``past_jump-query-tmp.csv`` beside
-    ``path_to_csv`` (preserved for inspection), then groups frames into visit
-    attempts. A group counts toward ``past.csv`` only when
-    ``len(frames) >= ceil(0.5 * n_exp)`` where ``n_exp`` comes from
-    ``request_csv_path``.
+    Fetches the parameterized JUMP explorer query
+    :data:`JUMP_HIRES_PAST_EXPLORER_ID` (285). Downloads the raw explorer CSV
+    to ``past_jump-query-tmp.csv`` beside ``path_to_csv`` (preserved for
+    inspection), then groups frames into visit attempts. A group counts toward
+    ``past.csv`` only when ``len(frames) >= ceil(0.5 * n_exp)`` where ``n_exp``
+    comes from ``request_csv_path``.
+
+    Rows with ``decker`` B1/B3 and ``iodine_in`` False get ``_t`` appended to
+    ``target`` so they match template request ``unique_id``s.
+
+    The explorer slug filters on UTC ``utctime`` while the semester dates are
+    civil (HST). To avoid per-row timezone conversion we widen the JUMP
+    window by one day on each side (``start_date - 1``, ``end_date + 1``); the
+    leading pad is trimmed by the ``semester_start_day`` filter below.
 
     Output schema: one row per accounted visit —
     ``unique_id, target, timestamp, exposure_time`` (``timestamp`` = first frame).
+
+    Args:
+        path_to_csv (str): Output CSV path.
+        semester_start_day (str): ``YYYY-MM-DD``; rows with ``timestamp``
+            strictly before this calendar instant are dropped.
+        semester_end_day (str): ``YYYY-MM-DD``; semester end, padded by +1 day
+            for the JUMP query ``end_date``.
+        request_csv_path (str, optional): ``request.csv`` path supplying
+            ``unique_id`` / ``n_exp`` for visit-collapse thresholds.
+
+    Raises:
+        ValueError: if ``semester_start_day`` or ``semester_end_day`` is
+            missing (both are required to build the query window).
     """
     if not semester_start_day or not semester_end_day:
         raise ValueError(

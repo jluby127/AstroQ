@@ -337,6 +337,7 @@ class TestClass(unittest.TestCase):
             "109358,2026-03-02 14:20,169,C2,True,250000\n"
             "109358,2026-04-04 06:20,95,C2,True,250000\n"
             "156079,2026-05-31 13:46,85,B3,False,2000\n"
+            "T004478,2026-05-31 13:46,1799,B3,False,2000\n"
             "OLD,2026-01-15 10:00,300,B1,True,500\n"
         )
         captured = {}
@@ -355,7 +356,10 @@ class TestClass(unittest.TestCase):
         out_csv = os.path.join(tmp, "past.csv")
         req_csv = os.path.join(tmp, "request.csv")
         pd.DataFrame(
-            {"unique_id": ["109358", "156079_t"], "n_exp": [3, 1]}
+            {
+                "unique_id": ["109358", "156079_t", "T004478_t"],
+                "n_exp": [3, 1, 1],
+            }
         ).to_csv(req_csv, index=False)
 
         with patch.object(prep, "login_JUMP", lambda: fake_session):
@@ -368,15 +372,26 @@ class TestClass(unittest.TestCase):
 
         tmp_csv = os.path.join(tmp, prep.JUMP_PAST_QUERY_TMP_FILENAME)
         self.assertTrue(os.path.isfile(tmp_csv))
-        self.assertIn(f"/explorer/{prep.JUMP_HIRES_PAST_EXPLORER_ID}/download", captured["url"])
+        self.assertIn(
+            f"/explorer/{prep.JUMP_HIRES_PAST_EXPLORER_ID}/download", captured["url"]
+        )
+        # Date window padded by one day on each side; download URL must carry a
+        # real ``&params=`` (regression: BeautifulSoup turned it into ``¶ms=``).
+        self.assertIn("&params=", captured["url"])
+        self.assertNotIn("\u00b6", captured["url"])
+        self.assertIn("start_date%3A2026-01-31", captured["url"])
+        self.assertIn("end_date%3A2026-08-01", captured["url"])
 
         out = pd.read_csv(out_csv)
         self.assertEqual(
             list(out.columns), ["unique_id", "target", "timestamp", "exposure_time"]
         )
         self.assertNotIn("OLD", out["target"].tolist())
+        self.assertEqual(out["unique_id"].tolist(), out["target"].tolist())
         self.assertIn("109358", out["target"].tolist())
         self.assertIn("156079_t", out["target"].tolist())
+        self.assertIn("T004478_t", out["target"].tolist())
+        self.assertNotIn("156079", out["target"].tolist())
         self.assertEqual(len(out.loc[out["unique_id"] == "109358"]), 1)
         self.assertEqual(
             out.loc[out["unique_id"] == "109358", "timestamp"].iloc[0],

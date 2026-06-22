@@ -146,7 +146,7 @@ def _hygiene_selected_df(selected_df: pd.DataFrame) -> pd.DataFrame:
 
 
 _NIGHT_TTP_METHODS = frozenset({"milp", "acs8+milp", "norel+milp", "auto"})
-_AUTO_ACS_TARGET_THRESHOLD = 20
+_AUTO_ACS_TARGET_THRESHOLD = 15
 _ACS_STARTS = 8
 _ACS_NB_MAX = 25
 
