@@ -41,6 +41,8 @@ def write_starlist(
     outputdir,
     version="nominal",
     all_active_requests=None,
+    evening_twilight_uids=None,
+    morning_twilight_uids=None,
 ):
     """
     Generate the nightly script in the correct format.
@@ -58,6 +60,12 @@ def write_starlist(
             listing every active request along with an ``obs=N/M`` token
             (past nights observed / requested) read off the
             ``past_nights_observed`` column.
+        evening_twilight_uids (set | None): unique_ids accessible during the
+            evening twilight window. When provided, an ``Evening Twilight``
+            section lists the bright (V < 8) subset of these targets.
+        morning_twilight_uids (set | None): unique_ids accessible during the
+            morning twilight window. When provided, a ``Morning Twilight``
+            section lists the bright (V < 8) subset of these targets.
 
     Returns:
         list[str]: the lines written to the script file.
@@ -164,6 +172,24 @@ def write_starlist(
             "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX 2026A - Requests - V < 8 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
             backup_df[backup_df["_vmag_float"] < 8],
         )
+
+        if evening_twilight_uids is not None:
+            emit_block(
+                "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX 2026A - Evening Twilight XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+                backup_df[
+                    (backup_df["_vmag_float"] < 8)
+                    & backup_df["unique_id"].isin(evening_twilight_uids)
+                ],
+            )
+
+        if morning_twilight_uids is not None:
+            emit_block(
+                "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX 2026A - Morning Twilight XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+                backup_df[
+                    (backup_df["_vmag_float"] < 8)
+                    & backup_df["unique_id"].isin(morning_twilight_uids)
+                ],
+            )
 
     cache_dir = Path(outputdir).parent / "cache"
     lines.extend(build_bstars_section(current_day, cache_dir))
