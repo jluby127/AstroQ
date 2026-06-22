@@ -224,11 +224,14 @@ def hirescps_prep(args):
     # --------------------------------------------
     past_source = args.past_source
     past_file = str(config.get("data", "past_file"))
+    request_file = str(config.get("data", "request_file"))
     if past_source == "db":
         print(f"Pulling past history information from database")
         hirescps.get_hires_past_history(
             path_to_csv=os.path.join(savepath, past_file),
             semester_start_day=start_date,
+            semester_end_day=end_date,
+            request_csv_path=os.path.join(savepath, request_file),
         )
 
     else:

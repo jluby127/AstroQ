@@ -12,9 +12,10 @@ import hashlib
 import io
 import logging
 import os
+import math
 import re
 import urllib.parse
-from datetime import date
+from datetime import date, datetime, timedelta
 
 # Third-party imports
 import pandas as pd
@@ -543,6 +544,133 @@ def login_JUMP():
     return s
 
 
+JUMP_BASE_URL = "https://jump.caltech.edu"
+JUMP_HIRES_PAST_EXPLORER_ID = 285
+JUMP_PAST_QUERY_TMP_FILENAME = "past_jump-query-tmp.csv"
+
+
+def get_explorer_by_id(session, explorer_id, params, path_for_csv):
+    """Download a CSV from a parameterized JUMP explorer query."""
+    param_str = "|".join(f"{k}:{v}" for k, v in params.items())
+    param_slug = urllib.parse.quote(param_str, safe="")
+    query_url = f"{JUMP_BASE_URL}/explorer/{explorer_id}/?params={param_slug}"
+    download_url = (
+        f"{JUMP_BASE_URL}/explorer/{explorer_id}/download"
+        f"?format=csv&params={param_slug}"
+    )
+    print(f"JUMP query URL: {query_url}")
+    print(f"JUMP download URL: {download_url}")
+
+    csv_response = session.get(download_url)
+    csv_response.raise_for_status()
+    with open(path_for_csv, "wb") as f:
+        f.write(csv_response.content)
+
+
+def _load_n_exp_lookup(request_csv_path):
+    """Return ``unique_id -> n_exp`` from ``request.csv``; default empty dict."""
+    if not request_csv_path or not os.path.isfile(request_csv_path):
+        logs.warning(
+            "request.csv not found at %r; assuming n_exp=1 for all targets",
+            request_csv_path,
+        )
+        return {}
+    req = pd.read_csv(request_csv_path)
+    if "unique_id" not in req.columns or "n_exp" not in req.columns:
+        logs.warning(
+            "request.csv missing unique_id/n_exp columns; assuming n_exp=1"
+        )
+        return {}
+    return req.set_index("unique_id")["n_exp"].astype(int).to_dict()
+
+
+def _apply_template_target_suffix(data):
+    """Append ``_t`` to template-star names (B1/B3 decker, iodine out)."""
+    if not {"decker", "iodine_in"}.issubset(data.columns):
+        return data
+    out = data.copy()
+    is_template = (
+        out["decker"].astype(str).str.upper().isin(["B1", "B3"])
+        & (out["iodine_in"] == False)
+    )
+    out.loc[is_template, "target"] = (
+        out.loc[is_template, "target"].astype(str) + "_t"
+    )
+    return out
+
+
+def _filter_past_by_semester_start(data, semester_start_day):
+    """Drop rows with ``timestamp`` strictly before ``semester_start_day``."""
+    if not semester_start_day or "timestamp" not in data.columns or data.empty:
+        return data
+    ts = pd.to_datetime(data["timestamp"], errors="coerce")
+    cutoff = pd.Timestamp(semester_start_day)
+    n_before = len(data)
+    keep = ts.notna() & (ts >= cutoff)
+    out = data.loc[keep].copy()
+    dropped = n_before - len(out)
+    if dropped:
+        print(
+            f"Dropped {dropped} past-history row(s) with timestamp before semester start "
+            f"{semester_start_day}."
+        )
+    return out
+
+
+def collapse_jump_to_visits(data, n_exp_by_uid):
+    """Group JUMP frames into visit attempts; emit rows for groups >= 50% of n_exp.
+
+    Each accepted group becomes one ``past.csv`` row: ``timestamp`` is the first
+    frame, ``exposure_time`` is the sum of frame exposure times in the group.
+    """
+    cols = ["unique_id", "target", "timestamp", "exposure_time"]
+    if data.empty:
+        return pd.DataFrame(columns=cols)
+
+    df = data.copy()
+    df["target"] = df["target"].astype(str)
+    df["unique_id"] = df["target"]
+    df["exposure_time"] = (
+        pd.to_numeric(df["exposure_time"], errors="coerce").fillna(0).astype(int)
+    )
+    df["_ts"] = pd.to_datetime(df["timestamp"], errors="coerce")
+    df = df.loc[df["_ts"].notna()].copy()
+    if df.empty:
+        return pd.DataFrame(columns=cols)
+
+    df["_night"] = df["_ts"].dt.strftime("%Y-%m-%d")
+    rows = []
+    rejected_groups = []
+    for (uid, _night), grp in df.groupby(["unique_id", "_night"], sort=False):
+        n_exp = int(n_exp_by_uid.get(uid, 1))
+        min_frames = math.ceil(0.5 * n_exp)
+        grp = grp.sort_values("_ts")
+        n_frames = len(grp)
+        if n_frames < min_frames:
+            rejected_groups.append(
+                f"  {uid} {_night}: {n_frames}/{n_exp} frames (need {min_frames})"
+            )
+            continue
+        first = grp.iloc[0]
+        rows.append(
+            {
+                "unique_id": uid,
+                "target": uid,
+                "timestamp": first["timestamp"],
+                "exposure_time": int(grp["exposure_time"].sum()),
+            }
+        )
+
+    summary = (
+        f"{len(df)} raw frame(s) -> {len(rows)} accounted visit(s) "
+        f"({len(rejected_groups)} group(s) below 50% threshold)"
+    )
+    if rejected_groups:
+        summary += ":\n" + "\n".join(rejected_groups)
+    print(summary)
+    return pd.DataFrame(rows, columns=cols)
+
+
 def get_database_explorer(
     name, path_for_csv, url="https://jump.caltech.edu/explorer/", links=None
 ):
@@ -594,51 +722,56 @@ def get_database_explorer(
     return
 
 
-def get_hires_past_history(path_to_csv, semester_start_day=None):
-    """Pull HIRES past history from Jump and write ``path_to_csv``.
+def get_hires_past_history(
+    path_to_csv,
+    semester_start_day=None,
+    semester_end_day=None,
+    request_csv_path=None,
+):
+    """Pull HIRES past history from JUMP and write processed ``path_to_csv``.
 
-    Output schema: ``unique_id, target, timestamp, exposure_time`` (plus
-    ``junk`` if Jump returns it). For HIRES, ``unique_id`` is set equal to
-    ``target`` (the target name); the legacy ``id``/``target`` duplication and
-    the unused ``semid`` / ``observer`` / ``exposure_start_time`` columns
-    are not written.
+    Downloads the raw explorer CSV to ``past_jump-query-tmp.csv`` beside
+    ``path_to_csv`` (preserved for inspection), then groups frames into visit
+    attempts. A group counts toward ``past.csv`` only when
+    ``len(frames) >= ceil(0.5 * n_exp)`` where ``n_exp`` comes from
+    ``request_csv_path``.
 
-    Args:
-        path_to_csv (str): Output CSV path.
-        semester_start_day (str, optional): ``YYYY-MM-DD``; rows with
-            ``timestamp`` strictly before this calendar instant are dropped
-            so ``past.csv`` matches the current semester (avoids KeyError in
-            internight logic when last obs is outside planned nights).
+    Output schema: one row per accounted visit —
+    ``unique_id, target, timestamp, exposure_time`` (``timestamp`` = first frame).
     """
-    name = "HIRES2026A - All Observations"
-    # comment this line out when playing with synthetic schedules
-    get_database_explorer(name, path_to_csv)
-    print("All KPF observations pulled from Jump. Saved to csv: " + path_to_csv)
+    if not semester_start_day or not semester_end_day:
+        raise ValueError(
+            "get_hires_past_history requires both semester_start_day and "
+            "semester_end_day to build the JUMP explorer query window."
+        )
 
-    data = pd.read_csv(path_to_csv)
-    data = data.rename(columns={"starname": "target"})
+    slug_start = (
+        datetime.strptime(semester_start_day, "%Y-%m-%d") - timedelta(days=1)
+    ).strftime("%Y-%m-%d")
+    slug_end = (
+        datetime.strptime(semester_end_day, "%Y-%m-%d") + timedelta(days=1)
+    ).strftime("%Y-%m-%d")
 
-    if semester_start_day and "timestamp" in data.columns and len(data) > 0:
-        ts = pd.to_datetime(data["timestamp"], errors="coerce")
-        cutoff = pd.Timestamp(semester_start_day)
-        n_before = len(data)
-        valid_ts = ts.notna()
-        keep = valid_ts & (ts >= cutoff)
-        data = data.loc[keep].copy()
-        dropped = n_before - len(data)
-        if dropped:
-            print(
-                f"Dropped {dropped} past-history row(s) with timestamp before semester start "
-                f"{semester_start_day}."
-            )
+    raw_path = os.path.join(os.path.dirname(path_to_csv), JUMP_PAST_QUERY_TMP_FILENAME)
+    session = login_JUMP()
+    get_explorer_by_id(
+        session,
+        JUMP_HIRES_PAST_EXPLORER_ID,
+        {"start_date": slug_start, "end_date": slug_end},
+        raw_path,
+    )
+    print(f"Raw JUMP pull saved to {raw_path}")
 
-    data["unique_id"] = data["target"].astype(str)
-    data["exposure_time"] = data["exposure_time"].astype(int)
+    data = pd.read_csv(raw_path)
+    if "starname" in data.columns and "target" not in data.columns:
+        data = data.rename(columns={"starname": "target"})
+    elif "starname" in data.columns:
+        data = data.rename(columns={"starname": "target"})
 
-    cols = ["unique_id", "target", "timestamp", "exposure_time"]
-    if "junk" in data.columns:
-        cols.append("junk")
-    data = data[cols]
+    data = _filter_past_by_semester_start(data, semester_start_day)
+    data = _apply_template_target_suffix(data)
 
-    data.to_csv(path_to_csv, index=False)
-    print("Data cleaned. Done.")
+    n_exp_by_uid = _load_n_exp_lookup(request_csv_path)
+    visits = collapse_jump_to_visits(data, n_exp_by_uid)
+    visits.to_csv(path_to_csv, index=False)
+    print(f"Processed past history saved to {path_to_csv}")
