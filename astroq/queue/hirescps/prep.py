@@ -15,17 +15,21 @@ import os
 import math
 import re
 import urllib.parse
-from datetime import date, datetime, timedelta
 
 # Third-party imports
 import pandas as pd
 import requests
 from astropy.coordinates import SkyCoord
 import astropy.units as u
-from bs4 import BeautifulSoup
 
 logs = logging.getLogger(__name__)
 
+
+# =============================================================================
+# Google Sheets — request.csv and custom.csv
+# =============================================================================
+# Per-program CPS request tabs (export?format=csv). Produces on-disk request
+# rows plus custom-window rows parsed from bracketed start/stop columns.
 
 # Shared request fields through ``priority`` (exptime/maxtime are seconds; Keck / MAGIQ convention).
 REQUEST_COLS_CORE = [
@@ -71,85 +75,45 @@ REQUEST_COLS_READ = REQUEST_COLS_CORE + ["start", "stop", "comments"]
 CUSTOM_COLS = ["unique_id", "target", "start", "stop"]
 
 
-def _parse_bracket_array(s):
-    """
-    Parse a string like '[2026-02-01 12:00, 2026-03-01 12:00]' into a list of strings.
-    Handles '[]', single element '[2026-02-01 12:00]', and multiple. Returns [] if invalid.
-    """
-    if s is None or not isinstance(s, str):
-        return []
-    s = s.strip()
-    if not s or len(s) < 2 or s[0] != "[" or s[-1] != "]":
-        return []
-    inner = s[1:-1].strip()
-    if not inner:
-        return []
-    return [part.strip() for part in inner.split(",") if part.strip()]
-
-
 def _customs_from_requests_df(req_df):
+    """Build ``custom.csv`` rows from bracketed ``start`` / ``stop`` sheet columns.
+
+    Each cell holds a bracketed, comma-separated list, e.g.
+    ``[2026-02-01 12:00, 2026-03-01 12:00]``. Start/stop lists are paired by
+    index; empty or invalid cells yield no rows for that field.
     """
-    Build customs DataFrame from requests DataFrame that has start/stop columns.
-    start/stop are strings like '[2026-02-01 12:00, 2026-03-01 12:00]'. Pairs by index.
-    """
+    empty = pd.DataFrame(columns=CUSTOM_COLS)
     if req_df is None or req_df.empty:
-        return pd.DataFrame(columns=CUSTOM_COLS)
+        return empty
     for col in ("start", "stop"):
         if col not in req_df.columns:
             raise ValueError(f"requests DataFrame missing required column: {col}")
+
+    def _bracket_list(value):
+        if not isinstance(value, str):
+            return []
+        text = value.strip()
+        if len(text) < 2 or text[0] != "[" or text[-1] != "]":
+            return []
+        inner = text[1:-1].strip()
+        return [part.strip() for part in inner.split(",") if part.strip()] if inner else []
+
     rows = []
-    for _, r in req_df.iterrows():
-        uid = r.get("unique_id", "")
-        star = r.get("target", "")
-        starts = _parse_bracket_array(r.get("start"))
-        stops = _parse_bracket_array(r.get("stop"))
-        n = min(len(starts), len(stops))
-        for i in range(n):
+    for _, row in req_df.iterrows():
+        uid = row.get("unique_id", "")
+        target = row.get("target", "")
+        for start, stop in zip(
+            _bracket_list(row.get("start")),
+            _bracket_list(row.get("stop")),
+        ):
             rows.append(
-                {
-                    "unique_id": uid,
-                    "target": star,
-                    "start": starts[i],
-                    "stop": stops[i],
-                }
+                {"unique_id": uid, "target": target, "start": start, "stop": stop}
             )
-    return (
-        pd.DataFrame(rows, columns=CUSTOM_COLS)
-        if rows
-        else pd.DataFrame(columns=CUSTOM_COLS)
-    )
+    return pd.DataFrame(rows, columns=CUSTOM_COLS) if rows else empty
 
 
 _SHEET_ID_RE = re.compile(r"/spreadsheets/d/([^/?#]+)")
 _GID_RE = re.compile(r"[?#&]gid=(\d+)")
-_FILENAME_STAR_RE = re.compile(r"filename\*=UTF-8''([^;]+)", re.IGNORECASE)
-_FILENAME_RE = re.compile(r'filename="([^"]+)"', re.IGNORECASE)
-
-
-def _workbook_title_from_response(resp):
-    """
-    Extract the Google Sheets workbook title from a CSV-export response.
-
-    Google's ``export?format=csv`` endpoint returns ``Content-Disposition``
-    of the form ``attachment; filename="<workbook> - <tab>.csv"; filename*=UTF-8''...``.
-    Prefer the RFC 5987 ``filename*=UTF-8''...`` form (which preserves the
-    space separator after URL-decoding) and split off the trailing ``- <tab>``.
-    Returns ``None`` if no filename is present in the header.
-    """
-    cd = resp.headers.get("Content-Disposition", "")
-    m = _FILENAME_STAR_RE.search(cd)
-    if m:
-        name = urllib.parse.unquote(m.group(1).strip())
-    else:
-        m = _FILENAME_RE.search(cd)
-        if not m:
-            return None
-        name = m.group(1)
-    if name.endswith(".csv"):
-        name = name[:-4]
-    if " - " in name:
-        name = name.rsplit(" - ", 1)[0]
-    return name
 
 
 def _fetch_sheet_dataframe(url, skip_rows=3):
@@ -188,7 +152,21 @@ def _fetch_sheet_dataframe(url, skip_rows=3):
     print(f"downloading requests from {url}")
     resp = requests.get(csv_url, timeout=15)
     resp.raise_for_status()
-    title = _workbook_title_from_response(resp) or url
+
+    # Log label from Content-Disposition (``<workbook> - <tab>.csv``), else the sheet URL.
+    cd = resp.headers.get("Content-Disposition", "")
+    m = re.search(r"filename\*=UTF-8''([^;]+)", cd, re.I) or re.search(
+        r'filename="([^"]+)"', cd, re.I
+    )
+    title = url
+    if m:
+        name = urllib.parse.unquote(m.group(1).strip())
+        if name.endswith(".csv"):
+            name = name[:-4]
+        if " - " in name:
+            name = name.rsplit(" - ", 1)[0]
+        title = name
+
     text = resp.text
     stripped = text.lstrip()
     if not stripped or stripped.startswith("<!") or "<html" in stripped[:200].lower():
@@ -368,63 +346,31 @@ def pull_requests(request_urls_path):
     return requests_df, custom_df
 
 
+# =============================================================================
+# Keck schedule — allocation.csv
+# =============================================================================
+# Keck tel schedule query form (HIRESr nights). Crossmatched against
+# request_urls.csv program codes to build allocation blocks for AstroQ.
+
 KECK_SCHEDULE_QUERY_URL = (
     "https://www2.keck.hawaii.edu/observing/keckSchedule/queryForm.php"
 )
-DEFAULT_INSTRUMENTS = ("KPF", "KPF-CC", "HIRES")
+KECK_SCHEDULE_INSTRUMENT = "HIRESr"
 
 
-def canonicalize_instrument(name):
-    """Map Keck schedule instrument variants (HIRESr/HIRESb/...) to a canonical name."""
-    value = (name or "").strip()
-    lower = value.lower()
-    if lower.startswith("hires"):
-        return "HIRES"
-    if lower.startswith("kpf-cc"):
-        return "KPF-CC"
-    if lower == "kpf":
-        return "KPF"
-    return value
+def pull_all_scheduled(start_date, end_date, output_path=None, timeout=60):
+    """Query the Keck schedule form for HIRESr and return a DataFrame.
 
+    Date bounds come from config ``semester_start_day`` / ``semester_end_day``.
 
-def infer_current_semester(today=None):
-    """Return the Keck semester (e.g. ``"2026A"``) for ``today``.
-
-    Convention: months 02-07 are A, 08+ are B, 01 is the previous year's B.
+    Columns: ``Date, Time, Dark, TelNr, Instrument, Account, PI, Institution, ProjCode``.
+    If ``output_path`` is given, also write the same DataFrame to CSV.
     """
-    today = today or date.today()
-    if 2 <= today.month <= 7:
-        return f"{today.year}A"
-    if today.month >= 8:
-        return f"{today.year}B"
-    return f"{today.year - 1}B"
-
-
-def semester_date_range(semester):
-    """Return ``(start_date, end_date)`` ISO strings for a semester like ``"2026A"``."""
-    semester = semester.strip().upper()
-    if (
-        len(semester) != 5
-        or semester[-1] not in {"A", "B"}
-        or not semester[:4].isdigit()
-    ):
-        raise ValueError(
-            f"Invalid semester format: {semester!r}. Expected forms like 2026A or 2026B."
-        )
-    year = int(semester[:4])
-    if semester[-1] == "A":
-        return f"{year}-02-01", f"{year}-07-31"
-    return f"{year}-08-01", f"{year + 1}-01-31"
-
-
-def fetch_schedule_csv(semester, instrument, timeout=60):
-    """Submit the Keck schedule query form for one instrument and return matching rows."""
-    start_date, end_date = semester_date_range(semester)
     payload = {
         "doQuery": "1",
         "table": "schedule",
         "Date": f"between {start_date} and {end_date}",
-        "Instrument": instrument,
+        "Instrument": KECK_SCHEDULE_INSTRUMENT,
         "cb_Date": "on",
         "cb_TelNr": "on",
         "cb_Instrument": "on",
@@ -442,33 +388,9 @@ def fetch_schedule_csv(semester, instrument, timeout=60):
         snippet = text[:200].replace("\n", " ")
         raise RuntimeError(f"Unexpected response from schedule form: {snippet}")
 
-    reader = csv.DictReader(io.StringIO(text))
-    rows = [dict(row) for row in reader]
-
-    canonical_requested = canonicalize_instrument(instrument).lower()
-    exact_rows = []
-    for row in rows:
-        normalized = canonicalize_instrument(row.get("Instrument") or "")
-        if normalized.lower() == canonical_requested:
-            new_row = dict(row)
-            new_row["Instrument"] = normalized
-            exact_rows.append(new_row)
-    return exact_rows
-
-
-def pull_all_scheduled(semester, instruments=DEFAULT_INSTRUMENTS, output_path=None):
-    """Query the Keck schedule form for each instrument and return one combined DataFrame.
-
-    Columns: ``Date, Time, Dark, TelNr, Instrument, Account, PI, Institution, ProjCode``.
-    If ``output_path`` is given, also write the same DataFrame to CSV.
-    """
-    rows = []
-    for inst in instruments:
-        rows.extend(fetch_schedule_csv(semester, inst))
-    df = pd.DataFrame(rows)
+    df = pd.DataFrame(csv.DictReader(io.StringIO(text)))
     if df.empty:
         return df
-    df["Instrument"] = df["Instrument"].map(canonicalize_instrument)
     df = df.sort_values(
         ["Date", "Time", "Instrument", "ProjCode"], kind="mergesort"
     ).reset_index(drop=True)
@@ -515,34 +437,11 @@ def crossmatch_allocation(scheduled_df, request_urls_path, semester, output_path
     return matched
 
 
-def login_JUMP():
-    login_url = "https://jump.caltech.edu/user/login/"
-    s = requests.session()
-    login_page = s.get(login_url)
-    login_page.raise_for_status()
-    csrftoken = s.cookies["csrftoken"]
-    username = os.environ.get("KPFCC_JUMP_USERNAME")
-    password = os.environ.get("KPFCC_JUMP_PASSWORD")
-    if not username or not password:
-        raise RuntimeError(
-            "Missing JUMP credentials. Set KPFCC_JUMP_USERNAME and "
-            "KPFCC_JUMP_PASSWORD in the environment or in the workspace .env file."
-        )
-    payload = {
-        "action": "login",
-        "username": username,
-        "password": password,
-        "csrfmiddlewaretoken": csrftoken,
-    }
-    new_login = s.post(login_url, data=payload, headers=dict(Referer=login_url))
-    new_login.raise_for_status()
-    if new_login.url.rstrip("/") == login_url.rstrip("/"):
-        raise RuntimeError(
-            "JUMP login appears to have failed: still on login page after submitting credentials. "
-            "Check KPFCC_JUMP_USERNAME/KPFCC_JUMP_PASSWORD."
-        )
-    return s
-
+# =============================================================================
+# JUMP — past.csv
+# =============================================================================
+# Authenticated explorer download of HIRES frame history; collapsed to one
+# row per visit attempt for the semester planner.
 
 JUMP_BASE_URL = "https://jump.caltech.edu"
 # Parameterized JUMP explorer query returning all HIRES observations between
@@ -552,101 +451,54 @@ JUMP_HIRES_PAST_EXPLORER_ID = 285
 JUMP_PAST_QUERY_TMP_FILENAME = "past_jump-query-tmp.csv"
 
 
-def get_explorer_by_id(session, explorer_id, params, path_for_csv):
-    """Download a CSV from a parameterized JUMP explorer query.
-
-    Args:
-        session (requests.Session): An authenticated JUMP session (see
-            :func:`login_JUMP`).
-        explorer_id (int): The numeric explorer query ID.
-        params (dict): Ordered ``key -> value`` pairs encoded into the
-            ``?params=key1:val1|key2:val2`` slug.
-        path_for_csv (str): Output CSV path.
-
-    Raises:
-        requests.HTTPError: if JUMP returns a non-200 for the download.
-    """
-    param_str = "|".join(f"{k}:{v}" for k, v in params.items())
-    param_slug = urllib.parse.quote(param_str, safe="")
-    query_url = f"{JUMP_BASE_URL}/explorer/{explorer_id}/?params={param_slug}"
-    # Build the download URL directly. Scraping the page's download <a href>
-    # corrupts the query string: BeautifulSoup decodes the literal ``&params``
-    # as the legacy HTML entity ``&para`` -> ``¶``, yielding ``¶ms=`` and a
-    # 500 from JUMP.
-    download_url = (
-        f"{JUMP_BASE_URL}/explorer/{explorer_id}/download"
-        f"?format=csv&params={param_slug}"
-    )
-    print(f"JUMP query URL: {query_url}")
-    print(f"JUMP download URL: {download_url}")
-
-    csv_response = session.get(download_url)
-    csv_response.raise_for_status()
-    with open(path_for_csv, "wb") as f:
-        f.write(csv_response.content)
-
-
-def _load_n_exp_lookup(request_csv_path):
-    """Return ``unique_id -> n_exp`` from ``request.csv``; default empty dict."""
-    if not request_csv_path or not os.path.isfile(request_csv_path):
-        logs.warning(
-            "request.csv not found at %r; assuming n_exp=1 for all targets",
-            request_csv_path,
-        )
-        return {}
-    req = pd.read_csv(request_csv_path)
-    if "unique_id" not in req.columns or "n_exp" not in req.columns:
-        logs.warning(
-            "request.csv missing unique_id/n_exp columns; assuming n_exp=1"
-        )
-        return {}
-    return req.set_index("unique_id")["n_exp"].astype(int).to_dict()
-
-
-def _apply_template_target_suffix(data):
-    """Append ``_t`` to template-star names (B1/B3 decker, iodine out)."""
-    if not {"decker", "iodine_in"}.issubset(data.columns):
-        return data
-    out = data.copy()
-    is_template = (
-        out["decker"].astype(str).str.upper().isin(["B1", "B3"])
-        & (out["iodine_in"] == False)
-    )
-    out.loc[is_template, "target"] = (
-        out.loc[is_template, "target"].astype(str) + "_t"
-    )
-    return out
-
-
-def _filter_past_by_semester_start(data, semester_start_day):
-    """Drop rows with ``timestamp`` strictly before ``semester_start_day``."""
-    if not semester_start_day or "timestamp" not in data.columns or data.empty:
-        return data
-    ts = pd.to_datetime(data["timestamp"], errors="coerce")
-    cutoff = pd.Timestamp(semester_start_day)
-    n_before = len(data)
-    keep = ts.notna() & (ts >= cutoff)
-    out = data.loc[keep].copy()
-    dropped = n_before - len(out)
-    if dropped:
-        print(
-            f"Dropped {dropped} past-history row(s) with timestamp before semester start "
-            f"{semester_start_day}."
-        )
-    return out
-
-
-def collapse_jump_to_visits(data, n_exp_by_uid):
-    """Group JUMP frames into visit attempts; emit rows for groups >= 50% of n_exp.
-
-    Each accepted group becomes one ``past.csv`` row: ``timestamp`` is the first
-    frame, ``exposure_time`` is the sum of frame exposure times in the group.
+def exposures_to_visits(data, request_csv_path=None):
+    """Exposures to visits.
+    
+    Jump store HIRES exposures. However, we want to interpret them as visits since
+    that's how AstroQ interprets them. 
+    
+    - We identify templates by searching for (B1/B3 decker, iodine out). These are
+      labeled with a _t suffix.
+    
+    - We identify groups of successive exposures on the same target as groups. If the
+      group has at least 50% of the exposures required for the target, we count it as a
+      successful visit
+    
+    Convert raw JUMP frame rows to ``past.csv`` visit rows.
     """
     cols = ["unique_id", "target", "timestamp", "exposure_time"]
     if data.empty:
         return pd.DataFrame(columns=cols)
 
+    n_exp_by_uid = {}
+    if request_csv_path and os.path.isfile(request_csv_path):
+        req = pd.read_csv(request_csv_path)
+        if "unique_id" in req.columns and "n_exp" in req.columns:
+            n_exp_by_uid = (
+                req.set_index("unique_id")["n_exp"]
+                .astype(int)
+                .to_dict()
+            )
+        else:
+            logs.warning(
+                "request.csv missing unique_id/n_exp columns; assuming n_exp=1"
+            )
+    elif request_csv_path:
+        logs.warning(
+            "request.csv not found at %r; assuming n_exp=1 for all targets",
+            request_csv_path,
+        )
+
     df = data.copy()
+    if {"decker", "iodine_in"}.issubset(df.columns):
+        is_template = (
+            df["decker"].astype(str).str.upper().isin(["B1", "B3"])
+            & (df["iodine_in"] == False)
+        )
+        df.loc[is_template, "target"] = (
+            df.loc[is_template, "target"].astype(str) + "_t"
+        )
+
     df["target"] = df["target"].astype(str)
     df["unique_id"] = df["target"]
     df["exposure_time"] = (
@@ -690,57 +542,6 @@ def collapse_jump_to_visits(data, n_exp_by_uid):
     return pd.DataFrame(rows, columns=cols)
 
 
-def get_database_explorer(
-    name, path_for_csv, url="https://jump.caltech.edu/explorer/", links=None
-):
-    # log into JUMP and go to DataBase page
-    if links is None:
-        links = []
-    session = login_JUMP()
-    response = session.get(url)
-    response.raise_for_status()
-    soup = BeautifulSoup(response.text, "html.parser")
-    # find the table of queries
-    table = soup.find("tbody", attrs={"class": "list"})
-    if table is None:
-        title = (
-            soup.title.string.strip()
-            if soup.title and soup.title.string
-            else "unknown title"
-        )
-        preview = " ".join(soup.get_text(" ", strip=True).split()[:40])
-        raise RuntimeError(
-            "JUMP explorer page did not contain the expected query table. "
-            f"Fetched URL: {response.url!r}. Page title: {title!r}. "
-            f"Response preview: {preview!r}"
-        )
-    # find the correct row by the query name
-    for row in table.find_all("tr"):
-        tab = row.find("td", attrs={"class": "name"})
-        try:
-            x = tab.a.string
-        except:
-            pass
-        else:
-            # once it finds the match, save the download link
-            if x == name:
-                for l in row.find_all("a", href=re.compile("download")):
-                    links.append("/".join(url.split("/")[:3]) + l.get("href"))
-    # make sure it finds it before saving
-    if links != []:
-        response = session.get(links[0])
-        response.raise_for_status()
-        # pretty sure you can just read this directly into pandas if that's what you want
-        open(path_for_csv, "wb").write(response.content)
-    else:
-        raise RuntimeError(
-            f"JUMP explorer did not contain a download link for query {name!r}. "
-            "The query may have been renamed or the explorer markup may have changed."
-        )
-    session.keep_alive = False
-    return
-
-
 def get_hires_past_history(
     path_to_csv,
     semester_start_day=None,
@@ -759,20 +560,15 @@ def get_hires_past_history(
     Rows with ``decker`` B1/B3 and ``iodine_in`` False get ``_t`` appended to
     ``target`` so they match template request ``unique_id``s.
 
-    The explorer slug filters on UTC ``utctime`` while the semester dates are
-    civil (HST). To avoid per-row timezone conversion we widen the JUMP
-    window by one day on each side (``start_date - 1``, ``end_date + 1``); the
-    leading pad is trimmed by the ``semester_start_day`` filter below.
-
     Output schema: one row per accounted visit —
     ``unique_id, target, timestamp, exposure_time`` (``timestamp`` = first frame).
 
     Args:
         path_to_csv (str): Output CSV path.
-        semester_start_day (str): ``YYYY-MM-DD``; rows with ``timestamp``
-            strictly before this calendar instant are dropped.
-        semester_end_day (str): ``YYYY-MM-DD``; semester end, padded by +1 day
-            for the JUMP query ``end_date``.
+        semester_start_day (str): ``YYYY-MM-DD`` from config
+            ``[global] semester_start_day``; passed to JUMP as ``start_date``.
+        semester_end_day (str): ``YYYY-MM-DD`` from config
+            ``[global] semester_end_day``; passed to JUMP as ``end_date``.
         request_csv_path (str, optional): ``request.csv`` path supplying
             ``unique_id`` / ``n_exp`` for visit-collapse thresholds.
 
@@ -786,21 +582,55 @@ def get_hires_past_history(
             "semester_end_day to build the JUMP explorer query window."
         )
 
-    slug_start = (
-        datetime.strptime(semester_start_day, "%Y-%m-%d") - timedelta(days=1)
-    ).strftime("%Y-%m-%d")
-    slug_end = (
-        datetime.strptime(semester_end_day, "%Y-%m-%d") + timedelta(days=1)
-    ).strftime("%Y-%m-%d")
-
     raw_path = os.path.join(os.path.dirname(path_to_csv), JUMP_PAST_QUERY_TMP_FILENAME)
-    session = login_JUMP()
-    get_explorer_by_id(
-        session,
-        JUMP_HIRES_PAST_EXPLORER_ID,
-        {"start_date": slug_start, "end_date": slug_end},
-        raw_path,
+
+    login_url = f"{JUMP_BASE_URL}/user/login/"
+    username = os.environ.get("KPFCC_JUMP_USERNAME")
+    password = os.environ.get("KPFCC_JUMP_PASSWORD")
+    if not username or not password:
+        raise RuntimeError(
+            "Missing JUMP credentials. Set KPFCC_JUMP_USERNAME and "
+            "KPFCC_JUMP_PASSWORD in the environment or in the workspace .env file."
+        )
+
+    session = requests.Session()
+    login_page = session.get(login_url, timeout=60)
+    login_page.raise_for_status()
+    login_resp = session.post(
+        login_url,
+        data={
+            "action": "login",
+            "username": username,
+            "password": password,
+            "csrfmiddlewaretoken": session.cookies["csrftoken"],
+        },
+        headers={"Referer": login_url},
+        timeout=60,
     )
+    login_resp.raise_for_status()
+    if login_resp.url.rstrip("/") == login_url.rstrip("/"):
+        raise RuntimeError(
+            "JUMP login appears to have failed: still on login page after submitting credentials. "
+            "Check KPFCC_JUMP_USERNAME/KPFCC_JUMP_PASSWORD."
+        )
+
+    param_str = (
+        f"start_date:{semester_start_day}|end_date:{semester_end_day}"
+    )
+    param_slug = urllib.parse.quote(param_str, safe="")
+    # Build the download URL directly. Scraping the page's download <a href>
+    # corrupts the query string: HTML parsers decode ``&params`` as ``&para``
+    # -> ``¶``, yielding ``¶ms=`` and a 500 from JUMP.
+    download_url = (
+        f"{JUMP_BASE_URL}/explorer/{JUMP_HIRES_PAST_EXPLORER_ID}/download"
+        f"?format=csv&params={param_slug}"
+    )
+    print(f"JUMP download URL: {download_url}")
+
+    csv_response = session.get(download_url, timeout=60)
+    csv_response.raise_for_status()
+    with open(raw_path, "wb") as f:
+        f.write(csv_response.content)
     print(f"Raw JUMP pull saved to {raw_path}")
 
     data = pd.read_csv(raw_path)
@@ -809,10 +639,6 @@ def get_hires_past_history(
     elif "starname" in data.columns:
         data = data.rename(columns={"starname": "target"})
 
-    data = _filter_past_by_semester_start(data, semester_start_day)
-    data = _apply_template_target_suffix(data)
-
-    n_exp_by_uid = _load_n_exp_lookup(request_csv_path)
-    visits = collapse_jump_to_visits(data, n_exp_by_uid)
+    visits = exposures_to_visits(data, request_csv_path)
     visits.to_csv(path_to_csv, index=False)
     print(f"Processed past history saved to {path_to_csv}")
