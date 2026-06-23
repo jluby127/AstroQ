@@ -293,8 +293,10 @@ class TestClass(unittest.TestCase):
         self.assertIn("plotly-graph-div", night_html)
         self.assertNotIn("download_nightplan", night_html)
 
-    def test14_collapse_jump_to_visits(self):
+    def test14_exposures_to_visits(self):
         """Visit groups need >=50% of n_exp frames; one row per accepted visit."""
+        import tempfile
+
         import astroq.queue.hirescps.prep as prep
 
         frames = pd.DataFrame(
@@ -311,8 +313,12 @@ class TestClass(unittest.TestCase):
                 "exposure_time": [95, 128, 169, 95, 16, 16],
             }
         )
-        n_exp = {"T1": 3, "T2": 3}
-        out = prep.collapse_jump_to_visits(frames, n_exp)
+        tmp = tempfile.mkdtemp(prefix="astroq_visits_")
+        req_csv = os.path.join(tmp, "request.csv")
+        pd.DataFrame({"unique_id": ["T1", "T2"], "n_exp": [3, 3]}).to_csv(
+            req_csv, index=False
+        )
+        out = prep.exposures_to_visits(frames, request_csv_path=req_csv)
         self.assertEqual(len(out), 2)
         t1 = out.loc[out["unique_id"] == "T1"].iloc[0]
         self.assertEqual(t1["timestamp"], "2026-03-02 14:15")
@@ -338,19 +344,30 @@ class TestClass(unittest.TestCase):
             "109358,2026-04-04 06:20,95,C2,True,250000\n"
             "156079,2026-05-31 13:46,85,B3,False,2000\n"
             "T004478,2026-05-31 13:46,1799,B3,False,2000\n"
-            "OLD,2026-01-15 10:00,300,B1,True,500\n"
         )
         captured = {}
 
+        login_resp = MagicMock()
+        login_resp.raise_for_status = lambda: None
+
+        post_resp = MagicMock()
+        post_resp.raise_for_status = lambda: None
+        post_resp.url = f"{prep.JUMP_BASE_URL}/explorer/"
+
+        download_resp = MagicMock()
+        download_resp.content = raw_csv.encode("utf-8")
+        download_resp.raise_for_status = lambda: None
+
         def fake_get(url, *args, **kwargs):
-            captured["url"] = url
-            resp = MagicMock()
-            resp.content = raw_csv.encode("utf-8")
-            resp.raise_for_status = lambda: None
-            return resp
+            if "/download" in url:
+                captured["url"] = url
+                return download_resp
+            return login_resp
 
         fake_session = MagicMock()
+        fake_session.cookies = {"csrftoken": "test-token"}
         fake_session.get.side_effect = fake_get
+        fake_session.post.return_value = post_resp
 
         tmp = tempfile.mkdtemp(prefix="astroq_past_")
         out_csv = os.path.join(tmp, "past.csv")
@@ -362,7 +379,7 @@ class TestClass(unittest.TestCase):
             }
         ).to_csv(req_csv, index=False)
 
-        with patch.object(prep, "login_JUMP", lambda: fake_session):
+        with patch.object(prep.requests, "Session", return_value=fake_session):
             prep.get_hires_past_history(
                 out_csv,
                 semester_start_day="2026-02-01",
@@ -375,18 +392,17 @@ class TestClass(unittest.TestCase):
         self.assertIn(
             f"/explorer/{prep.JUMP_HIRES_PAST_EXPLORER_ID}/download", captured["url"]
         )
-        # Date window padded by one day on each side; download URL must carry a
-        # real ``&params=`` (regression: BeautifulSoup turned it into ``¶ms=``).
+        # Download URL must carry a real ``&params=`` (regression: BeautifulSoup
+        # turned it into ``¶ms=``).
         self.assertIn("&params=", captured["url"])
         self.assertNotIn("\u00b6", captured["url"])
-        self.assertIn("start_date%3A2026-01-31", captured["url"])
-        self.assertIn("end_date%3A2026-08-01", captured["url"])
+        self.assertIn("start_date%3A2026-02-01", captured["url"])
+        self.assertIn("end_date%3A2026-07-31", captured["url"])
 
         out = pd.read_csv(out_csv)
         self.assertEqual(
             list(out.columns), ["unique_id", "target", "timestamp", "exposure_time"]
         )
-        self.assertNotIn("OLD", out["target"].tolist())
         self.assertEqual(out["unique_id"].tolist(), out["target"].tolist())
         self.assertIn("109358", out["target"].tolist())
         self.assertIn("156079_t", out["target"].tolist())

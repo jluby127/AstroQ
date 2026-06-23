@@ -155,7 +155,9 @@ def hirescps_prep(args):
             sched_path = os.path.join(savepath, "allocation_hires_all_scheduled.csv")
             cps_path = os.path.join(savepath, f"allocation_hires_cps_{semester}.csv")
             print(f"Pulling Keck schedule live for {semester} -> {sched_path}")
-            scheduled_df = hirescps.pull_all_scheduled(semester, output_path=sched_path)
+            scheduled_df = hirescps.pull_all_scheduled(
+                start_date, end_date, output_path=sched_path
+            )
             print(f"Crossmatching against {request_urls_path} -> {cps_path}")
             hirescps.crossmatch_allocation(
                 scheduled_df, request_urls_path, semester, output_path=cps_path
