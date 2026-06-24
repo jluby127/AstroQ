@@ -8,8 +8,9 @@ stored on ``SemesterPlanner`` and reused for plotting.
 
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from importlib.resources import files
+from zoneinfo import ZoneInfo
 
 import astropy as apy
 import astropy.units as u
@@ -25,10 +26,13 @@ logs = logging.getLogger(__name__)
 
 
 def build_date_dictionary(semester_start_date, semester_length):
-    """Single source of truth for the semester date grid.
+    """Single source of truth for the semester observing-night labels.
+
+    Each label ``YYYY-MM-DD`` is the **local noon-start date** of that
+    observing night (local 12:00 on that date through 11:59 the next day).
 
     Args:
-        semester_start_date (str): ``'YYYY-MM-DD'`` ISO date of night 0.
+        semester_start_date (str): ``'YYYY-MM-DD'`` label of night 0.
         semester_length (int): number of nights in the semester.
 
     """
@@ -38,6 +42,77 @@ def build_date_dictionary(semester_start_date, semester_length):
     ]
     all_dates_dict = {d: i for i, d in enumerate(all_dates_array)}
     return all_dates_array, all_dates_dict
+
+
+def _observer_timezone(observatory):
+    return getattr(observatory, "timezone", None)
+
+
+def _localize_observing_noon(date_str, tz):
+    """Local civil noon on ``date_str`` in the observatory timezone."""
+    naive = datetime.strptime(date_str, "%Y-%m-%d").replace(
+        hour=12, minute=0, second=0, microsecond=0
+    )
+    if tz is None:
+        return naive.replace(tzinfo=timezone.utc)
+    if isinstance(tz, str):
+        return naive.replace(tzinfo=ZoneInfo(tz))
+    if hasattr(tz, "localize"):
+        return tz.localize(naive)
+    return naive.replace(tzinfo=tz)
+
+
+def observing_day_start(date_str, observatory):
+    """Absolute UTC time of local noon starting the observing night labeled ``date_str``."""
+    tz = _observer_timezone(observatory)
+    local_noon = _localize_observing_noon(date_str, tz)
+    return Time(local_noon)
+
+
+def observing_day_window(date_str, observatory, next_date_str=None):
+    """Return ``(start, end)`` for the observing night labeled ``date_str``.
+
+    ``end`` is exclusive: the start of the next observing night, or
+    ``start + 24 h`` for the last night in the semester.
+    """
+    start = observing_day_start(date_str, observatory)
+    if next_date_str is not None:
+        end = observing_day_start(next_date_str, observatory)
+    else:
+        end = start + TimeDelta(1.0, format="jd")
+    return start, end
+
+
+def observing_day_index_containing_time(t, all_dates_array, observatory):
+    """Night index ``d`` whose noon-to-noon window contains absolute time ``t``."""
+    t = Time(t)
+    for d, date_str in enumerate(all_dates_array):
+        next_date = (
+            all_dates_array[d + 1] if d + 1 < len(all_dates_array) else None
+        )
+        start, end = observing_day_window(date_str, observatory, next_date)
+        if start <= t < end:
+            return d
+    return len(all_dates_array) - 1
+
+
+def observing_day_index_for_label(
+    day_label, all_dates_dict, observatory, reference=None, all_dates_array=None
+):
+    """Resolve a config ``current_day`` label to night index ``d``.
+
+    When ``reference`` is provided, return the observing night that contains
+    that time. Otherwise ``day_label`` must appear in ``all_dates_dict``.
+    """
+    if reference is not None:
+        dates = all_dates_array or sorted(all_dates_dict, key=all_dates_dict.get)
+        return observing_day_index_containing_time(reference, dates, observatory)
+    return all_dates_dict[day_label]
+
+
+def allocation_overlaps_observing_night(row_start, row_stop, night_start, night_end):
+    """True when ``[row_start, row_stop]`` overlaps ``[night_start, night_end)``."""
+    return row_start < night_end and row_stop >= night_start
 
 
 class Access:
@@ -67,7 +142,8 @@ class Access:
             ``t_visit_slots`` (int >= 1) drives the multi-slot exposure
             dilation in :meth:`build_access`; if absent, defaults to 1
             per target (no dilation).
-        semester_start_date (str): ``'YYYY-MM-DD'`` ISO date of night 0 (UTC).
+        semester_start_date (str): ``'YYYY-MM-DD'`` observing-night label of night 0
+            (local noon on this date starts night 0).
         semester_length (int): number of nights in the semester.
         slot_size (int): slot length in minutes; must divide 1440 evenly.
 
@@ -140,13 +216,19 @@ class Access:
             self.semester_start_date, self.semester_length
         )
 
+        self.observing_day_starts = Time(
+            [observing_day_start(d, self.observatory).jd for d in self.all_dates_array],
+            format="jd",
+            location=self.observatory.location,
+        )
+
         # Fill optional per-row columns so downstream compute_* code can assume
         # they exist. Copy to avoid mutating caller's frame.
         rf = request_frame.copy()
         for col, default in (
-            ("minimum_elevation", 0.0),
-            ("minimum_moon_separation", 0.0),
-            ("tau_inter", 0),
+            ("minimum_elevation", 30.0),
+            ("minimum_moon_separation", 30.0),
+            ("tau_inter", 1),
             # Multi-shot dilation: per-target full-visit duration in slots.
             # Default 1 (no dilation) so a stand-alone caller can skip the
             # full splan-style exposure accounting.
@@ -172,8 +254,8 @@ class Access:
         )
         self.targets = apl.FixedTarget(name=self.request_frame.unique_id, coord=coords)
 
-        # Time grid for one night, first night of the semester
-        self.daily_start = Time(self.start_date, location=self.observatory.location)
+        # Time grid for night 0 (local noon → next local noon), LST-sorted for altaz
+        self.daily_start = self.observing_day_starts[0]
         self.daily_end = self.daily_start + TimeDelta(1.0, format="jd")
         self.timegrid = Time(
             np.arange(self.daily_start.jd, self.daily_end.jd, self.slot_size_time.jd),
@@ -182,18 +264,35 @@ class Access:
         )
         self.timegrid = self.timegrid[np.argsort(self.timegrid.sidereal_time("mean"))]
 
-        # Slot midpoint for all nights in semester 2D array (slots, nights)
-        self.slotmidpoints_oneday = (
-            self.daily_start + (np.arange(self.nslots) + 0.5) * self.slot_size * u.min
-        )
-        days = np.arange(self.nnights) * u.day
-        self.slotmidpoints = (
-            self.slotmidpoints_oneday[np.newaxis, :] + days[:, np.newaxis]
+        # Slot midpoints: shape (nnights, nslots); night d is local noon-to-noon
+        slot_offsets = (np.arange(self.nslots) + 0.5) * self.slot_size * u.min
+        self.slotmidpoints_oneday = self.daily_start + slot_offsets
+        self.slotmidpoints = self.observing_day_starts.reshape(-1, 1) + slot_offsets.reshape(
+            1, -1
         )
 
         # compute_clear reads weather_loss_file only when run_weather_loss
         # is True; otherwise the cube is unconditionally all-True.
         self.weather_loss_file = weather_loss_file
+
+    def observing_night_index(self, day_label=None, reference=None):
+        """Night index ``d`` for ``day_label`` or the night containing ``reference``."""
+        label = day_label if day_label is not None else self.current_day
+        return observing_day_index_for_label(
+            label,
+            self.all_dates_dict,
+            self.observatory,
+            reference=reference,
+            all_dates_array=self.all_dates_array,
+        )
+
+    def observing_night_bounds(self, day_label):
+        """``(start, end)`` astropy Times for the observing night labeled ``day_label``."""
+        d = self.all_dates_dict[day_label]
+        next_label = (
+            self.all_dates_array[d + 1] if d + 1 < self.nnights else None
+        )
+        return observing_day_window(day_label, self.observatory, next_label)
 
     # ------------------------------------------------------------------
     # Adapter for the planner pipeline. Wires SemesterPlanner attributes
@@ -276,9 +375,10 @@ class Access:
         return mask
 
     def compute_future(self):
-        """Mask out nights before ``self.current_day`` for every target."""
+        """Mask out nights before the observing night for ``self.current_day``."""
         cube = np.ones(self._access_shape, dtype=bool)
-        cube[:, : self.all_dates_dict[self.current_day], :] = False
+        d_today = self.observing_night_index()
+        cube[:, :d_today, :] = False
         return cube
 
     def compute_moon(self):

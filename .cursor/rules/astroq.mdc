@@ -26,7 +26,7 @@ See [README.md](README.md) and [docs/getting_started.rst](docs/getting_started.r
 - `n_intra_min` / `n_intra_max`  - min/max visits per night, for multi-shot expsoures
 - `tau_intra` — minimum spacing between multi-visit exposures.
 - `band` — weather band 1/2/3; `full-bandN` = night actually allocated to us.
-- `(d, s)` — day index from `semester_start_day` and slot index `0..n_slots_in_night-1`. Slot size in minutes from `[semester] slot_size`.
+- `(d, s)` — observing-night index and slot index. Night label `d` is the **local noon-start date** (`semester_start_day + d` days); each night runs local 12:00 → next-day 11:59 at the observatory. Slots `0..n_slots-1` span that 24 h window. `allocation.csv` timestamps remain UTC ISO; they map to `(d,s)` via `Access.slotmidpoints`. Slot size in minutes from `[semester] slot_size`.
 - `allocation` / `access` — boolean cubes shaped `(ntargets, nnights, nslots)` produced by `Access`.
 
 ## Repo Layout
@@ -44,7 +44,7 @@ See [README.md](README.md) and [docs/getting_started.rst](docs/getting_started.r
 ## Data Schemas
 
 - `request.csv` — see `REQUEST_COLS_CORE` in [astroq/queue/hirescps.py](astroq/queue/hirescps.py). Units: `exptime`/`maxtime` seconds, `tau_intra` hours, `tau_inter` days.
-- `allocation.csv` — `start`, `stop` ISO `YYYY-MM-DDTHH:MM`, optional `comment`. Multiple blocks per night allowed.
+- `allocation.csv` — `start`, `stop` ISO `YYYY-MM-DDTHH:MM` (UTC). Multiple blocks per night allowed. Overlap with observing-night windows is evaluated in absolute time.
 - `past.csv` — `unique_id, target, timestamp, exposure_time` (optional `junk`). One row per exposure; `timestamp` is UT ISO.
 - `custom.csv` — `unique_id, target, start, stop` (`YYYY-MM-DD HH:MM`).
 - `programs.csv` — `program, hours, nights`.

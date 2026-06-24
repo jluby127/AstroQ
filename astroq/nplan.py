@@ -19,6 +19,7 @@ import astropy.units as u
 from astropy.time import Time, TimeDelta
 from astropy.table import QTable
 
+from astroq.access import allocation_overlaps_observing_night, observing_day_window
 from astroq.splan import SemesterPlanner
 from astroq.ttp import model
 from astroq.ttp.acs import acs_warm_start
@@ -260,13 +261,14 @@ class NightPlanner:
         )
 
     def _night_index(self) -> int:
-        return self.semester_planner.all_dates_dict[self.current_day]
+        return self.semester_planner.access_obj.observing_night_index(self.current_day)
 
     def _night_bounds(self):
         try:
             start, stop = get_nightly_times_from_allocation(
                 self.allocation_file,
                 self.current_day,
+                access_obj=self.semester_planner.access_obj,
             )
         except ValueError:
             logs.info(
@@ -589,31 +591,53 @@ class NightPlanner:
         return instance
 
 
-def get_nightly_times_from_allocation(allocation_file, current_day):
+def get_nightly_times_from_allocation(allocation_file, current_day, access_obj=None):
     """
-    Extract start and stop times for a specific date from allocation.csv.
+    Extract start and stop times for the observing night labeled ``current_day``.
+
+    Selects allocation rows whose ``[start, stop]`` interval overlaps the
+    local-noon-to-noon window for that night. ``allocation.csv`` timestamps
+    remain UTC ISO strings.
 
     Args:
         allocation_file (str): path to the allocation file
-        current_day (str): the date to look for in YYYY-MM-DD format
+        current_day (str): observing-night label in ``YYYY-MM-DD`` format
+        access_obj (Access, optional): when provided, supplies observatory
+            timezone and observing-night bounds. If omitted, a minimal Access
+            is built from ``allocation_file`` alone (Keck default observer).
 
     Returns:
-       start_time (Time object): the start time of the allocation for the current day
-       stop_time (Time object): the stop time of the allocation for the current day
+       start_time (Time object): earliest overlapping allocation start
+       stop_time (Time object): latest overlapping allocation stop
     """
     allocated_times_frame = pd.read_csv(allocation_file)
     allocated_times_frame["start"] = allocated_times_frame["start"].apply(Time)
     allocated_times_frame["stop"] = allocated_times_frame["stop"].apply(Time)
 
-    current_day_str = str(current_day)
+    if access_obj is None:
+        import astroq.queue as aq
+        from datetime import datetime as dt, timedelta
+
+        observer = aq.from_name("hirescps").observatory
+        current_day_str = str(current_day)
+        next_day = (
+            dt.strptime(current_day_str, "%Y-%m-%d") + timedelta(days=1)
+        ).strftime("%Y-%m-%d")
+        night_start, night_end = observing_day_window(
+            current_day_str, observer, next_day
+        )
+    else:
+        night_start, night_end = access_obj.observing_night_bounds(str(current_day))
+
     day_allocations = []
     for _, row in allocated_times_frame.iterrows():
-        start_datetime = str(row["start"])[:10]
-        if start_datetime == current_day_str:
+        if allocation_overlaps_observing_night(
+            row["start"], row["stop"], night_start, night_end
+        ):
             day_allocations.append(row)
 
     if not day_allocations:
-        raise ValueError(f"No allocation found for date {current_day_str}")
+        raise ValueError(f"No allocation found for observing night {current_day}")
 
     earliest_start = min(row["start"] for row in day_allocations)
     latest_stop = max(row["stop"] for row in day_allocations)

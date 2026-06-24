@@ -1023,18 +1023,6 @@ def _birdseye_obs_tz(semester_planner):
     return getattr(semester_planner.queue.observatory, "timezone", None)
 
 
-def _birdseye_localize(date_str, tz):
-    """Attach observatory tz to a naive civil-midnight datetime."""
-    naive = datetime.strptime(date_str, "%Y-%m-%d")
-    if tz is None:
-        return naive.replace(tzinfo=timezone.utc)
-    if isinstance(tz, str):
-        return naive.replace(tzinfo=ZoneInfo(tz))
-    if hasattr(tz, "localize"):
-        return tz.localize(naive)
-    return naive.replace(tzinfo=tz)
-
-
 def _birdseye_to_local(dt_utc, tz):
     if tz is None:
         return dt_utc
@@ -1044,63 +1032,29 @@ def _birdseye_to_local(dt_utc, tz):
 
 
 def _birdseye_local_midnight_roll(semester_planner):
-    """Roll birdseye rows so observatory-local civil midnight is the middle row.
+    """Row roll for birdseye Y-axis (zero on local-noon observing-day grid)."""
+    return 0
 
-    Slots are indexed from UTC midnight on each calendar night; UTC noon is
-    row ``n_slots // 2``. Returns the ``np.roll`` shift on axis 0.
-    """
-    slot_size = semester_planner.config.getint("semester", "slot_size")
-    n_slots = int(24 * 60 // slot_size)
+
+def _birdseye_y_axis_ticks(semester_planner):
+    """Y-axis ticks at even local civil hours on the observing-day grid."""
+    access = semester_planner.access_obj
     tz = _birdseye_obs_tz(semester_planner)
-    if not tz:
-        return 0
-
-    date_str = semester_planner.all_dates_array[0]
-    utc_midnight = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-    local_midnight = _birdseye_localize(date_str, tz)
-    offset_min = (
-        local_midnight.astimezone(timezone.utc) - utc_midnight
-    ).total_seconds() / 60.0
-    s_local_midnight = int(round(offset_min / slot_size)) % n_slots
-    return (n_slots // 2 - s_local_midnight) % n_slots
-
-
-def _birdseye_y_axis_ticks(semester_planner, slot_roll):
-    """Y-axis ticks at even local civil hours (00:00, 02:00, ...)."""
-    slot_size = semester_planner.config.getint("semester", "slot_size")
-    n_slots = int(24 * 60 // slot_size)
-    tz = _birdseye_obs_tz(semester_planner)
-    date_str = semester_planner.all_dates_array[0]
-    utc_midnight = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    n_slots = int(access.nslots)
 
     y_tickvals = []
     y_ticktext = []
     for local_hour in range(0, 24, 2):
-        slot = None
         for s in range(n_slots):
-            t_local = _birdseye_to_local(
-                utc_midnight + timedelta(minutes=s * slot_size), tz
-            )
+            dt = access.slotmidpoints[0, s].to_datetime()
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            t_local = _birdseye_to_local(dt, tz)
             if t_local.hour == local_hour and t_local.minute == 0:
-                slot = s
+                y_tickvals.append(s)
+                y_ticktext.append(f"{local_hour:02d}:00")
                 break
-        if slot is None:
-            continue
-        y_tickvals.append((slot + slot_roll) % n_slots)
-        y_ticktext.append(f"{local_hour:02d}:00")
     return y_tickvals, y_ticktext
-
-
-def _birdseye_slot_local_time(slot, semester_planner):
-    """Local civil hour label (HH:00) for a UTC-calendar slot index on night 0."""
-    slot_size = semester_planner.config.getint("semester", "slot_size")
-    tz = _birdseye_obs_tz(semester_planner)
-    date_str = semester_planner.all_dates_array[0]
-    utc_midnight = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-    t_local = _birdseye_to_local(
-        utc_midnight + timedelta(minutes=slot * slot_size), tz
-    )
-    return f"{t_local.hour:02d}:00"
 
 
 def _birdseye_roll_slots(z, roll):
@@ -1258,7 +1212,7 @@ def get_birdseye(semester_planner, availablity, all_stars):
             x_ticktext_dates.append("")
 
     # Y-axis: ticks every 2 hours in observatory-local civil time
-    y_tickvals, y_ticktext = _birdseye_y_axis_ticks(semester_planner, slot_roll)
+    y_tickvals, y_ticktext = _birdseye_y_axis_ticks(semester_planner)
     n_slots = int(24 * 60 // semester_planner.config.getint("semester", "slot_size"))
 
     # Calculate legend height based on number of traces
@@ -1291,7 +1245,7 @@ def get_birdseye(semester_planner, availablity, all_stars):
     fig.update_layout(
         width=1400,
         height=1000,
-        yaxis_title="Slot in Night",
+        yaxis_title="Local Time",
         xaxis_title="Night in Semester",
         xaxis=dict(
             title_font=dict(size=labelsize),
@@ -2262,9 +2216,14 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
     )
     cache_dir = _football_cache_dir(semester_planner)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_grids_file = str(cache_dir / f"{semester}_sky_grids.npz")
-    cache_image_file = str(cache_dir / f"{semester}_sky_availability_image.txt")
     semester_length = semester_planner.semester_length
+    night_vmin = 0 if semester_length <= 70 else 70
+    night_vmax = semester_length
+    cache_grids_file = str(cache_dir / f"{semester}_sky_grids.npz")
+    cache_image_file = str(
+        cache_dir
+        / f"{semester}_sky_availability_L{semester_length}_vmin{night_vmin}.txt"
+    )
 
     if os.path.exists(cache_grids_file):
         cached_data = np.load(cache_grids_file)
@@ -2323,8 +2282,8 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
             NIGHTS_grid,
             cmap="gray",
             shading="nearest",
-            vmin=min(70, semester_length),
-            vmax=semester_length,
+            vmin=night_vmin,
+            vmax=night_vmax,
         )
         ax.axis("off")
 
@@ -2366,7 +2325,13 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
             y=DEC_grid[:, 0],
             showscale=True,
             colorscale="gray",
-            contours=dict(start=70, end=semester_length, size=10),
+            zmin=night_vmin,
+            zmax=night_vmax,
+            contours=dict(
+                start=night_vmin,
+                end=night_vmax,
+                size=max(1, (night_vmax - night_vmin) // 10),
+            ),
             opacity=0,
             colorbar=dict(
                 title="Observable<br>Nights",
@@ -2994,7 +2959,9 @@ def get_script_plan(night_planner):
         from astropy.time import TimeDelta
 
         night_start_time, _ = get_nightly_times_from_allocation(
-            night_planner.allocation_file, night_planner.current_day
+            night_planner.allocation_file,
+            night_planner.current_day,
+            access_obj=night_planner.semester_planner.access_obj,
         )
 
         # Convert the time columns to HST timestamps

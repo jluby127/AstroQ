@@ -22,7 +22,7 @@ import astroq.queue
 logs = logging.getLogger(__name__)
 
 # Schema for h5 serialization bump when the on-disk layout changes
-SEMESTER_PLANNER_H5_SCHEMA = 4
+SEMESTER_PLANNER_H5_SCHEMA = 5
 
 # Canonical past.csv column schema. ``junk`` is optional.
 PAST_COLS = ["unique_id", "target", "timestamp", "exposure_time"]
@@ -168,7 +168,9 @@ class SemesterPlanner:
 
     @property
     def today_starting_night(self):
-        return self.all_dates_dict[self.config.get("global", "current_day")]
+        return self.access_obj.observing_night_index(
+            self.config.get("global", "current_day")
+        )
 
     # ------------------------------------------------------------------
     # Construction helpers.
@@ -653,6 +655,7 @@ class SemesterPlanner:
         to complete, ensuring no other observations are scheduled during these slots.
         """
         logs.info("Constraint: Reserve slots for multi-slot exposures.")
+        # Observing nights are local-noon-to-noon; reserve slots stay within one d.
         rf = self.requests_frame
         max_t_visit = int(rf["t_visit_slots"].max())
         R_geq_t_visit = {
@@ -1288,7 +1291,9 @@ class SemesterPlanner:
 
     def write_request_selected(self):
         """Write ``request_selected.csv`` -- the handoff to ``NightPlanner``."""
-        today_idx = self.all_dates_dict[self.config.get("global", "current_day")]
+        today_idx = self.access_obj.observing_night_index(
+            self.config.get("global", "current_day")
+        )
         selected = {
             k[0] for k, v in self.Yrds.items() if v.x > 0 and k[1] == today_idx
         }
