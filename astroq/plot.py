@@ -328,7 +328,15 @@ class StarPlotter(object):
             row = rf.loc[rf["unique_id"] == str(self.unique_id)]
             reserve_slots = int(row["t_visit_slots"].iloc[0]) if len(row) else 1
             for r in range(1, reserve_slots):
-                starmap[d_values, s_values + r] = 1
+                s_next = s_values + r
+                same = s_next < n_slots
+                starmap[d_values[same], s_next[same]] = 1
+                spill = ~same
+                if np.any(spill):
+                    d_next = d_values[spill] + 1
+                    s_spill = s_next[spill] - n_slots
+                    in_bounds = (d_next < n_nights) & (s_spill < n_slots)
+                    starmap[d_next[in_bounds], s_spill[in_bounds]] = 1
 
         self.starmap = starmap.T
 
@@ -2228,7 +2236,7 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
             NIGHTS_grid,
             cmap="gray",
             shading="nearest",
-            vmin=70,
+            vmin=min(70, semester_length),
             vmax=semester_length,
         )
         ax.axis("off")

@@ -28,10 +28,12 @@ Example:
 from astroq.queue.base import Queue
 from astroq.queue.hirescps.queue import HIRESCPS
 from astroq.queue.kpfcc.queue import KPFCC
+from astroq.queue.magellan.queue import Magellan
 
 QUEUE_REGISTRY = {
     "hirescps": HIRESCPS,
     "kpfcc": KPFCC,
+    "magellan": Magellan,
 }
 
 
@@ -60,4 +62,4 @@ def from_config(config):
     return from_name(config.get("global", "queue"))
 
 
-__all__ = ["Queue", "HIRESCPS", "KPFCC", "QUEUE_REGISTRY", "from_config", "from_name"]
+__all__ = ["Queue", "HIRESCPS", "KPFCC", "Magellan", "QUEUE_REGISTRY", "from_config", "from_name"]

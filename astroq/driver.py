@@ -858,19 +858,12 @@ def requests_vs_schedule(args):
                 assert min_day_gaps >= tau_inter, tau_inter_err
 
         # 5) tau_intra: There must be at least tau_intra slots between successive observations of a target in a single night
-        slot_duration = semester_planner.config.getint(
-            "semester", "slot_size"
-        )  # Slot duration in minutes
-        slots_per_hour = 60 / slot_duration
         tau_intra_slots = star_request["tau_intra_slots"].values[0]
-        min_slot_diffs = (
-            star_schedule.groupby("d").s.diff().min()
-        )  # Group by day, then find successive differences between slot numbers in the same day. Differences are not computed between the last slot of one night and the first slot of the next night (those values are NaN). The differences must all be AT LEAST tau_intra.
-        if (
-            n_intra_max <= 1
-        ):  # If only 1 obs per night, no risk of spacing obs too closely
+        slot_diffs = star_schedule.groupby("d")["s"].diff().dropna()
+        if tau_intra_slots <= 0 or slot_diffs.empty:
             pass
         else:
+            min_slot_diffs = slot_diffs.min()
             tau_intra_err = (
                 "tau_intra_violated: "
                 f"two obs of {star} are not spaced by enough slots "
