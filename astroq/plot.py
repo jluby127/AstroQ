@@ -2362,6 +2362,176 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
     return fig
 
 
+def _completion_by_request_frame(semester_planner, all_stars):
+    """Per-request semester completion % joined with request.csv weight."""
+    req = semester_planner.requests_frame_all
+    weight_by_id = (
+        pd.to_numeric(req.set_index("unique_id")["weight"], errors="coerce")
+        if "weight" in req.columns
+        else pd.Series(dtype=float)
+    )
+
+    rows = []
+    for star in all_stars:
+        pct = (
+            float(star.cume_observe_pct[-1])
+            if len(star.cume_observe_pct) > 0
+            else 0.0
+        )
+        if star.unique_id in weight_by_id.index:
+            weight = weight_by_id.loc[star.unique_id]
+        else:
+            weight = np.nan
+        rows.append(
+            {
+                "unique_id": star.unique_id,
+                "target": star.target,
+                "program": star.program,
+                "completion_pct": pct,
+                "weight": weight,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _weight_legend_label(weight):
+    if pd.isna(weight):
+        return "weight: (missing)"
+    w = float(weight)
+    if w == int(w):
+        return f"weight: {int(w)}"
+    return f"weight: {w}"
+
+
+def _sorted_weight_values(weights):
+    def sort_key(w):
+        if pd.isna(w):
+            return (2, 0.0)
+        try:
+            return (0, float(w))
+        except (TypeError, ValueError):
+            return (1, str(w))
+
+    return sorted(weights, key=sort_key)
+
+
+def _weight_series_matches(series, weight):
+    """Match weight values with numeric coercion (fixes int 1 vs float 1.0)."""
+    numeric = pd.to_numeric(series, errors="coerce")
+    if pd.isna(weight):
+        return numeric.isna()
+    return numeric == float(weight)
+
+
+_COMPLETION_BIN_LABELS = [f"{lo}-{lo + 9.99}" for lo in range(0, 100, 10)] + ["100+"]
+
+
+def _completion_bin_label(pct):
+    if pct >= 100:
+        return "100+"
+    lo = int(pct // 10) * 10
+    return f"{lo}-{lo + 9.99}"
+
+
+def get_completion_histogram_by_weight(semester_planner, all_stars):
+    """
+    Histogram of request completion rate (%), one curve per unique weight value.
+    """
+    df = _completion_by_request_frame(semester_planner, all_stars)
+    fig = go.Figure()
+    weight_values = _sorted_weight_values(df["weight"].unique())
+    colors = sns.color_palette("deep", max(len(weight_values), 1))
+    rgb_strings = [
+        f"rgb({int(r * 255)}, {int(g * 255)}, {int(b * 255)})"
+        for r, g, b in colors
+    ]
+
+    for i, weight in enumerate(weight_values):
+        subset = df.loc[_weight_series_matches(df["weight"], weight), "completion_pct"]
+        bin_labels = subset.map(_completion_bin_label)
+        counts = (
+            bin_labels.value_counts()
+            .reindex(_COMPLETION_BIN_LABELS, fill_value=0)
+            .astype(int)
+        )
+        fig.add_trace(
+            go.Bar(
+                x=_COMPLETION_BIN_LABELS,
+                y=counts,
+                name=_weight_legend_label(weight),
+                opacity=0.65,
+                marker_color=rgb_strings[i % len(rgb_strings)],
+            )
+        )
+
+    fig.update_layout(
+        width=1400,
+        height=600,
+        title="Completion Rate by Request Weight",
+        xaxis_title="Completion Rate (%)",
+        yaxis_title="Number of Requests",
+        barmode="overlay",
+        plot_bgcolor=clear,
+        paper_bgcolor=clear,
+        xaxis=dict(categoryorder="array", categoryarray=_COMPLETION_BIN_LABELS),
+        legend=dict(title="Weight"),
+    )
+    return fig
+
+
+def get_completion_vs_target_name(semester_planner, all_stars):
+    """
+    Scatter of completion rate (%) vs target name, sorted alphabetically by target.
+    """
+    df = _completion_by_request_frame(semester_planner, all_stars)
+    df = df.sort_values("target", kind="mergesort").reset_index(drop=True)
+    target_order = df["target"].tolist()
+
+    program_colors = {star.program: star.program_color_rgb for star in all_stars}
+    fig = go.Figure()
+    for program in sorted(df["program"].unique()):
+        sub = df[df["program"] == program]
+        fig.add_trace(
+            go.Scatter(
+                x=sub["target"],
+                y=sub["completion_pct"],
+                mode="markers",
+                name=program,
+                marker=dict(size=8, color=program_colors.get(program, "steelblue")),
+                customdata=np.stack(
+                    [
+                        sub["program"].to_numpy(),
+                        sub["weight"].map(_weight_legend_label).to_numpy(),
+                    ],
+                    axis=-1,
+                ),
+                hovertemplate=(
+                    "<b>%{x}</b><br>Program: %{customdata[0]}<br>"
+                    "Completion: %{y:.1f}%<br>%{customdata[1]}<extra></extra>"
+                ),
+            )
+        )
+
+    fig.update_layout(
+        width=1400,
+        height=700,
+        title="Completion Rate by Target",
+        xaxis_title="Target",
+        yaxis_title="Completion Rate (%)",
+        plot_bgcolor=clear,
+        paper_bgcolor=clear,
+        xaxis=dict(
+            categoryorder="array",
+            categoryarray=target_order,
+            tickangle=-45,
+        ),
+        yaxis=dict(range=[0, 100]),
+        margin=dict(b=150),
+        showlegend=True,
+    )
+    return fig
+
+
 def get_request_frame(semester_planner, all_stars):
     """
     Get a filtered request frame containing only the stars in all_stars.

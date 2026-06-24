@@ -1122,9 +1122,13 @@ class SemesterPlanner:
         self.optimize_model()
         self._finalize_round("Round1")
         if self.config.getboolean("semester", "run_bonus_round"):
-            self.build_model_round2()
+            # self.build_model_round2()
+            self.build_model_round2_priority()
             self.optimize_model()
             self._finalize_round("Round2")
+            self.build_model_round3_priority()
+            self.optimize_model()
+            self._finalize_round("Round3")
         logs.info("Scheduling complete, clear skies!")
 
     def _finalize_round(self, round_label):
@@ -1400,3 +1404,133 @@ class SemesterPlanner:
 
         logs.info(f"SemesterPlanner loaded from HDF5: {hdf5_path}")
         return instance
+
+
+
+
+
+    def constraint_hold_program_fill_factors(self, alpha=0.1):
+        """
+        Bonus round constraint: not featured in Lubin et al. 2025.
+
+        After Round 2, record each program's total scheduled starting slots.
+        In Round 3, constrain the program's scheduled slots to stay within
+        alpha (relative tolerance) of that Round 2 value.
+        """
+        logs.info("Constraint: Holding program fill factors.")
+
+        for p in self.requests_frame['program_code'].unique():
+            program_request_ids = set(
+                self.requests_frame.loc[
+                    self.requests_frame['program_code'] == p, 'unique_id'
+                ]
+            )
+            r2_slots_awarded = sum(
+                self.Yrds[r, d, s].X
+                for r, d, s in self.observability_tuples
+                if r in program_request_ids
+            )
+            logs.info(
+                f"Holding program {p} to at least {alpha * 100:.1f}% less than "
+                f"Round 2 scheduled slots: {r2_slots_awarded:.0f}"
+            )
+            future_slots = gp.quicksum(
+                self.Yrds[r, d, s]
+                for r, d, s in self.observability_tuples
+                if r in program_request_ids
+            )
+            self.model.addConstr(
+                r2_slots_awarded * (1-alpha)  <= future_slots,
+                'hold_program_fill_factors_lower_' + p,
+            )
+            self.model.addConstr(
+                r2_slots_awarded * (1+alpha)  >= future_slots,
+                'hold_program_fill_factors_upper_' + p,
+            )
+
+    def build_model_round2_priority(self):
+        """
+        Implement the constraints and objective function for Round 2. Not described in Lubin et al. 2025.
+
+        Returns:
+            None
+        """
+        t1 = time.time()
+        self.constraint_fix_previous_objective()
+        self.set_objective_priorities_INTER()
+        logs.info(f"Time to build constraints: {np.round(time.time()-t1,3):.3f}")
+
+    def build_model_round3_priority(self):
+        """
+        Implement the constraints and objective function for Round 2. Not described in Lubin et al. 2025.
+
+        Returns:
+            None
+        """
+        t1 = time.time()
+        self.constraint_hold_program_fill_factors()
+        self.set_objective_priorities_INTRA()
+        logs.info(f"Time to build constraints: {np.round(time.time()-t1,3):.3f}")
+
+    def set_objective_priorities_INTER(self):
+        """
+        Set inter-program priority objective:
+
+
+        where N_p = sum over r in R_p of 2^{w_r} * t_{visit,r} * n_{intra,max,r} * n_{inter,max,r}
+        (normalization per program), w_r = weight of request r, Y_{r,d,s} = binary schedule variable.
+        """
+        logs.info("Objective: Inter-program priorities.")
+
+        program_request_ids = {
+            p: set(self.requests_frame[self.requests_frame['program_code'] == p]['unique_id'])
+            for p in self.requests_frame['program_code'].unique()
+        }
+
+        program_frame = pd.read_csv(self.programs_file)
+        if "priority" not in program_frame.columns:
+            logs.warning(
+                f"{self.programs_file} has no 'priority' column; using priority 1.0 for all programs."
+            )
+            N_p = {p: 1.0 for p in program_request_ids}
+        else:
+            priority_by_program = program_frame.set_index("program")["priority"].astype(float).to_dict()
+            N_p = {p: priority_by_program[p] for p in program_request_ids}
+
+        self.model.setObjective(
+            gp.quicksum(
+                N_p[p] * gp.quicksum(
+                    self.Yrds[r, d, s]
+                    for r, d, s in self.observability_tuples
+                    if r in program_request_ids[p]
+                )
+                for p in program_request_ids
+            ),
+            GRB.MAXIMIZE
+        )
+
+    def set_objective_priorities_INTRA(self):
+        """
+        Set intra-program priority objective:
+
+
+        """
+        logs.info("Objective: Intra-program priorities.")
+
+        weight_by_id = self.requests_frame.set_index('unique_id')['weight']
+        program_request_ids = {
+            p: set(self.requests_frame[self.requests_frame['program_code'] == p]['unique_id'])
+            for p in self.requests_frame['program_code'].unique()
+        }
+
+        self.model.setObjective(
+            gp.quicksum(
+                gp.quicksum(
+                    (1.0/weight_by_id.loc[r]) * self.Yrds[r, d, s]
+                    for r, d, s in self.observability_tuples
+                    if r in program_request_ids[p]
+                )
+                for p in program_request_ids
+            ),
+            GRB.MAXIMIZE
+        )
