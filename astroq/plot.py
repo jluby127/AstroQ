@@ -2403,6 +2403,16 @@ def _weight_legend_label(weight):
     return f"weight: {w}"
 
 
+def _priority_legend_label(weight):
+    """Histogram legend: weight 1 -> p1, etc."""
+    if pd.isna(weight):
+        return "(missing)"
+    w = float(weight)
+    if w == int(w):
+        return f"p{int(w)}"
+    return f"p{w}"
+
+
 def _sorted_weight_values(weights):
     def sort_key(w):
         if pd.isna(w):
@@ -2423,14 +2433,14 @@ def _weight_series_matches(series, weight):
     return numeric == float(weight)
 
 
-_COMPLETION_BIN_LABELS = [f"{lo}-{lo + 9.99}" for lo in range(0, 100, 10)] + ["100+"]
+_COMPLETION_BIN_LABELS = [f"[{lo}, {lo + 10})" for lo in range(0, 100, 10)] + ["100"]
 
 
 def _completion_bin_label(pct):
     if pct >= 100:
-        return "100+"
+        return "100"
     lo = int(pct // 10) * 10
-    return f"{lo}-{lo + 9.99}"
+    return f"[{lo}, {lo + 10})"
 
 
 def get_completion_histogram_by_weight(semester_planner, all_stars):
@@ -2458,7 +2468,7 @@ def get_completion_histogram_by_weight(semester_planner, all_stars):
             go.Bar(
                 x=_COMPLETION_BIN_LABELS,
                 y=counts,
-                name=_weight_legend_label(weight),
+                name=_priority_legend_label(weight),
                 opacity=0.65,
                 marker_color=rgb_strings[i % len(rgb_strings)],
             )
@@ -2467,14 +2477,14 @@ def get_completion_histogram_by_weight(semester_planner, all_stars):
     fig.update_layout(
         width=1400,
         height=600,
-        title="Completion Rate by Request Weight",
+        title="Completion Rate by Priority",
         xaxis_title="Completion Rate (%)",
         yaxis_title="Number of Requests",
         barmode="overlay",
         plot_bgcolor=clear,
         paper_bgcolor=clear,
         xaxis=dict(categoryorder="array", categoryarray=_COMPLETION_BIN_LABELS),
-        legend=dict(title="Weight"),
+        legend=dict(title="Priority"),
     )
     return fig
 
