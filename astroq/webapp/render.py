@@ -142,6 +142,12 @@ def build_admin_html(
     fig_cof2 = pl.get_cof(
         loaded.semester_planner, list(loaded.data_astroq[1].values()), use_time=True
     )
+    fig_completion_hist = pl.get_completion_histogram_by_weight(
+        loaded.semester_planner, all_stars
+    )
+    fig_completion_scatter = pl.get_completion_vs_target_name(
+        loaded.semester_planner, all_stars
+    )
     fig_birdseye = pl.get_birdseye(
         loaded.semester_planner, loaded.data_astroq[2], list(loaded.data_astroq[1].values())
     )
@@ -166,6 +172,8 @@ def build_admin_html(
         _fig_to_html(fig_timebar_by_program),
         _fig_to_html(fig_cof1),
         _fig_to_html(fig_cof2),
+        _fig_to_html(fig_completion_hist),
+        _fig_to_html(fig_completion_scatter),
         _fig_to_html(fig_birdseye),
         _fig_to_html(fig_rawobs),
         _fig_to_html(fig_tau_inter_line),
