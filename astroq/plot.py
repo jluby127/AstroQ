@@ -1041,19 +1041,27 @@ def _birdseye_y_axis_ticks(semester_planner):
     access = semester_planner.access_obj
     tz = _birdseye_obs_tz(semester_planner)
     n_slots = int(access.nslots)
+    slot_roll = _birdseye_local_midnight_roll(semester_planner)
 
     y_tickvals = []
     y_ticktext = []
     for local_hour in range(0, 24, 2):
+        target_min = local_hour * 60
+        best_s = None
+        best_dist = float("inf")
         for s in range(n_slots):
             dt = access.slotmidpoints[0, s].to_datetime()
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
             t_local = _birdseye_to_local(dt, tz)
-            if t_local.hour == local_hour and t_local.minute == 0:
-                y_tickvals.append(s)
-                y_ticktext.append(f"{local_hour:02d}:00")
-                break
+            actual_min = t_local.hour * 60 + t_local.minute + t_local.second / 60.0
+            dist = abs(actual_min - target_min)
+            if dist < best_dist:
+                best_dist = dist
+                best_s = s
+        if best_s is not None:
+            y_tickvals.append((best_s + slot_roll) % n_slots)
+            y_ticktext.append(f"{local_hour:02d}:00")
     return y_tickvals, y_ticktext
 
 
