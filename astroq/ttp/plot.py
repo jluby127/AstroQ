@@ -53,24 +53,25 @@ def schedule_to_ladder_frame(model):
     sched = model.schedule
     on_sky = sched[~sched["is_anchor"]]
     scheduled = on_sky[on_sky["scheduled"]].sort_values("order")
-    extras = on_sky[~on_sky["scheduled"]].sort_values("t_early")
+    extras = on_sky[~on_sky["scheduled"]].sort_values("t_earliest_start")
 
     def _pack(df, *, scheduled_rows):
         target = df.get("target", df["unique_id"])
         return pd.DataFrame(
             {
                 "unique_id": df["unique_id"],
-                "human_target": target,
-                "First Available": df["t_early"],
-                "Last Available": df["t_late"],
+                "Target": target,
+                "Earliest Start": df["t_earliest_start"],
+                "Latest Finish": df["t_latest_finish"],
                 "Start Exposure": df["t_start"] if scheduled_rows else 0.0,
                 "Stop Exposure": df["t_end"] if scheduled_rows else df["t_visit"],
-                "Total Exp Time (min)": df["t_visit"],
+                "Visit Length (min)": df["t_visit"],
                 "Exposure Time (min)": df["exptime"],
                 "N_shots": df["n_exp"],
                 "Weight": df["weight"],
                 "Slew to Next (min)": df["t_slew"].fillna(0.0),
-                "Minutes the from Start of the Night": (
+                "is_scheduled": df["scheduled"].astype(bool),
+                "Scheduled (min. from start)": (
                     (df["t_start"] + df["t_end"]) / 2 if scheduled_rows else 0.0
                 ),
             }

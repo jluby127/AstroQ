@@ -28,8 +28,8 @@ def _requests(ras, decs, queue, *, t_visit_min=5.0):
         {
             "unique_id": np.array([f"T{i}" for i in range(n)], dtype=object),
             "coord": coords,
-            "first_available": Time([NIGHT_START.isot] * n),
-            "last_available": Time([NIGHT_END.isot] * n),
+            "time_earliest_start": Time([NIGHT_START.isot] * n),
+            "time_latest_finish": Time([NIGHT_END.isot] * n),
             "t_visit": np.full(n, t_visit_min) * u.min,
             "n_intra_max": np.ones(n, dtype=int),
             "tau_intra": np.zeros(n) * u.hr,

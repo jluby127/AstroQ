@@ -36,9 +36,9 @@ The heuristic optimizes the same objective as the MILP (Handley+ 2024 eq. 10):
 ``sum(weight over visited) - slew_penalty * t_slew - slew_penalty * idle_ratio *
 t_idle_between``. Time-dependent slew is modeled exactly as in the MILP: the slew
 minutes from node ``i`` to ``j`` departing at minute ``t`` is the precomputed worst-case
-value ``arcs[(i, j, window_of(t), si, sj)]``. Time windows map as ``o_i -> t_early`` and
-``c_i -> t_late`` on the visit *completion* time (``t_early + t_visit <= ti <=
-t_late``), and the first visit is pinned to the night start, mirroring the MILP's
+value ``arcs[(i, j, window_of(t), si, sj)]``. Time windows map as ``o_i -> t_earliest_start`` and
+``c_i -> t_latest_finish`` on the visit *completion* time (``t_earliest_start + t_visit <= ti <=
+t_latest_finish``), and the first visit is pinned to the night start, mirroring the MILP's
 ``first_exposure`` constraint.
 
 Every candidate tour is turned into a *realizable* schedule by :meth:`_ACS._resolve`, an
@@ -147,8 +147,8 @@ class _ACS:
         self.arcs_lookup = tm.arcs["t_slew"].to_dict()  # {(i, j, m, si, sj): slew}
         self.node_states = dict(tm.node_states)
         self.multi_visit_groups = dict(tm.multi_visit_groups or {})
-        self.t_early = nodes["t_early"].to_numpy(dtype=float)
-        self.t_late = nodes["t_late"].to_numpy(dtype=float)
+        self.t_earliest_start = nodes["t_earliest_start"].to_numpy(dtype=float)
+        self.t_latest_finish = nodes["t_latest_finish"].to_numpy(dtype=float)
         self.t_visit = nodes["t_visit"].to_numpy(dtype=float)
         self.tau_intra = nodes["tau_intra"].to_numpy(dtype=float)
         self.weight = nodes["weight"].to_numpy(dtype=float)
@@ -166,7 +166,7 @@ class _ACS:
 
         # First exposure is pinned to the start (or earliest feasible) time.
         if self.real_nodes:
-            self.t_start = max(0.0, float(self.t_early[self.real_nodes].min()))
+            self.t_start = max(0.0, float(self.t_earliest_start[self.real_nodes].min()))
         else:
             self.t_start = 0.0
 
@@ -223,7 +223,7 @@ class _ACS:
         # window at the earliest possible departure, used only for ranking.
         for i in [0, *self.real_nodes]:
             t_dep = self.t_start if i == 0 else max(
-                self.t_early[i] + self.t_visit[i], self.t_start
+                self.t_earliest_start[i] + self.t_visit[i], self.t_start
             )
             m = self._window_of(t_dep)
             cands = []
@@ -231,9 +231,9 @@ class _ACS:
                 if j == i:
                     continue
                 slew = self._arc_cost(i, j, m)
-                arrive = max(t_dep + slew, self.t_early[j])
+                arrive = max(t_dep + slew, self.t_earliest_start[j])
                 comp = arrive + self.t_visit[j]
-                if comp > min(self.t_late[j], self.dur_min) + 1e-9:
+                if comp > min(self.t_latest_finish[j], self.dur_min) + 1e-9:
                     continue
                 ratio = self.weight[j] / max(self.t_visit[j] + slew, 1e-6)
                 cands.append((ratio, j))
@@ -285,9 +285,9 @@ class _ACS:
                     if val is None:
                         continue
                     slew = val
-                arrive = max(dep + slew, self.t_early[v])
+                arrive = max(dep + slew, self.t_earliest_start[v])
                 comp = arrive + self.t_visit[v]
-                if comp > min(self.t_late[v], self.dur_min) + 1e-9:
+                if comp > min(self.t_latest_finish[v], self.dur_min) + 1e-9:
                     continue
                 if not self._group_ready(v, comp, group_last):
                     continue
@@ -331,15 +331,15 @@ class _ACS:
                 if used[j]:
                     continue
                 slew = self._arc_cost(u, j, m)
-                arrive = max(ti_last + slew, self.t_early[j])
+                arrive = max(ti_last + slew, self.t_earliest_start[j])
                 comp = arrive + self.t_visit[j]
-                if comp > min(self.t_late[j], self.dur_min) + 1e-9:
+                if comp > min(self.t_latest_finish[j], self.dur_min) + 1e-9:
                     continue
                 if not self._group_ready(j, comp, group_last):
                     continue
                 eta = self.weight[j] / max(slew + self.t_visit[j], 1e-6)
                 # discourage long waits (Verbeeck eq. 11)
-                wait = max(0.0, self.t_early[j] - (ti_last + slew))
+                wait = max(0.0, self.t_earliest_start[j] - (ti_last + slew))
                 li = max(1e-6, 1.0 - wait / max(self.dur_min, 1e-6))
                 weights.append(li * (tau[u, j] ** alpha) * (eta ** beta))
                 cands.append((j, comp))
@@ -407,12 +407,12 @@ class _ACS:
                 if best is None or slew < best[1]:
                     best = (sv, slew)
             sv, slew = best if best is not None else (0, 0.0)
-            arrive = max(dep + slew, self.t_early[v])
+            arrive = max(dep + slew, self.t_earliest_start[v])
             comp[k] = arrive + self.t_visit[v]
-            wait[k] = max(0.0, self.t_early[v] - (dep + slew))
+            wait[k] = max(0.0, self.t_earliest_start[v] - (dep + slew))
             prev, prev_state, last_comp = v, sv, comp[k]
 
-        ub = [min(self.t_late[v], self.dur_min) for v in order]
+        ub = [min(self.t_latest_finish[v], self.dur_min) for v in order]
         max_shift = [0.0] * L
         if L:
             max_shift[L - 1] = ub[L - 1] - comp[L - 1]
@@ -470,9 +470,9 @@ class _ACS:
         dep = self.t_start if pos == 0 else prof["comp"][pos - 1]
         m = self._window_of(dep)
         slew_in = 0.0 if prev == 0 else self._arc_cost(prev, v, m)
-        arrive = max(dep + slew_in, self.t_early[v])
+        arrive = max(dep + slew_in, self.t_earliest_start[v])
         comp_v = arrive + self.t_visit[v]
-        if comp_v > min(self.t_late[v], self.dur_min) + 1e-9:
+        if comp_v > min(self.t_latest_finish[v], self.dur_min) + 1e-9:
             return False
         if pos == L:
             return comp_v <= self.dur_min + 1e-9

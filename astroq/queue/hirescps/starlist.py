@@ -92,8 +92,12 @@ def write_starlist(
         total_exptime += float(row["exptime"].iloc[0])
 
         start_exposure_hst = _offset_minutes_to_hhmm(night_start_time, srow["t_start"])
-        first_available_hst = _offset_minutes_to_hhmm(night_start_time, srow["t_early"])
-        last_available_hst = _offset_minutes_to_hhmm(night_start_time, srow["t_late"])
+        first_available_hst = _offset_minutes_to_hhmm(
+            night_start_time, srow["t_earliest_start"]
+        )
+        last_available_hst = _offset_minutes_to_hhmm(
+            night_start_time, srow["t_latest_finish"]
+        )
         lines.append(
             format_hires_row(
                 row,
@@ -114,8 +118,12 @@ def write_starlist(
         filler_flag = uid in filler_stars
         row = frame.loc[frame["unique_id"] == uid]
         row.reset_index(inplace=True)
-        first_available_hst = _offset_minutes_to_hhmm(night_start_time, erow["t_early"])
-        last_available_hst = _offset_minutes_to_hhmm(night_start_time, erow["t_late"])
+        first_available_hst = _offset_minutes_to_hhmm(
+            night_start_time, erow["t_earliest_start"]
+        )
+        last_available_hst = _offset_minutes_to_hhmm(
+            night_start_time, erow["t_latest_finish"]
+        )
         lines.append(
             format_hires_row(
                 row,

@@ -25,7 +25,7 @@ from astroq.ttp.acs import acs_warm_start
 
 logs = logging.getLogger(__name__)
 
-NIGHT_PLANNER_H5_SCHEMA = 7
+NIGHT_PLANNER_H5_SCHEMA = 8
 
 _SOLUTION_ATTRS = (
     ("night_start_jd", "night_start", "time"),
@@ -80,8 +80,12 @@ def _solution_to_requests_dataframe(solution: "model.TTPModel") -> pd.DataFrame:
             "unique_id": np.asarray(r["unique_id"], dtype=object),
             "ra_deg": np.asarray(r["coord"].ra.deg, dtype=float),
             "dec_deg": np.asarray(r["coord"].dec.deg, dtype=float),
-            "first_available_jd": np.asarray(r["first_available"].jd, dtype=float),
-            "last_available_jd": np.asarray(r["last_available"].jd, dtype=float),
+            "time_earliest_start_jd": np.asarray(
+                r["time_earliest_start"].jd, dtype=float
+            ),
+            "time_latest_finish_jd": np.asarray(
+                r["time_latest_finish"].jd, dtype=float
+            ),
             "t_visit_min": np.asarray(r["t_visit"].to_value(u.min), dtype=float),
             "tau_intra_min": np.asarray(r["tau_intra"].to_value(u.min), dtype=float),
             "n_intra_max": np.asarray(r["n_intra_max"], dtype=int),
@@ -100,11 +104,11 @@ def _requests_dataframe_to_qtable(df: pd.DataFrame) -> QTable:
                 df["dec_deg"].to_numpy() * u.deg,
                 frame="icrs",
             ),
-            "first_available": Time(
-                df["first_available_jd"].to_numpy(), format="jd", scale="utc"
+            "time_earliest_start": Time(
+                df["time_earliest_start_jd"].to_numpy(), format="jd", scale="utc"
             ),
-            "last_available": Time(
-                df["last_available_jd"].to_numpy(), format="jd", scale="utc"
+            "time_latest_finish": Time(
+                df["time_latest_finish_jd"].to_numpy(), format="jd", scale="utc"
             ),
             "t_visit": df["t_visit_min"].to_numpy() * u.min,
             "n_intra_max": df["n_intra_max"].to_numpy(dtype=int),
@@ -393,19 +397,13 @@ class NightPlanner:
         if selected_df is None:
             return None
 
-        # SemesterPlanner.from_hdf5 only instantiates Access; populate the
-        # accessibility cubes (and the derived first/last_available arrays)
-        # before we slice them.
-        if not hasattr(sp.access_obj, "first_available"):
-            sp.access_obj.build_access()
-
-        # Look up the row index of each selected target in the access
-        # request_frame, then slice the precomputed (ntargets, nnights) Time
-        # arrays for tonight.
+        access_rec = sp.access_record
         req_index = sp.access_obj.request_frame.set_index("unique_id").index
         row_idx = req_index.get_indexer(selected_df["unique_id"])
-        first_available = sp.access_obj.first_available[row_idx, d]
-        last_available = sp.access_obj.last_available[row_idx, d]
+        now = access_rec.is_observable_now[row_idx, d, :]
+        slotmid = sp.access_obj.slotmidpoints[d]
+        time_earliest_start = slotmid[now.argmax(1)]
+        time_latest_finish = slotmid[now.shape[1] - 1 - now[:, ::-1].argmax(1)]
 
         visit_min = self.queue.visit_duration(
             selected_df["exptime"].to_numpy(),
@@ -419,8 +417,8 @@ class NightPlanner:
                     selected_df["dec"].to_numpy() * u.deg,
                     frame="icrs",
                 ),
-                "first_available": first_available,
-                "last_available": last_available,
+                "time_earliest_start": time_earliest_start,
+                "time_latest_finish": time_latest_finish,
                 "t_visit": np.asarray(visit_min, dtype=float) * u.min,
                 "n_intra_max": selected_df["n_intra_max"].to_numpy(dtype=int),
                 "tau_intra": selected_df["tau_intra"].to_numpy(dtype=float) * u.hr,

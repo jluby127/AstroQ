@@ -63,7 +63,7 @@ def parse_args():
 
 
 def first_last_available(df, queue, night_start, night_end, *, n_samples=120):
-    """Inline alt/az sweep; sets ``first_available`` / ``last_available`` ISO.
+    """Inline alt/az sweep; sets ``time_earliest_start`` / ``time_latest_finish`` ISO.
 
     Samples the night uniformly in JD, gates each (target, time) sample
     through ``queue.is_accessible``, and reduces with min/max to the first
@@ -82,8 +82,8 @@ def first_last_available(df, queue, night_start, night_end, *, n_samples=120):
     first_jd[no_good] = night_end.jd
     last_jd[no_good] = night_end.jd
 
-    df["first_available"] = [t[:16] for t in Time(first_jd, format="jd").iso]
-    df["last_available"] = [t[:16] for t in Time(last_jd, format="jd").iso]
+    df["time_earliest_start"] = [t[:16] for t in Time(first_jd, format="jd").iso]
+    df["time_latest_finish"] = [t[:16] for t in Time(last_jd, format="jd").iso]
     return df
 
 
@@ -120,8 +120,8 @@ def main():
                 df["dec"].to_numpy() * u.deg,
                 frame="icrs",
             ),
-            "first_available": Time(df["first_available"].tolist()),
-            "last_available": Time(df["last_available"].tolist()),
+            "time_earliest_start": Time(df["time_earliest_start"].tolist()),
+            "time_latest_finish": Time(df["time_latest_finish"].tolist()),
             "t_visit": np.asarray(visit_minutes, dtype=float) * u.min,
             "n_intra_max": df["n_intra_max"].to_numpy(dtype=int),
             "tau_intra": df["tau_intra"].to_numpy(dtype=float) * u.hr,

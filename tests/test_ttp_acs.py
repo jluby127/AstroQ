@@ -30,8 +30,8 @@ def _requests(ras, decs, *, t_visit_min=5.0):
         {
             "unique_id": np.array([f"T{i}" for i in range(n)], dtype=object),
             "coord": coords,
-            "first_available": Time([NIGHT_START.isot] * n),
-            "last_available": Time([NIGHT_END.isot] * n),
+            "time_earliest_start": Time([NIGHT_START.isot] * n),
+            "time_latest_finish": Time([NIGHT_END.isot] * n),
             "t_visit": np.full(n, t_visit_min) * u.min,
             "n_intra_max": np.ones(n, dtype=int),
             "tau_intra": np.zeros(n) * u.hr,
@@ -81,7 +81,7 @@ class TestACSHeuristic(unittest.TestCase):
         self.assertGreater(len(res["order"]), 0)
         # completion time within each node's window and the night budget.
         for nid, ti in zip(res["order"], res["ti"]):
-            self.assertLessEqual(ti, float(tm.nodes.at[nid, "t_late"]) + 1e-6)
+            self.assertLessEqual(ti, float(tm.nodes.at[nid, "t_latest_finish"]) + 1e-6)
             self.assertLessEqual(ti, tm.dur_min + 1e-6)
 
     def test_matches_milp_optimum_small(self):
@@ -145,8 +145,8 @@ class TestACSHeuristic(unittest.TestCase):
                 "unique_id": np.array(["A", "B"], dtype=object),
                 "coord": SkyCoord([184.0, 186.0] * u.deg, [13.0, 15.0] * u.deg,
                                   frame="icrs"),
-                "first_available": Time([NIGHT_START.isot] * 2),
-                "last_available": Time([NIGHT_END.isot] * 2),
+                "time_earliest_start": Time([NIGHT_START.isot] * 2),
+                "time_latest_finish": Time([NIGHT_END.isot] * 2),
                 "t_visit": np.full(2, 5.0) * u.min,
                 "n_intra_max": np.array([2, 1], dtype=int),
                 "tau_intra": np.array([0.5, 0.0]) * u.hr,  # 30 min for A
