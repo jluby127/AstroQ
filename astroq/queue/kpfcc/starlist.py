@@ -66,10 +66,10 @@ def write_starlist(
             TimeDelta(srow["t_start"] * 60, format="sec") + night_start_time
         )[11:16]
         first_available_hst = str(
-            TimeDelta(srow["t_early"] * 60, format="sec") + night_start_time
+            TimeDelta(srow["t_earliest_start"] * 60, format="sec") + night_start_time
         )[11:16]
         last_available_hst = str(
-            TimeDelta(srow["t_late"] * 60, format="sec") + night_start_time
+            TimeDelta(srow["t_latest_finish"] * 60, format="sec") + night_start_time
         )[11:16]
 
         lines.append(
@@ -93,10 +93,10 @@ def write_starlist(
         row = frame.loc[frame["unique_id"] == uid]
         row.reset_index(inplace=True)
         first_available_hst = str(
-            TimeDelta(erow["t_early"] * 60, format="sec") + night_start_time
+            TimeDelta(erow["t_earliest_start"] * 60, format="sec") + night_start_time
         )[11:16]
         last_available_hst = str(
-            TimeDelta(erow["t_late"] * 60, format="sec") + night_start_time
+            TimeDelta(erow["t_latest_finish"] * 60, format="sec") + night_start_time
         )[11:16]
         lines.append(
             format_kpf_row(

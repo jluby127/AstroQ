@@ -2384,6 +2384,182 @@ def get_request_frame(semester_planner, all_stars):
     return filtered_frame
 
 
+def _min_to_utc_hhmm(night_start, minutes):
+    if night_start is None or pd.isna(minutes):
+        return ""
+    return (night_start + TimeDelta(float(minutes) * 60, format="sec")).isot[11:16]
+
+
+def _floor_utc_hour(dt):
+    return dt.replace(minute=0, second=0, microsecond=0)
+
+
+def _ladder_utc_ticks(night_start_time, x_min, x_max):
+    """Whole-hour UTC tick positions within ``[x_min, x_max]`` (minutes from night start)."""
+    start_dt = night_start_time.to_datetime()
+    utc_tickvals, utc_ticktext = [], []
+    t = _floor_utc_hour(start_dt)
+    while True:
+        offset_min = (t - start_dt).total_seconds() / 60.0
+        if offset_min > x_max + 1e-9:
+            break
+        if offset_min >= x_min - 1e-9:
+            utc_tickvals.append(offset_min)
+            utc_ticktext.append(t.strftime("%H:%M"))
+        t += timedelta(hours=1)
+    return utc_tickvals, utc_ticktext
+
+
+def _ladder_minute_axis_ticks(x_min, x_max, interval=60):
+    """Tick positions for minutes-since-start (0, 60, 120, …), not UTC-aligned."""
+    first = 0 if x_min <= 0 else int(np.ceil(x_min / interval)) * interval
+    tickvals = []
+    v = float(first)
+    while v <= x_max + 1e-9:
+        if v >= x_min - 1e-9:
+            tickvals.append(v)
+        v += interval
+    return tickvals, [str(int(round(v))) for v in tickvals]
+
+
+def _add_ladder_night_boundary(fig, x, utc_hhmm, *, side):
+    """Vertical marker at night start or end with UTC time label."""
+    fig.add_shape(
+        type="line",
+        x0=x,
+        x1=x,
+        y0=0,
+        y1=1,
+        xref="x",
+        yref="paper",
+        line=dict(color="black", width=1.5),
+        layer="above",
+    )
+    if side == "start":
+        label = f"Night start {utc_hhmm} (UT)"
+        xanchor = "left"
+    else:
+        label = f"Night end {utc_hhmm} (UT)"
+        xanchor = "right"
+    fig.add_annotation(
+        x=x,
+        y=0.99,
+        xref="x",
+        yref="paper",
+        text=f"<b>{label}</b>",
+        showarrow=False,
+        yanchor="top",
+        xanchor=xanchor,
+        font=dict(size=11, color="black"),
+    )
+
+
+def _night_duration_min(model):
+    """Night length in minutes (works on live and HDF5-reloaded models)."""
+    dur = getattr(model, "dur_min", None)
+    if dur is not None:
+        return float(dur)
+    stats = getattr(model, "stats", None) or {}
+    if "dur_min" in stats:
+        return float(stats["dur_min"])
+    night_start = getattr(model, "night_start", None)
+    night_end = getattr(model, "night_end", None)
+    if night_start is not None and night_end is not None:
+        return (night_end.jd - night_start.jd) * 24 * 60
+    return 600.0
+
+
+def _night_timeline_segments(model):
+    """Chronological (idle, visit, slew) segments from 0 .. dur_min."""
+    scheduled = model.schedule[~model.schedule["is_anchor"]]
+    scheduled = scheduled[scheduled["scheduled"]].sort_values("order")
+    dur = _night_duration_min(model)
+    cursor = 0.0
+    segments = []
+    for _, row in scheduled.iterrows():
+        t0, t1 = float(row["t_start"]), float(row["t_end"])
+        slew = float(row["t_slew"]) if pd.notna(row["t_slew"]) else 0.0
+        if t0 > cursor + 1e-9:
+            segments.append(("idle", cursor, t0))
+        segments.append(("visit", t0, t1))
+        if slew > 0:
+            segments.append(("slew", t1, t1 + slew))
+        cursor = t1 + slew
+    if cursor < dur - 1e-9:
+        segments.append(("idle", cursor, dur))
+    return segments
+
+
+def _night_aggregate_segments(model):
+    """Contiguous visit, slew, idle totals (left-aligned) for the aggregate summary row."""
+    totals = {"visit": 0.0, "slew": 0.0, "idle": 0.0}
+    for kind, x0, x1 in _night_timeline_segments(model):
+        totals[kind] += x1 - x0
+    cursor = 0.0
+    segments = []
+    for kind in ("visit", "slew", "idle"):
+        width = totals[kind]
+        if width <= 1e-9:
+            continue
+        segments.append((kind, cursor, cursor + width))
+        cursor += width
+    return segments
+
+
+_VISIT_COLOR = "lightgreen"
+_SLEW_COLOR = "#FFE4B5"
+_IDLE_COLOR = "#FFB3B3"
+_ACCESS_LINE_COLOR = "lightgreen"
+_ACCESS_LINE_WIDTH = 2
+_ACCESS_FILL_COLOR = "white"
+_LADDER_BG = "#f4f4f4"
+_SEGMENT_COLORS = {"visit": _VISIT_COLOR, "slew": _SLEW_COLOR, "idle": _IDLE_COLOR}
+
+
+def _add_ladder_required_visit_bar(fig, *, y, x0, visit_len, showlegend=False):
+    """Cross-hatched bar for an unscheduled request's required visit duration."""
+    x1 = x0 + visit_len
+    fig.add_trace(
+        go.Scatter(
+            x=[x0, x1, x1, x0, x0],
+            y=[y, y, y, y, y],
+            mode="lines",
+            fill="toself",
+            fillcolor="white",
+            fillpattern=dict(
+                shape="/",
+                bgcolor="white",
+                fgcolor="#666666",
+                fgopacity=0.75,
+                size=8,
+                solidity=0.4,
+            ),
+            line=dict(color="#888888", width=1),
+            hoverinfo="skip",
+            showlegend=showlegend,
+            name="Required visit",
+            legendgroup="required_visit",
+        )
+    )
+
+
+def _synthetic_ladder_row(columns):
+    """Blank ladder row with NaN numerics and empty UTC strings."""
+    row = {}
+    for col in columns:
+        if col == "_row_kind":
+            continue
+        if col.endswith("(UTC)") or col == "Scheduled (UTC)":
+            row[col] = ""
+        elif col == "is_scheduled":
+            row[col] = False
+        elif col == "Target":
+            row[col] = " "
+        else:
+            row[col] = np.nan
+    return row
+
+
 def get_ladder(data, tonight_start_time):
     """Produce a plotly figure which illustrates the night plan solution.
 
@@ -2402,26 +2578,35 @@ def get_ladder(data, tonight_start_time):
         orderData = pd.DataFrame(
             columns=[
                 "unique_id",
-                "human_target",
-                "First Available",
-                "Last Available",
+                "Target",
+                "Earliest Start",
+                "Latest Finish",
                 "Start Exposure",
                 "Stop Exposure",
-                "Total Exp Time (min)",
+                "Visit Length (min)",
                 "Slew to Next (min)",
-                "Minutes the from Start of the Night",
+                "Scheduled (min. from start)",
             ]
         )
     if "Slew to Next (min)" not in orderData.columns:
         orderData["Slew to Next (min)"] = 0.0
 
-    if model.night_start is not None and len(orderData):
-        orderData["UTC Start Time"] = [
-            (model.night_start + TimeDelta(se * 60, format="sec")).isot[11:16]
-            if se > 0
-            else ""
+    night_start = getattr(model, "night_start", None)
+    if night_start is not None and len(orderData):
+        orderData["Scheduled (UTC)"] = [
+            _min_to_utc_hhmm(night_start, se) if se > 0 else ""
             for se in orderData["Start Exposure"]
         ]
+        orderData["Earliest start (UTC)"] = [
+            _min_to_utc_hhmm(night_start, t) for t in orderData["Earliest Start"]
+        ]
+        orderData["Latest finish (UTC)"] = [
+            _min_to_utc_hhmm(night_start, t) for t in orderData["Latest Finish"]
+        ]
+    elif len(orderData):
+        orderData["Scheduled (UTC)"] = ""
+        orderData["Earliest start (UTC)"] = ""
+        orderData["Latest finish (UTC)"] = ""
 
     on_sky = model.schedule[~model.schedule["is_anchor"]]
     n_unscheduled = int((~on_sky["scheduled"]).sum())
@@ -2429,54 +2614,114 @@ def get_ladder(data, tonight_start_time):
     # reverse so the plot flows top -> bottom with time; after reversal,
     # the lowest indices (bottom of plot) hold the unscheduled block.
     orderData = orderData.iloc[::-1].reset_index(drop=True)
+    orderData["_row_kind"] = "target"
 
-    # Each weight tier gets a different color. Keys are integer tiers (1–10); values may be float.
-    colordict = {
-        "10": "red",
-        "9": "tomato",
-        "8": "darkorange",
-        "9": "sandybrown",
-        "7": "gold",
-        "6": "olive",
-        "5": "green",
-        "4": "cyan",
-        "3": "darkviolet",
-        "2": "magenta",
-        "1": "blue",
-    }
+    n_before_insert = len(orderData)
+    summary_y = None
+    aggregate_y = None
+    if n_unscheduled > 0 and n_unscheduled < n_before_insert:
+        unsched_header = _synthetic_ladder_row(orderData.columns)
+        unsched_header["unique_id"] = "__unsched_header__"
+        unsched_header["Target"] = "Unscheduled requests"
+        unsched_header["_row_kind"] = "section_header"
 
-    def _weight_color(weight):
-        key = str(int(round(float(weight))))
-        return colordict.get(key, "gray")
+        aggregate = _synthetic_ladder_row(orderData.columns)
+        aggregate["unique_id"] = "__aggregate__"
+        aggregate["Target"] = " "
+        aggregate["_row_kind"] = "aggregate"
 
-    hover_cols = [
-        "First Available",
-        "Last Available",
-        "Exposure Time (min)",
-        "N_shots",
-        "Total Exp Time (min)",
-        "Slew to Next (min)",
-        "UTC Start Time",
+        summary = _synthetic_ladder_row(orderData.columns)
+        summary["unique_id"] = "__summary__"
+        summary["Target"] = "All scheduled requests"
+        summary["_row_kind"] = "summary"
+
+        sched_header = _synthetic_ladder_row(orderData.columns)
+        sched_header["unique_id"] = "__sched_header__"
+        sched_header["Target"] = "Scheduled requests"
+        sched_header["_row_kind"] = "section_header"
+
+        orderData = pd.concat(
+            [
+                orderData.iloc[:n_unscheduled],
+                pd.DataFrame([unsched_header]),
+                pd.DataFrame([aggregate]),
+                pd.DataFrame([summary]),
+                orderData.iloc[n_unscheduled:],
+                pd.DataFrame([sched_header]),
+            ],
+            ignore_index=True,
+        )
+        aggregate_y = n_unscheduled + 1
+        summary_y = n_unscheduled + 2
+
+    # Hide scatter markers on synthetic rows
+    mask = orderData["_row_kind"] != "target"
+    orderData.loc[mask, "Scheduled (min. from start)"] = np.nan
+
+    plot_height = max(400, 40 * len(orderData) + 200)
+    categories = orderData["Target"].tolist()
+    y_ticktext = [
+        "" if kind in ("section_header", "summary", "aggregate") else target
+        for target, kind in zip(orderData["Target"], orderData["_row_kind"])
     ]
     fig = px.scatter(
         orderData,
-        x="Minutes the from Start of the Night",
-        y="human_target",
-        hover_data=hover_cols,
+        x="Scheduled (min. from start)",
+        y="Target",
         title="Night Plan",
         width=800,
-        height=1000,
-    )  # color='Program'
-    fig.update_layout(yaxis_title="")
+        height=plot_height,
+    )
+    fig.update_traces(
+        customdata=np.column_stack(
+            [
+                orderData["Scheduled (UTC)"].fillna(""),
+                orderData["Earliest Start"],
+                orderData["Earliest start (UTC)"].fillna(""),
+                orderData["Latest Finish"],
+                orderData["Latest finish (UTC)"].fillna(""),
+                orderData["Visit Length (min)"],
+                orderData["Slew to Next (min)"],
+            ]
+        ),
+        hovertemplate=(
+            "<b>%{y}</b><br>"
+            "Scheduled (min. from start): %{x:.1f}<br>"
+            "Scheduled (UTC): %{customdata[0]}<br>"
+            "Earliest start (min. from start): %{customdata[1]:.1f}<br>"
+            "Earliest start (UTC): %{customdata[2]}<br>"
+            "Latest finish (min. from start): %{customdata[3]:.1f}<br>"
+            "Latest finish (UTC): %{customdata[4]}<br>"
+            "Visit Length (min): %{customdata[5]:.1f}<br>"
+            "Slew to Next (min): %{customdata[6]:.1f}"
+            "<extra></extra>"
+        ),
+        marker=dict(size=0, opacity=0),
+    )
+    fig.update_layout(
+        margin=dict(l=160),
+        plot_bgcolor=_LADDER_BG,
+        paper_bgcolor="white",
+        yaxis_title="",
+        yaxis=dict(
+            categoryorder="array",
+            categoryarray=categories,
+            tickmode="array",
+            tickvals=categories,
+            ticktext=y_ticktext,
+        ),
+    )
+    # x-axis titles/ticks applied after x_max is known (minutes bottom, UTC top)
     fig.add_shape(
         type="rect",
         x0=-100,
         x1=-80,
         y0=-0.5,
         y1=0.5,
-        fillcolor="red",
+        fillcolor=_VISIT_COLOR,
+        line=dict(width=0),
         showlegend=True,
-        name="Exposure",
+        name="Visit",
     )
     fig.add_shape(
         type="rect",
@@ -2484,7 +2729,8 @@ def get_ladder(data, tonight_start_time):
         x1=-80,
         y0=-0.5,
         y1=0.5,
-        fillcolor="dimgray",
+        fillcolor=_SLEW_COLOR,
+        line=dict(width=0),
         showlegend=True,
         name="Slew",
     )
@@ -2494,122 +2740,220 @@ def get_ladder(data, tonight_start_time):
         x1=-80,
         y0=-0.5,
         y1=0.5,
-        fillcolor="lime",
-        opacity=0.3,
+        fillcolor=_IDLE_COLOR,
+        line=dict(width=0),
+        showlegend=True,
+        name="Idle",
+    )
+    fig.add_shape(
+        type="rect",
+        x0=-100,
+        x1=-80,
+        y0=-0.5,
+        y1=0.5,
+        fillcolor=_ACCESS_FILL_COLOR,
+        line=dict(color=_ACCESS_LINE_COLOR, width=_ACCESS_LINE_WIDTH),
         showlegend=True,
         name="Accessible",
     )
 
     new_already_processed = []
-    ifixer = 0  # for multi-visit targets, it throws off the one row per target plotting...this fixes it
-    for i in range(len(orderData["unique_id"])):
+    ifixer = 0
+    required_visit_bars = []
+    for i in range(len(orderData)):
+        if orderData["_row_kind"].iloc[i] != "target":
+            continue
         if orderData["unique_id"][i] not in new_already_processed:
             indices = [
                 k
-                for k in range(len(orderData["unique_id"]))
+                for k in range(len(orderData))
                 if orderData["unique_id"][k] == orderData["unique_id"][i]
             ]
             for j in range(len(indices)):
                 if j == 0:
-                    # only do this once, otherwise the green bar gets discolored compared to other rows
                     fig.add_shape(
                         type="rect",
-                        x0=orderData["First Available"][indices[j]],
-                        x1=orderData["Last Available"][indices[j]],
+                        x0=orderData["Earliest Start"][indices[j]],
+                        x1=orderData["Latest Finish"][indices[j]],
                         y0=i + ifixer - 0.5,
                         y1=i + ifixer + 0.5,
-                        fillcolor="lime",
-                        opacity=0.3,
+                        fillcolor=_ACCESS_FILL_COLOR,
+                        line=dict(color=_ACCESS_LINE_COLOR, width=_ACCESS_LINE_WIDTH),
                         showlegend=False,
                     )
-                fig.add_shape(
-                    type="rect",
-                    x0=orderData["Start Exposure"][indices[j]],
-                    x1=orderData["Start Exposure"][indices[j]]
-                    + orderData["Total Exp Time (min)"][indices[j]],
-                    y0=i + ifixer - 0.5,
-                    y1=i + ifixer + 0.5,
-                    fillcolor=_weight_color(orderData["Weight"][indices[j]]),
-                )
+                start_exp = float(orderData["Start Exposure"][indices[j]])
+                visit_len = float(orderData["Visit Length (min)"][indices[j]])
+                is_scheduled = bool(orderData["is_scheduled"].iloc[indices[j]])
+                if is_scheduled and start_exp > 0:
+                    fig.add_shape(
+                        type="rect",
+                        x0=start_exp,
+                        x1=start_exp + visit_len,
+                        y0=i + ifixer - 0.5,
+                        y1=i + ifixer + 0.5,
+                        fillcolor=_VISIT_COLOR,
+                        line=dict(width=0),
+                    )
+                elif not is_scheduled and visit_len > 0:
+                    earliest = float(orderData["Earliest Start"][indices[j]])
+                    if not np.isnan(earliest):
+                        required_visit_bars.append(
+                            (
+                                orderData["Target"][indices[j]],
+                                earliest,
+                                visit_len,
+                            )
+                        )
                 slew = float(orderData["Slew to Next (min)"][indices[j]])
-                if slew > 0:
+                if is_scheduled and slew > 0:
                     fig.add_shape(
                         type="rect",
                         x0=orderData["Stop Exposure"][indices[j]],
                         x1=orderData["Stop Exposure"][indices[j]] + slew,
                         y0=i + ifixer - 0.5,
                         y1=i + ifixer + 0.5,
-                        fillcolor="dimgray",
+                        fillcolor=_SLEW_COLOR,
                         line=dict(width=0),
                     )
             new_already_processed.append(orderData["unique_id"][i])
         else:
-            # if we already did this star, it is a multi-visit star and we need to adjust the row counter for plotting purposes
             ifixer -= 1
 
-    if n_unscheduled and n_unscheduled < len(orderData):
-        sep_y = n_unscheduled - 0.5
-        fig.add_hline(y=sep_y, line_color="black", line_width=1, line_dash="solid")
+    for bar_idx, (target, x0, visit_len) in enumerate(required_visit_bars):
+        _add_ladder_required_visit_bar(
+            fig,
+            y=target,
+            x0=x0,
+            visit_len=visit_len,
+            showlegend=(bar_idx == 0),
+        )
 
-    x_min = 0
-    night_start = getattr(model, "night_start", None)
+    if aggregate_y is not None:
+        for kind, x0, x1 in _night_aggregate_segments(model):
+            fig.add_shape(
+                type="rect",
+                x0=x0,
+                x1=x1,
+                y0=aggregate_y - 0.5,
+                y1=aggregate_y + 0.5,
+                fillcolor=_SEGMENT_COLORS[kind],
+                line=dict(width=0),
+                showlegend=False,
+            )
+
+    if summary_y is not None:
+        for kind, x0, x1 in _night_timeline_segments(model):
+            fig.add_shape(
+                type="rect",
+                x0=x0,
+                x1=x1,
+                y0=summary_y - 0.5,
+                y1=summary_y + 0.5,
+                fillcolor=_SEGMENT_COLORS[kind],
+                line=dict(width=0),
+                showlegend=False,
+            )
+
+    for _, row in orderData.iterrows():
+        if row["_row_kind"] not in ("section_header", "summary"):
+            continue
+        label = row["Target"]
+        fig.add_annotation(
+            y=label,
+            xref="paper",
+            x=0,
+            xanchor="right",
+            text=f"<b>{label}</b>",
+            showarrow=False,
+            font=dict(size=13, color="black"),
+        )
+
     night_end = getattr(model, "night_end", None)
+    fallback_end = None
     if night_start is not None and night_end is not None:
-        x_max = (night_end.jd - night_start.jd) * 24 * 60
+        fallback_end = (night_end.jd - night_start.jd) * 24 * 60
+    elif hasattr(model, "dur_min") and model.dur_min is not None:
+        fallback_end = float(model.dur_min)
+    elif getattr(model, "stats", None) and "dur_min" in model.stats:
+        fallback_end = float(model.stats["dur_min"])
     elif len(orderData) > 0:
+        target_rows = orderData[orderData["_row_kind"] == "target"]
         end_times = (
-            orderData["Start Exposure"]
-            + orderData["Total Exp Time (min)"]
-            + orderData["Slew to Next (min)"]
+            target_rows["Start Exposure"]
+            + target_rows["Visit Length (min)"]
+            + target_rows["Slew to Next (min)"]
         )
-        x_max = end_times.max()
+        fallback_end = float(end_times.max())
     else:
-        x_max = 600
-    fig.update_layout(xaxis_range=[x_min, x_max])
-    for x_line, label in [(x_min, "start"), (x_max, "end")]:
-        fig.add_vline(
-            x=x_line,
-            line_color="black",
-            line_width=1,
-            annotation_text=label,
-            annotation_position="top",
+        fallback_end = 600.0
+
+    x_min = 0.0
+    x_max = fallback_end
+    if tonight_start_time is not None:
+        utc_tickvals, utc_ticktext = _ladder_utc_ticks(
+            tonight_start_time, x_min, x_max
         )
-    # Add secondary x-axis with UTC time
-    start_time = tonight_start_time.to_datetime()
-    # Create tick positions (every 60 minutes or so, adjust as needed)
-    tick_interval = 60  # minutes
-    tick_positions = list(range(0, int(x_max) + tick_interval, tick_interval))
-    tick_labels = [
-        (start_time + timedelta(minutes=pos)).strftime("%H:%M")
-        for pos in tick_positions
-    ]
-    # Add secondary x-axis
-    # Add an invisible trace to force the secondary axis to appear
+    else:
+        utc_tickvals, utc_ticktext = [], []
+
+    min_tickvals, min_ticktext = _ladder_minute_axis_ticks(x_min, x_max)
+
+    for x_line in utc_tickvals:
+        fig.add_shape(
+            type="line",
+            x0=x_line,
+            x1=x_line,
+            y0=0,
+            y1=1,
+            xref="x",
+            yref="paper",
+            line=dict(color="white", width=1),
+            layer="below",
+        )
+
+    if tonight_start_time is not None:
+        night_end_min = fallback_end
+        start_utc = tonight_start_time.isot[11:16]
+        if night_end is not None:
+            end_utc = night_end.isot[11:16]
+        else:
+            end_utc = _min_to_utc_hhmm(tonight_start_time, night_end_min)
+        _add_ladder_night_boundary(fig, 0.0, start_utc, side="start")
+        _add_ladder_night_boundary(fig, night_end_min, end_utc, side="end")
+
+    y_ref = orderData["Target"].iloc[-1] if len(orderData) else ""
     fig.add_trace(
         go.Scatter(
             x=[x_min, x_max],
-            y=["unique_id", "unique_id"],  # Place just below the visible range
+            y=[y_ref, y_ref],
             mode="markers",
-            marker=dict(size=0.1, opacity=0),
+            marker=dict(size=0.001, opacity=0),
             showlegend=False,
             hoverinfo="skip",
             xaxis="x2",
         )
     )
-    # Create the secondary x-axis configuration
     fig.update_layout(
+        xaxis=dict(
+            title="time since start [min]",
+            range=[x_min, x_max],
+            tickmode="array",
+            tickvals=min_tickvals,
+            ticktext=min_ticktext,
+            showgrid=False,
+        ),
         xaxis2=dict(
-            title=dict(text="UTC Time", standoff=0),
+            title=dict(text="time [UTC]", standoff=0),
             overlaying="x",
             side="top",
             range=[x_min, x_max],
             tickmode="array",
-            tickvals=tick_positions,
-            ticktext=tick_labels,
+            tickvals=utc_tickvals,
+            ticktext=utc_ticktext,
             showgrid=False,
             showline=True,
             mirror=True,
-        )
+        ),
     )
 
     return fig
@@ -2646,15 +2990,15 @@ def get_script_plan(night_planner):
     scheduled = on_sky[on_sky["scheduled"]].sort_values("order")
 
     merged_df = request_selected_df.merge(
-        scheduled[["unique_id", "t_start", "t_early", "t_late"]],
+        scheduled[["unique_id", "t_start", "t_earliest_start", "t_latest_finish"]],
         on="unique_id",
         how="inner",
     )
     merged_df = merged_df.rename(
         columns={
             "t_start": "Start Exposure",
-            "t_early": "First Available",
-            "t_late": "Last Available",
+            "t_earliest_start": "Earliest Start",
+            "t_latest_finish": "Latest Finish",
         }
     )
 
@@ -2665,9 +3009,9 @@ def get_script_plan(night_planner):
     #     'jmag', 'Vmag', 'epoch', 'gaia_id', 'First Available', 'Last Available'
     # ]
     desired_columns = [
-        "First Available",
+        "Earliest Start",
         "Start Exposure",
-        "Last Available",
+        "Latest Finish",
         "unique_id",
         "target",
         "program_code",
@@ -2732,8 +3076,8 @@ def get_script_plan(night_planner):
                 )
             )
 
-        if "First Available" in final_df.columns:
-            final_df["First Available"] = final_df["First Available"].apply(
+        if "Earliest Start" in final_df.columns:
+            final_df["Earliest Start"] = final_df["Earliest Start"].apply(
                 lambda x: (
                     str(TimeDelta(x * 60, format="sec") + night_start_time)[11:16]
                     if pd.notna(x)
@@ -2741,8 +3085,8 @@ def get_script_plan(night_planner):
                 )
             )
 
-        if "Last Available" in final_df.columns:
-            final_df["Last Available"] = final_df["Last Available"].apply(
+        if "Latest Finish" in final_df.columns:
+            final_df["Latest Finish"] = final_df["Latest Finish"].apply(
                 lambda x: (
                     str(TimeDelta(x * 60, format="sec") + night_start_time)[11:16]
                     if pd.notna(x)
@@ -2976,9 +3320,9 @@ def request_frame_to_html(
 
 
 NIGHTPLAN_COLUMNS = [
-    "First Available",
+    "Earliest Start",
     "Start Exposure",
-    "Last Available",
+    "Latest Finish",
     "unique_id",
     "target",
     "program_code",
@@ -2992,9 +3336,9 @@ NIGHTPLAN_COLUMNS = [
     "Vmag",
 ]
 NIGHTPLAN_COLUMN_TOOLTIPS = {
-    "First Available": "First available time to observe (HH:MM). Use > < >= <= with HH:MM to filter.",
+    "Earliest Start": "Earliest allowed start time (HH:MM). Use > < >= <= with HH:MM to filter.",
     "Start Exposure": "Scheduled start time (HH:MM). Use > < >= <= with HH:MM to filter.",
-    "Last Available": "Last available time to observe (HH:MM). Use > < >= <= with HH:MM to filter.",
+    "Latest Finish": "Latest allowed finish time (HH:MM). Use > < >= <= with HH:MM to filter.",
     "unique_id": "Keck OB database unique ID",
     "target": "Name of the target",
     "program_code": "Program Code",
@@ -3020,7 +3364,7 @@ def nightplan_table_to_html(script_df, table_id="script-table", page_size=100):
     Convert nightplan script DataFrame to HTML with same styling as request_frame_to_html.
 
     Same colors, fonts, fontsize, filtering (partial match, numeric > < >= <=), hover tooltips.
-    Displays: First Available, Start Exposure, Last Available, unique_id, target, program_code,
+    Displays: Earliest Start, Start Exposure, Latest Finish, unique_id, target, program_code,
     ra, dec, exptime, n_exp, n_intra_max, tau_intra, jmag, Vmag.
     """
     df = script_df.copy().reset_index(drop=True)
@@ -3059,9 +3403,9 @@ def nightplan_table_to_html(script_df, table_id="script-table", page_size=100):
 
 # Default per-column widths for `dataframe_to_html` (legacy generic table).
 _GENERIC_WIDTH_MAP = {
-    "First Available": "80px",
+    "Earliest Start": "80px",
     "Start Exposure": "80px",
-    "Last Available": "80px",
+    "Latest Finish": "80px",
     "unique_id": "200px",
     "target": "200px",
     "program_code": "120px",

@@ -720,7 +720,10 @@ def archive(args):
             f.write(webrender.build_nightplan_html(loaded, band))
         log.info("Wrote %s", night_path)
     else:
-        log.info("No night_planner.h5 in %s; skipping nightplan.html", outputs_dir)
+        log.info(
+            "No loadable night planner in %s; skipping nightplan.html",
+            outputs_dir,
+        )
 
     return
 
