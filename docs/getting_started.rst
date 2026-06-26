@@ -244,20 +244,23 @@ Let's take a look at the outputs produced:
        e2, 5, 35, TOI-1670
        e2, 8, 41, TOI-1670
 
-- ``runReport.txt``: contains some basic statistics about the fullness of the schedule. See example (note, this schedule is not supposed to be a good one!):
+- The run report (printed to stdout after ``plan-semester``) contains basic statistics about the fullness of the schedule. See example (note, this schedule is not supposed to be a good one!):
     
     ::
 
-        Stats for Round1
+        Semester Planner Statistics
         ------------------------------------------------------
+        Total requests                          42
+        Total requests (active)                 38
         Total allocated slots                 2874
-        Total allocated slots (past)             0
-        Total allocated slots (future)        2874
-        Visits scheduled                       183
-        Future slots reserved                   26
-        Future slots empty                    2665
-        N slots requested (total)              807
-        Utilization (% of future allocated)      7
+        Total slots requested                  850
+        Total slots requested (active)         807
+        Future allocated slots                2874
+        Future reserved slots                   26
+        Future fill factor                       7
+        Current day allocated slots             62
+        Current day reserved slots               4
+        Current day fill factor                 10
 
 - ``request_selected.csv``: contains a copy of the request.csv file but only for the targets that were selected to be observed.:
 
