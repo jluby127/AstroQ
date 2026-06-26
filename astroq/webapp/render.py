@@ -219,6 +219,8 @@ def build_program_html(
     date: str,
     band: str,
     program_code: str,
+    *,
+    link_targets: bool = True,
 ) -> str:
     """Render a program overview page."""
     if program_code not in loaded.data_astroq[0]:
@@ -226,9 +228,12 @@ def build_program_html(
 
     program_stars = loaded.data_astroq[0][program_code]
     request_df = pl.get_request_frame(loaded.semester_planner, program_stars)
-    request_table_html = pl.request_frame_to_html(
-        request_df, semester_code, date, band
-    )
+    if link_targets:
+        request_table_html = pl.request_frame_to_html(
+            request_df, semester_code, date, band
+        )
+    else:
+        request_table_html = pl.request_frame_to_html(request_df)
 
     fig_cof = pl.get_cof(loaded.semester_planner, program_stars)
     fig_birdseye = pl.get_birdseye(

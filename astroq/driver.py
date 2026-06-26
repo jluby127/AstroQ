@@ -698,7 +698,7 @@ def plot(args):
 
 def archive(args):
     """
-    Export static HTML copies of the webapp admin and nightplan pages.
+    Export static HTML copies of the webapp admin, nightplan, and program pages.
 
     Args:
         args (argparse.Namespace): the command line arguments with flags:
@@ -741,5 +741,22 @@ def archive(args):
             "No loadable night planner in %s; skipping nightplan.html",
             outputs_dir,
         )
+
+    programs_dir = os.path.join(archive_dir, "programs")
+    os.makedirs(programs_dir, exist_ok=True)
+    for program_code in sorted(loaded.data_astroq[0]):
+        program_path = os.path.join(programs_dir, f"{program_code}.html")
+        with open(program_path, "w", encoding="utf-8") as f:
+            f.write(
+                webrender.build_program_html(
+                    loaded,
+                    semester,
+                    date,
+                    band,
+                    program_code,
+                    link_targets=False,
+                )
+            )
+        log.info("Wrote %s", program_path)
 
     return

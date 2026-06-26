@@ -246,7 +246,7 @@ class TestClass(unittest.TestCase):
                         f.write(resp.data)
 
     def test13_archive(self):
-        """Export admin and nightplan static HTML via astroq archive."""
+        """Export admin, nightplan, and program static HTML via astroq archive."""
         import tempfile
         from unittest.mock import patch
 
@@ -257,6 +257,7 @@ class TestClass(unittest.TestCase):
         archive_dir = os.path.join(workdir, "outputs", "webapp_archive")
         admin_path = os.path.join(archive_dir, "admin.html")
         night_path = os.path.join(archive_dir, "nightplan.html")
+        programs_dir = os.path.join(archive_dir, "programs")
 
         tmp = tempfile.mkdtemp(prefix="astroq_archive_")
         from pathlib import Path
@@ -266,11 +267,20 @@ class TestClass(unittest.TestCase):
 
         self.assertTrue(os.path.isfile(admin_path), f"missing {admin_path}")
         self.assertTrue(os.path.isfile(night_path), f"missing {night_path}")
+        self.assertTrue(os.path.isdir(programs_dir), f"missing {programs_dir}")
+        program_html = [
+            f for f in os.listdir(programs_dir) if f.endswith(".html")
+        ]
+        self.assertGreater(len(program_html), 0, "no program archive pages written")
 
         with open(admin_path, encoding="utf-8") as f:
             admin_html = f.read()
         with open(night_path, encoding="utf-8") as f:
             night_html = f.read()
+        with open(
+            os.path.join(programs_dir, program_html[0]), encoding="utf-8"
+        ) as f:
+            program_page = f.read()
 
         self.assertIn("Admin Dashboard", admin_html)
         self.assertIn("plotly-graph-div", admin_html)
@@ -279,6 +289,10 @@ class TestClass(unittest.TestCase):
         self.assertIn("Night Plan", night_html)
         self.assertIn("plotly-graph-div", night_html)
         self.assertNotIn("download_nightplan", night_html)
+
+        self.assertIn("Semester Plan", program_page)
+        self.assertIn("plotly-graph-div", program_page)
+        self.assertNotIn('href="/2018B/2018-08-05/band1/', program_page)
 
     def test14_jump_query_to_past(self):
         """Visit groups need >=50% of n_exp frames; one row per accepted visit."""

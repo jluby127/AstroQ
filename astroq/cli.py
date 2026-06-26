@@ -84,7 +84,7 @@ def main():
     psr_archive = subpsr.add_parser(
         "archive",
         parents=[psr_parent],
-        description="Export static HTML copies of webapp admin and nightplan pages",
+        description="Export static HTML copies of webapp admin, nightplan, and program pages",
         prefix_chars="-",
     )
     psr_archive.add_argument(
