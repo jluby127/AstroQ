@@ -2616,43 +2616,39 @@ def get_ladder(data, tonight_start_time):
     orderData = orderData.iloc[::-1].reset_index(drop=True)
     orderData["_row_kind"] = "target"
 
-    n_before_insert = len(orderData)
-    summary_y = None
-    aggregate_y = None
-    if n_unscheduled > 0 and n_unscheduled < n_before_insert:
-        unsched_header = _synthetic_ladder_row(orderData.columns)
-        unsched_header["unique_id"] = "__unsched_header__"
-        unsched_header["Target"] = "Unscheduled requests"
-        unsched_header["_row_kind"] = "section_header"
+    unsched_header = _synthetic_ladder_row(orderData.columns)
+    unsched_header["unique_id"] = "__unsched_header__"
+    unsched_header["Target"] = "Unscheduled targets"
+    unsched_header["_row_kind"] = "section_header"
 
-        aggregate = _synthetic_ladder_row(orderData.columns)
-        aggregate["unique_id"] = "__aggregate__"
-        aggregate["Target"] = " "
-        aggregate["_row_kind"] = "aggregate"
+    aggregate = _synthetic_ladder_row(orderData.columns)
+    aggregate["unique_id"] = "__aggregate__"
+    aggregate["Target"] = " "
+    aggregate["_row_kind"] = "aggregate"
 
-        summary = _synthetic_ladder_row(orderData.columns)
-        summary["unique_id"] = "__summary__"
-        summary["Target"] = "All scheduled requests"
-        summary["_row_kind"] = "summary"
+    summary = _synthetic_ladder_row(orderData.columns)
+    summary["unique_id"] = "__summary__"
+    summary["Target"] = "All scheduled targets"
+    summary["_row_kind"] = "summary"
 
-        sched_header = _synthetic_ladder_row(orderData.columns)
-        sched_header["unique_id"] = "__sched_header__"
-        sched_header["Target"] = "Scheduled requests"
-        sched_header["_row_kind"] = "section_header"
+    sched_header = _synthetic_ladder_row(orderData.columns)
+    sched_header["unique_id"] = "__sched_header__"
+    sched_header["Target"] = "Scheduled targets"
+    sched_header["_row_kind"] = "section_header"
 
-        orderData = pd.concat(
-            [
-                orderData.iloc[:n_unscheduled],
-                pd.DataFrame([unsched_header]),
-                pd.DataFrame([aggregate]),
-                pd.DataFrame([summary]),
-                orderData.iloc[n_unscheduled:],
-                pd.DataFrame([sched_header]),
-            ],
-            ignore_index=True,
-        )
-        aggregate_y = n_unscheduled + 1
-        summary_y = n_unscheduled + 2
+    orderData = pd.concat(
+        [
+            orderData.iloc[:n_unscheduled],
+            pd.DataFrame([unsched_header]),
+            pd.DataFrame([aggregate]),
+            pd.DataFrame([summary]),
+            orderData.iloc[n_unscheduled:],
+            pd.DataFrame([sched_header]),
+        ],
+        ignore_index=True,
+    )
+    aggregate_y = n_unscheduled + 1
+    summary_y = n_unscheduled + 2
 
     # Hide scatter markers on synthetic rows
     mask = orderData["_row_kind"] != "target"
@@ -2828,31 +2824,29 @@ def get_ladder(data, tonight_start_time):
             showlegend=(bar_idx == 0),
         )
 
-    if aggregate_y is not None:
-        for kind, x0, x1 in _night_aggregate_segments(model):
-            fig.add_shape(
-                type="rect",
-                x0=x0,
-                x1=x1,
-                y0=aggregate_y - 0.5,
-                y1=aggregate_y + 0.5,
-                fillcolor=_SEGMENT_COLORS[kind],
-                line=dict(width=0),
-                showlegend=False,
-            )
+    for kind, x0, x1 in _night_aggregate_segments(model):
+        fig.add_shape(
+            type="rect",
+            x0=x0,
+            x1=x1,
+            y0=aggregate_y - 0.5,
+            y1=aggregate_y + 0.5,
+            fillcolor=_SEGMENT_COLORS[kind],
+            line=dict(width=0),
+            showlegend=False,
+        )
 
-    if summary_y is not None:
-        for kind, x0, x1 in _night_timeline_segments(model):
-            fig.add_shape(
-                type="rect",
-                x0=x0,
-                x1=x1,
-                y0=summary_y - 0.5,
-                y1=summary_y + 0.5,
-                fillcolor=_SEGMENT_COLORS[kind],
-                line=dict(width=0),
-                showlegend=False,
-            )
+    for kind, x0, x1 in _night_timeline_segments(model):
+        fig.add_shape(
+            type="rect",
+            x0=x0,
+            x1=x1,
+            y0=summary_y - 0.5,
+            y1=summary_y + 0.5,
+            fillcolor=_SEGMENT_COLORS[kind],
+            line=dict(width=0),
+            showlegend=False,
+        )
 
     for _, row in orderData.iterrows():
         if row["_row_kind"] not in ("section_header", "summary"):
