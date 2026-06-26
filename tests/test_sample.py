@@ -289,7 +289,7 @@ class TestClass(unittest.TestCase):
         self.assertIn("plotly-graph-div", night_html)
         self.assertNotIn("download_nightplan", night_html)
 
-    def test14_exposures_to_visits(self):
+    def test14_jump_query_to_past(self):
         """Visit groups need >=50% of n_exp frames; one row per accepted visit."""
         import tempfile
 
@@ -297,7 +297,7 @@ class TestClass(unittest.TestCase):
 
         frames = pd.DataFrame(
             {
-                "target": ["T1", "T1", "T1", "T2", "T2", "T2"],
+                "starname": ["T1", "T1", "T1", "T2", "T2", "T2"],
                 "timestamp": [
                     "2026-03-02 14:15",
                     "2026-03-02 14:17",
@@ -307,6 +307,8 @@ class TestClass(unittest.TestCase):
                     "2026-04-05 07:15",
                 ],
                 "exposure_time": [95, 128, 169, 95, 16, 16],
+                "decker": ["C2"] * 6,
+                "iodine_in": [False] * 6,
             }
         )
         tmp = tempfile.mkdtemp(prefix="astroq_visits_")
@@ -314,7 +316,7 @@ class TestClass(unittest.TestCase):
         pd.DataFrame({"unique_id": ["T1", "T2"], "n_exp": [3, 3]}).to_csv(
             req_csv, index=False
         )
-        out = prep.exposures_to_visits(frames, request_csv_path=req_csv)
+        out = prep.jump_query_to_past(frames, req_csv)
         self.assertEqual(len(out), 2)
         t1 = out.loc[out["unique_id"] == "T1"].iloc[0]
         self.assertEqual(t1["timestamp"], "2026-03-02 14:15")
