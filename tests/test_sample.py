@@ -109,16 +109,7 @@ class TestClass(unittest.TestCase):
             )
         )
 
-    def test08_requests_vs_schedule(self):
-        sch = "examples/hello_world/2018B/2018-08-05/band1/outputs/semester_plan.csv"
-        dr.requests_vs_schedule(
-            argparse.Namespace(
-                config_file="examples/hello_world/config_hello_world.ini",
-                schedule_file=sch,
-            )
-        )
-
-    def test09_hdf5_validation(self):
+    def test08_hdf5_validation(self):
         """NightPlanner schema v5: config_ini_text + TTP solution round-trip."""
         outputs_dir = "examples/hello_world/2018B/2018-08-05/band1/outputs"
         semester_planner_h5 = os.path.join(outputs_dir, "semester_planner.h5")
