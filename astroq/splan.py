@@ -205,20 +205,19 @@ class SemesterPlanner:
         if "comments" not in rfa.columns:
             rfa["comments"] = ""
         rfa["inactive"] = rfa["inactive"].fillna(False).astype(bool)
-        mask = ~rfa["inactive"]
         logs.warning(
-            f"There are {len(rfa[~mask])} inactive of {len(rfa)} requests."
+            f"There are {int(rfa['inactive'].sum())} inactive of {len(rfa)} requests."
         )
-        rf = rfa[mask].reset_index(drop=True).copy()
 
-        for col, default in (("n_intra_max", 1), ("n_intra_min", 1), ("tau_intra", 0)):
-            rf[col] = rf[col].replace("None", np.nan).fillna(default)
-        for band in (1, 2, 3):
-            col = f"weather_band_{band}"
-            if col in rf.columns:
-                rf[col] = rf[col].replace("None", np.nan).fillna(False)
-        rf["unique_id"] = rf["unique_id"].astype(str)
-        rf["target"] = rf["target"].astype(str)
+        # Clean the whole frame (active + inactive) before deriving slot
+        # columns. The throttle counts past usage on every row, including
+        # inactive ones, so inactive rows must carry valid strategy fields
+        # too. This is the same legacy "None" handling previously applied to
+        # the active subset only; it is a no-op on already-clean inputs.
+        rfa = self._clean_requests_frame(rfa)
+        self._attach_slot_columns(rfa)
+
+        rf = rfa[~rfa["inactive"]].reset_index(drop=True).copy()
 
         dup_mask = rf["unique_id"].duplicated(keep=False)
         if dup_mask.any():
@@ -229,8 +228,25 @@ class SemesterPlanner:
                 f"request has one row."
             )
 
-        self._attach_slot_columns(rf)
         return rfa, rf
+
+    @staticmethod
+    def _clean_requests_frame(rf):
+        """Normalize legacy ``"None"`` strings and id dtypes in place.
+
+        Applied to the full request frame (active + inactive) so every row
+        carries valid strategy fields for slot-column derivation. No-op on
+        already-clean inputs. Mutates and returns ``rf``.
+        """
+        for col, default in (("n_intra_max", 1), ("n_intra_min", 1), ("tau_intra", 0)):
+            rf[col] = rf[col].replace("None", np.nan).fillna(default)
+        for band in (1, 2, 3):
+            col = f"weather_band_{band}"
+            if col in rf.columns:
+                rf[col] = rf[col].replace("None", np.nan).fillna(False)
+        rf["unique_id"] = rf["unique_id"].astype(str)
+        rf["target"] = rf["target"].astype(str)
+        return rf
 
     def _attach_slot_columns(self, rf):
         """Append ``t_visit_slots`` and ``tau_intra_slots`` columns to ``rf``.
@@ -889,12 +905,46 @@ class SemesterPlanner:
 
     # ---- throttling & bonus round ----
 
+    def _past_slots_by_program(self):
+        """Past slots consumed per program, summed over ALL request rows.
+
+        Counts both active and inactive requests: inactive targets can never
+        be scheduled, but their past observations still consume the program's
+        throttle budget, so a PI cannot reclaim time by flipping a target
+        inactive. Returns ``dict[program_code -> int past_slots]``.
+        """
+        rfa = self.requests_frame_all
+        t_visit = dict(
+            zip(rfa["unique_id"].astype(str), rfa["t_visit_slots"].astype(int))
+        )
+        if self.past_df.empty:
+            past_n = pd.Series(dtype="int64")
+        else:
+            past_n = (
+                self.past_df.assign(
+                    unique_id=self.past_df["unique_id"].astype(str)
+                )
+                .groupby("unique_id")
+                .size()
+            )
+
+        out = {}
+        for uid, prog in zip(
+            rfa["unique_id"].astype(str), rfa["program_code"]
+        ):
+            slots = int(past_n.get(uid, 0)) * t_visit.get(uid, 0)
+            out[prog] = out.get(prog, 0) + slots
+        return out
+
     def constraint_throttle(self):
         """
         Not described in Lubin et al. 2025.
 
         Ensure that no program is scheduled for more time than they bring to
-        the queue (within a grace amount).
+        the queue (within a grace amount). Past usage is counted over ALL
+        request rows (active and inactive) via
+        :meth:`_past_slots_by_program`, while only active targets contribute
+        schedulable slots (inactive targets have no ``Yrds`` variables).
         """
         logs.info("Constraint: Throttling over-requested programs.")
         program_frame = pd.read_csv(self.programs_file).set_index("program")
@@ -909,33 +959,21 @@ class SemesterPlanner:
             program_frame["awarded_slots"] * throttle_grace
         ).astype(int)
 
-        rf = self.requests_frame
-        t_visit_slots = dict(zip(rf["unique_id"], rf["t_visit_slots"]))
-        merged_df = rf[
-            ["unique_id", "program_code", "past_n_exposures", "t_visit_slots"]
-        ].copy()
-        merged_df["past_slots_used"] = (
-            merged_df["past_n_exposures"].astype(int)
-            * merged_df["t_visit_slots"].astype(int)
-        )
-        merged_df = merged_df.drop(columns=["past_n_exposures", "t_visit_slots"])
-        merged_df = merged_df.merge(
-            program_frame[["nights"]],
-            left_on="program_code",
-            right_index=True,
-            how="inner",
+        # Past budget: ALL rows (active + inactive).
+        past_used_slots_by_program = self._past_slots_by_program()
+
+        # Schedulable budget: only ACTIVE targets get Yrds variables, so the
+        # quicksum stays restricted to active uids.
+        active = self.requests_frame
+        t_visit_slots = dict(zip(active["unique_id"], active["t_visit_slots"]))
+        active_uids_by_program = (
+            active.groupby("program_code")["unique_id"].apply(set).to_dict()
         )
 
-        past_used_slots_by_program = (
-            merged_df.groupby("program_code")["past_slots_used"].sum().to_dict()
-        )
-        program_requests_map = (
-            merged_df.groupby("program_code")["unique_id"].apply(set).to_dict()
-        )
-
+        clamped = []
         for program, row in program_frame.iterrows():
             awarded_slots_grace = int(row["awarded_slots_grace"])
-            uids_for_program = program_requests_map.get(program, set())
+            uids_for_program = active_uids_by_program.get(program, set())
             schedulable_slots = gp.quicksum(
                 self.Yrds[r, d, s] * t_visit_slots[r]
                 for r, d, s in self.yrds_tuples
@@ -943,19 +981,20 @@ class SemesterPlanner:
             )
             past_used = past_used_slots_by_program.get(program, 0)
             if awarded_slots_grace < past_used:
-                logs.warning(
-                    f"Program {program} has already been over-observed. "
-                    f"Setting award equal to past used."
-                )
-                logs.warning(
-                    f"Therefore, Program {program}, will not be scheduled "
-                    f"for any additional observations."
-                )
+                clamped.append(program)
                 awarded_slots_grace = past_used
 
             self.model.addConstr(
                 awarded_slots_grace - past_used >= schedulable_slots,
                 f"throttle_program_{program}",
+            )
+
+        if clamped:
+            logs.warning(
+                "Throttle: %d program(s) at/over grace from past alone "
+                "(no new scheduling allowed): %s",
+                len(clamped),
+                ", ".join(sorted(str(p) for p in clamped)),
             )
 
     def constraint_fix_previous_objective(self, epsilon=0.03):
@@ -1176,14 +1215,21 @@ class SemesterPlanner:
         slots_per_hour = 60 / slot_size
 
         # ---- top-level summary as a Series ----
+        today_idx = self.today_starting_night
         is_alloc_2d = self.access_record["is_allocated"][0]
+        allocated_past = int(is_alloc_2d[:today_idx].sum())
+        allocated_future = int(is_alloc_2d[today_idx:].sum())
+        allocated = allocated_past + allocated_future
+
         sched = self.schedule
+        sched_future = sched[sched["d"] >= today_idx]
         t_visit_slots = self.requests_frame.set_index("unique_id")["t_visit_slots"]
-        slots_per_visit = sched["unique_id"].map(t_visit_slots).fillna(1)
-        scheduled_starting = len(sched)
-        reserved = int((slots_per_visit - 1).clip(lower=0).sum())
-        total_scheduled = scheduled_starting + reserved
-        allocated = int(is_alloc_2d.sum())
+        slots_per_visit = sched_future["unique_id"].map(t_visit_slots).fillna(1)
+        visits_scheduled = len(sched_future)
+        future_reserved = int((slots_per_visit - 1).clip(lower=0).sum())
+        future_scheduled = visits_scheduled + future_reserved
+        future_empty = allocated_future - future_scheduled
+
         rf_slots = self.requests_frame["t_visit_slots"]
         total_requested = int(
             (
@@ -1195,19 +1241,16 @@ class SemesterPlanner:
 
         summary = pd.Series(
             {
-                "N slots in semester": is_alloc_2d.size,
-                "N available slots": allocated,
-                "N starting slots scheduled": scheduled_starting,
-                "N reserved slots": reserved,
-                "N total slots scheduled": total_scheduled,
-                "N slots left empty": allocated - total_scheduled,
+                "Total allocated slots": allocated,
+                "Total allocated slots (past)": allocated_past,
+                "Total allocated slots (future)": allocated_future,
+                "Visits scheduled": visits_scheduled,
+                "Future slots reserved": future_reserved,
+                "Future slots empty": future_empty,
                 "N slots requested (total)": total_requested,
-                "Utilization (% of available slots)": (
-                    100 * total_scheduled / allocated if allocated else 0.0
-                ),
-                "Utilization (% of requested slots)": (
-                    100 * total_scheduled / total_requested
-                    if total_requested
+                "Utilization (% of future allocated)": (
+                    100 * future_scheduled / allocated_future
+                    if allocated_future
                     else 0.0
                 ),
             }
@@ -1221,12 +1264,19 @@ class SemesterPlanner:
         )
         awarded = progs["awarded_nights"] * hours_per_night
 
+        # Requested hours: active requests only (the right denominator for
+        # done/req%). Past hours: ALL rows (active + inactive) via the same
+        # helper the throttle constraint uses, so the report matches what is
+        # enforced and what the webapp plots display.
         rf = self.requests_frame.copy()
         rf["requested_h"] = (
             rf["t_visit_slots"] * rf["n_intra_max"] * rf["n_inter_max"]
         ) / slots_per_hour
-        rf["past_h"] = (rf["past_n_exposures"] * rf["t_visit_slots"]) / slots_per_hour
-        by_prog = rf.groupby("program_code")[["requested_h", "past_h"]].sum()
+        requested_by_prog = rf.groupby("program_code")["requested_h"].sum()
+        past_by_prog = (
+            pd.Series(self._past_slots_by_program(), dtype="float64")
+            / slots_per_hour
+        )
 
         sched_with_prog = sched.merge(
             self.requests_frame[["unique_id", "program_code", "t_visit_slots"]],
@@ -1240,16 +1290,10 @@ class SemesterPlanner:
 
         table = (
             pd.DataFrame({"awarded": awarded})
-            .join(by_prog, how="left")
-            .join(scheduled_h, how="left")
+            .join(requested_by_prog.rename("requested"), how="left")
+            .join(past_by_prog.rename("past"), how="left")
+            .join(scheduled_h.rename("scheduled"), how="left")
             .fillna(0.0)
-            .rename(
-                columns={
-                    "requested_h": "requested",
-                    "past_h": "past",
-                    "scheduled_h": "scheduled",
-                }
-            )
         )
         done = table["past"] + table["scheduled"]
         table["req/aw%"] = np.where(
@@ -1381,16 +1425,22 @@ class SemesterPlanner:
         instance.custom_file = instance._resolve_path("custom_file")
         instance.programs_file = instance._resolve_path("programs_file")
 
-        # Cleaning was done at original CSV ingest; on rehydrate we just split
-        # active vs. all, then re-derive the slot/past columns (they're pure
-        # functions of the persisted data so we don't ship them on disk).
+        # Re-derive slot columns on the full frame (active + inactive) so the
+        # throttle can count past usage on every row. Columns are pure
+        # functions of the persisted data, so we don't ship them on disk;
+        # cleaning is re-applied to tolerate older h5 files written before
+        # inactive rows were normalized.
+        requests_frame_all["inactive"] = (
+            requests_frame_all["inactive"].astype(bool)
+        )
+        requests_frame_all = cls._clean_requests_frame(requests_frame_all)
+        instance._attach_slot_columns(requests_frame_all)
         instance.requests_frame_all = requests_frame_all
         instance.requests_frame = (
-            requests_frame_all[~requests_frame_all["inactive"].astype(bool)]
+            requests_frame_all[~requests_frame_all["inactive"]]
             .reset_index(drop=True)
             .copy()
         )
-        instance._attach_slot_columns(instance.requests_frame)
 
         instance.past_df = past_df
         instance._attach_past_columns()

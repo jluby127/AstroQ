@@ -250,15 +250,14 @@ Let's take a look at the outputs produced:
 
         Stats for Round1
         ------------------------------------------------------
-        N slots in semester:26496
-        N available slots:2874
-        N starting slots scheduled: 183
-        N reserved slots: 26
-        N total slots scheduled: 209
-        N slots left empty: 2665
-        N slots requested (total): 807
-        Utilization (% of available slots): 7.272%
-        Utilization (% of requested slots): 25.898%
+        Total allocated slots                 2874
+        Total allocated slots (past)             0
+        Total allocated slots (future)        2874
+        Visits scheduled                       183
+        Future slots reserved                   26
+        Future slots empty                    2665
+        N slots requested (total)              807
+        Utilization (% of future allocated)      7
 
 - ``request_selected.csv``: contains a copy of the request.csv file but only for the targets that were selected to be observed.:
 
