@@ -182,7 +182,7 @@ Let's see which subcommands are available using ``astroq --help``:
     .. code-block:: bash
     
     
-        $ usage: astroq [-h] [-V] {bench,plot,kpfcc_prep,webapp,plan-semester,plan-night,compare} ...
+        $ usage: astroq [-h] [-V] {bench,plot,kpfcc_prep,webapp,plan-semester,plan-night} ...
 
             AstroQ: Optimized observation scheduling
 
@@ -191,7 +191,7 @@ Let's see which subcommands are available using ``astroq --help``:
             -V, --version         Print version number and exit.
 
             subcommands:
-            {bench,plot,prep,webapp,plan-semester,plan-night,compare}
+            {bench,plot,prep,webapp,plan-semester,plan-night}
                 
 
 The AstroQ command-line interface provides the following subcommands:
@@ -201,7 +201,6 @@ The AstroQ command-line interface provides the following subcommands:
 * ``webapp`` - Launch web app to view interactive plots for a given solution of AstroQ.
 * ``plan-semester`` - Solve for the optimal semester-long schedule, determining what stars to observe on what nights. This is the heart of AstroQ.
 * ``plan-night`` - Solve for the optimal slew path using the TTP package.
-* ``compare`` - Compare two AstroQ solutions.
 
 **Below are more detailed explanations of these commands and their outputs.**
 
