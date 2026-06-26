@@ -1273,7 +1273,7 @@ class SemesterPlanner:
         )
         self.schedule = sparse
 
-    def to_string(self, *, header="Stats for Round1"):
+    def to_string(self, *, header="Semester Planner Statistics"):
         """Run report: top-level summary Series + per-program hours DataFrame.
 
         Requires that :meth:`build_schedule` has been called so
@@ -1286,59 +1286,52 @@ class SemesterPlanner:
         hours_per_night = self.config.getfloat("semester", "hours_per_night")
         slots_per_hour = 60 / slot_size
 
+        def slot_demand_slots(frame):
+            return int(
+                (
+                    frame["t_visit_slots"]
+                    * frame["n_intra_max"]
+                    * frame["n_inter_max"]
+                ).sum()
+            )
+
         # ---- top-level summary as a Series ----
         today_idx = self.today_starting_night
         is_alloc_2d = self.access_record["is_allocated"][0]
-        allocated_past = int(is_alloc_2d[:today_idx].sum())
+        allocated = int(is_alloc_2d.sum())
         allocated_future = int(is_alloc_2d[today_idx:].sum())
-        allocated = allocated_past + allocated_future
+        allocated_today = int(is_alloc_2d[today_idx].sum())
 
         sched = self.schedule
         sched_future = sched[sched["d"] >= today_idx]
+        sched_today = sched[sched["d"] == today_idx]
         t_visit_slots = self.requests_frame.set_index("unique_id")["t_visit_slots"]
-        slots_per_visit = sched_future["unique_id"].map(t_visit_slots).fillna(1)
-        visits_scheduled = len(sched_future)
-        future_reserved = int((slots_per_visit - 1).clip(lower=0).sum())
-        future_scheduled = visits_scheduled + future_reserved
-        future_empty = allocated_future - future_scheduled
-
-        allocated_tonight = int(is_alloc_2d[today_idx].sum())
-        sched_tonight = sched[sched["d"] == today_idx]
-        slots_per_visit_tonight = sched_tonight["unique_id"].map(t_visit_slots).fillna(1)
-        visits_tonight = len(sched_tonight)
-        tonight_reserved = int((slots_per_visit_tonight - 1).clip(lower=0).sum())
-        tonight_scheduled = visits_tonight + tonight_reserved
-        tonight_empty = allocated_tonight - tonight_scheduled
-
-        rf_slots = self.requests_frame["t_visit_slots"]
-        total_requested = int(
-            (
-                rf_slots
-                * self.requests_frame["n_intra_max"]
-                * self.requests_frame["n_inter_max"]
-            ).sum()
-        )
+        slots_per_visit_future = sched_future["unique_id"].map(t_visit_slots).fillna(1)
+        slots_per_visit_today = sched_today["unique_id"].map(t_visit_slots).fillna(1)
+        future_reserved = int(slots_per_visit_future.sum())
+        today_reserved = int(slots_per_visit_today.sum())
 
         summary = pd.Series(
             {
+                "Total requests": len(self.requests_frame_all),
+                "Total requests (active)": len(self.requests_frame),
                 "Total allocated slots": allocated,
-                "Total allocated slots (past)": allocated_past,
-                "Total allocated slots (future)": allocated_future,
-                "Visits scheduled": visits_scheduled,
-                "Future slots reserved": future_reserved,
-                "Future slots empty": future_empty,
-                "N slots requested (total)": total_requested,
-                "Utilization (% of future allocated)": (
-                    100 * future_scheduled / allocated_future
+                "Total slots requested": slot_demand_slots(self.requests_frame_all),
+                "Total slots requested (active)": slot_demand_slots(
+                    self.requests_frame
+                ),
+                "Future allocated slots": allocated_future,
+                "Future reserved slots": future_reserved,
+                "Future fill factor": (
+                    100 * future_reserved / allocated_future
                     if allocated_future
                     else 0.0
                 ),
-                "Tonight allocated slots": allocated_tonight,
-                "Tonight slots scheduled": tonight_scheduled,
-                "Tonight slots empty": tonight_empty,
-                "Tonight utilization (%)": (
-                    100 * tonight_scheduled / allocated_tonight
-                    if allocated_tonight
+                "Current day allocated slots": allocated_today,
+                "Current day reserved slots": today_reserved,
+                "Current day fill factor": (
+                    100 * today_reserved / allocated_today
+                    if allocated_today
                     else 0.0
                 ),
             }
@@ -1352,10 +1345,8 @@ class SemesterPlanner:
         )
         awarded = progs["awarded_nights"] * hours_per_night
 
-        # Requested hours: active requests only (the right denominator for
-        # done/req%). Past hours: ALL rows (active + inactive) via the same
-        # helper the throttle constraint uses, so the report matches what is
-        # enforced and what the webapp plots display.
+        # Requested hours: active requests only. Past hours: ALL rows
+        # (active + inactive) via the same helper the throttle constraint uses.
         rf = self.requests_frame.copy()
         rf["requested_h"] = (
             rf["t_visit_slots"] * rf["n_intra_max"] * rf["n_inter_max"]
@@ -1377,23 +1368,33 @@ class SemesterPlanner:
         scheduled_h = sched_with_prog.groupby("program_code")["scheduled_h"].sum()
 
         table = (
-            pd.DataFrame({"awarded": awarded})
-            .join(requested_by_prog.rename("requested"), how="left")
+            pd.DataFrame({"aw": awarded})
+            .join(requested_by_prog.rename("req"), how="left")
             .join(past_by_prog.rename("past"), how="left")
-            .join(scheduled_h.rename("scheduled"), how="left")
+            .join(scheduled_h.rename("fut"), how="left")
             .fillna(0.0)
         )
-        done = table["past"] + table["scheduled"]
-        table["req/aw%"] = np.where(
-            table["awarded"] > 0, 100 * table["requested"] / table["awarded"], 0.0
+        aw_col = table["aw"]
+        has_aw = aw_col > 0
+        table["req/aw"] = np.where(has_aw, np.round(100 * table["req"] / aw_col, 0), 0)
+        table["past/aw"] = np.where(
+            has_aw, np.round(100 * table["past"] / aw_col, 0), 0
         )
-        table["done/req%"] = np.where(
-            table["requested"] > 0, 100 * done / table["requested"], 0.0
-        )
-        table["done/aw%"] = np.where(
-            table["awarded"] > 0, 100 * done / table["awarded"], 0.0
+        table["(past+fut)/aw"] = np.where(
+            has_aw,
+            np.round(100 * (table["past"] + table["fut"]) / aw_col, 0),
+            0,
         )
         table = table.sort_index()
+
+        program_table = table.copy()
+        for col in program_table.columns:
+            if "/aw" in col:
+                program_table[col] = program_table[col].map(
+                    lambda x: f"{int(round(x))}"
+                )
+            else:
+                program_table[col] = program_table[col].map(lambda x: f"{x:.1f}")
 
         divider = "-" * 54
         parts = [
@@ -1403,7 +1404,7 @@ class SemesterPlanner:
             "",
             "Program Statistics (hours):",
             divider,
-            table.to_string(float_format=lambda x: f"{x:.1f}"),
+            program_table.to_string(),
             "",
         ]
         return "\n".join(parts) + "\n"
@@ -1423,8 +1424,9 @@ class SemesterPlanner:
                 cap,
                 current_theta,
             )
-        report = self.to_string(header=f"Stats for {round_label}")
+        report = self.to_string()
         if report:
+            logs.info("Run report (%s):", round_label)
             print(report.rstrip(), flush=True)
 
     def write_request_selected(self):
