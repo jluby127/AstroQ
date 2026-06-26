@@ -81,6 +81,8 @@ class SemesterPlanner:
         self.config.read_string(self._config_ini_text)
         self.queue = astroq.queue.from_config(self.config)
         self.schedule = None
+        self._round1_obj_val = None
+        self._round1_weighted_theta = None
 
         workdir = self.config.get("global", "workdir")
         self.output_directory = os.path.join(workdir, "outputs")
@@ -1010,19 +1012,52 @@ class SemesterPlanner:
             "fix_previous_objective",
         )
 
+    def constraint_fix_global_shortfall(self, slack_factor):
+        """Upcoming-night round: cap weighted shortfall at Round-1 optimum * slack."""
+        if self._round1_weighted_theta is None:
+            raise RuntimeError(
+                "Round 1 must be solved before fixing global shortfall."
+            )
+        cap = self._round1_weighted_theta * slack_factor
+        logs.info(
+            "Constraint: weighted shortfall <= Round-1 optimum * %g "
+            "(cap=%.3f from Round-1 weighted shortfall=%.3f)",
+            slack_factor,
+            cap,
+            self._round1_weighted_theta,
+        )
+        self.model.addConstr(
+            self._weighted_theta_expr() <= cap,
+            "fix_global_shortfall_upcoming_night",
+        )
+
     # ==================================================================
     # Objectives.
     # ==================================================================
 
-    def set_objective_minimize_theta_time_normalized(self):
-        """See Equation 1 in Lubin et al. 2025."""
+    def _weighted_theta_expr(self):
+        """Time-weighted global shortfall (Round 1 objective without boost)."""
         schedulable_uids = list(self.joiner["unique_id"].unique())
         t_visit_slots = dict(
             zip(self.requests_frame["unique_id"], self.requests_frame["t_visit_slots"])
         )
-        theta_obj = gp.quicksum(
+        return gp.quicksum(
             self.theta[uid] * t_visit_slots[uid] for uid in schedulable_uids
         )
+
+    def _eval_weighted_theta(self):
+        """Evaluate weighted shortfall at the current Gurobi solution."""
+        schedulable_uids = list(self.joiner["unique_id"].unique())
+        t_visit_slots = dict(
+            zip(self.requests_frame["unique_id"], self.requests_frame["t_visit_slots"])
+        )
+        return sum(
+            self.theta[uid].X * t_visit_slots[uid] for uid in schedulable_uids
+        )
+
+    def set_objective_minimize_theta_time_normalized(self):
+        """See Equation 1 in Lubin et al. 2025."""
+        theta_obj = self._weighted_theta_expr()
         if self.boost is not None:
             boost_by_uid = dict(
                 zip(
@@ -1059,6 +1094,27 @@ class SemesterPlanner:
             GRB.MAXIMIZE,
         )
 
+    def set_objective_maximize_slots_used_tonight(self):
+        """Upcoming-night round: maximize filled slots on ``current_day``."""
+        d_today = self.today_starting_night
+        current_day = self.config.get("global", "current_day")
+        logs.info(
+            "Objective: Maximize slot usage on upcoming night current_day=%s (d=%d).",
+            current_day,
+            d_today,
+        )
+        t_visit_slots = dict(
+            zip(self.requests_frame["unique_id"], self.requests_frame["t_visit_slots"])
+        )
+        self.model.setObjective(
+            gp.quicksum(
+                t_visit_slots[uid] * self.Yrds[uid, d, s]
+                for uid, d, s in self.yrds_tuples
+                if d == d_today
+            ),
+            GRB.MAXIMIZE,
+        )
+
     # ==================================================================
     # Model orchestration.
     # ==================================================================
@@ -1084,6 +1140,14 @@ class SemesterPlanner:
         self.constraint_set_max_absolute_unique_nights_Wrd()
         self.constraint_fix_previous_objective()
         self.set_objective_maximize_slots_used()
+        logs.info(f"Time to build constraints: {np.round(time.time() - t1, 3):.3f}")
+
+    def build_model_upcoming_night_round(self):
+        """Upcoming-night round: cap global shortfall, fill ``current_day``."""
+        t1 = time.time()
+        slack = self.config.getfloat("semester", "global_shortfall_slack", fallback=1.1)
+        self.constraint_fix_global_shortfall(slack_factor=slack)
+        self.set_objective_maximize_slots_used_tonight()
         logs.info(f"Time to build constraints: {np.round(time.time() - t1, 3):.3f}")
 
     def optimize_model(self):
@@ -1157,13 +1221,21 @@ class SemesterPlanner:
 
     def run_model(self):
         """Construct and solve the Gurobi model (with optional bonus round)."""
+        self._round1_obj_val = None
+        self._round1_weighted_theta = None
         self.build_model_round1()
         self.optimize_model()
+        self._round1_obj_val = self.model.objVal
+        self._round1_weighted_theta = self._eval_weighted_theta()
         self._finalize_round("Round1")
         if self.config.getboolean("semester", "run_bonus_round"):
             self.build_model_round2()
             self.optimize_model()
             self._finalize_round("Round2")
+        if self.config.getboolean("semester", "run_upcoming_night_round", fallback=False):
+            self.build_model_upcoming_night_round()
+            self.optimize_model()
+            self._finalize_round("UpcomingNight")
         logs.info("Scheduling complete, clear skies!")
 
     def _finalize_round(self, round_label):
@@ -1230,6 +1302,14 @@ class SemesterPlanner:
         future_scheduled = visits_scheduled + future_reserved
         future_empty = allocated_future - future_scheduled
 
+        allocated_tonight = int(is_alloc_2d[today_idx].sum())
+        sched_tonight = sched[sched["d"] == today_idx]
+        slots_per_visit_tonight = sched_tonight["unique_id"].map(t_visit_slots).fillna(1)
+        visits_tonight = len(sched_tonight)
+        tonight_reserved = int((slots_per_visit_tonight - 1).clip(lower=0).sum())
+        tonight_scheduled = visits_tonight + tonight_reserved
+        tonight_empty = allocated_tonight - tonight_scheduled
+
         rf_slots = self.requests_frame["t_visit_slots"]
         total_requested = int(
             (
@@ -1251,6 +1331,14 @@ class SemesterPlanner:
                 "Utilization (% of future allocated)": (
                     100 * future_scheduled / allocated_future
                     if allocated_future
+                    else 0.0
+                ),
+                "Tonight allocated slots": allocated_tonight,
+                "Tonight slots scheduled": tonight_scheduled,
+                "Tonight slots empty": tonight_empty,
+                "Tonight utilization (%)": (
+                    100 * tonight_scheduled / allocated_tonight
+                    if allocated_tonight
                     else 0.0
                 ),
             }
@@ -1322,6 +1410,19 @@ class SemesterPlanner:
 
     def log_report(self, round_label):
         """Emit the run-report text to stdout (no log prefix on table lines)."""
+        if round_label == "UpcomingNight" and self._round1_weighted_theta is not None:
+            slack = self.config.getfloat(
+                "semester", "global_shortfall_slack", fallback=1.1
+            )
+            cap = self._round1_weighted_theta * slack
+            current_theta = self._eval_weighted_theta()
+            logs.info(
+                "UpcomingNight: Round-1 weighted shortfall=%.3f cap=%.3f "
+                "post-round weighted shortfall=%.3f",
+                self._round1_weighted_theta,
+                cap,
+                current_theta,
+            )
         report = self.to_string(header=f"Stats for {round_label}")
         if report:
             print(report.rstrip(), flush=True)

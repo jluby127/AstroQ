@@ -2616,46 +2616,53 @@ def get_ladder(data, tonight_start_time):
     orderData = orderData.iloc[::-1].reset_index(drop=True)
     orderData["_row_kind"] = "target"
 
-    unsched_header = _synthetic_ladder_row(orderData.columns)
-    unsched_header["unique_id"] = "__unsched_header__"
-    unsched_header["Target"] = "Unscheduled targets"
-    unsched_header["_row_kind"] = "section_header"
+    n_before_insert = len(orderData)
+    summary_y = None
+    aggregate_y = None
+    if n_unscheduled > 0 and n_unscheduled < n_before_insert:
+        unsched_header = _synthetic_ladder_row(orderData.columns)
+        unsched_header["unique_id"] = "__unsched_header__"
+        unsched_header["Target"] = "Unscheduled targets"
+        unsched_header["_row_kind"] = "section_header"
 
-    aggregate = _synthetic_ladder_row(orderData.columns)
-    aggregate["unique_id"] = "__aggregate__"
-    aggregate["Target"] = " "
-    aggregate["_row_kind"] = "aggregate"
+        aggregate = _synthetic_ladder_row(orderData.columns)
+        aggregate["unique_id"] = "__aggregate__"
+        aggregate["Target"] = " "
+        aggregate["_row_kind"] = "aggregate"
 
-    summary = _synthetic_ladder_row(orderData.columns)
-    summary["unique_id"] = "__summary__"
-    summary["Target"] = "All scheduled targets"
-    summary["_row_kind"] = "summary"
+        summary = _synthetic_ladder_row(orderData.columns)
+        summary["unique_id"] = "__summary__"
+        summary["Target"] = "All scheduled targets"
+        summary["_row_kind"] = "summary"
 
-    sched_header = _synthetic_ladder_row(orderData.columns)
-    sched_header["unique_id"] = "__sched_header__"
-    sched_header["Target"] = "Scheduled targets"
-    sched_header["_row_kind"] = "section_header"
+        sched_header = _synthetic_ladder_row(orderData.columns)
+        sched_header["unique_id"] = "__sched_header__"
+        sched_header["Target"] = "Scheduled targets"
+        sched_header["_row_kind"] = "section_header"
 
-    orderData = pd.concat(
-        [
-            orderData.iloc[:n_unscheduled],
-            pd.DataFrame([unsched_header]),
-            pd.DataFrame([aggregate]),
-            pd.DataFrame([summary]),
-            orderData.iloc[n_unscheduled:],
-            pd.DataFrame([sched_header]),
-        ],
-        ignore_index=True,
-    )
-    aggregate_y = n_unscheduled + 1
-    summary_y = n_unscheduled + 2
+        orderData = pd.concat(
+            [
+                orderData.iloc[:n_unscheduled],
+                pd.DataFrame([unsched_header]),
+                pd.DataFrame([aggregate]),
+                pd.DataFrame([summary]),
+                orderData.iloc[n_unscheduled:],
+                pd.DataFrame([sched_header]),
+            ],
+            ignore_index=True,
+        )
+        aggregate_y = n_unscheduled + 1
+        summary_y = n_unscheduled + 2
 
     # Hide scatter markers on synthetic rows
     mask = orderData["_row_kind"] != "target"
     orderData.loc[mask, "Scheduled (min. from start)"] = np.nan
 
+    # One categorical slot per dataframe row (Target names are not unique).
+    orderData["_ladder_y"] = orderData.index.astype(str)
+
     plot_height = max(400, 40 * len(orderData) + 200)
-    categories = orderData["Target"].tolist()
+    categories = orderData["_ladder_y"].tolist()
     y_ticktext = [
         "" if kind in ("section_header", "summary", "aggregate") else target
         for target, kind in zip(orderData["Target"], orderData["_row_kind"])
@@ -2663,7 +2670,7 @@ def get_ladder(data, tonight_start_time):
     fig = px.scatter(
         orderData,
         x="Scheduled (min. from start)",
-        y="Target",
+        y="_ladder_y",
         title="Night Plan",
         width=800,
         height=plot_height,
@@ -2671,6 +2678,7 @@ def get_ladder(data, tonight_start_time):
     fig.update_traces(
         customdata=np.column_stack(
             [
+                orderData["Target"],
                 orderData["Scheduled (UTC)"].fillna(""),
                 orderData["Earliest Start"],
                 orderData["Earliest start (UTC)"].fillna(""),
@@ -2681,15 +2689,15 @@ def get_ladder(data, tonight_start_time):
             ]
         ),
         hovertemplate=(
-            "<b>%{y}</b><br>"
+            "<b>%{customdata[0]}</b><br>"
             "Scheduled (min. from start): %{x:.1f}<br>"
-            "Scheduled (UTC): %{customdata[0]}<br>"
-            "Earliest start (min. from start): %{customdata[1]:.1f}<br>"
-            "Earliest start (UTC): %{customdata[2]}<br>"
-            "Latest finish (min. from start): %{customdata[3]:.1f}<br>"
-            "Latest finish (UTC): %{customdata[4]}<br>"
-            "Visit Length (min): %{customdata[5]:.1f}<br>"
-            "Slew to Next (min): %{customdata[6]:.1f}"
+            "Scheduled (UTC): %{customdata[1]}<br>"
+            "Earliest start (min. from start): %{customdata[2]:.1f}<br>"
+            "Earliest start (UTC): %{customdata[3]}<br>"
+            "Latest finish (min. from start): %{customdata[4]:.1f}<br>"
+            "Latest finish (UTC): %{customdata[5]}<br>"
+            "Visit Length (min): %{customdata[6]:.1f}<br>"
+            "Slew to Next (min): %{customdata[7]:.1f}"
             "<extra></extra>"
         ),
         marker=dict(size=0, opacity=0),
@@ -2795,7 +2803,7 @@ def get_ladder(data, tonight_start_time):
                     if not np.isnan(earliest):
                         required_visit_bars.append(
                             (
-                                orderData["Target"][indices[j]],
+                                orderData["_ladder_y"].iloc[indices[j]],
                                 earliest,
                                 visit_len,
                             )
@@ -2824,36 +2832,39 @@ def get_ladder(data, tonight_start_time):
             showlegend=(bar_idx == 0),
         )
 
-    for kind, x0, x1 in _night_aggregate_segments(model):
-        fig.add_shape(
-            type="rect",
-            x0=x0,
-            x1=x1,
-            y0=aggregate_y - 0.5,
-            y1=aggregate_y + 0.5,
-            fillcolor=_SEGMENT_COLORS[kind],
-            line=dict(width=0),
-            showlegend=False,
-        )
+    if aggregate_y is not None:
+        for kind, x0, x1 in _night_aggregate_segments(model):
+            fig.add_shape(
+                type="rect",
+                x0=x0,
+                x1=x1,
+                y0=aggregate_y - 0.5,
+                y1=aggregate_y + 0.5,
+                fillcolor=_SEGMENT_COLORS[kind],
+                line=dict(width=0),
+                showlegend=False,
+            )
 
-    for kind, x0, x1 in _night_timeline_segments(model):
-        fig.add_shape(
-            type="rect",
-            x0=x0,
-            x1=x1,
-            y0=summary_y - 0.5,
-            y1=summary_y + 0.5,
-            fillcolor=_SEGMENT_COLORS[kind],
-            line=dict(width=0),
-            showlegend=False,
-        )
+    if summary_y is not None:
+        for kind, x0, x1 in _night_timeline_segments(model):
+            fig.add_shape(
+                type="rect",
+                x0=x0,
+                x1=x1,
+                y0=summary_y - 0.5,
+                y1=summary_y + 0.5,
+                fillcolor=_SEGMENT_COLORS[kind],
+                line=dict(width=0),
+                showlegend=False,
+            )
 
-    for _, row in orderData.iterrows():
+    for idx in range(len(orderData)):
+        row = orderData.iloc[idx]
         if row["_row_kind"] not in ("section_header", "summary"):
             continue
         label = row["Target"]
         fig.add_annotation(
-            y=label,
+            y=idx,
             xref="paper",
             x=0,
             xanchor="right",
@@ -2915,7 +2926,7 @@ def get_ladder(data, tonight_start_time):
         _add_ladder_night_boundary(fig, 0.0, start_utc, side="start")
         _add_ladder_night_boundary(fig, night_end_min, end_utc, side="end")
 
-    y_ref = orderData["Target"].iloc[-1] if len(orderData) else ""
+    y_ref = orderData["_ladder_y"].iloc[-1] if len(orderData) else ""
     fig.add_trace(
         go.Scatter(
             x=[x_min, x_max],
