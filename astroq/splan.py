@@ -1176,14 +1176,21 @@ class SemesterPlanner:
         slots_per_hour = 60 / slot_size
 
         # ---- top-level summary as a Series ----
+        today_idx = self.today_starting_night
         is_alloc_2d = self.access_record["is_allocated"][0]
+        allocated_past = int(is_alloc_2d[:today_idx].sum())
+        allocated_future = int(is_alloc_2d[today_idx:].sum())
+        allocated = allocated_past + allocated_future
+
         sched = self.schedule
+        sched_future = sched[sched["d"] >= today_idx]
         t_visit_slots = self.requests_frame.set_index("unique_id")["t_visit_slots"]
-        slots_per_visit = sched["unique_id"].map(t_visit_slots).fillna(1)
-        scheduled_starting = len(sched)
-        reserved = int((slots_per_visit - 1).clip(lower=0).sum())
-        total_scheduled = scheduled_starting + reserved
-        allocated = int(is_alloc_2d.sum())
+        slots_per_visit = sched_future["unique_id"].map(t_visit_slots).fillna(1)
+        visits_scheduled = len(sched_future)
+        future_reserved = int((slots_per_visit - 1).clip(lower=0).sum())
+        future_scheduled = visits_scheduled + future_reserved
+        future_empty = allocated_future - future_scheduled
+
         rf_slots = self.requests_frame["t_visit_slots"]
         total_requested = int(
             (
@@ -1195,19 +1202,16 @@ class SemesterPlanner:
 
         summary = pd.Series(
             {
-                "N slots in semester": is_alloc_2d.size,
-                "N available slots": allocated,
-                "N starting slots scheduled": scheduled_starting,
-                "N reserved slots": reserved,
-                "N total slots scheduled": total_scheduled,
-                "N slots left empty": allocated - total_scheduled,
+                "Total allocated slots": allocated,
+                "Total allocated slots (past)": allocated_past,
+                "Total allocated slots (future)": allocated_future,
+                "Visits scheduled": visits_scheduled,
+                "Future slots reserved": future_reserved,
+                "Future slots empty": future_empty,
                 "N slots requested (total)": total_requested,
-                "Utilization (% of available slots)": (
-                    100 * total_scheduled / allocated if allocated else 0.0
-                ),
-                "Utilization (% of requested slots)": (
-                    100 * total_scheduled / total_requested
-                    if total_requested
+                "Utilization (% of future allocated)": (
+                    100 * future_scheduled / allocated_future
+                    if allocated_future
                     else 0.0
                 ),
             }
