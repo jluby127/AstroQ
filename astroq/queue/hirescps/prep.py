@@ -451,56 +451,48 @@ JUMP_HIRES_PAST_EXPLORER_ID = 285
 JUMP_PAST_QUERY_TMP_FILENAME = "past_jump-query-tmp.csv"
 
 
-def exposures_to_visits(data, request_csv_path=None):
-    """Exposures to visits.
-    
-    Jump store HIRES exposures. However, we want to interpret them as visits since
-    that's how AstroQ interprets them. 
-    
-    - We identify templates by searching for (B1/B3 decker, iodine out). These are
-      labeled with a _t suffix.
-    
-    - We identify groups of successive exposures on the same target as groups. If the
-      group has at least 50% of the exposures required for the target, we count it as a
-      successful visit
-    
-    Convert raw JUMP frame rows to ``past.csv`` visit rows.
+def jump_query_to_past(data, request_csv_path):
+    """Convert raw JUMP frame rows to ``past.csv`` visit rows.
+
+    JUMP ``starname`` values are matched to ``request.csv`` ``unique_id`` via a
+    lowercase join (all rows, incl. inactive); unmatched names are kept as-is.
+    Template frames (B1/B3 decker, iodine out) get a ``_t`` suffix before
+    matching. Frames are grouped per target/night and counted as a visit when
+    ``len(frames) >= ceil(0.5 * n_exp)``.
     """
     cols = ["unique_id", "target", "timestamp", "exposure_time"]
     if data.empty:
         return pd.DataFrame(columns=cols)
 
-    n_exp_by_uid = {}
-    if request_csv_path and os.path.isfile(request_csv_path):
-        req = pd.read_csv(request_csv_path)
-        if "unique_id" in req.columns and "n_exp" in req.columns:
-            n_exp_by_uid = (
-                req.set_index("unique_id")["n_exp"]
-                .astype(int)
-                .to_dict()
-            )
-        else:
-            logs.warning(
-                "request.csv missing unique_id/n_exp columns; assuming n_exp=1"
-            )
-    elif request_csv_path:
-        logs.warning(
-            "request.csv not found at %r; assuming n_exp=1 for all targets",
-            request_csv_path,
-        )
+    df = data.rename(columns={"starname": "target"}).copy()
+    df["jump_name"] = df["target"].astype(str)
+    is_template = (
+        df["decker"].astype(str).str.upper().isin(["B1", "B3"])
+        & (df["iodine_in"] == False)
+    )
+    df.loc[is_template, "jump_name"] += "_t"
 
-    df = data.copy()
-    if {"decker", "iodine_in"}.issubset(df.columns):
-        is_template = (
-            df["decker"].astype(str).str.upper().isin(["B1", "B3"])
-            & (df["iodine_in"] == False)
-        )
-        df.loc[is_template, "target"] = (
-            df.loc[is_template, "target"].astype(str) + "_t"
-        )
+    req = pd.read_csv(request_csv_path)
+    req["unique_id"] = req["unique_id"].astype(str)
+    n_exp_by_uid = req.groupby("unique_id")["n_exp"].max().astype(int).to_dict()
+    canon_by_lower = dict(zip(req["unique_id"].str.lower(), req["unique_id"]))
+    df["unique_id"] = df["jump_name"].map(
+        lambda n: canon_by_lower.get(n.lower(), n)
+    )
 
-    df["target"] = df["target"].astype(str)
-    df["unique_id"] = df["target"]
+    renames = {
+        jn: uid for jn, uid in zip(df["jump_name"], df["unique_id"]) if jn != uid
+    }
+    if renames:
+        print("JUMP rename (jump_name -> request unique_id):")
+        for jn, uid in sorted(renames.items()):
+            print(f"  {jn} -> {uid}")
+        n_lines = int((df["jump_name"] != df["unique_id"]).sum())
+        print(f"JUMP rename: {n_lines} frame line(s) where jump_name != unique_id")
+    else:
+        print("JUMP rename: no jump_name required renaming")
+
+    df["target"] = df["unique_id"]
     df["exposure_time"] = (
         pd.to_numeric(df["exposure_time"], errors="coerce").fillna(0).astype(int)
     )
@@ -508,21 +500,18 @@ def exposures_to_visits(data, request_csv_path=None):
     df = df.loc[df["_ts"].notna()].copy()
     if df.empty:
         return pd.DataFrame(columns=cols)
-
     df["_night"] = df["_ts"].dt.strftime("%Y-%m-%d")
-    rows = []
-    rejected_groups = []
-    for (uid, _night), grp in df.groupby(["unique_id", "_night"], sort=False):
-        n_exp = int(n_exp_by_uid.get(uid, 1))
+
+    rows, rejected = [], []
+    for (uid, night), grp in df.groupby(["unique_id", "_night"], sort=False):
+        n_exp = n_exp_by_uid.get(uid, 1)
         min_frames = math.ceil(0.5 * n_exp)
-        grp = grp.sort_values("_ts")
-        n_frames = len(grp)
-        if n_frames < min_frames:
-            rejected_groups.append(
-                f"  {uid} {_night}: {n_frames}/{n_exp} frames (need {min_frames})"
+        if len(grp) < min_frames:
+            rejected.append(
+                f"  {uid} {night}: {len(grp)}/{n_exp} frames (need {min_frames})"
             )
             continue
-        first = grp.iloc[0]
+        first = grp.sort_values("_ts").iloc[0]
         rows.append(
             {
                 "unique_id": uid,
@@ -534,10 +523,10 @@ def exposures_to_visits(data, request_csv_path=None):
 
     summary = (
         f"{len(df)} raw frame(s) -> {len(rows)} accounted visit(s) "
-        f"({len(rejected_groups)} group(s) below 50% threshold)"
+        f"({len(rejected)} group(s) below 50% threshold)"
     )
-    if rejected_groups:
-        summary += ":\n" + "\n".join(rejected_groups)
+    if rejected:
+        summary += ":\n" + "\n".join(rejected)
     print(summary)
     return pd.DataFrame(rows, columns=cols)
 
@@ -634,11 +623,7 @@ def get_hires_past_history(
     print(f"Raw JUMP pull saved to {raw_path}")
 
     data = pd.read_csv(raw_path)
-    if "starname" in data.columns and "target" not in data.columns:
-        data = data.rename(columns={"starname": "target"})
-    elif "starname" in data.columns:
-        data = data.rename(columns={"starname": "target"})
 
-    visits = exposures_to_visits(data, request_csv_path)
+    visits = jump_query_to_past(data, request_csv_path)
     visits.to_csv(path_to_csv, index=False)
     print(f"Processed past history saved to {path_to_csv}")

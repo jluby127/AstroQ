@@ -5,6 +5,7 @@ Module for executing AstroQ functions based on command line interface inputs.
 # Standard library imports
 import logging
 import os
+import time
 from datetime import datetime
 from configparser import ConfigParser
 
@@ -28,6 +29,8 @@ import astroq.webapp.render as webrender
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)  # Lower level to capture more messages
+
+_REQUEST_CSV_TTL_SEC = 3600
 
 
 def bench(args):
@@ -205,16 +208,30 @@ def hirescps_prep(args):
         if fillers is not None:
             print(f"Adding filler program to awarded_programs: {fillers}")
             awarded_programs.append(fillers)
-        # Pull the request sheet
+        # Pull the request sheet (skip if request.csv is fresh enough)
         request_file = str(config.get("data", "request_file"))
-        requests_df, custom_df = hirescps.pull_requests(request_urls_path)
-        requests_df.to_csv(os.path.join(savepath, request_file), index=False)
+        request_path = os.path.join(savepath, request_file)
 
-        # CAPTURE CUSTOM INFORMATION AND PROCESS
-        # --------------------------------------------
-        # --------------------------------------------
-        custom_file = str(config.get("data", "custom_file"))
-        custom_df.to_csv(os.path.join(savepath, custom_file), index=False)
+        skip_pull = False
+        if os.path.isfile(request_path):
+            age_sec = time.time() - os.path.getmtime(request_path)
+            if age_sec < _REQUEST_CSV_TTL_SEC:
+                print(
+                    f"Using existing {request_file} "
+                    f"(age {int(age_sec)}s < {_REQUEST_CSV_TTL_SEC}s; "
+                    "skipping Google Sheet pull)"
+                )
+                skip_pull = True
+
+        if not skip_pull:
+            requests_df, custom_df = hirescps.pull_requests(request_urls_path)
+            requests_df.to_csv(request_path, index=False)
+
+            # CAPTURE CUSTOM INFORMATION AND PROCESS
+            # --------------------------------------------
+            # --------------------------------------------
+            custom_file = str(config.get("data", "custom_file"))
+            custom_df.to_csv(os.path.join(savepath, custom_file), index=False)
 
     else:
         print(f"User specified request source: {args.request_source}")
