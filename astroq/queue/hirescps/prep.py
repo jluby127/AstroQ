@@ -451,7 +451,7 @@ JUMP_HIRES_PAST_EXPLORER_ID = 285
 JUMP_PAST_QUERY_TMP_FILENAME = "past_jump-query-tmp.csv"
 
 
-def jump_query_to_past(data, request_csv_path):
+def jump_query_to_past(data, request_csv_path, current_day=None):
     """Convert raw JUMP frame rows to ``past.csv`` visit rows.
 
     JUMP ``starname`` values are matched to ``request.csv`` ``unique_id`` via a
@@ -459,6 +459,9 @@ def jump_query_to_past(data, request_csv_path):
     Template frames (B1/B3 decker, iodine out) get a ``_t`` suffix before
     matching. Frames are grouped per target/night and counted as a visit when
     ``len(frames) >= ceil(0.5 * n_exp)``.
+
+    When ``current_day`` is set (``YYYY-MM-DD`` from ``[global] current_day``),
+    only frames on nights strictly before that date are kept.
     """
     cols = ["unique_id", "target", "timestamp", "exposure_time"]
     if data.empty:
@@ -502,6 +505,18 @@ def jump_query_to_past(data, request_csv_path):
         return pd.DataFrame(columns=cols)
     df["_night"] = df["_ts"].dt.strftime("%Y-%m-%d")
 
+    if current_day:
+        n_before = len(df)
+        df = df.loc[df["_night"] < current_day].copy()
+        n_dropped = n_before - len(df)
+        if n_dropped:
+            print(
+                f"JUMP past filter: dropped {n_dropped} frame(s) on or after "
+                f"current_day={current_day}"
+            )
+        if df.empty:
+            return pd.DataFrame(columns=cols)
+
     rows, rejected = [], []
     for (uid, night), grp in df.groupby(["unique_id", "_night"], sort=False):
         n_exp = n_exp_by_uid.get(uid, 1)
@@ -536,6 +551,7 @@ def get_hires_past_history(
     semester_start_day=None,
     semester_end_day=None,
     request_csv_path=None,
+    current_day=None,
 ):
     """Pull HIRES past history from JUMP and write processed ``path_to_csv``.
 
@@ -560,6 +576,9 @@ def get_hires_past_history(
             ``[global] semester_end_day``; passed to JUMP as ``end_date``.
         request_csv_path (str, optional): ``request.csv`` path supplying
             ``unique_id`` / ``n_exp`` for visit-collapse thresholds.
+        current_day (str, optional): ``YYYY-MM-DD`` from config
+            ``[global] current_day``; frames on this night or later are
+            excluded from ``past.csv``.
 
     Raises:
         ValueError: if ``semester_start_day`` or ``semester_end_day`` is
@@ -624,6 +643,6 @@ def get_hires_past_history(
 
     data = pd.read_csv(raw_path)
 
-    visits = jump_query_to_past(data, request_csv_path)
+    visits = jump_query_to_past(data, request_csv_path, current_day=current_day)
     visits.to_csv(path_to_csv, index=False)
     print(f"Processed past history saved to {path_to_csv}")
