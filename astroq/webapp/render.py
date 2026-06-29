@@ -120,6 +120,91 @@ def load_planners_from_uptree(
     return load_planners_from_outputs(outputs_dir)
 
 
+def resolve_outputs_dir(run_path: str, run_name: str | None = None) -> str:
+    """Resolve a run directory to its ``outputs/`` path.
+
+    Accepts:
+    - ``run_path/outputs`` or ``run_path`` when it already contains
+      ``semester_planner.h5`` (single-run mode; use flat ``/admin`` URLs).
+    - ``run_path`` as a parent of multiple child runs, with ``run_name`` naming
+      the child folder that contains ``outputs/`` (use ``/{run_name}/admin``).
+    """
+    run_path = os.path.abspath(run_path)
+
+    def _outputs_with_h5(dir_path: str) -> str | None:
+        h5 = os.path.join(dir_path, "semester_planner.h5")
+        if os.path.isfile(h5):
+            return dir_path
+        return None
+
+    if run_name is not None:
+        for candidate in (
+            os.path.join(run_path, run_name, "outputs"),
+            os.path.join(run_path, run_name),
+        ):
+            resolved = _outputs_with_h5(candidate)
+            if resolved is not None:
+                return resolved
+        raise FileNotFoundError(
+            f"No semester_planner.h5 under {run_path!r}/{run_name!r} "
+            f"(tried child/outputs and child folder itself)."
+        )
+
+    resolved = _outputs_with_h5(os.path.join(run_path, "outputs"))
+    if resolved is not None:
+        return resolved
+    resolved = _outputs_with_h5(run_path)
+    if resolved is not None:
+        return resolved
+
+    children = list_child_runs(run_path)
+    if children:
+        example = children[0]
+        raise FileNotFoundError(
+            f"{run_path!r} contains multiple runs ({', '.join(children)}). "
+            f"Open /{{run_name}}/admin, e.g. /{example}/admin."
+        )
+    raise FileNotFoundError(
+        f"No outputs directory found at {os.path.join(run_path, 'outputs')!r} "
+        f"and no semester_planner.h5 in {run_path!r}. "
+        f"Pass a run folder, its outputs/ directory, or a parent of run folders."
+    )
+
+
+def list_child_runs(parent: str) -> list[str]:
+    """Child folder names under ``parent`` that contain ``outputs/semester_planner.h5``."""
+    parent = os.path.abspath(parent)
+    if not os.path.isdir(parent):
+        return []
+    runs = []
+    for name in sorted(os.listdir(parent)):
+        sub = os.path.join(parent, name)
+        if not os.path.isdir(sub):
+            continue
+        if os.path.isfile(os.path.join(sub, "outputs", "semester_planner.h5")):
+            runs.append(name)
+    return runs
+
+
+def is_parent_run_path(run_path: str) -> bool:
+    """True when ``run_path`` is a parent of child runs, not a single run root."""
+    run_path = os.path.abspath(run_path)
+    if os.path.isfile(os.path.join(run_path, "outputs", "semester_planner.h5")):
+        return False
+    if os.path.isfile(os.path.join(run_path, "semester_planner.h5")):
+        return False
+    return bool(list_child_runs(run_path))
+
+
+def route_context_from_planner(semester_planner: SemesterPlanner) -> tuple[str, str, str]:
+    """Derive semester/date/band URL parts from a loaded planner config."""
+    semester_code = semester_planner.config.get("global", "semester")
+    date = semester_planner.config.get("global", "current_day")
+    workdir = semester_planner.config.get("global", "workdir")
+    band = os.path.basename(os.path.normpath(workdir))
+    return semester_code, date, band
+
+
 def build_admin_html(
     loaded: LoadedRun,
     semester_code: str,

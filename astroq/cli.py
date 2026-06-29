@@ -248,8 +248,23 @@ def main():
         "-up",
         "--uptree_path",
         type=str,
-        required=True,
-        help="Path to the uptree directory (e.g., /Users/jack/Desktop).",
+        default=None,
+        help=(
+            "Path to the uptree directory below which runs live at "
+            "<semester>/<date>/<band>/ (e.g. /Users/jack/Desktop)."
+        ),
+    )
+    psr_webapp.add_argument(
+        "-rp",
+        "--run_path",
+        type=str,
+        default=None,
+        help=(
+            "Path to a single run directory that contains an outputs/ folder "
+            "(or the outputs/ folder itself), or a parent directory of multiple "
+            "such runs. Use flat URLs (/admin) for a single run, or "
+            "/{run_name}/admin when -rp is a parent folder."
+        ),
     )
     psr_webapp.add_argument(
         "-p",
