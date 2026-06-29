@@ -889,7 +889,7 @@ class SemesterPlanner:
 
     # ---- throttling & bonus round ----
 
-    def constraint_throttle(self):
+    def constraint_throttle(self, throttle_grace=1.0):
         """
         Not described in Lubin et al. 2025.
 
@@ -900,7 +900,6 @@ class SemesterPlanner:
         program_frame = pd.read_csv(self.programs_file).set_index("program")
         slot_size = self.config.getfloat("semester", "slot_size")
         hours_per_night = self.config.getfloat("semester", "hours_per_night")
-        throttle_grace = self.config.getfloat("semester", "throttle_grace")
 
         program_frame["awarded_slots"] = (
             program_frame["nights"] * hours_per_night * 60 / slot_size
@@ -1020,6 +1019,94 @@ class SemesterPlanner:
             GRB.MAXIMIZE,
         )
 
+    def set_objective_minimize_empty_slots(self):
+        """Bonus round: minimize empty slots."""
+        logs.info("Objective: Minimize the number of empty slots.")
+        t_visit_slots = dict(
+            zip(self.requests_frame["unique_id"], self.requests_frame["t_visit_slots"])
+        )
+        total_slots = self.semester_length * self.access_obj.nslots
+        self.model.setObjective(
+            (total_slots - gp.quicksum(
+                t_visit_slots[uid] * self.Yrds[uid, d, s]
+                for uid, d, s in self.yrds_tuples
+            )),
+            GRB.MINIMIZE,
+        )
+
+    def build_model_round2_priority_NEW(self):
+        """
+        New round 2 objective.
+
+        Per-program fill factor:
+            fill_factor_p = (sum of Yrds for requests in program p)
+                            / (awarded nights_p * hours_per_night / slot_size)
+        """
+        self.constraint_fix_previous_objective()
+
+        program_frame = pd.read_csv(self.programs_file).set_index("program")
+        slot_size = self.config.getfloat("semester", "slot_size")
+        hours_per_night = self.config.getfloat("semester", "hours_per_night")
+        awarded_slots_by_program = (
+            program_frame["nights"] * hours_per_night * 60 / slot_size
+        ).to_dict()
+
+        program_request_ids = {
+            p: set(
+                self.requests_frame.loc[
+                    self.requests_frame["program_code"] == p, "unique_id"
+                ]
+            )
+            for p in self.requests_frame["program_code"].unique()
+        }
+
+        self.program_awarded_slots = {}
+        self.program_fill_factor = {}
+        for p, uids in program_request_ids.items():
+            awarded_slots = awarded_slots_by_program.get(p)
+            slots_used = gp.quicksum(
+                self.Yrds[r, d, s]
+                for r, d, s in self.yrds_tuples
+                if r in uids
+            )
+            self.program_awarded_slots[p] = float(awarded_slots)
+            self.program_fill_factor[p] = slots_used / awarded_slots
+
+        # max tau s.t. tau <= fill_factor_p for all p in P
+        tau = self.model.addVar(lb=0.0, name="tau")
+        for p in self.program_fill_factor.keys():
+            # print(f"fill_factor_p for program {p}: {self.program_fill_factor[p]}")
+            self.model.addConstr(
+                tau <= self.program_fill_factor[p],
+                "tau_is_min_fill_factor_" + p,
+            )
+
+        self.model.setObjective(
+            tau,
+            GRB.MAXIMIZE,
+        )
+
+    def remove_constraint_throttle(self):
+        """Remove throttle constraints from a prior round."""
+        logs.info("Constraint: Removing previous throttle constraints.")
+        program_frame = pd.read_csv(self.programs_file)
+        for program in program_frame["program"]:
+            rm_const = self.model.getConstrByName(f"throttle_program_{program}")
+            if rm_const is not None:
+                self.model.remove(rm_const)
+
+    def build_model_round4_priority_NEW(self):
+        """
+        New round 4 objective.
+
+        Minimize the number of empty slots.
+        """
+        # grace = self.config.getfloat("semester", "throttle_grace")
+        self.remove_constraint_throttle()
+        self.constraint_throttle(throttle_grace=2.0)
+        self.set_objective_minimize_empty_slots()
+    
+
     # ==================================================================
     # Model orchestration.
     # ==================================================================
@@ -1034,7 +1121,7 @@ class SemesterPlanner:
         self.constraint_build_enforce_intranight_cadence()
         self.constraint_set_min_max_visits_per_night()
         self.constraint_build_theta_multivisit()
-        self.constraint_throttle()
+        self.constraint_throttle(throttle_grace=1.0)
         self.set_objective_minimize_theta_time_normalized()
         logs.info(f"Time to build constraints: {np.round(time.time() - t1, 3):.3f}")
 
@@ -1123,12 +1210,15 @@ class SemesterPlanner:
         self._finalize_round("Round1")
         if self.config.getboolean("semester", "run_bonus_round"):
             # self.build_model_round2()
-            self.build_model_round2_priority()
+            self.build_model_round2_priority_NEW()
             self.optimize_model()
             self._finalize_round("Round2")
             self.build_model_round3_priority()
             self.optimize_model()
             self._finalize_round("Round3")
+            self.build_model_round4_priority_NEW()
+            self.optimize_model()
+            self._finalize_round("Round4")
         logs.info("Scheduling complete, clear skies!")
 
     def _finalize_round(self, round_label):
@@ -1196,6 +1286,8 @@ class SemesterPlanner:
                 * self.requests_frame["n_inter_max"]
             ).sum()
         )
+
+        # n_available_starts_for_dummy_star = int((self.observability["unique_id"] == 'Star0000').sum())
 
         summary = pd.Series(
             {
@@ -1405,11 +1497,7 @@ class SemesterPlanner:
         logs.info(f"SemesterPlanner loaded from HDF5: {hdf5_path}")
         return instance
 
-
-
-
-
-    def constraint_hold_program_fill_factors(self, alpha=0.1):
+    def constraint_hold_program_fill_factors(self, alpha=0.0):
         """
         Bonus round constraint: not featured in Lubin et al. 2025.
 
@@ -1443,10 +1531,10 @@ class SemesterPlanner:
                 r2_slots_awarded * (1-alpha)  <= future_slots,
                 'hold_program_fill_factors_lower_' + p,
             )
-            self.model.addConstr(
-                r2_slots_awarded * (1+alpha)  >= future_slots,
-                'hold_program_fill_factors_upper_' + p,
-            )
+            # self.model.addConstr(
+            #     r2_slots_awarded * (1+alpha)  >= future_slots,
+            #     'hold_program_fill_factors_upper_' + p,
+            # )
 
     def build_model_round2_priority(self):
         """

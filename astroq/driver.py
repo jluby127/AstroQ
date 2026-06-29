@@ -484,15 +484,21 @@ def kpfcc_webapp(args):
 
     Args:
         args (argparse.Namespace): the command line arguments with flags:
-            -uptree_path (str): the path to the uptree directory below which the folder structure is <semester_code>/<date>/<band>/.
+            -uptree_path (str, optional): uptree directory; URLs are
+                ``/{semester}/{date}/{band}/admin``, etc.
+            -run_path (str, optional): single run directory with ``outputs/``;
+                URLs are ``/admin``, ``/nightplan``, etc.
             -port (int): the port to bind the webapp to (default: 50001).
 
     Returns:
         None
     """
-    uptree_path = args.uptree_path
+    uptree_path = getattr(args, "uptree_path", None)
+    run_path = getattr(args, "run_path", None)
+    if uptree_path and run_path:
+        raise ValueError("Use only one of -up/--uptree_path and -rp/--run_path.")
     port = getattr(args, "port", 50001)
-    app.launch_app(uptree_path, port=port)
+    app.launch_app(uptree_path=uptree_path, run_path=run_path, port=port)
     return
 
 
