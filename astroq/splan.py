@@ -324,154 +324,12 @@ class SemesterPlanner:
         self.all_valid_ds_for_request = (
             self.joiner.groupby(["unique_id"])[["d", "s"]].agg(list)
         )
-        self.build_observation_chains()
         self.build_yrds_tuples()
 
-    def build_observation_chains(self):
-        """Group single-shot targets; write ``ss_chain`` / ``ss_chain_idx``."""
-        rf = self.requests_frame.copy()
-        rf["ss_chain"] = pd.Series(pd.NA, index=rf.index, dtype="Int64")
-        rf["ss_chain_idx"] = pd.Series(pd.NA, index=rf.index, dtype="Int64")
-
-        if not self.config.getboolean("semester", "use_observation_chains"):
-            self.requests_frame = rf
-            return
-
-        max_chain_len = self.config.getint("semester", "chain_max_length")
-        min_overlap = self.config.getint("semester", "chain_min_overlap")
-        max_chain_slots = int(
-            self.config.getfloat("semester", "chain_max_minutes")
-            / self.config.getfloat("semester", "slot_size")
-        )
-
-        pool = rf[
-            (rf["n_inter_max"].astype(int) == 1)
-            & (rf["n_intra_max"].astype(int) == 1)
-        ]
-        pool_uids = pool["unique_id"].tolist()
-        uid_to_tvisit = pool.set_index("unique_id")["t_visit_slots"].astype(int)
-
-        obs = self.observability[["unique_id", "d", "s"]]
-        rng = np.random.default_rng(self.config.getint("semester", "random_seed"))
-
-        chain_id = 0
-        n_chained = 0
-        remaining = set(pool_uids)
-        uid_order = list(pool_uids)
-        rng.shuffle(uid_order)
-
-        while remaining:
-            seed_uid = next(u for u in uid_order if u in remaining)
-            remaining.remove(seed_uid)
-
-            chain = [seed_uid]
-            chain_slots_used = int(uid_to_tvisit.at[seed_uid])
-            offset_next = chain_slots_used
-
-            while len(chain) < max_chain_len and remaining:
-                anchor_uid = chain[0]
-                offset = offset_next
-
-                anchor = obs.query("unique_id == @anchor_uid")[["d", "s"]].rename(
-                    columns={"s": "s_anchor"},
-                )
-                cands = obs.loc[
-                    obs["unique_id"].isin(remaining), ["unique_id", "d", "s"]
-                ]
-                aligned = anchor.merge(cands, on="d").query("s == s_anchor + @offset")
-                scores = aligned.groupby("unique_id").size()
-                scores = scores[
-                    scores.index.map(
-                        lambda uid: chain_slots_used + int(uid_to_tvisit.at[uid])
-                        <= max_chain_slots
-                    )
-                ]
-                if scores.empty or scores.max() < min_overlap:
-                    break
-
-                best_uid = scores.idxmax()
-                remaining.remove(best_uid)
-                chain.append(best_uid)
-                chain_slots_used += int(uid_to_tvisit.at[best_uid])
-                offset_next = chain_slots_used
-
-            if len(chain) < 2:
-                continue
-
-            for chain_idx, uid in enumerate(chain):
-                mask = rf["unique_id"] == uid
-                rf.loc[mask, "ss_chain"] = chain_id
-                rf.loc[mask, "ss_chain_idx"] = chain_idx
-            chain_id += 1
-            n_chained += len(chain)
-
-        self.requests_frame = rf
-        logs.info(
-            "Built %d observation chains covering %d / %d pool targets",
-            chain_id,
-            n_chained,
-            len(pool_uids),
-        )
-
     def build_yrds_tuples(self):
-        """``yrds_tuples``: full observability minus orphan slots for chained followers."""
-        if not self.config.getboolean("semester", "use_observation_chains"):
-            self.yrds_tuples = list(self.observability_tuples)
-            self._index_yrds_tuples()
-            return
-
-        keep = set(self.observability_tuples)
-        obs = self.observability
-        rf = self.requests_frame
-        chained = rf[rf["ss_chain"].notna()]
-
-        if not chained.empty:
-            for _chain_id, grp in chained.groupby("ss_chain"):
-                members = grp.sort_values("ss_chain_idx")
-                anchor = members.loc[
-                    members["ss_chain_idx"] == 0, "unique_id"
-                ].iloc[0]
-                offsets = (
-                    members.set_index("ss_chain_idx")["t_visit_slots"]
-                    .astype(int)
-                    .cumsum()
-                    .shift(1, fill_value=0)
-                )
-                anchor_starts = obs.loc[
-                    obs["unique_id"] == anchor, ["d", "s"]
-                ].rename(columns={"s": "s_anchor"})
-
-                for _, row in members[members["ss_chain_idx"] > 0].iterrows():
-                    follower = row["unique_id"]
-                    offset = int(offsets.loc[row["ss_chain_idx"]])
-                    follower_at = obs.loc[
-                        obs["unique_id"] == follower, ["d", "s"]
-                    ]
-                    on_chain = anchor_starts.merge(follower_at, on="d").query(
-                        "s == s_anchor + @offset"
-                    )[["d", "s"]]
-                    on_chain_set = {
-                        (int(d), int(s))
-                        for d, s in on_chain.itertuples(index=False, name=None)
-                    }
-
-                    for d, s in obs.loc[
-                        obs["unique_id"] == follower, ["d", "s"]
-                    ].itertuples(index=False, name=None):
-                        if (int(d), int(s)) not in on_chain_set:
-                            keep.discard((follower, int(d), int(s)))
-
-        self.yrds_tuples = list(keep)
-        yrds_df = pd.DataFrame(self.yrds_tuples, columns=["unique_id", "d", "s"])
-        self.all_valid_ds_for_request = yrds_df.groupby("unique_id")[["d", "s"]].agg(
-            list
-        )
+        """``yrds_tuples``: full observability."""
+        self.yrds_tuples = list(self.observability_tuples)
         self._index_yrds_tuples()
-        logs.info(
-            "Yrds tuples: %d (observability %d)",
-            len(self.yrds_tuples),
-            len(self.observability_tuples),
-        )
 
     def _index_yrds_tuples(self):
         """Build ``_yrds_keys`` and ``_yrds_by_ds`` from ``yrds_tuples``."""
@@ -480,45 +338,6 @@ class SemesterPlanner:
         for uid, d, s in self.yrds_tuples:
             by_ds.setdefault((int(d), int(s)), set()).add(uid)
         self._yrds_by_ds = by_ds
-
-    def _build_chain_link_rows(self):
-        """Rows for batched chain equalities: anchor, follower, d, s, offset."""
-        obs = self.observability
-        rf = self.requests_frame
-        parts = []
-
-        for _chain_id, grp in rf[rf["ss_chain"].notna()].groupby("ss_chain"):
-            members = grp.sort_values("ss_chain_idx")
-            anchor = members.loc[members["ss_chain_idx"] == 0, "unique_id"].iloc[0]
-            offsets = (
-                members.set_index("ss_chain_idx")["t_visit_slots"]
-                .astype(int)
-                .cumsum()
-                .shift(1, fill_value=0)
-            )
-            anchor_starts = obs.loc[
-                obs["unique_id"] == anchor, ["d", "s"]
-            ].rename(columns={"s": "s_anchor"})
-
-            for _, row in members[members["ss_chain_idx"] > 0].iterrows():
-                follower = row["unique_id"]
-                offset = int(offsets.loc[row["ss_chain_idx"]])
-                follower_at = obs.loc[
-                    obs["unique_id"] == follower, ["d", "s"]
-                ].rename(columns={"s": "s_follower"})
-                links = anchor_starts.merge(follower_at, on="d").query(
-                    "s_follower == s_anchor + @offset"
-                )
-                parts.append(
-                    links.assign(anchor=anchor, follower=follower, offset=offset)
-                    .rename(columns={"s_anchor": "s"})[
-                        ["anchor", "follower", "d", "s", "offset"]
-                    ]
-                )
-
-        if not parts:
-            return pd.DataFrame(columns=["anchor", "follower", "d", "s", "offset"])
-        return pd.concat(parts, ignore_index=True)
 
     def _log_boost_current_day_slots(self):
         """Report observable slot counts on current_day for each boosted target."""
@@ -622,29 +441,6 @@ class SemesterPlanner:
     # ==================================================================
     # Constraints 
     # ==================================================================
-
-    def constraint_link_observation_chains(self):
-        """Tie follower Yrds to anchor Yrds via one batched addConstrs call."""
-        if not self.config.getboolean("semester", "use_observation_chains"):
-            return
-        if self.requests_frame["ss_chain"].notna().sum() == 0:
-            return
-
-        chain_links = self._build_chain_link_rows()
-        if chain_links.empty:
-            return
-
-        logs.info(
-            "Constraint: Link observation chains (%d equalities).",
-            len(chain_links),
-        )
-        self.model.addConstrs(
-            (
-                self.Yrds[r, d, s + o] == self.Yrds[a, d, s]
-                for a, r, d, s, o in chain_links.itertuples(index=False)
-            ),
-            name="chain",
-        )
 
     def constraint_build_theta_multivisit(self):
         """Build the shortfall matrix, Theta.
@@ -1270,7 +1066,6 @@ class SemesterPlanner:
     def build_model_round1(self):
         """Round 1 constraints + objective per Lubin et al. 2025."""
         t1 = time.time()
-        self.constraint_link_observation_chains()
         self.constraint_reserve_multislot_exposures()
         self.constraint_enforce_internight_cadence()
         self.constraint_set_max_desired_unique_nights_Wrd()
