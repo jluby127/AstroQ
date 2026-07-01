@@ -1,226 +1,54 @@
-# Simple AstroQ Makefile
-# Creates directory structure and copies config template with current date
+# HIRES 2026A production pipeline. Run from repo root:
+#   make -C ops/HIRES/2026A DATE=2026-07-03 BANDS=band1
 
-# Configuration variables
-# Conda environment to use for all commands
-CONDA_ENV ?= $(CONDA_DEFAULT_ENV) # can edit this to run with a different conda environment if needed.
-WORKDIR ?= $(CC_OUTPUT_PATH)
-SEMESTER_DIR = $(WORKDIR)/$(SEMESTER)
-DATE_DIR = $(SEMESTER_DIR)/$(DATE)
-
-# Directory containing this Makefile (stable even if make is run from elsewhere)
-MAKEFILE_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
-ENV_FILE ?= $(MAKEFILE_DIR).env
-LOAD_ENV = if [ -f "$(ENV_FILE)" ]; then set -a; . "$(ENV_FILE)"; set +a; fi
-# Optional offline allocation file. By default `astroq prep hirescps` pulls the
-# Keck schedule live and crossmatches against REQUEST_URLS_CSV (passed via -ru).
-# To run offline, append   -as "$(ALLOCATION_FILE)"   to the prep recipes below.
-ALLOCATION_FILE ?= $(MAKEFILE_DIR)allocation_hires_cps.csv
-REQUEST_URLS_CSV ?= $(MAKEFILE_DIR)request_urls.csv
-
-# Shared config template lives in ops/HIRES/common/ (one level up).
-CONFIG_TEMPLATE ?= $(MAKEFILE_DIR)../common/config_template.ini
-
-# Changed only once per semester
+ASTROQ_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../../..)
 SEMESTER ?= 2026A
+DATE ?=
+BANDS ?= band1
+UPTREE ?= $(CC_OUTPUT_PATH)
+FILLER ?= 2026A_E473
+REQUEST_URLS ?= ops/HIRES/2026A/request_urls.csv
 START_DATE ?= 2026-02-01
 END_DATE ?= 2026-07-31
-BANDS ?= band1 full-band1
-FILLER_PROGRAM ?= 2026A_N012
 
-# Optional soft-bias for plan-semester: nudge listed unique_ids onto current_day.
-# Example: make DATE=2026-06-22 BANDS=band1 BOOST_UIDS="140538A,109358" BOOST_FACTOR=5
-BOOST_UIDS ?=
-BOOST_FACTOR ?= 5.0
-ifneq ($(strip $(BOOST_UIDS)),)
-  BOOST_ARGS = --boost "$(BOOST_UIDS)" $(BOOST_FACTOR)
-else
-  BOOST_ARGS =
+ifeq ($(strip $(UPTREE)),)
+$(error Set CC_OUTPUT_PATH or UPTREE to the output parent directory)
 endif
 
-# Cross-platform sed in-place flag (Darwin uses -i '')
-UNAME_S := $(shell uname)
-SED_I_FLAG :=
-ifeq ($(UNAME_S),Darwin)
-  SED_I_FLAG := ''
+ifeq ($(strip $(DATE)),)
+$(error DATE is required, e.g. make DATE=2026-07-03)
 endif
 
-# Date validation and override
-DATE ?= $(shell date +%Y-%m-%d)
-ifdef date
-	DATE := $(date)
-endif
+BAND := $(firstword $(BANDS))
+BAND_NUM := $(patsubst band%,%,$(BAND))
+RUNDIR := $(abspath $(UPTREE)/$(SEMESTER)/$(DATE)/$(BAND))
+CONFIG := $(RUNDIR)/config.ini
+TEMPLATE := $(ASTROQ_ROOT)/ops/HIRES/common/config_template.ini
 
-# Mark config.ini files as precious to prevent automatic deletion
-.PRECIOUS: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/config.ini)
+.PHONY: all prep plan-semester plan-night archive config
 
-# Default target - run all bands through the complete workflow
-all: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/plan-night-complete)
-	@echo "✅ Complete workflow finished for all bands!"
-	@echo "📁 Results available in:"
-	@for band in $(BANDS); do \
-		echo "  $(DATE_DIR)/$$band/"; \
-	done
-	@echo "📝 Combining all band logs..."
-	@$(MAKE) combine_logs
-	@echo "🔍 Checking night plans..."
-	@$(MAKE) check_night_plans
+all: archive
 
-# Final target for each band - depends on plan-night completion
-$(DATE_DIR)/%/plan-night-complete: $(DATE_DIR)/%/plan-night-run
-	@echo "✅ Band $(notdir $(@D)) workflow complete!"
-	@echo "📦 Archiving webapp HTML for band $(notdir $(@D))..."
-	@cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq archive -cf config.ini 2>&1 | tee -a astroq.log
-	@touch $@
+config: $(CONFIG)
 
-# Run plan-night command
-$(DATE_DIR)/%/plan-night-run: $(DATE_DIR)/%/plan-semester-run
-	@echo "🌙 Running plan-night for band $(notdir $(@D))..."
-	@cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq plan-night -cf config.ini 2>&1 | tee -a astroq.log
-	@touch $@
+$(CONFIG):
+	mkdir -p $(RUNDIR)
+	sed -e 's|WORKDIR_PLACEHOLDER|$(RUNDIR)|' \
+	    -e 's|CURRENT_DATE_PLACEHOLDER|$(DATE)|' \
+	    -e 's|START_DATE_PLACEHOLDER|$(START_DATE)|' \
+	    -e 's|END_DATE_PLACEHOLDER|$(END_DATE)|' \
+	    -e 's|SEMESTER_PLACEHOLDER|$(SEMESTER)|' \
+	    $(TEMPLATE) > $(CONFIG)
 
-# Run plan-semester command (unified for all bands)
-$(DATE_DIR)/%/plan-semester-run: $(DATE_DIR)/%/prep-run
-	@echo "📅 Running plan-semester for band $(notdir $(@D))..."
-ifneq ($(strip $(BOOST_UIDS)),)
-	@echo "   Boost: $(BOOST_UIDS) (factor $(BOOST_FACTOR))"
-endif
-	@cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq plan-semester -cf config.ini $(BOOST_ARGS) 2>&1 | tee -a astroq.log
-	@touch $@
+prep: $(CONFIG)
+	cd $(ASTROQ_ROOT) && astroq prep hirescps -cf $(CONFIG) -band $(BAND_NUM) \
+	    -ru $(REQUEST_URLS) -fillers $(FILLER)
 
-# Unified prep command for all bands (queue read from config.ini; the queue
-# name is also the `astroq prep` subcommand name, e.g. hirescps / kpfcc).
-$(DATE_DIR)/%/prep-run: $(DATE_DIR)/%/config.ini
-	@echo "🔧 Running prep for band $(notdir $(@D))..."
-	@test -f "$(REQUEST_URLS_CSV)" || (echo "Missing $(REQUEST_URLS_CSV)" && exit 1)
-	@: > $(@D)/astroq.log
-	@QUEUE=$$(sed -n 's/^[[:space:]]*queue[[:space:]]*=[[:space:]]*//p' $(@D)/config.ini | tr -d ' \r\n'); \
-	BAND_NUM=$$(echo $(notdir $(@D)) | sed 's/band//' | sed 's/full-//'); \
-	IS_FULL_BAND=$$(echo $(notdir $(@D)) | grep -q '^full-' && echo "true" || echo "false"); \
-	if [ "$$IS_FULL_BAND" = "true" ]; then \
-		echo "📅 Running prep for full-band $$BAND_NUM (queue=$$QUEUE)..." && \
-		cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -fillers $(FILLER_PROGRAM) -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
-	else \
-		echo "📊 Running prep for band $$BAND_NUM (queue=$$QUEUE)..." && \
-		cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -fillers $(FILLER_PROGRAM) -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
-	fi
-	@touch $@
+plan-semester: prep
+	cd $(ASTROQ_ROOT) && astroq plan-semester -cf $(CONFIG)
 
-# Create config file for a specific band
-$(DATE_DIR)/%/config.ini: create_dirs
-	@echo "📋 Copying config template for band $(notdir $(@D))..."
-	@mkdir -p $(@D)
-	@cp $(CONFIG_TEMPLATE) $@
-	@sed -i $(SED_I_FLAG) "s|CURRENT_DATE_PLACEHOLDER|$(DATE)|g" $@
-	@sed -i $(SED_I_FLAG) "s|START_DATE_PLACEHOLDER|$(START_DATE)|g" $@
-	@sed -i $(SED_I_FLAG) "s|END_DATE_PLACEHOLDER|$(END_DATE)|g" $@
-	@sed -i $(SED_I_FLAG) "s|SEMESTER_PLACEHOLDER|$(SEMESTER)|g" $@
-	@sed -i $(SED_I_FLAG) "s|WORKDIR_PLACEHOLDER|$(@D)|g" $@
-	@echo "✅ Config file created and updated for band $(notdir $(@D))"
+plan-night: plan-semester
+	cd $(ASTROQ_ROOT) && astroq plan-night -cf $(CONFIG)
 
-# Validate date format
-validate_date:
-ifdef date
-	@echo "🔍 Validating custom date: $(date)"
-	@if ! echo "$(date)" | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}$$' > /dev/null; then \
-		echo "❌ Error: Invalid date format: $(date)"; \
-		echo "   Please use YYYY-MM-DD format (e.g., 2025-09-16)"; \
-		exit 1; \
-	fi
-	@if ! python3 -c "from datetime import datetime; datetime.strptime('$(date)', '%Y-%m-%d')" > /dev/null 2>&1; then \
-		echo "❌ Error: Invalid date: $(date)"; \
-		echo "   Please provide a valid date in YYYY-MM-DD format"; \
-		exit 1; \
-	fi
-	@echo "✅ Date validation passed: $(date)"
-else
-	@echo "📅 Using current date: $(DATE)"
-endif
-
-# Create directory structure
-create_dirs: validate_date
-	@echo "📁 Creating directory structure..."
-	@mkdir -p $(DATE_DIR)
-	@echo "✅ Directories created"
-
-# Combine all band logs into a single file
-combine_logs:
-	@echo "📝 Combining logs from all bands..."
-	@echo "# Combined AstroQ Logs for $(DATE)" > $(DATE_DIR)/all_band_logs.log
-	@echo "# Generated on: $$(date)" >> $(DATE_DIR)/all_band_logs.log
-	@echo "# Bands: $(BANDS)" >> $(DATE_DIR)/all_band_logs.log
-	@echo "" >> $(DATE_DIR)/all_band_logs.log
-	@for band in $(BANDS); do \
-		if [ -f "$(DATE_DIR)/$$band/astroq.log" ]; then \
-			echo "## Band: $$band" >> $(DATE_DIR)/all_band_logs.log; \
-			echo "## Log file: $(DATE_DIR)/$$band/astroq.log" >> $(DATE_DIR)/all_band_logs.log; \
-			echo "## Timestamp: $$(date)" >> $(DATE_DIR)/all_band_logs.log; \
-			echo "" >> $(DATE_DIR)/all_band_logs.log; \
-			cat $(DATE_DIR)/$$band/astroq.log >> $(DATE_DIR)/all_band_logs.log; \
-			echo "" >> $(DATE_DIR)/all_band_logs.log; \
-			echo "## End of $$band log" >> $(DATE_DIR)/all_band_logs.log; \
-			echo "" >> $(DATE_DIR)/all_band_logs.log; \
-			echo "----------------------------------------" >> $(DATE_DIR)/all_band_logs.log; \
-			echo "" >> $(DATE_DIR)/all_band_logs.log; \
-		else \
-			echo "⚠️  Warning: No log file found for band $$band at $(DATE_DIR)/$$band/astroq.log"; \
-		fi \
-	done
-	@echo "✅ Combined log file created: $(DATE_DIR)/all_band_logs.log"
-
-# Check night plans
-check_night_plans:
-	@echo "🔍 Running astroq.scripts.check_night_plans..."
-	@$(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) python -m astroq.scripts.check_night_plans -s $(SEMESTER) -d $(DATE) $(DATE_DIR)
-	@echo "✅ Night plans check complete!"
-
-# Launch webapp
-webapp:
-	@echo "🌐 Launching AstroQ webapp..."
-	@echo "📁 Using workdir as uptree path: $(WORKDIR)"
-	@echo "🚀 Running launch_webapp.sh from $(WORKDIR)..."
-	@chmod +x $(WORKDIR)/launch_webapp.sh
-	@$(WORKDIR)/launch_webapp.sh
-
-# Clean up
-clean:
-	@echo "🧹 Cleaning up..."
-	@echo "⚠️  This will remove: $(DATE_DIR)"
-	@echo -n "Are you sure? (y/N): " && read -r confirm && [ "$$confirm" = "y" ] || exit 1
-	@rm -rf $(DATE_DIR)
-	@echo "✅ Cleanup complete"
-
-# Show status
-status:
-	@echo "📊 Status:"
-	@echo "  Semester: $(SEMESTER)"
-	@if [ -n "$(date)" ]; then \
-		echo "  Date: $(DATE) (custom)"; \
-	else \
-		echo "  Date: $(DATE) (current)"; \
-	fi
-	@echo "  Start Date: $(START_DATE)"
-	@echo "  End Date: $(END_DATE)"
-	@echo "  Bands: $(BANDS)"
-	@echo "  Filler Program: $(FILLER_PROGRAM)"
-ifneq ($(strip $(BOOST_UIDS)),)
-	@echo "  Boost UIDs: $(BOOST_UIDS) (factor $(BOOST_FACTOR))"
-else
-	@echo "  Boost: (disabled)"
-endif
-	@echo "  Allocation file (-as): $(ALLOCATION_FILE)"
-	@echo "  Program sheet URLs CSV (-ru): $(REQUEST_URLS_CSV)"
-	@echo "  Work Directory: $(WORKDIR)"
-	@echo "  Date Directory: $(DATE_DIR)"
-
-# Complete workflow (workflow + webapp)
-complete: all
-	@echo "🌐 Launching webapp..."
-	@$(MAKE) webapp
-
-.PHONY: all create_dirs clean status webapp complete combine_logs check_night_plans prep plan-semester plan-night
-
-# Run only selected pipeline stages (respects DATE, BANDS, BOOST_*).
-prep: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/prep-run)
-plan-semester: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/plan-semester-run)
-plan-night: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/plan-night-run)
+archive: plan-night
+	cd $(ASTROQ_ROOT) && astroq archive -cf $(CONFIG)

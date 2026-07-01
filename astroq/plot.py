@@ -2362,14 +2362,28 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
     return fig
 
 
+def _completion_splan_weight(req_row):
+    """Numeric ``splan_weight`` for completion plots (matches semester optimizer)."""
+    if req_row is None:
+        return np.nan
+    for col in ("splan_weight", "weight"):
+        if col in req_row.index and pd.notna(req_row.get(col)):
+            return float(pd.to_numeric(req_row[col], errors="coerce"))
+    return np.nan
+
+
+def _splan_weight_legend_label(weight):
+    if pd.isna(weight):
+        return "splan_weight: (missing)"
+    w = float(weight)
+    if w == int(w):
+        return f"splan_weight: {int(w)}"
+    return f"splan_weight: {w}"
+
+
 def _completion_by_request_frame(semester_planner, all_stars):
-    """Per-request semester completion % joined with request.csv weight."""
-    req = semester_planner.requests_frame_all
-    weight_by_id = (
-        pd.to_numeric(req.set_index("unique_id")["weight"], errors="coerce")
-        if "weight" in req.columns
-        else pd.Series(dtype=float)
-    )
+    """Per-request semester completion % joined with request.csv ``splan_weight``."""
+    req = semester_planner.requests_frame_all.set_index("unique_id")
 
     rows = []
     for star in all_stars:
@@ -2378,17 +2392,14 @@ def _completion_by_request_frame(semester_planner, all_stars):
             if len(star.cume_observe_pct) > 0
             else 0.0
         )
-        if star.unique_id in weight_by_id.index:
-            weight = weight_by_id.loc[star.unique_id]
-        else:
-            weight = np.nan
+        req_row = req.loc[star.unique_id] if star.unique_id in req.index else None
         rows.append(
             {
                 "unique_id": star.unique_id,
                 "target": star.target,
                 "program": star.program,
                 "completion_pct": pct,
-                "weight": weight,
+                "splan_weight": _completion_splan_weight(req_row),
             }
         )
     return pd.DataFrame(rows)
@@ -2401,16 +2412,6 @@ def _weight_legend_label(weight):
     if w == int(w):
         return f"weight: {int(w)}"
     return f"weight: {w}"
-
-
-def _priority_legend_label(weight):
-    """Histogram legend: weight 1 -> p1, etc."""
-    if pd.isna(weight):
-        return "(missing)"
-    w = float(weight)
-    if w == int(w):
-        return f"p{int(w)}"
-    return f"p{w}"
 
 
 def _sorted_weight_values(weights):
@@ -2445,11 +2446,11 @@ def _completion_bin_label(pct):
 
 def get_completion_histogram_by_weight(semester_planner, all_stars):
     """
-    Histogram of request completion rate (%), one curve per unique weight value.
+    Histogram of request completion rate (%), one curve per ``splan_weight``.
     """
     df = _completion_by_request_frame(semester_planner, all_stars)
     fig = go.Figure()
-    weight_values = _sorted_weight_values(df["weight"].unique())
+    weight_values = _sorted_weight_values(df["splan_weight"].unique())
     colors = sns.color_palette("deep", max(len(weight_values), 1))
     rgb_strings = [
         f"rgb({int(r * 255)}, {int(g * 255)}, {int(b * 255)})"
@@ -2457,7 +2458,9 @@ def get_completion_histogram_by_weight(semester_planner, all_stars):
     ]
 
     for i, weight in enumerate(weight_values):
-        subset = df.loc[_weight_series_matches(df["weight"], weight), "completion_pct"]
+        subset = df.loc[
+            _weight_series_matches(df["splan_weight"], weight), "completion_pct"
+        ]
         bin_labels = subset.map(_completion_bin_label)
         counts = (
             bin_labels.value_counts()
@@ -2468,8 +2471,7 @@ def get_completion_histogram_by_weight(semester_planner, all_stars):
             go.Bar(
                 x=_COMPLETION_BIN_LABELS,
                 y=counts,
-                name=_priority_legend_label(weight),
-                opacity=0.65,
+                name=_splan_weight_legend_label(weight),
                 marker_color=rgb_strings[i % len(rgb_strings)],
             )
         )
@@ -2477,14 +2479,14 @@ def get_completion_histogram_by_weight(semester_planner, all_stars):
     fig.update_layout(
         width=1400,
         height=600,
-        title="Completion Rate by Priority",
+        title="Completion Rate by splan_weight",
         xaxis_title="Completion Rate (%)",
         yaxis_title="Number of Requests",
-        barmode="overlay",
+        barmode="stack",
         plot_bgcolor=clear,
         paper_bgcolor=clear,
         xaxis=dict(categoryorder="array", categoryarray=_COMPLETION_BIN_LABELS),
-        legend=dict(title="Priority"),
+        legend=dict(title="splan_weight"),
     )
     return fig
 
@@ -2511,7 +2513,7 @@ def get_completion_vs_target_name(semester_planner, all_stars):
                 customdata=np.stack(
                     [
                         sub["program"].to_numpy(),
-                        sub["weight"].map(_weight_legend_label).to_numpy(),
+                        sub["splan_weight"].map(_splan_weight_legend_label).to_numpy(),
                     ],
                     axis=-1,
                 ),
