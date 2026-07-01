@@ -10,6 +10,7 @@ import time
 from configparser import ConfigParser
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import gurobipy as gp
 import h5py
@@ -206,6 +207,18 @@ class SemesterPlanner:
         rfa = pd.read_csv(request_file)
         if "comments" not in rfa.columns:
             rfa["comments"] = ""
+        if "weight" not in rfa.columns:
+            if "priority" in rfa.columns:
+                rfa["weight"] = pd.to_numeric(rfa["priority"], errors="coerce").fillna(1.0)
+                logs.info(
+                    "request.csv has no 'weight' column; using 'priority' as intra-program weight."
+                )
+            else:
+                rfa["weight"] = 1.0
+                logs.warning(
+                    "request.csv has no 'weight' or 'priority' column; "
+                    "using weight 1.0 for all requests."
+                )
         rfa["inactive"] = rfa["inactive"].fillna(False).astype(bool)
         logs.warning(
             f"There are {int(rfa['inactive'].sum())} inactive of {len(rfa)} requests."
@@ -938,7 +951,7 @@ class SemesterPlanner:
             out[prog] = out.get(prog, 0) + slots
         return out
 
-    def constraint_throttle(self):
+    def constraint_throttle(self, throttle_grace=1.0):
         """
         Not described in Lubin et al. 2025.
 
@@ -952,7 +965,6 @@ class SemesterPlanner:
         program_frame = pd.read_csv(self.programs_file).set_index("program")
         slot_size = self.config.getfloat("semester", "slot_size")
         hours_per_night = self.config.getfloat("semester", "hours_per_night")
-        throttle_grace = self.config.getfloat("semester", "throttle_grace")
 
         program_frame["awarded_slots"] = (
             program_frame["nights"] * hours_per_night * 60 / slot_size
@@ -1115,6 +1127,142 @@ class SemesterPlanner:
             GRB.MAXIMIZE,
         )
 
+    def set_objective_minimize_empty_slots(self):
+        """Bonus round: minimize empty slots."""
+        logs.info("Objective: Minimize the number of empty slots.")
+        t_visit_slots = dict(
+            zip(self.requests_frame["unique_id"], self.requests_frame["t_visit_slots"])
+        )
+        total_slots = self.semester_length * self.access_obj.nslots
+        self.model.setObjective(
+            (total_slots - gp.quicksum(
+                t_visit_slots[uid] * self.Yrds[uid, d, s]
+                for uid, d, s in self.yrds_tuples
+            )),
+            GRB.MINIMIZE,
+        )
+
+    def build_model_round2_priority_NEW(self):
+        """
+        New round 2 objective.
+
+        maximize the completion rate of all programs
+        """
+        # self.constraint_fix_previous_objective()
+
+        program_frame = pd.read_csv(self.programs_file).set_index("program")
+        slot_size = self.config.getfloat("semester", "slot_size")
+        hours_per_night = self.config.getfloat("semester", "hours_per_night")
+        awarded_slots_by_program = (
+            program_frame["nights"] * hours_per_night * 60 / slot_size
+        ).to_dict()
+
+        program_request_ids = {
+            p: set(
+                self.requests_frame.loc[
+                    self.requests_frame["program_code"] == p, "unique_id"
+                ]
+            )
+            for p in self.requests_frame["program_code"].unique()
+        }
+
+        t_visit_slots = dict(
+            zip(self.requests_frame["unique_id"], self.requests_frame["t_visit_slots"])
+        )
+
+        self.program_awarded_slots = {}
+        self.program_fill_factor = {}
+        for p, uids in program_request_ids.items():
+            awarded_slots = awarded_slots_by_program.get(p)
+            if awarded_slots is None or awarded_slots <= 0:
+                logs.warning(
+                    "Program %s missing or has non-positive awarded slots; skipping fill factor.",
+                    p,
+                )
+                continue
+            slots_used = gp.quicksum(
+                self.Yrds[r, d, s] * t_visit_slots[r]
+                for r, d, s in self.yrds_tuples
+                if r in uids
+            )
+            self.program_awarded_slots[p] = float(awarded_slots)
+            self.program_fill_factor[p] = slots_used / awarded_slots
+
+            slots_used_val = sum(
+                self.Yrds[r, d, s].X * t_visit_slots[r]
+                for r, d, s in self.yrds_tuples
+                if r in uids
+            )
+            fill_factor_val = slots_used_val / awarded_slots
+
+            logs.info(
+                "Round2 priority: program %s awarded_slots=%.0f slots_used=%.0f fill_factor=%.3f",
+                p,
+                awarded_slots,
+                slots_used_val,
+                fill_factor_val,
+            )
+
+            self.model.addConstr(
+                slots_used_val/awarded_slots <= self.program_fill_factor[p],
+                "maintain_fill_factor_for_program_" + p,
+            )
+
+        self.model.setObjective(
+            gp.quicksum(self.program_fill_factor[p] for p in self.program_fill_factor.keys()),
+            GRB.MAXIMIZE,
+        )
+
+    def remove_constraint_throttle(self):
+        """Remove throttle constraints from a prior round."""
+        logs.info("Constraint: Removing previous throttle constraints.")
+        program_frame = pd.read_csv(self.programs_file)
+        for program in program_frame["program"]:
+            rm_const = self.model.getConstrByName(f"throttle_program_{program}")
+            if rm_const is not None:
+                self.model.remove(rm_const)
+
+    def capture_theta_prior(self):
+        """Fix Gurobi ``theta_prior`` vars to each schedulable request's solved shortfall."""
+        schedulable = set(self.joiner["unique_id"].unique())
+        self.theta_prior = {}
+        for uid in schedulable:
+            prior_val = float(self.theta[uid].X)
+            self.theta_prior[uid] = float(prior_val)
+
+    def remove_constraint_fix_previous_completion_rates(self):
+        """Drop per-target ``theta <= theta_prior`` constraints from an earlier round."""
+        for constr in list(self.model.getConstrs()):
+            if constr.ConstrName.startswith("theta_le_prior_"):
+                self.model.remove(constr)
+
+    def constraint_fix_previous_completion_rates(self, epsilon=0.0):
+        """Keep each target's shortfall no worse than the prior round (lower ``theta`` is better)."""
+        self.capture_theta_prior()
+        logs.info(
+            "Constraint: Per-target shortfall must stay at or below prior round "
+            "(epsilon=%g).",
+            epsilon,
+        )
+        for uid, prior_var in self.theta_prior.items():
+            self.model.addConstr(
+                self.theta[uid] <= prior_var,
+                f"theta_le_prior_{uid}",
+            )
+
+
+    def build_model_round4_priority_NEW(self):
+        """
+        New round 4 objective.
+
+        Minimize the number of empty slots.
+        """
+        self.constraint_fix_previous_completion_rates()
+        # grace = self.config.getfloat("semester", "throttle_grace")
+        self.remove_constraint_throttle()
+        self.constraint_throttle(throttle_grace=2.0)
+        self.set_objective_minimize_empty_slots()
+
     # ==================================================================
     # Model orchestration.
     # ==================================================================
@@ -1129,7 +1277,7 @@ class SemesterPlanner:
         self.constraint_build_enforce_intranight_cadence()
         self.constraint_set_min_max_visits_per_night()
         self.constraint_build_theta_multivisit()
-        self.constraint_throttle()
+        self.constraint_throttle(throttle_grace=1.0)
         self.set_objective_minimize_theta_time_normalized()
         logs.info(f"Time to build constraints: {np.round(time.time() - t1, 3):.3f}")
 
@@ -1229,9 +1377,15 @@ class SemesterPlanner:
         self._round1_weighted_theta = self._eval_weighted_theta()
         self._finalize_round("Round1")
         if self.config.getboolean("semester", "run_bonus_round"):
-            self.build_model_round2()
+            self.build_model_round2_priority_NEW()
             self.optimize_model()
             self._finalize_round("Round2")
+            self.build_model_round3_priority()
+            self.optimize_model()
+            self._finalize_round("Round3")
+            self.build_model_round4_priority_NEW()
+            self.optimize_model()
+            self._finalize_round("Round4")
         if self.config.getboolean("semester", "run_upcoming_night_round", fallback=False):
             self.build_model_upcoming_night_round()
             self.optimize_model()
@@ -1310,6 +1464,8 @@ class SemesterPlanner:
         slots_per_visit_today = sched_today["unique_id"].map(t_visit_slots).fillna(1)
         future_reserved = int(slots_per_visit_future.sum())
         today_reserved = int(slots_per_visit_today.sum())
+
+        # n_available_starts_for_dummy_star = int((self.observability["unique_id"] == 'Star0000').sum())
 
         summary = pd.Series(
             {
@@ -1553,3 +1709,140 @@ class SemesterPlanner:
 
         logs.info(f"SemesterPlanner loaded from HDF5: {hdf5_path}")
         return instance
+
+    def constraint_hold_program_fill_factors(self, alpha=0.0):
+        """
+        Bonus round constraint: not featured in Lubin et al. 2025.
+
+        After Round 2, record each program's total scheduled slot-time
+        (``sum(Yrds * t_visit_slots)``). In Round 3, constrain the program's
+        scheduled slot-time to stay within alpha (relative tolerance) of that
+        Round 2 value.
+        """
+        logs.info("Constraint: Holding program fill factors.")
+
+        t_visit_slots = dict(
+            zip(self.requests_frame["unique_id"], self.requests_frame["t_visit_slots"])
+        )
+
+        for p in self.requests_frame['program_code'].unique():
+            program_request_ids = set(
+                self.requests_frame.loc[
+                    self.requests_frame['program_code'] == p, 'unique_id'
+                ]
+            )
+            r2_slots_awarded = sum(
+                self.Yrds[r, d, s].X * t_visit_slots[r]
+                for r, d, s in self.yrds_tuples
+                if r in program_request_ids
+            )
+            logs.info(
+                f"Holding program {p} to at least {alpha * 100:.1f}% less than "
+                f"Round 2 scheduled slots: {r2_slots_awarded:.0f}"
+            )
+            future_slots = gp.quicksum(
+                self.Yrds[r, d, s] * t_visit_slots[r]
+                for r, d, s in self.yrds_tuples
+                if r in program_request_ids
+            )
+            self.model.addConstr(
+                r2_slots_awarded * (1-alpha)  <= future_slots,
+                'hold_program_fill_factors_lower_' + p,
+            )
+            # Removed because we want to fill as much as possible
+            # self.model.addConstr(
+            #     r2_slots_awarded * (1+alpha)  >= future_slots,
+            #     'hold_program_fill_factors_upper_' + p,
+            # )
+
+    def build_model_round2_priority(self):
+        """
+        Implement the constraints and objective function for Round 2. Not described in Lubin et al. 2025.
+
+        Returns:
+            None
+        """
+        t1 = time.time()
+        self.constraint_fix_previous_objective()
+        self.set_objective_priorities_INTER()
+        logs.info(f"Time to build constraints: {np.round(time.time()-t1,3):.3f}")
+
+    def build_model_round3_priority(self):
+        """
+        Implement the constraints and objective function for Round 2. Not described in Lubin et al. 2025.
+
+        Returns:
+            None
+        """
+        t1 = time.time()
+        self.constraint_hold_program_fill_factors()
+        self.set_objective_priorities_INTRA()
+        logs.info(f"Time to build constraints: {np.round(time.time()-t1,3):.3f}")
+
+    def set_objective_priorities_INTER(self):
+        """
+        Set inter-program priority objective:
+
+
+        where N_p = sum over r in R_p of 2^{w_r} * t_{visit,r} * n_{intra,max,r} * n_{inter,max,r}
+        (normalization per program), w_r = weight of request r, Y_{r,d,s} = binary schedule variable.
+        """
+        logs.info("Objective: Inter-program priorities.")
+
+        program_request_ids = {
+            p: set(self.requests_frame[self.requests_frame['program_code'] == p]['unique_id'])
+            for p in self.requests_frame['program_code'].unique()
+        }
+
+        program_frame = pd.read_csv(self.programs_file)
+        if "priority" not in program_frame.columns:
+            logs.warning(
+                f"{self.programs_file} has no 'priority' column; using priority 1.0 for all programs."
+            )
+            N_p = {p: 1.0 for p in program_request_ids}
+        else:
+            priority_by_program = program_frame.set_index("program")["priority"].astype(float).to_dict()
+            N_p = {p: priority_by_program[p] for p in program_request_ids}
+
+        self.model.setObjective(
+            gp.quicksum(
+                N_p[p] * gp.quicksum(
+                    self.Yrds[r, d, s]
+                    for r, d, s in self.observability_tuples
+                    if r in program_request_ids[p]
+                )
+                for p in program_request_ids
+            ),
+            GRB.MAXIMIZE
+        )
+
+    def set_objective_priorities_INTRA(self):
+        """
+        Set intra-program priority objective:
+
+
+        """
+        logs.info("Objective: Intra-program priorities.")
+
+        weight_by_id = self.requests_frame.set_index('unique_id')['weight']
+        t_visit_slots = dict(
+            zip(self.requests_frame["unique_id"], self.requests_frame["t_visit_slots"])
+        )
+        program_request_ids = {
+            p: set(self.requests_frame[self.requests_frame['program_code'] == p]['unique_id'])
+            for p in self.requests_frame['program_code'].unique()
+        }
+
+        self.model.setObjective(
+            gp.quicksum(
+                gp.quicksum(
+                    (1.0 / weight_by_id.loc[r])
+                    * self.Yrds[r, d, s]
+                    * t_visit_slots[r]
+                    for r, d, s in self.yrds_tuples
+                    if r in program_request_ids[p]
+                )
+                for p in program_request_ids
+            ),
+            GRB.MAXIMIZE
+        )
