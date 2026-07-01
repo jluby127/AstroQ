@@ -324,6 +324,9 @@ def build_program_html(
     )
 
     fig_cof = pl.get_cof(loaded.semester_planner, program_stars)
+    fig_completion_hist = pl.get_completion_histogram_by_weight(
+        loaded.semester_planner, program_stars
+    )
     fig_birdseye = pl.get_birdseye(
         loaded.semester_planner, loaded.data_astroq[2], program_stars
     )
@@ -337,6 +340,7 @@ def build_program_html(
     figures_html = [
         _fig_to_html(fig_timebar),
         _fig_to_html(fig_cof),
+        _fig_to_html(fig_completion_hist),
         _fig_to_html(fig_birdseye),
         _fig_to_html(fig_rawobs),
         _fig_to_html(fig_tau_inter_line),

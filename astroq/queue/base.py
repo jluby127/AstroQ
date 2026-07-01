@@ -271,7 +271,7 @@ class Queue:
         return (
             exptime_s * n_exp
             + self.readout_time * (n_exp - 1)
-            + self.slew_overhead_mean * n_intra_max
+            + self.slew_overhead_mean #* n_intra_max # jack removed: should be 1 slew overhead per starting slot visit
         )
 
     def visit_slots(self, exptime_s, n_exp, slot_size_min, n_intra_max):
