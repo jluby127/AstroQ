@@ -1,29 +1,6 @@
-"""
-Queue base class.
+"""Base :class:`Queue` for telescope+instrument model.
 
-A :class:`Queue` represents a single, specific telescope + instrument
-combination (e.g. HIRES-CPS on Keck-I; KPF-CC on Keck-I). It is the single
-source of truth for:
-
-- Site geometry (astroplan ``Observer``, slew rate, wrap).
-- Inaccessible alt/az regions (``inaccessible_zones``), the single declarative
-  spec replacing the old scattered ``nays_*`` / ``tel_min`` / ``tel_max`` /
-  ``deckAzLim*`` / ``vigLim`` / ``zenLim`` constants and the per-subclass
-  ``is_accessible`` / ``pointing_limits`` overrides.
-- Per-instrument timing overheads (readout time, slew overhead).
-- Visit-duration math used by both the semester planner (slot accounting)
-  and the night planner (TTP MILP).
-- Instrument-specific I/O (``write_starlist``).
-
-The same Queue instance is shared by ``SemesterPlanner``, ``NightPlanner``,
-and ``Access``. The TTP MILP in ``astroq.ttp.*`` does NOT depend on Queue;
-it consumes the queue's primitive fields (``observer``, ``slew_rate``,
-``wrap_limit``, ``readout_time``, ``nSlots``, ``inaccessible_zones``) as
-explicit ``TTPModel`` kwargs. This keeps ``astroq.ttp`` a leaf module.
-
-Concrete subclasses live in :mod:`astroq.queue.hirescps` and
-:mod:`astroq.queue.kpfcc`. The factory :func:`astroq.queue.from_config` selects
-the right subclass from the ``[global] queue`` config field.
+Subclasses live in :mod:`astroq.queue.*`
 """
 
 # Standard library imports
@@ -33,24 +10,27 @@ from __future__ import annotations
 import numpy as np
 import astropy.units as u
 
-
 class Queue:
     """Abstract base class for a (telescope + instrument) queue.
 
     Subclasses are expected to populate the following attributes in
-    ``__init__`` and (optionally) override :meth:`is_accessible` if the
-    geometry can't be expressed as alt/az rectangles.
+    ``__init__``
+
+    Visit timing has two entry points: :meth:`visit_duration` (minutes,
+    exposure + readout only; night/TTP) and :meth:`visit_seconds` (seconds,
+    adds one ``slew_overhead_mean``; semester slot accounting).
 
     Attributes:
-        observer (astroplan.Observer): site-aware observer object.
+        observatory (astroplan.Observer): site-aware observer object.
         slew_rate (float): mean telescope slew rate, degrees/second.
         wrap_limit (float | None): azimuth wrap limit, degrees. ``None``
             means no wrap.
+        wrap_states (list[tuple] | None): cable-wrap states for the
+            state-aware TTP slew model; see :meth:`slew_fn_state`.
         nSlots (int): TTP slew-slot granularity (kept ``int`` and Pascal-cased
             because TTP consumes it as ``observatory.nSlots``).
         readout_time (float): detector readout time between successive shots
-            of a single visit, seconds. Canonical source for both
-            ``visit_duration`` and splan's slot accounting.
+            of a single visit, seconds.
         slew_overhead_mean (float): mean per-visit slew overhead used by
             the semester ILP as a constant estimate (since splan cannot know
             target ordering). Superseded at night-plan time by TTP's per-arc
@@ -67,19 +47,11 @@ class Queue:
     observatory = None
     slew_rate: float
     wrap_limit: float | None = None
-    #: Cable-wrap states for the state-aware TTP slew model. ``None`` selects
-    #: the legacy single-cut behavior driven by :attr:`wrap_limit`. When set,
-    #: it is an ordered list of ``(name, enc_min, enc_max)`` tuples giving each
-    #: winding's accessible *encoder* azimuth range (degrees). A sky azimuth
-    #: ``A`` is reachable in a state iff ``A + k*360`` (``k in {-1, 0, +1}``)
-    #: lands inside ``[enc_min, enc_max]``; the slew distance between two
-    #: pointings is the straight-line encoder-azimuth difference (no wrap
-    #: discontinuity). See :meth:`slew_fn_state`.
     wrap_states: list[tuple[str, float, float]] | None = None
     nSlots: int = 1
     readout_time: float
     slew_overhead_mean: float
-    inaccessible_zones: list[tuple[float, float, float, float]] = []
+    inaccessible_zones: tuple[tuple[float, float, float, float], ...] = ()
 
     def is_accessible(self, alt, az):
         """Boolean mask of telescope-accessible (alt, az) pairs.
@@ -89,9 +61,6 @@ class Queue:
         :class:`astroq.access.Access` as the single per-cell pointing gate.
 
         The returned mask matches the broadcast shape of ``alt`` and ``az``.
-        Subclasses may override for non-rectangular geometries (e.g. a
-        polygonal nasmyth shadow), but the default loop over rectangular
-        zones suffices for all currently-supported telescopes.
         """
         alt = np.asarray(alt)
         az = np.asarray(az)
@@ -113,7 +82,7 @@ class Queue:
 
     def _wrap_az(self, angle_deg):
         """Vectorized wrap-frame shift. ``wrap_limit=None`` means no shift."""
-        if not self.wrap_limit:
+        if self.wrap_limit is None:
             return np.asarray(angle_deg)
         a = np.asarray(angle_deg) + (360 - self.wrap_limit)
         return np.where(a > 360, a - 360, a)
@@ -121,13 +90,32 @@ class Queue:
     def _short_az_sep(self, az_sep):
         """If telescope has no wrap, az slews never exceed 180 deg."""
         az_sep = np.asarray(az_sep)
-        if self.wrap_limit:
+        if self.wrap_limit is not None:
             return az_sep
         return np.where(az_sep > 180, 360 - az_sep, az_sep)
 
     #: Per-window sampling policy for :meth:`slew_fn`.
     _SLEW_SAMPLE_CADENCE_MIN = 30
     _SLEW_SAMPLES_PER_WINDOW_FLOOR = 3
+
+    def _slew_window_samples(self, window_start, window_end):
+        """Sample each slew window uniformly; return ``(times, M, n_samples)``."""
+        M = len(window_start)
+        win_dur_min = (window_end[0] - window_start[0]).to_value(u.min)
+        n_samples = int(max(
+            win_dur_min / self._SLEW_SAMPLE_CADENCE_MIN,
+            self._SLEW_SAMPLES_PER_WINDOW_FLOOR,
+        ))
+        fracs = np.linspace(0.0, 1.0, n_samples)
+        delta = window_end - window_start
+        times_grid = window_start[:, None] + delta[:, None] * fracs[None, :]
+        return times_grid.ravel(), M, n_samples
+
+    def _altaz_pairs(self, times, coord_a, coord_b):
+        """AltAz frames for ``coord_a`` and ``coord_b`` at ``times``."""
+        altaz_a = self.observatory.altaz(times, coord_a, grid_times_targets=True)
+        altaz_b = self.observatory.altaz(times, coord_b, grid_times_targets=True)
+        return altaz_a, altaz_b
 
     def slew_fn(self, coord_a, coord_b, window_start, window_end):
         """Worst-case slew minutes per (pair, window).
@@ -149,22 +137,8 @@ class Queue:
         night uniformly). For unequal windows this would need per-row
         sampling.
         """
-        M = len(window_start)
-        win_dur_min = (window_end[0] - window_start[0]).to_value(u.min)
-        n_samples = int(max(
-            win_dur_min / self._SLEW_SAMPLE_CADENCE_MIN,
-            self._SLEW_SAMPLES_PER_WINDOW_FLOOR,
-        ))
-
-        # Build a flat Time array of length M*n_samples by sampling each
-        # window uniformly between its start and end.
-        fracs = np.linspace(0.0, 1.0, n_samples)
-        delta = window_end - window_start
-        times_grid = window_start[:, None] + delta[:, None] * fracs[None, :]
-        times = times_grid.ravel()
-
-        altaz_a = self.observatory.altaz(times, coord_a, grid_times_targets=True)
-        altaz_b = self.observatory.altaz(times, coord_b, grid_times_targets=True)
+        times, M, n_samples = self._slew_window_samples(window_start, window_end)
+        altaz_a, altaz_b = self._altaz_pairs(times, coord_a, coord_b)
         az_sep = self._short_az_sep(
             np.abs(self._wrap_az(altaz_a.az.deg) - self._wrap_az(altaz_b.az.deg))
         )
@@ -215,20 +189,8 @@ class Queue:
             )
         states = self.wrap_states
         S = len(states)
-        M = len(window_start)
-        win_dur_min = (window_end[0] - window_start[0]).to_value(u.min)
-        n_samples = int(max(
-            win_dur_min / self._SLEW_SAMPLE_CADENCE_MIN,
-            self._SLEW_SAMPLES_PER_WINDOW_FLOOR,
-        ))
-
-        fracs = np.linspace(0.0, 1.0, n_samples)
-        delta = window_end - window_start
-        times_grid = window_start[:, None] + delta[:, None] * fracs[None, :]
-        times = times_grid.ravel()
-
-        altaz_a = self.observatory.altaz(times, coord_a, grid_times_targets=True)
-        altaz_b = self.observatory.altaz(times, coord_b, grid_times_targets=True)
+        times, M, n_samples = self._slew_window_samples(window_start, window_end)
+        altaz_a, altaz_b = self._altaz_pairs(times, coord_a, coord_b)
         az_a = altaz_a.az.deg
         az_b = altaz_b.az.deg
         alt_a = altaz_a.alt.deg
@@ -250,36 +212,34 @@ class Queue:
         # Return (P, M, Si, Sj).
         return np.transpose(tau, (2, 3, 0, 1))
 
-    def visit_seconds(self, exptime_s, n_exp, n_intra_max):
+    def visit_seconds(self, exptime_s, n_exp):
         """Splan-canonical per-visit seconds.
 
-        Per-visit elapsed time charged by the semester ILP. Includes the
-        raw exposure time, between-shot readouts, and a slew-overhead term
-        that uses ``n_intra_max`` as the multiplier (preserved bug-for-bug
-        from the historical formula; see note below).
+        Per-visit elapsed time charged by the semester ILP:
+
+        ``exptime_s * n_exp + readout_time * (n_exp - 1) + slew_overhead_mean``
+
+        One ``slew_overhead_mean`` is charged per on-sky visit block; total
+        semester slew time is accumulated elsewhere via ``t_visit_slots *
+        n_intra_max * n_inter_max``.
 
         This is the single source of truth for the splan-style "visit
         seconds" calculation. Callers (:meth:`visit_slots`,
         :meth:`astroq.splan.SemesterPlanner._attach_slot_columns`) do
         their own slot conversion (round vs ceil) on top of the seconds.
-
-        Note: ``slew_overhead_mean * n_intra_max`` is the legacy formula
-        used by splan and :meth:`visit_slots`. A per-visit slew should
-        arguably be a single ``slew_overhead_mean`` rather than
-        ``n_intra_max`` of them; this is flagged as a follow-up.
         """
         return (
             exptime_s * n_exp
             + self.readout_time * (n_exp - 1)
-            + self.slew_overhead_mean #* n_intra_max # jack removed: should be 1 slew overhead per starting slot visit
+            + self.slew_overhead_mean
         )
 
-    def visit_slots(self, exptime_s, n_exp, slot_size_min, n_intra_max):
+    def visit_slots(self, exptime_s, n_exp, slot_size_min):
         """Slots needed for one visit (scalar version of ``t_visit_slots``).
 
         Computes seconds via :meth:`visit_seconds` then rounds to slots.
         """
-        total_s = self.visit_seconds(exptime_s, n_exp, n_intra_max)
+        total_s = self.visit_seconds(exptime_s, n_exp)
         slots = int(np.round(total_s / (slot_size_min * 60.0)))
         return max(1, slots)
 
