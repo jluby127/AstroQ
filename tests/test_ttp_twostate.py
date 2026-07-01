@@ -87,13 +87,13 @@ class TestEncoderGeometry(unittest.TestCase):
 
     def test_below_horizon_is_inaccessible(self):
         # Regression: the elevation clamp must exclude below-horizon points
-        # (alt < 0), not just the 0-18 deg band, or availability windows let
-        # the TTP schedule targets after they have set.
-        alt = np.array([-90.0, -30.0, -0.1, 5.0, 17.9, 18.1, 45.0, 84.9, 85.1])
+        # and the HIRESCPS 2026A shutter floor (28 deg), or availability
+        # windows let the TTP schedule targets after they have set.
+        alt = np.array([-90.0, -30.0, -0.1, 5.0, 27.9, 28.1, 45.0, 84.9, 85.1])
         az = np.full_like(alt, 200.0)  # away from the nasmyth deck az range
         ok = self.q.is_accessible(alt, az)
-        self.assertFalse(ok[alt < 18.0].any(), "alt < 18 must be inaccessible")
-        self.assertTrue(ok[(alt >= 18.0) & (alt <= 85.0)].all())
+        self.assertFalse(ok[alt < 28.0].any(), "alt < 28 must be inaccessible")
+        self.assertTrue(ok[(alt >= 28.0) & (alt <= 85.0)].all())
 
     def test_encoder_az_values(self):
         # N-wrap maps az>=215 to az-360 (continuous through north).

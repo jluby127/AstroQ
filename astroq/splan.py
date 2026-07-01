@@ -28,6 +28,51 @@ SEMESTER_PLANNER_H5_SCHEMA = 4
 # Canonical past.csv column schema. ``junk`` is optional.
 PAST_COLS = ["unique_id", "target", "timestamp", "exposure_time"]
 
+_ROUND_SPECS = {
+    "Round1": (1, "Minimize time-weighted shortfall (Lubin et al.)"),
+    "Round2": (2, "Maximize inter-program fill factors"),
+    "Round3": (3, "Intra-program priorities (hold Round-2 fill)"),
+    "Round4": (4, "Minimize empty slots (re-throttle)"),
+    "UpcomingNight": (5, "Fill current night (cap global shortfall)"),
+}
+
+_PRESOLVE_NAMES = {
+    -1: "auto",
+    0: "off",
+    1: "conservative",
+    2: "aggressive",
+}
+
+_GRB_STATUS_NAMES = {
+    GRB.LOADED: "LOADED",
+    GRB.OPTIMAL: "OPTIMAL",
+    GRB.INFEASIBLE: "INFEASIBLE",
+    GRB.INF_OR_UNBD: "INF_OR_UNBD",
+    GRB.UNBOUNDED: "UNBOUNDED",
+    GRB.CUTOFF: "CUTOFF",
+    GRB.ITERATION_LIMIT: "ITERATION_LIMIT",
+    GRB.NODE_LIMIT: "NODE_LIMIT",
+    GRB.TIME_LIMIT: "TIME_LIMIT",
+    GRB.SOLUTION_LIMIT: "SOLUTION_LIMIT",
+    GRB.INTERRUPTED: "INTERRUPTED",
+    GRB.NUMERIC: "NUMERIC",
+    GRB.SUBOPTIMAL: "SUBOPTIMAL",
+    GRB.INPROGRESS: "INPROGRESS",
+    GRB.USER_OBJ_LIMIT: "USER_OBJ_LIMIT",
+}
+
+_PROGRAM_STATS_KEY = """\
+** Key
+aw     - awarded time (hr)
+req    - requested time (hr)
+past   - past executed time (hr)
+proj   - projected time (past + scheduled future, hr)
+miff%  - minimum fill factor (% of award); constrained lower bound active this round
+maff%  - maximum fill factor (% of award); throttle ceiling active this round
+past%  - past executed time (% of award)
+proj%  - projected fill (% of award); should satisfy miff% <= proj% <= maff%
+----------------------------------------------------------------"""
+
 
 class SemesterPlanner:
     """Semester-level scheduler: pick which targets get observed when.
@@ -84,6 +129,8 @@ class SemesterPlanner:
         self.schedule = None
         self._round1_obj_val = None
         self._round1_weighted_theta = None
+        self._round2_slots_by_program = None
+        self._hold_fill_alpha = 0.0
 
         workdir = self.config.get("global", "workdir")
         self.output_directory = os.path.join(workdir, "outputs")
@@ -278,7 +325,6 @@ class SemesterPlanner:
         visit_s = self.queue.visit_seconds(
             rf["exptime"].astype(float),
             rf["n_exp"].astype(int),
-            rf["n_intra_max"].astype(int),
         )
         rf["t_visit_slots"] = (
             (visit_s / (slot_size * 60.0)).round().clip(lower=1).astype(int)
@@ -1074,7 +1120,7 @@ class SemesterPlanner:
         self.constraint_build_theta_multivisit()
         self.constraint_throttle(throttle_grace=1.0)
         self.set_objective_minimize_theta_time_normalized()
-        logs.info(f"Time to build constraints: {np.round(time.time() - t1, 3):.3f}")
+        logs.debug(f"Time to build constraints: {np.round(time.time() - t1, 3):.3f}")
 
     def build_model_round2(self):
         """Round 2 constraints + objective (bonus round)."""
@@ -1083,7 +1129,7 @@ class SemesterPlanner:
         self.constraint_set_max_absolute_unique_nights_Wrd()
         self.constraint_fix_previous_objective()
         self.set_objective_maximize_slots_used()
-        logs.info(f"Time to build constraints: {np.round(time.time() - t1, 3):.3f}")
+        logs.debug(f"Time to build constraints: {np.round(time.time() - t1, 3):.3f}")
 
     def build_model_upcoming_night_round(self):
         """Upcoming-night round: cap global shortfall, fill ``current_day``."""
@@ -1091,12 +1137,26 @@ class SemesterPlanner:
         slack = self.config.getfloat("semester", "global_shortfall_slack", fallback=1.1)
         self.constraint_fix_global_shortfall(slack_factor=slack)
         self.set_objective_maximize_slots_used_tonight()
-        logs.info(f"Time to build constraints: {np.round(time.time() - t1, 3):.3f}")
+        logs.debug(f"Time to build constraints: {np.round(time.time() - t1, 3):.3f}")
 
-    def optimize_model(self):
-        """Solve the Gurobi model (with IIS diagnostics on infeasibility)."""
-        logs.debug("Begin model solve.")
-        t1 = time.time()
+    def _planned_round_count(self):
+        """Total rounds that ``run_model`` will execute."""
+        n = 1
+        if self.config.getboolean("semester", "run_bonus_round"):
+            n += 3
+        if self.config.getboolean("semester", "run_upcoming_night_round", fallback=False):
+            n += 1
+        return n
+
+    def _begin_round(self, round_label, *, round_num, round_total):
+        """Log a visible banner at the start of each scheduling round."""
+        _, desc = _ROUND_SPECS[round_label]
+        logs.info(
+            "===== Semester Round %d/%d: %s =====", round_num, round_total, desc
+        )
+
+    def _log_solver_config_once(self):
+        """Emit semester solver settings once per ``run_model`` invocation."""
         if not self.config.has_option("semester", "method"):
             raise ValueError(
                 "[semester] method is required; expected milp or norel+milp"
@@ -1127,21 +1187,87 @@ class SemesterPlanner:
             milp_time = max_solve_time
 
         logs.info(
-            "Semester: method=%s warmstart=%gs milp=%gs",
+            "Semester: method=%s warmstart=%gs milp=%gs rounds=%d",
             method,
             norel_budget,
             milp_time,
+            self._planned_round_count(),
         )
+        return method, norel_budget, milp_time
+
+    def _throttle_grace_for_round(self, round_label):
+        """Throttle grace factor in effect when reporting program statistics."""
+        if round_label == "Round4":
+            return 2.0
+        return self.config.getfloat("semester", "throttle_grace", fallback=1.0)
+
+    def _capture_round2_slots_by_program(self):
+        """Record per-program scheduled slot-time at end of Round 2."""
+        t_visit_slots = dict(
+            zip(self.requests_frame["unique_id"], self.requests_frame["t_visit_slots"])
+        )
+        slots_by_program = {}
+        for p in self.requests_frame["program_code"].unique():
+            uids = set(
+                self.requests_frame.loc[
+                    self.requests_frame["program_code"] == p, "unique_id"
+                ]
+            )
+            slots_by_program[p] = sum(
+                self.Yrds[r, d, s].X * t_visit_slots[r]
+                for r, d, s in self.yrds_tuples
+                if r in uids
+            )
+        self._round2_slots_by_program = slots_by_program
+
+    def _gurobi_status_name(self, status):
+        return _GRB_STATUS_NAMES.get(status, f"STATUS_{status}")
+
+    def optimize_model(self, round_label="Round1", *, build_secs=0.0):
+        """Solve the Gurobi model (with IIS diagnostics on infeasibility)."""
+        logs.debug("Begin model solve for %s.", round_label)
+        if not self.config.has_option("semester", "method"):
+            raise ValueError(
+                "[semester] method is required; expected milp or norel+milp"
+            )
+        method = self.config.get("semester", "method").strip().lower()
+        if method not in ("milp", "norel+milp"):
+            raise ValueError(
+                f"[semester] method={method!r} invalid; expected milp or norel+milp"
+            )
+
+        max_solve_time = self.config.getfloat("semester", "max_solve_time")
+        warmstart_time = self.config.getfloat("semester", "warmstart_time", fallback=0.0)
+        if method == "norel+milp":
+            norel_budget = warmstart_time
+            milp_time = max_solve_time - warmstart_time
+        else:
+            norel_budget = 0.0
+            milp_time = max_solve_time
+
+        is_first_round = round_label == "Round1"
+        show_gurobi = self.config.getboolean("semester", "show_gurobi_output")
+        if not is_first_round and self.config.has_option(
+            "semester", "show_gurobi_output_later_rounds"
+        ):
+            show_gurobi = self.config.getboolean(
+                "semester", "show_gurobi_output_later_rounds"
+            )
+        if is_first_round:
+            presolve = 2
+            mip_focus = 1
+        else:
+            presolve = self.config.getint(
+                "semester", "presolve_later_rounds", fallback=1
+            )
+            mip_focus = 2
 
         self.model.params.TimeLimit = milp_time
-        self.model.Params.OutputFlag = self.config.getboolean(
-            "semester", "show_gurobi_output"
-        )
+        self.model.Params.OutputFlag = int(show_gurobi)
         self.model.params.MIPGap = self.config.getfloat("semester", "max_solve_gap")
-        self.model.params.NoRelHeurTime = norel_budget
-        self.model.params.Presolve = 2
-        self.model.params.MIPFocus = 1 # 0 means balance objective and feasibility, 1 means feasibility, 2 means optimality
-        # -1 means default degeneracy moves. helps find feasible solutions in highly degenerate cases.
+        self.model.params.NoRelHeurTime = norel_budget if is_first_round else 0.0
+        self.model.params.Presolve = presolve
+        self.model.params.MIPFocus = mip_focus
         self.model.params.DegenMoves = -1
         self.model.update()
         self.model.optimize()
@@ -1160,36 +1286,68 @@ class SemesterPlanner:
                     logs.critical("%s", c.GenConstrName)
         else:
             logs.debug("Model Successfully Solved.")
-        logs.info(f"Time to finish solver: {time.time() - t1:.3f}")
+
+        status_name = self._gurobi_status_name(self.model.Status)
+        presolve_name = _PRESOLVE_NAMES.get(presolve, str(presolve))
+        runtime = float(self.model.Runtime)
+        nodes = float(self.model.NodeCount)
+        gap_pct = 100.0 * float(self.model.MIPGap)
+        if self.model.SolCount > 0:
+            obj_str = f"{float(self.model.ObjVal):.4g}"
+        else:
+            obj_str = "n/a"
+
+        logs.info(
+            "%s solve: status=%s runtime=%.1fs nodes=%.0f gap=%.2f%% "
+            "obj=%s build=%.1fs presolve=%s",
+            round_label,
+            status_name,
+            runtime,
+            nodes,
+            gap_pct,
+            obj_str,
+            build_secs,
+            presolve_name,
+        )
 
     def run_model(self):
         """Construct and solve the Gurobi model (with optional bonus round)."""
         self._round1_obj_val = None
         self._round1_weighted_theta = None
-        self.build_model_round1()
-        self.optimize_model()
-        self._round1_obj_val = self.model.objVal
-        self._round1_weighted_theta = self._eval_weighted_theta()
-        self._finalize_round("Round1")
+        self._round2_slots_by_program = None
+        self._hold_fill_alpha = 0.0
+        self._log_solver_config_once()
+
+        round_steps = [("Round1", self.build_model_round1)]
         if self.config.getboolean("semester", "run_bonus_round"):
-            self.build_model_round2_priority_NEW()
-            self.optimize_model()
-            self._finalize_round("Round2")
-            self.build_model_round3_priority()
-            self.optimize_model()
-            self._finalize_round("Round3")
-            self.build_model_round4_priority_NEW()
-            self.optimize_model()
-            self._finalize_round("Round4")
+            round_steps.extend(
+                [
+                    ("Round2", self.build_model_round2_priority_NEW),
+                    ("Round3", self.build_model_round3_priority),
+                    ("Round4", self.build_model_round4_priority_NEW),
+                ]
+            )
         if self.config.getboolean("semester", "run_upcoming_night_round", fallback=False):
-            self.build_model_upcoming_night_round()
-            self.optimize_model()
-            self._finalize_round("UpcomingNight")
+            round_steps.append(("UpcomingNight", self.build_model_upcoming_night_round))
+
+        round_total = len(round_steps)
+        for round_num, (round_label, build_fn) in enumerate(round_steps, start=1):
+            self._begin_round(round_label, round_num=round_num, round_total=round_total)
+            t_build = time.time()
+            build_fn()
+            self.optimize_model(round_label, build_secs=time.time() - t_build)
+            if round_label == "Round1":
+                self._round1_obj_val = self.model.objVal
+                self._round1_weighted_theta = self._eval_weighted_theta()
+            self._finalize_round(round_label)
+
         logs.info("Scheduling complete, clear skies!")
 
     def _finalize_round(self, round_label):
         """Build schedule, log report, persist per-night handoff + snapshot."""
         self.build_schedule()
+        if round_label == "Round2":
+            self._capture_round2_slots_by_program()
         self.log_report(round_label)
         self.write_request_selected()
         self.to_hdf5()
@@ -1222,7 +1380,7 @@ class SemesterPlanner:
         )
         self.schedule = sparse
 
-    def to_string(self, *, header="Semester Planner Statistics"):
+    def to_string(self, round_label="Round1", *, header="Semester Planner Statistics"):
         """Run report: top-level summary Series + per-program hours DataFrame.
 
         Requires that :meth:`build_schedule` has been called so
@@ -1260,8 +1418,6 @@ class SemesterPlanner:
         future_reserved = int(slots_per_visit_future.sum())
         today_reserved = int(slots_per_visit_today.sum())
 
-        # n_available_starts_for_dummy_star = int((self.observability["unique_id"] == 'Star0000').sum())
-
         summary = pd.Series(
             {
                 "Total requests": len(self.requests_frame_all),
@@ -1288,24 +1444,23 @@ class SemesterPlanner:
             }
         )
 
-        # ---- per-program table (hours only) ----
+        # ---- per-program table (hours) ----
         progs = (
             pd.read_csv(self.programs_file)
             .rename(columns={"program": "program_code", "nights": "awarded_nights"})
             .set_index("program_code")
         )
         awarded = progs["awarded_nights"] * hours_per_night
+        awarded_slots = progs["awarded_nights"] * hours_per_night * slots_per_hour
 
-        # Requested hours: active requests only. Past hours: ALL rows
-        # (active + inactive) via the same helper the throttle constraint uses.
         rf = self.requests_frame.copy()
         rf["requested_h"] = (
             rf["t_visit_slots"] * rf["n_intra_max"] * rf["n_inter_max"]
         ) / slots_per_hour
         requested_by_prog = rf.groupby("program_code")["requested_h"].sum()
+        past_slots_by_prog = self._past_slots_by_program()
         past_by_prog = (
-            pd.Series(self._past_slots_by_program(), dtype="float64")
-            / slots_per_hour
+            pd.Series(past_slots_by_prog, dtype="float64") / slots_per_hour
         )
 
         sched_with_prog = sched.merge(
@@ -1322,40 +1477,80 @@ class SemesterPlanner:
             pd.DataFrame({"aw": awarded})
             .join(requested_by_prog.rename("req"), how="left")
             .join(past_by_prog.rename("past"), how="left")
-            .join(scheduled_h.rename("fut"), how="left")
+            .join(scheduled_h.rename("sched"), how="left")
             .fillna(0.0)
         )
+        table["proj"] = table["past"] + table["sched"]
+
+        throttle_grace = self._throttle_grace_for_round(round_label)
+        hold_active = round_label in ("Round3", "Round4", "UpcomingNight")
+
+        miff_pct = []
+        maff_pct = []
+        for prog, row in table.iterrows():
+            aw_h = float(row["aw"])
+            aw_slots = float(awarded_slots.get(prog, 0.0))
+            past_slots = float(past_slots_by_prog.get(prog, 0))
+
+            if aw_slots > 0:
+                grace_slots = int(aw_slots * throttle_grace)
+                if grace_slots < past_slots:
+                    grace_slots = int(past_slots)
+                maff_pct.append(100.0 * grace_slots / aw_slots)
+            else:
+                maff_pct.append(0.0)
+
+            if hold_active and self._round2_slots_by_program is not None:
+                r2_slots = float(self._round2_slots_by_program.get(prog, 0.0))
+                min_slots = past_slots + r2_slots * (1.0 - self._hold_fill_alpha)
+                if aw_slots > 0:
+                    miff_pct.append(100.0 * min_slots / aw_slots)
+                else:
+                    miff_pct.append(0.0)
+            else:
+                miff_pct.append(0.0)
+
+        table["miff%"] = miff_pct
+        table["maff%"] = maff_pct
         aw_col = table["aw"]
         has_aw = aw_col > 0
-        table["req/aw"] = np.where(has_aw, np.round(100 * table["req"] / aw_col, 0), 0)
-        table["past/aw"] = np.where(
-            has_aw, np.round(100 * table["past"] / aw_col, 0), 0
-        )
-        table["(past+fut)/aw"] = np.where(
-            has_aw,
-            np.round(100 * (table["past"] + table["fut"]) / aw_col, 0),
-            0,
-        )
+        table["past%"] = np.where(has_aw, 100.0 * table["past"] / aw_col, 0.0)
+        table["proj%"] = np.where(has_aw, 100.0 * table["proj"] / aw_col, 0.0)
         table = table.sort_index()
 
-        program_table = table.copy()
-        for col in program_table.columns:
-            if "/aw" in col:
-                program_table[col] = program_table[col].map(
-                    lambda x: f"{int(round(x))}"
+        for prog, row in table.iterrows():
+            miff = float(row["miff%"])
+            maff = float(row["maff%"])
+            proj = float(row["proj%"])
+            if proj < miff - 0.05 or proj > maff + 0.05:
+                logs.warning(
+                    "Program %s: proj%%=%.1f outside [miff%%=%.1f, maff%%=%.1f] "
+                    "in %s report",
+                    prog,
+                    proj,
+                    miff,
+                    maff,
+                    round_label,
                 )
-            else:
-                program_table[col] = program_table[col].map(lambda x: f"{x:.1f}")
+
+        display = table[["aw", "req", "past", "proj", "miff%", "maff%", "past%", "proj%"]].copy()
+        program_table = display.copy()
+        for col in ("aw", "req", "past", "proj"):
+            program_table[col] = program_table[col].map(lambda x: f"{x:.1f}")
+        for col in ("miff%", "maff%", "past%", "proj%"):
+            program_table[col] = program_table[col].map(lambda x: f"{x:.1f}%")
 
         divider = "-" * 54
+        stats_divider = "-" * 19 + " Program Statistics " + "-" * 19
         parts = [
             header,
             divider,
             summary.to_string(float_format=lambda x: f"{int(round(x))}"),
             "",
-            "Program Statistics (hours):",
-            divider,
+            stats_divider,
             program_table.to_string(),
+            "",
+            _PROGRAM_STATS_KEY,
             "",
         ]
         return "\n".join(parts) + "\n"
@@ -1375,7 +1570,7 @@ class SemesterPlanner:
                 cap,
                 current_theta,
             )
-        report = self.to_string()
+        report = self.to_string(round_label)
         if report:
             logs.info("Run report (%s):", round_label)
             print(report.rstrip(), flush=True)
@@ -1514,6 +1709,7 @@ class SemesterPlanner:
         scheduled slot-time to stay within alpha (relative tolerance) of that
         Round 2 value.
         """
+        self._hold_fill_alpha = float(alpha)
         logs.info("Constraint: Holding program fill factors.")
 
         t_visit_slots = dict(
@@ -1560,7 +1756,7 @@ class SemesterPlanner:
         t1 = time.time()
         self.constraint_fix_previous_objective()
         self.set_objective_priorities_INTER()
-        logs.info(f"Time to build constraints: {np.round(time.time()-t1,3):.3f}")
+        logs.debug(f"Time to build constraints: {np.round(time.time()-t1,3):.3f}")
 
     def build_model_round3_priority(self):
         """
@@ -1572,7 +1768,7 @@ class SemesterPlanner:
         t1 = time.time()
         self.constraint_hold_program_fill_factors()
         self.set_objective_priorities_INTRA()
-        logs.info(f"Time to build constraints: {np.round(time.time()-t1,3):.3f}")
+        logs.debug(f"Time to build constraints: {np.round(time.time()-t1,3):.3f}")
 
     def set_objective_priorities_INTER(self):
         """
