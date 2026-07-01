@@ -65,8 +65,21 @@ REQUEST_COLS_CORE = [
     "priority",
 ]
 
-# On-disk ``request.csv`` from prep (no start/stop columns): comments last.
-REQUEST_COLS = REQUEST_COLS_CORE + ["comments"]
+# On-disk ``request.csv`` from prep (no start/stop columns).
+REQUEST_COLS = REQUEST_COLS_CORE + ["splan_weight", "comments"]
+
+# Sheet rows before ``attach_splan_weight`` (no ``splan_weight`` column).
+SHEET_REQUEST_COLS = REQUEST_COLS_CORE + ["comments"]
+
+PRIORITY_TO_SPLAN_WEIGHT = {
+    "p1": 1,
+    "p2": 2,
+    "p3": 3,
+    "p4": 3,
+    "p5": 3,
+}
+_DEFAULT_SPLAN_WEIGHT_NO_PRIORITIES = 2
+_UNKNOWN_PRIORITY_SPLAN_WEIGHT = 3
 
 # Full Google Sheet ``requests`` tab (CPS template): … priority, start, stop, comments.
 REQUEST_COLS_READ = REQUEST_COLS_CORE + ["start", "stop", "comments"]
@@ -284,6 +297,61 @@ def _dedup_requests_by_hash(requests_df, custom_df):
     return out, custom_df
 
 
+def _normalize_priority_token(value):
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    text = str(value).strip().lower()
+    if not text or text == "nan":
+        return None
+    return text
+
+
+def priority_token_to_splan_weight(token):
+    """Map observer priority token (``p1`` … ``p5``) to semester MILP weight."""
+    key = _normalize_priority_token(token)
+    if key is None:
+        return None
+    weight = PRIORITY_TO_SPLAN_WEIGHT.get(key)
+    if weight is None:
+        logs.warning(
+            "Unknown priority token %r; using splan_weight=%s",
+            token,
+            _UNKNOWN_PRIORITY_SPLAN_WEIGHT,
+        )
+        return _UNKNOWN_PRIORITY_SPLAN_WEIGHT
+    return weight
+
+
+def attach_splan_weight(requests_df):
+    """Add ``splan_weight`` from ``priority`` with empty-row fill rules."""
+    if requests_df is None or requests_df.empty:
+        out = (
+            requests_df.copy()
+            if requests_df is not None
+            else pd.DataFrame(columns=REQUEST_COLS)
+        )
+        if "splan_weight" not in out.columns:
+            out["splan_weight"] = pd.Series(dtype=int)
+        return out
+
+    df = requests_df.copy()
+    if "priority" not in df.columns:
+        df["priority"] = ""
+
+    tokens = df["priority"].map(_normalize_priority_token)
+    splan = tokens.map(priority_token_to_splan_weight)
+
+    specified = splan[tokens.notna()]
+    if specified.empty:
+        splan = splan.fillna(_DEFAULT_SPLAN_WEIGHT_NO_PRIORITIES)
+    else:
+        empty_fallback = int(specified.max())
+        splan = splan.fillna(empty_fallback)
+
+    df["splan_weight"] = splan.astype(int)
+    return df
+
+
 def pull_requests(request_urls_path):
     """
     Pull HIRES-CPS request and custom-window data from the per-program Google
@@ -316,12 +384,12 @@ def pull_requests(request_urls_path):
     for url in sheet_urls:
         url = (url or "").strip()
         df = _fetch_sheet_dataframe(url)
-        request_dfs.append(df[REQUEST_COLS])
+        request_dfs.append(df[SHEET_REQUEST_COLS])
         custom_dfs.append(_customs_from_requests_df(df))
     requests_df = (
         pd.concat(request_dfs, ignore_index=True)
         if request_dfs
-        else pd.DataFrame(columns=REQUEST_COLS)
+        else pd.DataFrame(columns=SHEET_REQUEST_COLS)
     )
     custom_df = (
         pd.concat(custom_dfs, ignore_index=True)
@@ -343,7 +411,8 @@ def pull_requests(request_urls_path):
         requests_df["ra"] = c.ra.deg
         requests_df["dec"] = c.dec.deg
     requests_df, custom_df = _dedup_requests_by_hash(requests_df, custom_df)
-    return requests_df, custom_df
+    requests_df = attach_splan_weight(requests_df)
+    return requests_df[REQUEST_COLS], custom_df
 
 
 # =============================================================================

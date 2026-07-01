@@ -254,18 +254,17 @@ class SemesterPlanner:
         rfa = pd.read_csv(request_file)
         if "comments" not in rfa.columns:
             rfa["comments"] = ""
-        if "weight" not in rfa.columns:
-            if "priority" in rfa.columns:
-                rfa["weight"] = pd.to_numeric(rfa["priority"], errors="coerce").fillna(1.0)
-                logs.info(
-                    "request.csv has no 'weight' column; using 'priority' as intra-program weight."
-                )
-            else:
-                rfa["weight"] = 1.0
-                logs.warning(
-                    "request.csv has no 'weight' or 'priority' column; "
-                    "using weight 1.0 for all requests."
-                )
+        if "splan_weight" not in rfa.columns:
+            raise ValueError(
+                "request.csv must include 'splan_weight' "
+                "(run astroq prep hirescps or add the column)."
+            )
+        rfa["splan_weight"] = pd.to_numeric(rfa["splan_weight"], errors="coerce")
+        if rfa["splan_weight"].isna().any():
+            bad = int(rfa["splan_weight"].isna().sum())
+            raise ValueError(
+                f"request.csv has {bad} invalid or missing splan_weight value(s)."
+            )
         rfa["inactive"] = rfa["inactive"].fillna(False).astype(bool)
         logs.warning(
             f"There are {int(rfa['inactive'].sum())} inactive of {len(rfa)} requests."
@@ -1815,7 +1814,7 @@ class SemesterPlanner:
         """
         logs.info("Objective: Intra-program priorities.")
 
-        weight_by_id = self.requests_frame.set_index('unique_id')['weight']
+        weight_by_id = self.requests_frame.set_index('unique_id')['splan_weight']
         t_visit_slots = dict(
             zip(self.requests_frame["unique_id"], self.requests_frame["t_visit_slots"])
         )

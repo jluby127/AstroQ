@@ -182,6 +182,22 @@ def hirescps_prep(args):
                 "nights": list(nights_by_program.values()),
             }
         )
+        if args.filler_programs:
+            programmatics = pd.concat(
+                [
+                    programmatics,
+                    pd.DataFrame(
+                        [
+                            {
+                                "program": args.filler_programs,
+                                "hours": 600.0,
+                                "nights": 50.0,
+                            }
+                        ]
+                    ),
+                ],
+                ignore_index=True,
+            )
         programmatics.to_csv(os.path.join(savepath, "programs.csv"), index=False)
 
     allocation_frame["comment"] = [""] * len(allocation_frame)
