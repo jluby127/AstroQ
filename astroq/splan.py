@@ -28,6 +28,8 @@ SEMESTER_PLANNER_H5_SCHEMA = 4
 # Canonical past.csv column schema. ``junk`` is optional.
 PAST_COLS = ["unique_id", "target", "timestamp", "exposure_time"]
 
+_ROUND4_THROTTLE_GRACE = 2.0
+
 _ROUND_SPECS = {
     "Round1": (1, "Minimize time-weighted shortfall (Lubin et al.)"),
     "Round2": (2, "Maximize inter-program fill factors"),
@@ -131,6 +133,7 @@ class SemesterPlanner:
         self._round1_weighted_theta = None
         self._round2_slots_by_program = None
         self._hold_fill_alpha = 0.0
+        self._open_throttle_grace = None
 
         workdir = self.config.get("global", "workdir")
         self.output_directory = os.path.join(workdir, "outputs")
@@ -1101,7 +1104,8 @@ class SemesterPlanner:
         self.constraint_fix_previous_completion_rates()
         # grace = self.config.getfloat("semester", "throttle_grace")
         self.remove_constraint_throttle()
-        self.constraint_throttle(throttle_grace=2.0)
+        self.constraint_throttle(throttle_grace=_ROUND4_THROTTLE_GRACE)
+        self._open_throttle_grace = _ROUND4_THROTTLE_GRACE
         self.set_objective_minimize_empty_slots()
 
     # ==================================================================
@@ -1133,6 +1137,9 @@ class SemesterPlanner:
     def build_model_upcoming_night_round(self):
         """Upcoming-night round: cap global shortfall, fill ``current_day``."""
         t1 = time.time()
+        if self._open_throttle_grace is not None:
+            self.remove_constraint_throttle()
+            self.constraint_throttle(throttle_grace=self._open_throttle_grace)
         slack = self.config.getfloat("semester", "global_shortfall_slack", fallback=1.1)
         self.constraint_fix_global_shortfall(slack_factor=slack)
         self.set_objective_maximize_slots_used_tonight()
@@ -1197,7 +1204,9 @@ class SemesterPlanner:
     def _throttle_grace_for_round(self, round_label):
         """Throttle grace factor in effect when reporting program statistics."""
         if round_label == "Round4":
-            return 2.0
+            return _ROUND4_THROTTLE_GRACE
+        if round_label == "UpcomingNight" and self._open_throttle_grace is not None:
+            return self._open_throttle_grace
         return self.config.getfloat("semester", "throttle_grace", fallback=1.0)
 
     def _capture_round2_slots_by_program(self):
@@ -1315,6 +1324,7 @@ class SemesterPlanner:
         self._round1_weighted_theta = None
         self._round2_slots_by_program = None
         self._hold_fill_alpha = 0.0
+        self._open_throttle_grace = None
         self._log_solver_config_once()
 
         round_steps = [("Round1", self.build_model_round1)]
