@@ -1,7 +1,10 @@
 # HIRES 2026B production Makefile. Run from repo root, e.g.:
-#   export CC_OUTPUT_PATH=/path/to/output
 #   conda activate astroq
 #   make -C ops/HIRES/2026B DATE=2026-08-01 BANDS=full-band1
+#
+# One-time per machine (sets CC_OUTPUT_PATH in the astroq env):
+#   conda env config vars set CC_OUTPUT_PATH=/Users/petigura/code/AstroQ-hires26a
+#   conda deactivate && conda activate astroq
 
 SHELL := /bin/bash
 
@@ -11,6 +14,8 @@ SEMESTER_DIR = $(WORKDIR)/$(SEMESTER)
 DATE_DIR = $(SEMESTER_DIR)/$(DATE)
 
 MAKEFILE_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+REPO_ROOT := $(abspath $(MAKEFILE_DIR)../../..)
+export CC_OUTPUT_PATH ?= $(REPO_ROOT)
 ENV_FILE ?= $(MAKEFILE_DIR).env
 SHARED_ENV_FILE ?= $(MAKEFILE_DIR)../.env
 LOAD_ENV = if [ -f "$(SHARED_ENV_FILE)" ]; then set -a; . "$(SHARED_ENV_FILE)"; set +a; fi; if [ -f "$(ENV_FILE)" ]; then set -a; . "$(ENV_FILE)"; set +a; fi
@@ -74,9 +79,7 @@ $(DATE_DIR)/%/plan-night-run: $(DATE_DIR)/%/plan-semester-run
 $(DATE_DIR)/%/plan-semester-run: $(DATE_DIR)/%/prep-run
 	@set -euo pipefail; \
 	echo "Running plan-semester for band $(notdir $(@D))..."; \
-ifneq ($(strip $(BOOST_UIDS)),)
-	echo "   Boost: $(BOOST_UIDS) (factor $(BOOST_FACTOR))"; \
-endif
+	$(if $(strip $(BOOST_UIDS)),echo "   Boost: $(BOOST_UIDS) (factor $(BOOST_FACTOR))";,) \
 	cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq plan-semester -cf config.ini $(BOOST_ARGS) 2>&1 | tee -a astroq.log; \
 	touch $@
 
@@ -122,7 +125,10 @@ endif
 
 create_dirs: validate_date
 	@if [ -z "$(strip $(WORKDIR))" ]; then \
-		echo "Error: set CC_OUTPUT_PATH or WORKDIR to the output parent directory"; exit 1; \
+		echo "Error: CC_OUTPUT_PATH is not set. Run once:"; \
+		echo "  conda env config vars set CC_OUTPUT_PATH=/Users/petigura/code/AstroQ-hires26a"; \
+		echo "  conda deactivate && conda activate astroq"; \
+		exit 1; \
 	fi
 	@mkdir -p $(DATE_DIR)
 
