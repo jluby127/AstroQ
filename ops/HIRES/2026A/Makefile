@@ -1,17 +1,27 @@
 # Simple AstroQ Makefile
-# Creates directory structure and copies config template with current date
+# Run from repo root, e.g.:
+#   conda activate astroq
+#   make -C ops/HIRES/2026A DATE=2026-07-03 BANDS=band1
+#
+# One-time per machine (sets CC_OUTPUT_PATH in the astroq env):
+#   conda env config vars set CC_OUTPUT_PATH=/Users/petigura/code/AstroQ-hires26a
+#   conda deactivate && conda activate astroq
+
+SHELL := /bin/bash
 
 # Configuration variables
-# Conda environment to use for all commands
-CONDA_ENV ?= $(CONDA_DEFAULT_ENV) # can edit this to run with a different conda environment if needed.
+CONDA_ENV ?= astroq
 WORKDIR ?= $(CC_OUTPUT_PATH)
 SEMESTER_DIR = $(WORKDIR)/$(SEMESTER)
 DATE_DIR = $(SEMESTER_DIR)/$(DATE)
 
 # Directory containing this Makefile (stable even if make is run from elsewhere)
 MAKEFILE_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+REPO_ROOT := $(abspath $(MAKEFILE_DIR)../../..)
+export CC_OUTPUT_PATH ?= $(REPO_ROOT)
 ENV_FILE ?= $(MAKEFILE_DIR).env
-LOAD_ENV = if [ -f "$(ENV_FILE)" ]; then set -a; . "$(ENV_FILE)"; set +a; fi
+SHARED_ENV_FILE ?= $(MAKEFILE_DIR)../.env
+LOAD_ENV = if [ -f "$(SHARED_ENV_FILE)" ]; then set -a; . "$(SHARED_ENV_FILE)"; set +a; fi; if [ -f "$(ENV_FILE)" ]; then set -a; . "$(ENV_FILE)"; set +a; fi
 # Optional offline allocation file. By default `astroq prep hirescps` pulls the
 # Keck schedule live and crossmatches against REQUEST_URLS_CSV (passed via -ru).
 # To run offline, append   -as "$(ALLOCATION_FILE)"   to the prep recipes below.
@@ -28,7 +38,11 @@ END_DATE ?= 2026-07-31
 BANDS ?= band1 full-band1
 FILLER_PROGRAM ?= 2026A_N012
 
-# Optional soft-bias for plan-semester: nudge listed unique_ids onto current_day.
+ifdef BAND
+  BANDS := $(BAND)
+endif
+
+# Optional soft-bias for plan-semester
 # Example: make DATE=2026-06-22 BANDS=band1 BOOST_UIDS="140538A,109358" BOOST_FACTOR=5
 BOOST_UIDS ?=
 BOOST_FACTOR ?= 5.0
@@ -68,43 +82,44 @@ all: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/plan-night-complete)
 
 # Final target for each band - depends on plan-night completion
 $(DATE_DIR)/%/plan-night-complete: $(DATE_DIR)/%/plan-night-run
-	@echo "✅ Band $(notdir $(@D)) workflow complete!"
-	@echo "📦 Archiving webapp HTML for band $(notdir $(@D))..."
-	@cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq archive -cf config.ini 2>&1 | tee -a astroq.log
-	@touch $@
+	@set -euo pipefail; \
+	echo "Band $(notdir $(@D)) workflow complete — archiving webapp..."; \
+	cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq archive -cf config.ini 2>&1 | tee -a astroq.log; \
+	touch $@
 
 # Run plan-night command
 $(DATE_DIR)/%/plan-night-run: $(DATE_DIR)/%/plan-semester-run
-	@echo "🌙 Running plan-night for band $(notdir $(@D))..."
-	@cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq plan-night -cf config.ini 2>&1 | tee -a astroq.log
-	@touch $@
+	@set -euo pipefail; \
+	echo "Running plan-night for band $(notdir $(@D))..."; \
+	cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq plan-night -cf config.ini 2>&1 | tee -a astroq.log; \
+	touch $@
 
 # Run plan-semester command (unified for all bands)
 $(DATE_DIR)/%/plan-semester-run: $(DATE_DIR)/%/prep-run
-	@echo "📅 Running plan-semester for band $(notdir $(@D))..."
-ifneq ($(strip $(BOOST_UIDS)),)
-	@echo "   Boost: $(BOOST_UIDS) (factor $(BOOST_FACTOR))"
-endif
-	@cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq plan-semester -cf config.ini $(BOOST_ARGS) 2>&1 | tee -a astroq.log
-	@touch $@
+	@set -euo pipefail; \
+	echo "Running plan-semester for band $(notdir $(@D))..."; \
+	$(if $(strip $(BOOST_UIDS)),echo "   Boost: $(BOOST_UIDS) (factor $(BOOST_FACTOR))";,) \
+	cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq plan-semester -cf config.ini $(BOOST_ARGS) 2>&1 | tee -a astroq.log; \
+	touch $@
 
 # Unified prep command for all bands (queue read from config.ini; the queue
 # name is also the `astroq prep` subcommand name, e.g. hirescps / kpfcc).
 $(DATE_DIR)/%/prep-run: $(DATE_DIR)/%/config.ini
-	@echo "🔧 Running prep for band $(notdir $(@D))..."
-	@test -f "$(REQUEST_URLS_CSV)" || (echo "Missing $(REQUEST_URLS_CSV)" && exit 1)
-	@: > $(@D)/astroq.log
-	@QUEUE=$$(sed -n 's/^[[:space:]]*queue[[:space:]]*=[[:space:]]*//p' $(@D)/config.ini | tr -d ' \r\n'); \
+	@set -euo pipefail; \
+	echo "Running prep for band $(notdir $(@D))..."; \
+	test -f "$(REQUEST_URLS_CSV)"; \
+	: > $(@D)/astroq.log; \
+	QUEUE=$$(sed -n 's/^[[:space:]]*queue[[:space:]]*=[[:space:]]*//p' $(@D)/config.ini | tr -d ' \r\n'); \
 	BAND_NUM=$$(echo $(notdir $(@D)) | sed 's/band//' | sed 's/full-//'); \
 	IS_FULL_BAND=$$(echo $(notdir $(@D)) | grep -q '^full-' && echo "true" || echo "false"); \
 	if [ "$$IS_FULL_BAND" = "true" ]; then \
-		echo "📅 Running prep for full-band $$BAND_NUM (queue=$$QUEUE)..." && \
+		echo "Prep full-band $$BAND_NUM (queue=$$QUEUE)..."; \
 		cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -fillers $(FILLER_PROGRAM) -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
 	else \
-		echo "📊 Running prep for band $$BAND_NUM (queue=$$QUEUE)..." && \
+		echo "Prep band $$BAND_NUM (queue=$$QUEUE)..."; \
 		cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -fillers $(FILLER_PROGRAM) -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
-	fi
-	@touch $@
+	fi; \
+	touch $@
 
 # Create config file for a specific band
 $(DATE_DIR)/%/config.ini: create_dirs
@@ -139,9 +154,13 @@ endif
 
 # Create directory structure
 create_dirs: validate_date
-	@echo "📁 Creating directory structure..."
+	@if [ -z "$(strip $(WORKDIR))" ]; then \
+		echo "Error: CC_OUTPUT_PATH is not set. Run once:"; \
+		echo "  conda env config vars set CC_OUTPUT_PATH=/Users/petigura/code/AstroQ-hires26a"; \
+		echo "  conda deactivate && conda activate astroq"; \
+		exit 1; \
+	fi
 	@mkdir -p $(DATE_DIR)
-	@echo "✅ Directories created"
 
 # Combine all band logs into a single file
 combine_logs:
@@ -170,9 +189,8 @@ combine_logs:
 
 # Check night plans
 check_night_plans:
-	@echo "🔍 Running astroq.scripts.check_night_plans..."
-	@$(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) python -m astroq.scripts.check_night_plans -s $(SEMESTER) -d $(DATE) $(DATE_DIR)
-	@echo "✅ Night plans check complete!"
+	@set -euo pipefail; \
+	$(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) python -m astroq.scripts.check_night_plans -s $(SEMESTER) -d $(DATE) $(DATE_DIR)
 
 # Launch webapp
 webapp:
@@ -208,6 +226,7 @@ ifneq ($(strip $(BOOST_UIDS)),)
 else
 	@echo "  Boost: (disabled)"
 endif
+	@echo "  Conda env:    $(CONDA_ENV)"
 	@echo "  Allocation file (-as): $(ALLOCATION_FILE)"
 	@echo "  Program sheet URLs CSV (-ru): $(REQUEST_URLS_CSV)"
 	@echo "  Work Directory: $(WORKDIR)"
