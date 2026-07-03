@@ -532,45 +532,35 @@ class SemesterPlanner:
         )
 
         # ---- Constraint 1 (Lubin et al. Eq 5): reserve consecutive slots for
-        # multi-slot exposures so no two visits overlap. A visit of length t
-        # occupies slots s..s+t-1, so a start at (d, s) conflicts with other
-        # starts at (d, s) and with earlier starts (d, s-delta), 1 <= delta < t,
-        # still running through s. Eq 5 caps that total at one:
-        #     sum_r Y[r,d,s] <= 1 - (earlier starts still covering (d, s)).
+        # multi-slot exposures so no two visits overlap. 
         #
-        # Asserted only at slots where some visit *starts*: any two overlapping
-        # exposures conflict at the later one's start slot, so per-start
-        # constraints already forbid every overlap -- one constraint per start
-        # slot instead of one per physical slot, a deliberate size optimization
-        # for Gurobi. ----
+        # We forbid any request from being scheduled at (d,s) if there is a 
+        # *previous* request that started within t_visit_slots of (d,s). 
+        # This prevents two two requests from overlpaping. 
+        #
+        # Note on implementation: the same behavior can be achieved by requiring 
+        # that no slots be schedule t_visit_slots after a multi-slot exposure. 
+        # However, since most exposures are multi-slot, nearly every (r,d,s) 
+        # results in a seperate constraint. In earlier testing, this resulted a 
+        # long presolve. This implementation introduces a constraint for every
+        # unique (d,s).
+        #
+        # The covering dataframe lists all the s_cover slots that are reserved
+        # when the multi-slot exposure is scheduled at (r,d,s).
         logs.info("Constraint: Reserve slots for multi-slot exposures.")
         max_t_visit = int(rs["t_visit_slots"].max())
         deltas = pd.DataFrame({"delta": np.arange(1, max_t_visit)})  # [] if all t == 1
-
-        # covering: one row per (d, s_cover, rds) where a length-t visit starting
-        # at (d, s) still runs through the LATER slot s_cover = s+1 .. s+t-1 (rds
-        # is that visit's (unique_id, d, s) key into self.Yrds). Indexed by
-        # (d, s_cover) so the loop reads a slot's "earlier visit still covering
-        # it" keys straight off it. Empty (0 rows) when every visit is single-slot.
-        #
-        # Example: two visits A and B, each t_visit_slots = 2, on day d=0. A
-        # starts at s=10 and occupies slots 10, 11; B starts at s=11 and occupies
-        # 11, 12. Because A runs through slot 11, covering holds one row there:
-        # (d=0, s_cover=11, A). At start slot (0, 11) the loop sees B beginning
-        # (rds) and A still covering the slot (rds_covering), so it emits
-        # Yrds[A] + Yrds[B] <= 1 -- the two overlapping visits cannot both run.
         covering = (
             rs.loc[rs["t_visit_slots"] > 1, ["d", "s", "t_visit_slots", "rds"]]
-            .merge(deltas, how="cross")
+            .merge(deltas, how="cross") 
             .query("delta < t_visit_slots")
             .assign(s_cover=lambda f: f["s"] + f["delta"])
             .set_index(["d", "s_cover"])
             .sort_index()
         )
         for (d, s), rds in rs.groupby(["d", "s"], sort=False)["rds"]:
-            # rds: keys for visits that BEGIN at (d, s). rds_covering: keys for
-            # multi-slot visits that began before s and are still running through
-            # it (read off the covering index). At most one may occupy the slot.
+            # rds triples that BEGIN at (d, s). rds_covering are rds triples that
+            # begin within t_visit_slots of (d, s) and therefore reserve (d, s)
             rds_covering = (
                 covering["rds"].loc[[(d, s)]] if (d, s) in covering.index else []
             )
