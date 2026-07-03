@@ -571,31 +571,44 @@ class SemesterPlanner:
                 f"reserve_multislot_{d}d_{s}s",
             )
 
-        # ---- Constraint 3: inter-night cadence. If r is observed on night
-        # d, forbid observations on nights d < d3 < d + tau_inter. ----
+        # ---- Constraint 3: inter-night cadence. Observing request r on night d
+        # turns off every visit of r on the forbidden future nights
+        # d < d_future < d + tau_inter. Same shape as C1: build the conflict map
+        # anchor -> rds_off, then loop the anchors emitting on + sum(off) <= 1. ----
         logs.info("Constraint: Enforce inter-night cadence.")
         per_night = rs.drop_duplicates(["unique_id", "d"])
-        future = pd.merge(
-            per_night.loc[
-                per_night["tau_inter"] > 1,
-                ["unique_id", "d", "s", "n_intra_max", "tau_inter"],
-            ],
-            rs[["unique_id", "d", "s", "rds"]],
-            suffixes=["", "3"],
-            on=["unique_id"],
-        ).query("d < d3 < d + tau_inter")
-        tonight_keys = rs.groupby(["unique_id", "d"], sort=False)["rds"].agg(list)
-        name_s = rs.groupby(["unique_id", "d"], sort=False)["s"].first()
-        n_intra_max_night = per_night.set_index(["unique_id", "d"])["n_intra_max"]
-        for (uid, d), future_keys in (
-            future.groupby(["unique_id", "d"], sort=False)["rds"].agg(list).items()
-        ):
-            lhs = gp.quicksum(
-                self.Yrds[k] for k in tonight_keys.loc[(uid, d)]
-            ) / n_intra_max_night.loc[(uid, d)]
+        # internight: (unique_id, d) -> rds of the same request on forbidden future nights
+        internight = (
+            pd.merge(
+                per_night.loc[
+                    per_night["tau_inter"] > 1, ["unique_id", "d", "tau_inter"]
+                ],
+                rs[["unique_id", "d", "rds"]],
+                suffixes=["", "_future"],   # left d -> d (tonight), right d -> d_future
+                on="unique_id",
+            )
+            .query("d < d_future < d + tau_inter")
+            .groupby(["unique_id", "d"], sort=False)["rds"]
+            .agg(list)
+        )
+        for (uid, d), grp in rs.groupby(["unique_id", "d"], sort=False):
+            if (uid, d) not in internight.index:
+                continue
+            rds_on = grp["rds"]                 # visits of r that could run tonight
+            rds_off = internight.loc[(uid, d)]  # forbidden future visits
+            # sum(rds_on) / n_intra_max is a [0, 1] "observed on night d?" term.
+            # Dividing by n_intra_max is required for correctness, not a tweak: it
+            # lets a fully-used multi-shot night (up to n_intra_max visits) still
+            # read as exactly 1 while permitting all those visits -- the naive
+            # sum(rds_on) would cap a multi-shot night at a single visit. It also
+            # unifies single- and multi-visit requests (single-visit ones have no
+            # Wrd night indicator). In any integer solution one or more visits
+            # tonight drives the term >= 1/n_intra_max, forcing rds_off = 0.
+            n_intra_max = grp["n_intra_max"].iloc[0]
+            on = gp.quicksum(self.Yrds[k] for k in rds_on) / n_intra_max
             self.model.addConstr(
-                lhs <= 1 - gp.quicksum(self.Yrds[k] for k in future_keys),
-                f"enforce_internight_cadence_{uid}_{d}d_{name_s.loc[(uid, d)]}s",
+                on + gp.quicksum(self.Yrds[k] for k in rds_off) <= 1,
+                f"enforce_internight_cadence_{uid}_{d}d_{grp['s'].iloc[0]}s",
             )
 
         # ---- Constraint 2: desired max unique nights. Multi-visit requests
@@ -616,24 +629,27 @@ class SemesterPlanner:
                 f"max_desired_unique_nights_for_request_{uid}",
             )
 
-        # ---- Constraint 4: intra-night cadence. A visit at slot s forbids
-        # visits at slots s < s3 < s + tau_intra_slots of the same night. ----
+        # ---- Constraint 4: intra-night cadence. A visit at (d, s) turns off later
+        # same-night visits within tau_intra_slots (Wrd ties them to the night).
+        # Same shape as C1/C3: conflict map rds_on -> rds_off, then loop. ----
         logs.info("Constraint: Enforce intra-night cadence.")
-        pairs = pd.merge(
-            multi[["unique_id", "d", "s", "tau_intra_slots"]],
-            rs.loc[rs["n_intra_max"] > 1, ["unique_id", "d", "s", "rds"]],
-            suffixes=["", "3"],
-            on=["unique_id", "d"],
-        ).query("s < s3 < s + tau_intra_slots")
-        for (uid, d, s), later_keys in (
-            pairs.groupby(["unique_id", "d", "s"], sort=False)["rds"]
+        # intranight: rds_on (unique_id, d, s) -> rds of later same-night visits (tau_intra)
+        intranight = (
+            pd.merge(
+                multi[["unique_id", "d", "s", "tau_intra_slots"]],
+                multi[["unique_id", "d", "s", "rds"]],
+                suffixes=["", "_future"],   # left s -> s, right s -> s_future
+                on=["unique_id", "d"],
+            )
+            .query("s < s_future < s + tau_intra_slots")
+            .groupby(["unique_id", "d", "s"], sort=False)["rds"]
             .agg(list)
-            .items()
-        ):
+        )
+        for rds_on, rds_off in intranight.items():
             self.model.addConstr(
-                self.Yrds[uid, d, s]
-                <= self.Wrd[uid, d] - gp.quicksum(self.Yrds[k] for k in later_keys),
-                f"enforce_intranight_cadence_{uid}_{d}d_{s}s",
+                self.Yrds[rds_on] + gp.quicksum(self.Yrds[k] for k in rds_off)
+                <= self.Wrd[rds_on[:2]],
+                f"enforce_intranight_cadence_{rds_on[0]}_{rds_on[1]}d_{rds_on[2]}s",
             )
 
         # ---- Constraint 5: min/max visits per night. Wrd ties the night
