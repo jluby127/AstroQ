@@ -32,10 +32,11 @@ class TestClass(unittest.TestCase):
             )
         )
 
-    def test02_round2_weather(self):
+    def test02_full_mode(self):
+        """mode=full exercises Rounds 1-5 on the symmetric toy model."""
         dr.plan_semester(
             argparse.Namespace(
-                config_file="examples/hello_world/config_hello_world_bonus_weather.ini",
+                config_file="examples/priorities/symmetric_toy_model/config_benchmark.ini",
             )
         )
 
