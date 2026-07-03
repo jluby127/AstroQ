@@ -525,7 +525,6 @@ def process_stars(semester_planner):
             "is_moon",
             "is_inter",
             "is_future",
-            "is_clear",
             "is_observable_now",
         ]
         # Find the target index for this star in the access record
