@@ -140,15 +140,6 @@ def _attach_request_metadata_to_schedule(
     return sched.merge(meta, on="unique_id", how="left").reset_index(drop=True)
 
 
-def _hygiene_selected_df(selected_df: pd.DataFrame) -> pd.DataFrame:
-    out = selected_df.copy()
-    out["n_intra_max"] = out["n_intra_max"].replace("None", np.nan).fillna(1)
-    if "n_intra_min" in out.columns:
-        out["n_intra_min"] = out["n_intra_min"].replace("None", np.nan).fillna(1)
-    out["tau_intra"] = out["tau_intra"].replace("None", np.nan).fillna(0.0)
-    return out
-
-
 _NIGHT_TTP_METHODS = frozenset({"milp", "acs8+milp", "norel+milp", "auto"})
 _AUTO_ACS_TARGET_THRESHOLD = 15
 _ACS_STARTS = 8
@@ -292,7 +283,9 @@ class NightPlanner:
         if selected_df.empty:
             logs.info("No targets in %s; skipping TTP.", path)
             return None
-        return _hygiene_selected_df(selected_df)
+        # request_selected.csv is written by splan from its already-clean
+        # requests_frame, so no strategy-field repair is needed here.
+        return selected_df
 
     def _write_outputs(
         self,
