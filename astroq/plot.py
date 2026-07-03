@@ -1724,7 +1724,9 @@ def get_timebar(
     )
 
     # Add gray vertical dashed line at total_allocated_hours * throttle_grace
-    grace_factor = semester_planner.config.getfloat("semester", "throttle_grace")
+    grace_factor = semester_planner.config.getfloat(
+        "semester", "throttle_grace", fallback=1.0
+    )
     fig.add_shape(
         type="line",
         x0=total_allocated_hours * grace_factor,
@@ -2019,7 +2021,9 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
         )
 
         # Add gray vertical dashed line at allocated * throttle_grace
-        grace_factor = semester_planner.config.getfloat("semester", "throttle_grace")
+        grace_factor = semester_planner.config.getfloat(
+        "semester", "throttle_grace", fallback=1.0
+    )
         fig.add_shape(
             type="line",
             x0=allocated * grace_factor,
