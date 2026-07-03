@@ -251,14 +251,11 @@ class SemesterPlanner:
             self.access_record.is_observable
         )
 
-        # Pre-computed aggregations consumed by the constraint methods. The
-        # ones stored on self (joiner, observability_tuples,
-        # all_valid_ds_for_request) are read from multiple constraints; the
-        # rest live as locals at their call sites.
+        # Relational tables the model is defined over (joiner, yrds_tuples).
         self._build_constraint_lookups()
         self._log_boost_current_day_slots()
 
-        self.build_gurobi_model()
+        self.build_model()
 
         logs.debug("Initializing complete.")
 
@@ -380,15 +377,13 @@ class SemesterPlanner:
         return rf
 
     def _build_constraint_lookups(self):
-        """Build aggregation tables consumed by the constraint methods.
+        """Build ``joiner`` and ``yrds_tuples``, the two relational tables the
+        model is defined over.
 
-        Only the three multi-consumer tables (observability_tuples, joiner,
-        all_valid_ds_for_request) are stored on self. Single-consumer
-        derivations live at their call sites.
+        ``joiner`` is one row per schedulable ``(unique_id, d, s)`` triple with
+        the request's strategy columns attached; ``yrds_tuples`` is the same
+        set as plain tuples (the ``Yrds`` variable keys).
         """
-        self.observability_tuples = list(
-            self.observability.itertuples(index=False, name=None)
-        )
         strategy_cols = [
             "unique_id",
             "target",
@@ -402,6 +397,9 @@ class SemesterPlanner:
         self.joiner = pd.merge(
             self.requests_frame[strategy_cols], self.observability, on=["unique_id"]
         )
+        self.yrds_tuples = list(
+            self.observability.itertuples(index=False, name=None)
+        )
 
         schedulable_requests = set(self.joiner["unique_id"].unique())
         all_requests = list(self.requests_frame["unique_id"])
@@ -411,24 +409,6 @@ class SemesterPlanner:
             f"that have no valid day/slot pairs and therefore are effectively "
             f"removed from the model."
         )
-
-        self.all_valid_ds_for_request = (
-            self.joiner.groupby(["unique_id"])[["d", "s"]].agg(list)
-        )
-        self.build_yrds_tuples()
-
-    def build_yrds_tuples(self):
-        """``yrds_tuples``: full observability."""
-        self.yrds_tuples = list(self.observability_tuples)
-        self._index_yrds_tuples()
-
-    def _index_yrds_tuples(self):
-        """Build ``_yrds_keys`` and ``_yrds_by_ds`` from ``yrds_tuples``."""
-        self._yrds_keys = set(self.yrds_tuples)
-        by_ds = {}
-        for uid, d, s in self.yrds_tuples:
-            by_ds.setdefault((int(d), int(s)), set()).add(uid)
-        self._yrds_by_ds = by_ds
 
     def _log_boost_current_day_slots(self):
         """Report observable slot counts on current_day for each boosted target."""
@@ -462,19 +442,30 @@ class SemesterPlanner:
                 n_slots,
             )
 
-    def build_gurobi_model(self):
-        """Instantiate the Gurobi model and add ``Yrds``, ``Wrd``, ``theta``."""
+    def build_model(self):
+        """Gurobi variables plus every structural constraint, inline.
+
+        Everything here is required by every scheduling mode; rounds layer
+        objectives and round-specific deltas on top (``build_model_round*``).
+        Paper map (Lubin et al. 2025 -> code): ``Y_{r,d,s}`` -> ``Yrds``,
+        ``W_{r,d}`` -> ``Wrd``, shortfall -> ``theta``; constraint numbers
+        below refer to that paper. Set-building is relational (merges /
+        groupbys over ``joiner``); Python loops only emit ``addConstr``.
+        """
+        t0 = time.time()
         self.model = gp.Model("Semester_Scheduler")
-        observability_nights = (
-            self.joiner.loc[self.joiner["n_intra_max"] > 1, ["unique_id", "d"]]
-            .drop_duplicates()
-        )
+        joiner = self.joiner
+        multi = joiner[joiner["n_intra_max"] > 1]
+        multi_uids = set(multi["unique_id"])
+
+        # ---- variables ----
         self.Yrds = self.model.addVars(
             self.yrds_tuples, vtype=GRB.BINARY, name="Requests_Slots"
         )
-        if not observability_nights.empty:
+        wrd_keys = multi[["unique_id", "d"]].drop_duplicates()
+        if not wrd_keys.empty:
             self.Wrd = self.model.addVars(
-                list(observability_nights.itertuples(index=False, name=None)),
+                list(wrd_keys.itertuples(index=False, name=None)),
                 vtype=GRB.BINARY,
                 name="OnSky",
             )
@@ -482,14 +473,153 @@ class SemesterPlanner:
             list(self.requests_frame["unique_id"]), name="Shortfall"
         )
 
+        # Master table: one row per Yrds key with its Gurobi variable and the
+        # request's strategy columns. Single relational source below.
+        y = joiner.copy()
+        y["var"] = [self.Yrds[k] for k in zip(y["unique_id"], y["d"], y["s"])]
+
+        # ---- Constraint 1: reserve multi-slot exposures. At most one
+        # exposure starts per (d, s), and a start at s with t_visit_slots = t
+        # blocks starts in slots s+1 .. s+t-1 of the same night. ----
+        logs.info("Constraint: Reserve slots for multi-slot exposures.")
+        max_t_visit = int(y["t_visit_slots"].max())
+        blockers = y.loc[
+            y["t_visit_slots"] > 1, ["d", "s", "t_visit_slots", "var"]
+        ]
+        if not blockers.empty:
+            deltas = pd.DataFrame({"delta": np.arange(1, max_t_visit)})
+            blockers = (
+                blockers.merge(deltas, how="cross")
+                .query("delta < t_visit_slots")
+                .assign(s_block=lambda f: f["s"] + f["delta"])
+            )
+            blocked_by_ds = blockers.groupby(["d", "s_block"], sort=False)[
+                "var"
+            ].agg(list)
+        else:
+            blocked_by_ds = pd.Series(dtype=object)
+        for (d, s), starts in y.groupby(["d", "s"], sort=False)["var"]:
+            covering = (
+                blocked_by_ds.loc[(d, s)] if (d, s) in blocked_by_ds.index else []
+            )
+            self.model.addConstr(
+                gp.quicksum(starts) + gp.quicksum(covering) <= 1,
+                f"reserve_multislot_{d}d_{s}s",
+            )
+
+        # ---- Constraint 3: inter-night cadence. If r is observed on night
+        # d, forbid observations on nights d < d3 < d + tau_inter. ----
+        logs.info("Constraint: Enforce inter-night cadence.")
+        per_night = y.drop_duplicates(["unique_id", "d"])
+        future = pd.merge(
+            per_night.loc[
+                per_night["tau_inter"] > 1,
+                ["unique_id", "d", "s", "n_intra_max", "tau_inter"],
+            ],
+            y[["unique_id", "d", "s", "var"]],
+            suffixes=["", "3"],
+            on=["unique_id"],
+        ).query("d < d3 < d + tau_inter")
+        tonight_vars = y.groupby(["unique_id", "d"], sort=False)["var"].agg(list)
+        name_s = y.groupby(["unique_id", "d"], sort=False)["s"].first()
+        n_intra_max_night = per_night.set_index(["unique_id", "d"])["n_intra_max"]
+        for (uid, d), future_vars in (
+            future.groupby(["unique_id", "d"], sort=False)["var"].agg(list).items()
+        ):
+            lhs = gp.quicksum(tonight_vars.loc[(uid, d)]) / n_intra_max_night.loc[
+                (uid, d)
+            ]
+            self.model.addConstr(
+                lhs <= 1 - gp.quicksum(future_vars),
+                f"enforce_internight_cadence_{uid}_{d}d_{name_s.loc[(uid, d)]}s",
+            )
+
+        # ---- Constraint 2: desired max unique nights. Multi-visit requests
+        # are capped on nights (Wrd); single-visit requests on visits (Yrds). ----
+        logs.info("Constraint: Set desired maximum observations.")
+        desired_max_obs = self.requests_frame.set_index("unique_id")[
+            "desired_max_obs"
+        ]
+        for uid, grp in y.groupby("unique_id", sort=False):
+            if uid in multi_uids:
+                expr = gp.quicksum(
+                    self.Wrd[uid, d] for d in grp["d"].drop_duplicates()
+                )
+            else:
+                expr = gp.quicksum(grp["var"])
+            self.model.addConstr(
+                expr <= desired_max_obs.loc[uid],
+                f"max_desired_unique_nights_for_request_{uid}",
+            )
+
+        # ---- Constraint 4: intra-night cadence. A visit at slot s forbids
+        # visits at slots s < s3 < s + tau_intra_slots of the same night. ----
+        logs.info("Constraint: Enforce intra-night cadence.")
+        pairs = pd.merge(
+            multi[["unique_id", "d", "s", "tau_intra_slots"]],
+            y.loc[y["n_intra_max"] > 1, ["unique_id", "d", "s", "var"]],
+            suffixes=["", "3"],
+            on=["unique_id", "d"],
+        ).query("s < s3 < s + tau_intra_slots")
+        for (uid, d, s), later_vars in (
+            pairs.groupby(["unique_id", "d", "s"], sort=False)["var"]
+            .agg(list)
+            .items()
+        ):
+            self.model.addConstr(
+                self.Yrds[uid, d, s]
+                <= self.Wrd[uid, d] - gp.quicksum(later_vars),
+                f"enforce_intranight_cadence_{uid}_{d}d_{s}s",
+            )
+
+        # ---- Constraint 5: min/max visits per night. Wrd ties the night
+        # indicator to the visit count for multi-visit requests. ----
+        logs.info("Constraint: Bound minimum and maximum visits per night.")
+        for (uid, d), grp in y.groupby(["unique_id", "d"], sort=False):
+            visits = gp.quicksum(grp["var"])
+            name_tag = f"{uid}_{d}d_{grp['s'].iloc[0]}s"
+            n_intra_max = grp["n_intra_max"].iloc[0]
+            if uid in multi_uids:
+                self.model.addConstr(
+                    visits <= n_intra_max * self.Wrd[uid, d],
+                    f"enforce_max_visits1_{name_tag}",
+                )
+                self.model.addConstr(
+                    visits >= grp["n_intra_min"].iloc[0] * self.Wrd[uid, d],
+                    f"enforce_min_visits_{name_tag}",
+                )
+            else:
+                self.model.addConstr(
+                    visits <= n_intra_max, f"enforce_max_visits_{name_tag}"
+                )
+
+        # ---- Eq. 3: shortfall definition. theta_r >= remaining nights owed
+        # minus scheduled nights (visits / n_intra_max); lb=0 from addVars. ----
+        logs.info("Constraint: Build theta variable")
+        rf_indexed = self.requests_frame.set_index("unique_id")
+        for uid, grp_vars in y.groupby("unique_id", sort=False)["var"]:
+            row = rf_indexed.loc[uid]
+            self.model.addConstr(
+                self.theta[uid]
+                >= row["n_inter_max"]
+                - row["past_nights_observed"]
+                - gp.quicksum(grp_vars) / row["n_intra_max"],
+                f"greater_than_nobs_shortfall_{uid}",
+            )
+
+        # ---- Throttle: structural, but re-parameterized by later rounds
+        # (Round 4 re-adds it with a wider grace), so it stays a method. ----
+        self.constraint_throttle(throttle_grace=1.0)
+
+        logs.info(f"Structural model built in {time.time() - t0:.3f}s")
+
     def _attach_past_columns(self):
-        """Attach past-history aggregates and max-obs caps to ``requests_frame``.
+        """Attach past-history aggregates and the max-obs cap to ``requests_frame``.
 
         Aggregates are indexed by ``unique_id`` over UT calendar nights
         (``timestamp[:10]``); missing uids default to 0 (or ``""``).
-        ``desired_max_obs`` is the Round-1 night cap; ``absolute_max_obs``
-        relaxes it by ``maximum_bonus_size`` for the bonus round. Both
-        collapse to ``past_nights_observed`` when a target is over-observed
+        ``desired_max_obs`` is the per-target night cap (Constraint 2); it
+        collapses to ``past_nights_observed`` when a target is over-observed
         so the model stays feasible.
         """
         rf = self.requests_frame
@@ -512,286 +642,10 @@ class SemesterPlanner:
         rf["past_n_exposures"] = agg["n_exp"].astype(int).to_numpy()
         rf["past_date_last_observed"] = agg["last"].astype(str).to_numpy()
 
-        bonus = self.config.getfloat("semester", "maximum_bonus_size")
         n_max = rf["n_inter_max"].to_numpy()
         past = rf["past_nights_observed"].to_numpy()
         over = past > n_max
-        desired = np.where(over, past, n_max - past)
-        absolute = np.where(
-            over, past,
-            np.maximum(desired + (n_max * bonus).astype(int), past),
-        )
-        rf["desired_max_obs"] = desired.astype(int)
-        rf["absolute_max_obs"] = absolute.astype(int)
-
-    # ==================================================================
-    # Constraints 
-    # ==================================================================
-
-    def constraint_build_theta_multivisit(self):
-        """Build the shortfall matrix, Theta.
-
-        Notes:  
-            Equation 3 in Lubin et al. 2025.
-        """
-        logs.info("Constraint: Build theta variable")
-        rf_indexed = self.requests_frame.set_index("unique_id")
-        for uid in self.joiner["unique_id"].unique():
-            self.model.addConstr(
-                self.theta[uid] >= 0, f"greater_than_zero_shortfall_{uid}"
-            )
-            ds_pairs = list(
-                zip(
-                    self.all_valid_ds_for_request.loc[uid].d,
-                    self.all_valid_ds_for_request.loc[uid].s,
-                )
-            )
-            row = rf_indexed.loc[uid]
-            rhs = (
-                row["n_inter_max"]
-                - row["past_nights_observed"]
-                - gp.quicksum(self.Yrds[uid, d, s] for d, s in ds_pairs)
-                / row["n_intra_max"]
-            )
-            self.model.addConstr(
-                self.theta[uid] >= rhs,
-                f"greater_than_nobs_shortfall_{uid}",
-            )
-
-    def constraint_reserve_multislot_exposures(self):
-        """
-        See Constraint 1 in Lubin et al. 2025.
-
-        Reserve multiple time slots for exposures that require more than one time slot
-        to complete, ensuring no other observations are scheduled during these slots.
-        """
-        logs.info("Constraint: Reserve slots for multi-slot exposures.")
-        rf = self.requests_frame
-        max_t_visit = int(rf["t_visit_slots"].max())
-        R_geq_t_visit = {
-            t: set(rf.loc[rf["t_visit_slots"] >= t, "unique_id"])
-            for t in range(1, max_t_visit + 1)
-        }
-
-        for d, s in self.observability.drop_duplicates(["d", "s"])[
-            ["d", "s"]
-        ].itertuples(index=False, name=None):
-            uids_at = self._yrds_by_ds.get((int(d), int(s)), set())
-            if not uids_at:
-                continue
-            rhs = []
-            for delta in range(1, max_t_visit):
-                s_shift = s - delta
-                uids_shift = self._yrds_by_ds.get((int(d), int(s_shift)), set())
-                for uid in uids_shift & R_geq_t_visit[delta + 1]:
-                    rhs.append(self.Yrds[uid, d, s_shift])
-            lhs = 1 - gp.quicksum(self.Yrds[uid, d, s] for uid in uids_at)
-            self.model.addConstr(
-                lhs >= gp.quicksum(rhs), f"reserve_multislot_{d}d_{s}s"
-            )
-
-    def constraint_enforce_internight_cadence(self):
-        """
-        See Constraint 3 in Lubin et al. 2025.
-
-        Ensure that the minimum number of days pass between consecutive observations of
-        a given target.
-        """
-        logs.info("Constraint: Enforce inter-night cadence.")
-        joiner = self.joiner
-        intercadence = pd.merge(
-            joiner.drop_duplicates(["unique_id", "d"]),
-            joiner[["unique_id", "d", "s"]],
-            suffixes=["", "3"],
-            on=["unique_id"],
-        ).query("d + 0 < d3 < d + tau_inter")
-        intercadence_tracker = intercadence.groupby(["unique_id", "d"])[
-            ["d3", "s3"]
-        ].agg(list)
-        slots_on_day_for_r = (
-            self.observability.groupby(["unique_id", "d"])["s"]
-            .apply(list)
-            .to_frame("s3")
-        )
-
-        # Inter-night cadence of 1 day has no forbidden future slots; skip
-        # those rows and drop the duplicates-per-day rows up front.
-        valid = joiner[joiner["tau_inter"] > 1].drop_duplicates(
-            subset=["unique_id", "d"]
-        )
-        for _, row in valid.iterrows():
-            constrained_slots_tonight = [
-                int(s2)
-                for s2 in slots_on_day_for_r.loc[(row.unique_id, row.d)][0]
-                if (row.unique_id, int(row.d), int(s2)) in self._yrds_keys
-            ]
-            if not constrained_slots_tonight:
-                continue
-            if (row.unique_id, row.d) not in intercadence_tracker.index:
-                continue
-            future = intercadence_tracker.loc[(row.unique_id, row.d)]
-            ds_pairs = [
-                (int(d3), int(s3))
-                for d3, s3 in zip(
-                    np.array(future.d3).flatten(),
-                    np.array(future.s3).flatten(),
-                )
-                if (row.unique_id, int(d3), int(s3)) in self._yrds_keys
-            ]
-            lhs = (
-                gp.quicksum(
-                    self.Yrds[row.unique_id, row.d, s2]
-                    for s2 in constrained_slots_tonight
-                )
-                / row.n_intra_max
-            )
-            rhs = 1 - gp.quicksum(
-                self.Yrds[row.unique_id, d3, s3] for d3, s3 in ds_pairs
-            )
-            self.model.addConstr(
-                lhs <= rhs,
-                f"enforce_internight_cadence_{row.unique_id}_{row.d}d_{row.s}s",
-            )
-
-    def constraint_build_enforce_intranight_cadence(self):
-        """
-        Constraint 4 in Lubin et al. 2025.
-
-        Ensure that the minimum number of hours pass between consecutive observations of
-        a given target on the same night.
-        """
-        logs.info("Constraint: Enforce intra-night cadence.")
-        valid = self.joiner[self.joiner["n_intra_max"] > 1]
-        intracadence_frame = pd.merge(
-            valid.drop_duplicates(["unique_id", "d", "s"]),
-            valid[["unique_id", "d", "s"]],
-            suffixes=["", "3"],
-            on=["unique_id", "d"],
-        ).query("s + 0 < s3 < s + tau_intra_slots")
-        intracadence_frame = intracadence_frame.groupby(
-            ["unique_id", "d", "s"]
-        )[["s3"]].agg(list)
-
-        for _, row in valid.iterrows():
-            key = (row.unique_id, row.d, row.s)
-            if key not in intracadence_frame.index:
-                continue
-            slots_to_constrain = list(intracadence_frame.loc[key][0])
-            lhs = self.Yrds[row.unique_id, row.d, row.s]
-            rhs = self.Wrd[row.unique_id, row.d] - gp.quicksum(
-                self.Yrds[row.unique_id, row.d, s3] for s3 in slots_to_constrain
-            )
-            self.model.addConstr(
-                lhs <= rhs,
-                f"enforce_intranight_cadence_{row.unique_id}_{row.d}d_{row.s}s",
-            )
-
-    def constraint_set_max_desired_unique_nights_Wrd(self):
-        """
-        See Constraint 2 in Lubin et al. 2025.
-
-        Limit the number of observations scheduled for a given target to the
-        maximum value provided by the PI. This constraint may later be relaxed
-        if Round 2 of scheduling is invoked.
-        """
-        logs.info("Constraint: Set desired maximum observations.")
-        multi_visit_uids = self.multi_visit_uids
-        schedulable_uids = set(self.joiner["unique_id"].unique())
-        single_visit_uids = [
-            uid for uid in schedulable_uids if uid not in multi_visit_uids
-        ]
-        desired_max_obs = self.requests_frame.set_index("unique_id")["desired_max_obs"]
-        for uid in multi_visit_uids:
-            all_d = list(set(self.all_valid_ds_for_request.loc[uid].d))
-            self.model.addConstr(
-                gp.quicksum(self.Wrd[uid, d] for d in all_d)
-                <= desired_max_obs.loc[uid],
-                f"max_desired_unique_nights_for_request_{uid}",
-            )
-        for uid in single_visit_uids:
-            available = list(
-                zip(
-                    self.all_valid_ds_for_request.loc[uid].d,
-                    self.all_valid_ds_for_request.loc[uid].s,
-                )
-            )
-            self.model.addConstr(
-                gp.quicksum(self.Yrds[uid, d, s] for d, s in available)
-                <= desired_max_obs.loc[uid],
-                f"max_desired_unique_nights_for_request_{uid}",
-            )
-
-    def remove_constraint_set_max_desired_unique_nights_Wrd(self):
-        """
-        Bonus round: not in Lubin et al. 2025.
-
-        Remove the maximum number of observations set by
-        :meth:`constraint_set_max_desired_unique_nights_Wrd`.
-        """
-        logs.info("Constraint: Removing previous maximum observations constraint.")
-        for uid in self.multi_visit_uids:
-            rm_const = self.model.getConstrByName(
-                f"max_desired_unique_nights_for_request_{uid}"
-            )
-            self.model.remove(rm_const)
-
-    def constraint_set_max_absolute_unique_nights_Wrd(self):
-        """
-        Bonus round: not in Lubin et al. 2025.
-
-        Set the maximum number of observations for a target to 150% of the
-        original requested number.
-        """
-        logs.info("Constraint: Set absolute maximum observations.")
-        absolute_max_obs = self.requests_frame.set_index("unique_id")["absolute_max_obs"]
-        for uid in self.multi_visit_uids:
-            all_d = list(set(self.all_valid_ds_for_request.loc[uid].d))
-            self.model.addConstr(
-                gp.quicksum(self.Wrd[uid, d] for d in all_d)
-                <= absolute_max_obs.loc[uid],
-                f"max_absolute_unique_nights_for_request_{uid}",
-            )
-
-    def constraint_set_min_max_visits_per_night(self):
-        """
-        See Constraint 5 in Lubin et al. 2025.
-
-        Require that the number of scheduled visits to a target in a given
-        night falls between the minimum and maximum values supplied by the PI.
-        """
-        logs.info("Constraint: Bound minimum and maximum visits per night.")
-        per_day = self.joiner.drop_duplicates(subset=["unique_id", "d"])
-        grouped_s = (
-            self.joiner.groupby(["unique_id", "d"])["s"].unique().reset_index()
-        )
-        grouped_s.set_index(["unique_id", "d"], inplace=True)
-        multi_visit_uids = self.multi_visit_uids
-        for _, row in per_day.iterrows():
-            slots_tonight = [
-                int(s3)
-                for s3 in grouped_s.loc[(row.unique_id, row.d)]["s"]
-                if (row.unique_id, int(row.d), int(s3)) in self._yrds_keys
-            ]
-            if not slots_tonight:
-                continue
-            name_tag = f"{row.unique_id}_{row.d}d_{row.s}s"
-            visits_tonight = gp.quicksum(
-                self.Yrds[row.unique_id, row.d, s3] for s3 in slots_tonight
-            )
-            if row.unique_id in multi_visit_uids:
-                self.model.addConstr(
-                    visits_tonight <= row.n_intra_max * self.Wrd[row.unique_id, row.d],
-                    f"enforce_max_visits1_{name_tag}",
-                )
-                self.model.addConstr(
-                    visits_tonight >= row.n_intra_min * self.Wrd[row.unique_id, row.d],
-                    f"enforce_min_visits_{name_tag}",
-                )
-            else:
-                self.model.addConstr(
-                    visits_tonight <= row.n_intra_max,
-                    f"enforce_max_visits_{name_tag}",
-                )
+        rf["desired_max_obs"] = np.where(over, past, n_max - past).astype(int)
 
     @cached_property
     def multi_visit_uids(self):
@@ -965,19 +819,6 @@ class SemesterPlanner:
                 ", ".join(sorted(str(p) for p in clamped)),
             )
 
-    def constraint_fix_previous_objective(self, epsilon=0.03):
-        """
-        Bonus round: not in Lubin et al. 2025.
-
-        Ensure that the Round-2 objective is within ``epsilon`` of Round-1.
-        """
-        logs.info("Constraint: Fixing the previous solution's objective value.")
-        self.model.addConstr(
-            gp.quicksum(self.theta[uid] for uid in self.requests_frame["unique_id"])
-            <= self.model.objval + epsilon,
-            "fix_previous_objective",
-        )
-
     def constraint_fix_global_shortfall(self, slack_factor):
         """Upcoming-night round: cap weighted shortfall at Round-1 optimum * slack."""
         if self._round1_weighted_theta is None:
@@ -1025,7 +866,7 @@ class SemesterPlanner:
             d_today = self.today_starting_night
             boost_terms = [
                 boost_by_uid[uid] * self.Yrds[uid, d, s]
-                for uid, d, s in self.observability_tuples
+                for uid, d, s in self.yrds_tuples
                 if d == d_today and uid in boost_by_uid
             ]
             if boost_terms:
@@ -1036,18 +877,6 @@ class SemesterPlanner:
                 )
                 theta_obj -= gp.quicksum(boost_terms)
         self.model.setObjective(theta_obj, GRB.MINIMIZE)
-
-    def set_objective_maximize_slots_used(self):
-        """Bonus round: maximize filled slots."""
-        logs.info("Objective: Maximize the number of slots used.")
-        t_visit_slots = self._t_visit_slots_by_uid
-        self.model.setObjective(
-            gp.quicksum(
-                t_visit_slots[uid] * self.Yrds[uid, d, s]
-                for uid, d, s in self.yrds_tuples
-            ),
-            GRB.MAXIMIZE,
-        )
 
     def set_objective_maximize_slots_used_tonight(self):
         """Upcoming-night round: maximize filled slots on ``current_day``."""
@@ -1087,8 +916,6 @@ class SemesterPlanner:
 
         maximize the completion rate of all programs
         """
-        # self.constraint_fix_previous_objective()
-
         awarded_slots_by_program = self._program_awarded_slots.to_dict()
         program_slot_expr = self._program_slot_expr
         program_slot_value = self._program_slot_value()
@@ -1183,26 +1010,9 @@ class SemesterPlanner:
     # ==================================================================
 
     def build_model_round1(self):
-        """Round 1 constraints + objective per Lubin et al. 2025."""
-        t1 = time.time()
-        self.constraint_reserve_multislot_exposures()
-        self.constraint_enforce_internight_cadence()
-        self.constraint_set_max_desired_unique_nights_Wrd()
-        self.constraint_build_enforce_intranight_cadence()
-        self.constraint_set_min_max_visits_per_night()
-        self.constraint_build_theta_multivisit()
-        self.constraint_throttle(throttle_grace=1.0)
+        """Round 1 objective per Lubin et al. 2025 (structural constraints
+        already live on the model from :meth:`build_model`)."""
         self.set_objective_minimize_theta_time_normalized()
-        logs.debug(f"Time to build constraints: {np.round(time.time() - t1, 3):.3f}")
-
-    def build_model_round2(self):
-        """Round 2 constraints + objective (bonus round)."""
-        t1 = time.time()
-        self.remove_constraint_set_max_desired_unique_nights_Wrd()
-        self.constraint_set_max_absolute_unique_nights_Wrd()
-        self.constraint_fix_previous_objective()
-        self.set_objective_maximize_slots_used()
-        logs.debug(f"Time to build constraints: {np.round(time.time() - t1, 3):.3f}")
 
     def build_model_upcoming_night_round(self):
         """Upcoming-night round: cap global shortfall, fill ``current_day``."""
@@ -1772,73 +1582,18 @@ class SemesterPlanner:
             #     'hold_program_fill_factors_upper_' + p,
             # )
 
-    def build_model_round2_priority(self):
-        """
-        Implement the constraints and objective function for Round 2. Not described in Lubin et al. 2025.
-
-        Returns:
-            None
-        """
-        t1 = time.time()
-        self.constraint_fix_previous_objective()
-        self.set_objective_priorities_INTER()
-        logs.debug(f"Time to build constraints: {np.round(time.time()-t1,3):.3f}")
-
     def build_model_round3_priority(self):
-        """
-        Implement the constraints and objective function for Round 2. Not described in Lubin et al. 2025.
-
-        Returns:
-            None
-        """
-        t1 = time.time()
+        """Round 3: hold Round-2 program fills, optimize intra-program
+        priorities (``splan_weight``). Not described in Lubin et al. 2025."""
         self.constraint_hold_program_fill_factors()
-        self.set_objective_priorities_INTRA()
-        logs.debug(f"Time to build constraints: {np.round(time.time()-t1,3):.3f}")
+        self.set_objective_priorities_intra()
 
-    def set_objective_priorities_INTER(self):
-        """
-        Set inter-program priority objective:
-
-
-        where N_p = sum over r in R_p of 2^{w_r} * t_{visit,r} * n_{intra,max,r} * n_{inter,max,r}
-        (normalization per program), w_r = weight of request r, Y_{r,d,s} = binary schedule variable.
-        """
-        logs.info("Objective: Inter-program priorities.")
-
-        program_request_ids = self._active_uids_by_program
-
-        program_frame = self._programs_frame
-        if "priority" not in program_frame.columns:
-            logs.warning(
-                f"{self.programs_file} has no 'priority' column; using priority 1.0 for all programs."
-            )
-            N_p = {p: 1.0 for p in program_request_ids}
-        else:
-            priority_by_program = program_frame["priority"].astype(float).to_dict()
-            N_p = {p: priority_by_program[p] for p in program_request_ids}
-
-        self.model.setObjective(
-            gp.quicksum(
-                N_p[p] * gp.quicksum(
-                    self.Yrds[r, d, s]
-                    for r, d, s in self.observability_tuples
-                    if r in program_request_ids[p]
-                )
-                for p in program_request_ids
-            ),
-            GRB.MAXIMIZE
-        )
-
-    def set_objective_priorities_INTRA(self):
-        """
-        Set intra-program priority objective:
-
-
-        """
+    def set_objective_priorities_intra(self):
+        """Maximize slot-time weighted by inverse ``splan_weight`` (lower
+        weight = higher priority) within each program."""
         logs.info("Objective: Intra-program priorities.")
 
-        weight_by_id = self.requests_frame.set_index('unique_id')['splan_weight']
+        weight_by_id = self.requests_frame.set_index("unique_id")["splan_weight"]
         t_visit_slots = self._t_visit_slots_by_uid
         program_request_ids = self._active_uids_by_program
 
@@ -1853,5 +1608,5 @@ class SemesterPlanner:
                 )
                 for p in program_request_ids
             ),
-            GRB.MAXIMIZE
+            GRB.MAXIMIZE,
         )
