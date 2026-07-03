@@ -317,18 +317,6 @@ def main():
     )
     psr_plan_night.set_defaults(func=astroq.driver.plan_night)
 
-    ## subcommand of astroq: simsemester -- simulate a semester with a given weather loss pattern.
-    # psr_simsemester = subpsr.add_parser('simsemester', parents=[psr_parent],
-    #                                 description='Compare request set and schedule for consistency',
-    #                                 prefix_chars='-'
-    #                                 )
-    # psr_simsemester.add_argument('-cf', '--config_file',
-    #                           type=str,
-    #                           required=True,
-    #                           help="Relative path of config file."
-    #                           )
-    # psr_simsemester.set_defaults(func=astroq.driver.make_simulated_history)
-
     # If no arguments are provided, print help message and exit
     if len(sys.argv) == 1:
         psr.print_help(sys.stderr)

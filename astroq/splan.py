@@ -24,7 +24,7 @@ import astroq.queue
 logs = logging.getLogger(__name__)
 
 # Schema for h5 serialization bump when the on-disk layout changes
-SEMESTER_PLANNER_H5_SCHEMA = 4
+SEMESTER_PLANNER_H5_SCHEMA = 5
 
 # ---------------------------------------------------------------------------
 # Input contracts. One spec per CSV: required column -> dtype that
@@ -268,6 +268,12 @@ class SemesterPlanner:
 
         self.requests_frame_all, self.requests_frame = self._load_requests_frame()
         self.past_df = self._load_past()
+        self.allocation = load_frame(
+            self.allocation_file, ALLOCATION_SCHEMA, "allocation.csv"
+        )
+        self.custom = load_frame(
+            self.custom_file, CUSTOM_SCHEMA, "custom.csv", empty_ok=True
+        )
 
         # Per-request derived columns that depend on past_df live on
         # requests_frame (single source of truth, no parallel dict
@@ -1588,6 +1594,11 @@ class SemesterPlanner:
 
         instance.past_df = past_df
         instance._attach_past_columns()
+        # Downstream consumers only use the rehydrated access_obj for
+        # coordinate-based queries (accessible_at, slotmidpoints); the
+        # allocation/custom cubes live in the persisted access_record.
+        instance.allocation = None
+        instance.custom = None
         instance.access_obj = ac.Access.from_planner(instance)
         instance.access_record = access_record
         instance.schedule = schedule
