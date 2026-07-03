@@ -217,6 +217,15 @@ class Access:
     # (ntargets, nnights, nslots)
     # ------------------------------------------------------------------
 
+    def _accessibility_gate(self, alts, az):
+        """Hard pointing-geometry gate plus the PI ``minimum_elevation``
+        overlay. Shared by :meth:`compute_altaz` (semester slot grid) and
+        :meth:`accessible_at` (arbitrary times) -- same gate, different time
+        axis."""
+        mask = self.queue.is_accessible(alts, az)
+        mask &= alts >= self.request_frame["minimum_elevation"].values[:, np.newaxis]
+        return mask
+
     def compute_altaz(self):
         """Per-slot telescope pointing accessibility.
 
@@ -230,9 +239,7 @@ class Access:
         altazes = self.observatory.altaz(
             self.timegrid, self.targets, grid_times_targets=True
         )
-        alts = altazes.alt.deg
-        is_altaz0 = self.queue.is_accessible(alts, altazes.az.deg)
-        is_altaz0 &= alts >= self.request_frame["minimum_elevation"].values[:, np.newaxis]
+        is_altaz0 = self._accessibility_gate(altazes.alt.deg, altazes.az.deg)
 
         x = self.timegrid.sidereal_time("mean").value
         x_new = self.slotmidpoints.sidereal_time("mean").value
@@ -255,16 +262,23 @@ class Access:
             with ``self.request_frame``).
         """
         altazes = self.observatory.altaz(times, self.targets, grid_times_targets=True)
-        alts = altazes.alt.deg
-        mask = self.queue.is_accessible(alts, altazes.az.deg)
-        mask &= alts >= self.request_frame["minimum_elevation"].values[:, np.newaxis]
-        return mask
+        return self._accessibility_gate(altazes.alt.deg, altazes.az.deg)
 
     def compute_future(self):
         """Mask out nights before ``self.current_day`` for every target."""
         cube = np.ones(self._access_shape, dtype=bool)
         cube[:, : self.all_dates_dict[self.current_day], :] = False
         return cube
+
+    def _broadcast_to_cube(self, arr, *, newaxis):
+        """Broadcast ``arr`` to ``self._access_shape`` by inserting a new
+        axis at position ``newaxis`` (0 to prepend the target axis -- for a
+        ``(nnights, nslots)`` per-night array; -1 to append the slot axis --
+        for a ``(ntargets, nnights)`` per-target array), then materialize a
+        fresh writable copy."""
+        return np.broadcast_to(
+            np.expand_dims(arr, axis=newaxis), self._access_shape
+        ).copy()
 
     def compute_moon(self):
         """Per-target moon-separation gating, evaluated once per night at slot 0."""
@@ -279,18 +293,14 @@ class Access:
         )
         min_sep = self.request_frame["minimum_moon_separation"].values * u.deg
         ok_per_night = ang_dist.to(u.deg) > min_sep[:, np.newaxis]
-        return np.broadcast_to(
-            ok_per_night[:, :, np.newaxis], self._access_shape
-        ).copy()
+        return self._broadcast_to_cube(ok_per_night, newaxis=-1)
 
     def compute_night(self):
         """Per-slot dark mask (sun below -12 deg, nautical twilight)."""
         sun_below = self.observatory.is_night(
             self.slotmidpoints, horizon=-12 * u.deg
         )  # (nnights, nslots)
-        return np.broadcast_to(
-            sun_below[np.newaxis, :, :], self._access_shape
-        ).copy()
+        return self._broadcast_to_cube(sun_below, newaxis=0)
 
     def compute_inter(self):
         """Block ``tau_inter`` nights after each target's last observation.
@@ -312,6 +322,20 @@ class Access:
                 stop = min(start + int(row["tau_inter"]), self.nnights)
                 cube[itarget, start:stop, :] = False
         return cube
+
+    @staticmethod
+    def _read_start_stop_csv(csv_path):
+        """Read a CSV with ``start``/``stop`` ISO-datetime columns, parsed to
+        ``astropy.time.Time``. Shared by :meth:`compute_custom` (per-target
+        windows) and :meth:`compute_allocated` (per-night blocks)."""
+        df = pd.read_csv(csv_path)
+        df["start"] = df["start"].apply(Time)
+        df["stop"] = df["stop"].apply(Time)
+        return df
+
+    def _slot_window_mask(self, start, stop):
+        """Boolean mask over ``self.slotmidpoints`` within ``[start, stop]``."""
+        return (self.slotmidpoints >= start) & (self.slotmidpoints <= stop)
 
     def compute_custom(self):
         """PI-supplied per-star observability windows.
@@ -342,9 +366,7 @@ class Access:
         for _, row in custom.iterrows():
             if row["unique_id"] not in starid_to_index:
                 continue
-            mask = (self.slotmidpoints >= row["start"]) & (
-                self.slotmidpoints <= row["stop"]
-            )
+            mask = self._slot_window_mask(row["start"], row["stop"])
             i = starid_to_index[row["unique_id"]]
             # First window for this star: replace the all-True default. Sentinel
             # is "still all-True"; subsequent windows OR in.
@@ -359,17 +381,11 @@ class Access:
         """
         per_night = np.ones(self._access_shape[1:], dtype=bool)
         if self.allocation_file is not None:
-            alloc = pd.read_csv(self.allocation_file)
-            alloc["start"] = alloc["start"].apply(Time)
-            alloc["stop"] = alloc["stop"].apply(Time)
+            alloc = self._read_start_stop_csv(self.allocation_file)
             per_night = np.zeros_like(per_night)
             for _, row in alloc.iterrows():
-                per_night |= (self.slotmidpoints >= row["start"]) & (
-                    self.slotmidpoints <= row["stop"]
-                )
-        return np.broadcast_to(
-            per_night[np.newaxis, :, :], self._access_shape
-        ).copy()
+                per_night |= self._slot_window_mask(row["start"], row["stop"])
+        return self._broadcast_to_cube(per_night, newaxis=0)
 
     def compute_clear(self, weather_loss_file=None):
         """Weather-loss gating.
@@ -389,9 +405,7 @@ class Access:
         logs.info("Running weather loss model.")
         self.get_loss_stats(weather_loss_file or self.weather_loss_file)
         per_night = self.simulate_weather_losses(covariance=0.14)
-        return np.broadcast_to(
-            per_night[np.newaxis, :, :], self._access_shape
-        ).copy()
+        return self._broadcast_to_cube(per_night, newaxis=0)
 
     # ------------------------------------------------------------------
     # Self-mutating orchestrators. The build_ prefix marks side effects.
@@ -474,15 +488,17 @@ class Access:
         else:
             weather_csv = files("astroq.data").joinpath(weather_loss_file)
         historical_weather_data = pd.read_csv(weather_csv)
-        loss_stats_this_semester = []
-        for i, item in enumerate(self.all_dates_array):
-            ind = historical_weather_data.index[
-                historical_weather_data["Date"] == self.all_dates_array[i][5:]
-            ].tolist()[0]
-            loss_stats_this_semester.append(
-                historical_weather_data["% Total Loss"][ind]
+        semester_dates = [date[5:] for date in self.all_dates_array]
+        loss_by_date = historical_weather_data.set_index("Date")["% Total Loss"]
+        loss_stats_this_semester = loss_by_date.reindex(semester_dates)
+        if loss_stats_this_semester.isna().any():
+            missing = [
+                d for d, v in zip(semester_dates, loss_stats_this_semester) if pd.isna(v)
+            ]
+            raise ValueError(
+                f"{weather_csv}: no '% Total Loss' entry for date(s) {missing}."
             )
-        self.loss_stats_this_semester = loss_stats_this_semester
+        self.loss_stats_this_semester = loss_stats_this_semester.tolist()
 
     def simulate_weather_losses(self, covariance=0.14):
         """
@@ -490,7 +506,8 @@ class Access:
 
         Args:
             covariance (float): the added percent chance that tomorrow will be
-            lost if today is lost
+            lost if today is lost. Default 0.14 is an empirically-tuned value,
+            not derived from a cited source -- treat as a knob, not a constant.
 
         Returns:
             is_clear (array): Trues represent clear nights, Falses represent

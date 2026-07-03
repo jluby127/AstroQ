@@ -98,6 +98,9 @@ def build_toy_model_from_paper(ns, hours_per_program=80, seed=24):
     df["minimum_elevation"] = 33.0
     df["minimum_moon_separation"] = 33.0
     df["inactive"] = False
+    # Equal-weight all requests: splan_weight is a required column and prep
+    # normally supplies it; the toy model has no priority tokens, so weight 1.
+    df["splan_weight"] = 1
 
     return df[
         [
@@ -107,6 +110,6 @@ def build_toy_model_from_paper(ns, hours_per_program=80, seed=24):
             "n_intra_max", "n_intra_min", "tau_intra",
             "n_inter_max", "tau_inter",
             "minimum_elevation", "minimum_moon_separation",
-            "inactive",
+            "inactive", "splan_weight",
         ]
     ]

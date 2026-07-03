@@ -22,6 +22,8 @@ import requests
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 
+from astroq.queue.prep_common import standardize_request_strategy
+
 logs = logging.getLogger(__name__)
 
 
@@ -412,6 +414,7 @@ def pull_requests(request_urls_path):
         requests_df["dec"] = c.dec.deg
     requests_df, custom_df = _dedup_requests_by_hash(requests_df, custom_df)
     requests_df = attach_splan_weight(requests_df)
+    requests_df = standardize_request_strategy(requests_df)
     return requests_df[REQUEST_COLS], custom_df
 
 

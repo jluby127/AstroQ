@@ -495,10 +495,9 @@ def kpfcc_prep(args):
 def _validate_past_csv_columns(past_source):
     """Warn if ``past_source`` is missing the required past.csv columns.
 
-    Required schema: ``unique_id, target, timestamp, exposure_time``. The
-    ``junk`` column is optional.
+    Required schema is the single source of truth :data:`astroq.splan.PAST_COLS`.
     """
-    expected_columns = {"unique_id", "target", "timestamp", "exposure_time"}
+    expected_columns = set(splan.PAST_COLS)
     if not os.path.exists(past_source):
         logging.warning(f"Past history file '{past_source}' does not exist")
         return

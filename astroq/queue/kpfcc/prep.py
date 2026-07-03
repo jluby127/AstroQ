@@ -22,6 +22,8 @@ from astropy.time import Time, TimeDelta
 import astropy.units as u
 import astroplan as apl
 
+from astroq.queue.prep_common import standardize_request_strategy
+
 logs = logging.getLogger(__name__)
 
 
@@ -515,6 +517,10 @@ def get_request_sheet(OBs, awarded_programs, savepath):
     # Cast target column to strings to ensure proper matching
     if "target" in good_obs.columns:
         good_obs["target"] = good_obs["target"].astype(str)
+
+    # Fill intra-night strategy defaults so the semester planner receives a
+    # clean request.csv (it validates the schema but no longer repairs values).
+    good_obs = standardize_request_strategy(good_obs)
 
     os.makedirs(os.path.dirname(savepath), exist_ok=True)
     return (
