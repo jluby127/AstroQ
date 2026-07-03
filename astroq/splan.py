@@ -69,6 +69,20 @@ PROGRAMS_SCHEMA = {"program": str, "hours": float, "nights": float}
 REQUEST_COLS = list(REQUEST_SCHEMA)
 PAST_COLS = list(PAST_SCHEMA)
 
+# Request columns denormalized onto the observability grid to form
+# ``request_slots`` -- the single relational table build_model is defined over.
+STRATEGY_COLS = [
+    "unique_id",
+    "target",
+    "program_code",
+    "n_intra_min",
+    "n_intra_max",
+    "n_inter_max",
+    "tau_inter",
+    "t_visit_slots",
+    "tau_intra_slots",
+]
+
 
 def load_frame(path, schema, name, *, key=None, empty_ok=False):
     """Read ``path`` and validate/coerce it against ``schema``.
@@ -288,8 +302,6 @@ class SemesterPlanner:
             self.access_record.is_observable
         )
 
-        # Relational tables the model is defined over (joiner, yrds_tuples).
-        self._build_constraint_lookups()
         self._log_boost_current_day_slots()
 
         self.build_model()
@@ -413,47 +425,6 @@ class SemesterPlanner:
         )
         return rf
 
-    def _build_constraint_lookups(self):
-        """Build the relational tables the model is defined over.
-
-        - ``request_slots`` -- one row per observable ``(unique_id, d, s)``: the
-          observability grid with the request's strategy columns + program_code
-          joined on. The single table the structural constraints, throttle, and
-          priority rounds are defined over (the ``var`` column of Gurobi
-          variables is attached in :meth:`build_model` once ``Yrds`` exists).
-        - ``yrds_tuples`` -- the same ``(unique_id, d, s)`` set as plain tuples
-          (the ``Yrds`` variable keys).
-        - ``schedulable_uids`` -- unique_ids with at least one observable slot,
-          in first-appearance order.
-        """
-        strategy_cols = [
-            "unique_id",
-            "target",
-            "program_code",
-            "n_intra_min",
-            "n_intra_max",
-            "n_inter_max",
-            "tau_inter",
-            "t_visit_slots",
-            "tau_intra_slots",
-        ]
-        self.request_slots = self.observability.merge(
-            self.requests_frame[strategy_cols], on="unique_id"
-        )
-        self.yrds_tuples = list(
-            self.observability.itertuples(index=False, name=None)
-        )
-        self.schedulable_uids = list(self.observability["unique_id"].unique())
-
-        schedulable = set(self.schedulable_uids)
-        all_requests = list(self.requests_frame["unique_id"])
-        missing = sum(uid not in schedulable for uid in all_requests)
-        logs.warning(
-            f"There are {missing} targets out of {len(all_requests)} "
-            f"that have no valid day/slot pairs and therefore are effectively "
-            f"removed from the model."
-        )
-
     def _log_boost_current_day_slots(self):
         """Report observable slot counts on current_day for each boosted target."""
         if self.boost is None:
@@ -489,15 +460,58 @@ class SemesterPlanner:
     def build_model(self):
         """Gurobi variables plus every structural constraint, inline.
 
+        First builds the relational tables the model is defined over:
+
+        - ``request_slots`` -- one row per observable ``(unique_id, d, s)``: the
+          observability grid with the request's :data:`STRATEGY_COLS` joined on,
+          plus an ``rds`` column holding that row's ``(unique_id, d, s)`` key
+          into ``self.Yrds``. The single table the structural constraints,
+          throttle, and priority rounds are defined over. Gurobi variables are
+          looked up as ``self.Yrds[k]`` at constraint-build time, never stored
+          in the frame.
+        - ``yrds_tuples`` -- the same ``(unique_id, d, s)`` set as plain tuples
+          (the ``Yrds`` variable keys).
+        - ``schedulable_uids`` -- unique_ids with at least one observable slot,
+          in first-appearance order.
+
         Everything here is required by every scheduling mode; rounds layer
         objectives and round-specific deltas on top (``build_model_round*``).
         Paper map (Lubin et al. 2025 -> code): ``Y_{r,d,s}`` -> ``Yrds``,
         ``W_{r,d}`` -> ``Wrd``, shortfall -> ``theta``; constraint numbers
         below refer to that paper. Set-building is relational (merges /
-        groupbys over ``joiner``); Python loops only emit ``addConstr``.
+        groupbys over ``request_slots``); Python loops only emit ``addConstr``.
         """
         t0 = time.time()
         self.model = gp.Model("Semester_Scheduler")
+
+        # ---- relational tables the model is defined over ----
+        self.request_slots = self.observability.merge(
+            self.requests_frame[STRATEGY_COLS], on="unique_id"
+        )
+        # rds: each row's (unique_id, d, s) key into self.Yrds. Pure data, so the
+        # frame never holds Gurobi objects; constraints look up self.Yrds[k].
+        self.request_slots["rds"] = list(
+            zip(
+                self.request_slots["unique_id"],
+                self.request_slots["d"],
+                self.request_slots["s"],
+            )
+        )
+        self.yrds_tuples = list(
+            self.observability.itertuples(index=False, name=None)
+        )
+        self.schedulable_uids = list(self.observability["unique_id"].unique())
+
+        # diagnostics: requests with no observable slot are absent from the model
+        schedulable = set(self.schedulable_uids)
+        all_requests = list(self.requests_frame["unique_id"])
+        missing = sum(uid not in schedulable for uid in all_requests)
+        logs.warning(
+            f"There are {missing} targets out of {len(all_requests)} that have "
+            f"no valid day/slot pairs and therefore are effectively removed "
+            f"from the model."
+        )
+
         rs = self.request_slots
         multi = rs[rs["n_intra_max"] > 1]
         multi_uids = set(multi["unique_id"])
@@ -517,37 +531,53 @@ class SemesterPlanner:
             list(self.requests_frame["unique_id"]), name="Shortfall"
         )
 
-        # Attach the Gurobi variable per (unique_id, d, s) row. request_slots is
-        # now the single relational source for every constraint below, and for
-        # the throttle / priority rounds via _program_slot_expr.
-        rs["var"] = [self.Yrds[k] for k in zip(rs["unique_id"], rs["d"], rs["s"])]
-
-        # ---- Constraint 1: reserve multi-slot exposures. At most one
-        # exposure starts per (d, s), and a start at s with t_visit_slots = t
-        # blocks starts in slots s+1 .. s+t-1 of the same night. ----
+        # ---- Constraint 1 (Lubin et al. Eq 5): reserve consecutive slots for
+        # multi-slot exposures so no two visits overlap. A visit of length t
+        # occupies slots s..s+t-1, so a start at (d, s) conflicts with other
+        # starts at (d, s) and with earlier starts (d, s-delta), 1 <= delta < t,
+        # still running through s. Eq 5 caps that total at one:
+        #     sum_r Y[r,d,s] <= 1 - (earlier starts still covering (d, s)).
+        #
+        # Asserted only at slots where some visit *starts*: any two overlapping
+        # exposures conflict at the later one's start slot, so per-start
+        # constraints already forbid every overlap -- one constraint per start
+        # slot instead of one per physical slot, a deliberate size optimization
+        # for Gurobi. ----
         logs.info("Constraint: Reserve slots for multi-slot exposures.")
         max_t_visit = int(rs["t_visit_slots"].max())
-        blockers = rs.loc[
-            rs["t_visit_slots"] > 1, ["d", "s", "t_visit_slots", "var"]
-        ]
-        if not blockers.empty:
-            deltas = pd.DataFrame({"delta": np.arange(1, max_t_visit)})
-            blockers = (
-                blockers.merge(deltas, how="cross")
-                .query("delta < t_visit_slots")
-                .assign(s_block=lambda f: f["s"] + f["delta"])
-            )
-            blocked_by_ds = blockers.groupby(["d", "s_block"], sort=False)[
-                "var"
-            ].agg(list)
-        else:
-            blocked_by_ds = pd.Series(dtype=object)
-        for (d, s), starts in rs.groupby(["d", "s"], sort=False)["var"]:
-            covering = (
-                blocked_by_ds.loc[(d, s)] if (d, s) in blocked_by_ds.index else []
+        deltas = pd.DataFrame({"delta": np.arange(1, max_t_visit)})  # [] if all t == 1
+
+        # covering: one row per (d, s_cover, rds) where a length-t visit starting
+        # at (d, s) still runs through the LATER slot s_cover = s+1 .. s+t-1 (rds
+        # is that visit's (unique_id, d, s) key into self.Yrds). Indexed by
+        # (d, s_cover) so the loop reads a slot's "earlier visit still covering
+        # it" keys straight off it. Empty (0 rows) when every visit is single-slot.
+        #
+        # Example: two visits A and B, each t_visit_slots = 2, on day d=0. A
+        # starts at s=10 and occupies slots 10, 11; B starts at s=11 and occupies
+        # 11, 12. Because A runs through slot 11, covering holds one row there:
+        # (d=0, s_cover=11, A). At start slot (0, 11) the loop sees B beginning
+        # (rds) and A still covering the slot (rds_covering), so it emits
+        # Yrds[A] + Yrds[B] <= 1 -- the two overlapping visits cannot both run.
+        covering = (
+            rs.loc[rs["t_visit_slots"] > 1, ["d", "s", "t_visit_slots", "rds"]]
+            .merge(deltas, how="cross")
+            .query("delta < t_visit_slots")
+            .assign(s_cover=lambda f: f["s"] + f["delta"])
+            .set_index(["d", "s_cover"])
+            .sort_index()
+        )
+        for (d, s), rds in rs.groupby(["d", "s"], sort=False)["rds"]:
+            # rds: keys for visits that BEGIN at (d, s). rds_covering: keys for
+            # multi-slot visits that began before s and are still running through
+            # it (read off the covering index). At most one may occupy the slot.
+            rds_covering = (
+                covering["rds"].loc[[(d, s)]] if (d, s) in covering.index else []
             )
             self.model.addConstr(
-                gp.quicksum(starts) + gp.quicksum(covering) <= 1,
+                gp.quicksum(self.Yrds[k] for k in rds)
+                + gp.quicksum(self.Yrds[k] for k in rds_covering)
+                <= 1,
                 f"reserve_multislot_{d}d_{s}s",
             )
 
@@ -560,21 +590,21 @@ class SemesterPlanner:
                 per_night["tau_inter"] > 1,
                 ["unique_id", "d", "s", "n_intra_max", "tau_inter"],
             ],
-            rs[["unique_id", "d", "s", "var"]],
+            rs[["unique_id", "d", "s", "rds"]],
             suffixes=["", "3"],
             on=["unique_id"],
         ).query("d < d3 < d + tau_inter")
-        tonight_vars = rs.groupby(["unique_id", "d"], sort=False)["var"].agg(list)
+        tonight_keys = rs.groupby(["unique_id", "d"], sort=False)["rds"].agg(list)
         name_s = rs.groupby(["unique_id", "d"], sort=False)["s"].first()
         n_intra_max_night = per_night.set_index(["unique_id", "d"])["n_intra_max"]
-        for (uid, d), future_vars in (
-            future.groupby(["unique_id", "d"], sort=False)["var"].agg(list).items()
+        for (uid, d), future_keys in (
+            future.groupby(["unique_id", "d"], sort=False)["rds"].agg(list).items()
         ):
-            lhs = gp.quicksum(tonight_vars.loc[(uid, d)]) / n_intra_max_night.loc[
-                (uid, d)
-            ]
+            lhs = gp.quicksum(
+                self.Yrds[k] for k in tonight_keys.loc[(uid, d)]
+            ) / n_intra_max_night.loc[(uid, d)]
             self.model.addConstr(
-                lhs <= 1 - gp.quicksum(future_vars),
+                lhs <= 1 - gp.quicksum(self.Yrds[k] for k in future_keys),
                 f"enforce_internight_cadence_{uid}_{d}d_{name_s.loc[(uid, d)]}s",
             )
 
@@ -590,7 +620,7 @@ class SemesterPlanner:
                     self.Wrd[uid, d] for d in grp["d"].drop_duplicates()
                 )
             else:
-                expr = gp.quicksum(grp["var"])
+                expr = gp.quicksum(self.Yrds[k] for k in grp["rds"])
             self.model.addConstr(
                 expr <= desired_max_obs.loc[uid],
                 f"max_desired_unique_nights_for_request_{uid}",
@@ -601,18 +631,18 @@ class SemesterPlanner:
         logs.info("Constraint: Enforce intra-night cadence.")
         pairs = pd.merge(
             multi[["unique_id", "d", "s", "tau_intra_slots"]],
-            rs.loc[rs["n_intra_max"] > 1, ["unique_id", "d", "s", "var"]],
+            rs.loc[rs["n_intra_max"] > 1, ["unique_id", "d", "s", "rds"]],
             suffixes=["", "3"],
             on=["unique_id", "d"],
         ).query("s < s3 < s + tau_intra_slots")
-        for (uid, d, s), later_vars in (
-            pairs.groupby(["unique_id", "d", "s"], sort=False)["var"]
+        for (uid, d, s), later_keys in (
+            pairs.groupby(["unique_id", "d", "s"], sort=False)["rds"]
             .agg(list)
             .items()
         ):
             self.model.addConstr(
                 self.Yrds[uid, d, s]
-                <= self.Wrd[uid, d] - gp.quicksum(later_vars),
+                <= self.Wrd[uid, d] - gp.quicksum(self.Yrds[k] for k in later_keys),
                 f"enforce_intranight_cadence_{uid}_{d}d_{s}s",
             )
 
@@ -620,7 +650,7 @@ class SemesterPlanner:
         # indicator to the visit count for multi-visit requests. ----
         logs.info("Constraint: Bound minimum and maximum visits per night.")
         for (uid, d), grp in rs.groupby(["unique_id", "d"], sort=False):
-            visits = gp.quicksum(grp["var"])
+            visits = gp.quicksum(self.Yrds[k] for k in grp["rds"])
             name_tag = f"{uid}_{d}d_{grp['s'].iloc[0]}s"
             n_intra_max = grp["n_intra_max"].iloc[0]
             if uid in multi_uids:
@@ -641,13 +671,13 @@ class SemesterPlanner:
         # minus scheduled nights (visits / n_intra_max); lb=0 from addVars. ----
         logs.info("Constraint: Build theta variable")
         rf_indexed = self.requests_frame.set_index("unique_id")
-        for uid, grp_vars in rs.groupby("unique_id", sort=False)["var"]:
+        for uid, grp_keys in rs.groupby("unique_id", sort=False)["rds"]:
             row = rf_indexed.loc[uid]
             self.model.addConstr(
                 self.theta[uid]
                 >= row["n_inter_max"]
                 - row["past_nights_observed"]
-                - gp.quicksum(grp_vars) / row["n_intra_max"],
+                - gp.quicksum(self.Yrds[k] for k in grp_keys) / row["n_intra_max"],
                 f"greater_than_nobs_shortfall_{uid}",
             )
 
@@ -749,7 +779,9 @@ class SemesterPlanner:
         (symbolic). Round-invariant -- Yrds vars and program membership
         don't change across rounds -- so this is safe to cache."""
         return {
-            p: gp.quicksum(v * n for v, n in zip(g["var"], g["t_visit_slots"]))
+            p: gp.quicksum(
+                self.Yrds[k] * n for k, n in zip(g["rds"], g["t_visit_slots"])
+            )
             for p, g in self.request_slots.groupby("program_code")
         }
 
@@ -757,7 +789,9 @@ class SemesterPlanner:
         """dict[program_code -> float] of scheduled slot-time at the
         *current* Gurobi solution. Not cached -- ``.X`` changes every round."""
         return {
-            p: sum(v.X * n for v, n in zip(g["var"], g["t_visit_slots"]))
+            p: sum(
+                self.Yrds[k].X * n for k, n in zip(g["rds"], g["t_visit_slots"])
+            )
             for p, g in self.request_slots.groupby("program_code")
         }
 
