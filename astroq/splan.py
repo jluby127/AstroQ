@@ -26,34 +26,120 @@ logs = logging.getLogger(__name__)
 # Schema for h5 serialization bump when the on-disk layout changes
 SEMESTER_PLANNER_H5_SCHEMA = 4
 
-# Canonical past.csv column schema.
-PAST_COLS = ["unique_id", "target", "timestamp", "exposure_time"]
+# ---------------------------------------------------------------------------
+# Input contracts. One spec per CSV: required column -> dtype that
+# ``load_frame`` coerces to. ``Time`` marks ISO-datetime columns parsed to
+# ``astropy.time.Time``. Repair (default filling, legacy "None" strings,
+# junk filtering) is the prep stage's job (see astroq.queue.prep_common);
+# ``load_frame`` validates and coerces only, and raises on anything else.
+# Extra columns (``comments``, weather bands, ...) pass through untouched.
+# ---------------------------------------------------------------------------
 
-# Columns splan requires from request.csv. Strategy/default filling and any
-# other repair is the prep stage's job (see astroq.queue.prep_common); splan
-# validates presence and fails loudly rather than cleaning. Weather-band and
-# ``comments`` columns are passthrough only and deliberately not required.
-REQUEST_COLS = [
-    "unique_id",
-    "target",
-    "program_code",
-    "exptime",
-    "n_exp",
-    "n_inter_max",
-    "tau_inter",
-    "n_intra_max",
-    "n_intra_min",
-    "tau_intra",
-    "inactive",
-    "splan_weight",
-]
+REQUEST_SCHEMA = {
+    "unique_id": str,
+    "target": str,
+    "program_code": str,
+    "ra": float,            # deg
+    "dec": float,           # deg
+    "exptime": float,       # seconds
+    "n_exp": int,
+    "n_inter_max": int,
+    "tau_inter": int,       # days
+    "n_intra_min": int,
+    "n_intra_max": int,
+    "tau_intra": float,     # hours
+    "inactive": bool,
+    "splan_weight": float,
+}
+
+PAST_SCHEMA = {
+    "unique_id": str,
+    "target": str,
+    "timestamp": str,        # UT ISO
+    "exposure_time": float,  # seconds
+}
+
+ALLOCATION_SCHEMA = {"start": Time, "stop": Time}
+
+CUSTOM_SCHEMA = {"unique_id": str, "target": str, "start": Time, "stop": Time}
+
+PROGRAMS_SCHEMA = {"program": str, "hours": float, "nights": float}
+
+# Column-name lists kept for consumers that only need presence checks.
+REQUEST_COLS = list(REQUEST_SCHEMA)
+PAST_COLS = list(PAST_SCHEMA)
 
 
-def _require_columns(df, cols, name):
-    """Raise ``ValueError`` listing every required column missing from ``df``."""
-    missing = [c for c in cols if c not in df.columns]
+def load_frame(path, schema, name, *, key=None, empty_ok=False):
+    """Read ``path`` and validate/coerce it against ``schema``.
+
+    Args:
+        path (str): CSV location.
+        schema (dict): column -> target dtype (``str``/``int``/``float``/
+            ``bool``) or ``astropy.time.Time`` for ISO-datetime columns.
+        name (str): label used in error messages (e.g. ``"request.csv"``).
+        key (str, optional): column whose values must be unique.
+        empty_ok (bool): missing/zero-byte/header-only files return an empty
+            frame with the schema's columns instead of raising.
+
+    Returns:
+        pandas.DataFrame with every schema column coerced; extra columns
+        pass through untouched.
+
+    Raises:
+        FileNotFoundError: missing file when ``empty_ok=False``.
+        ValueError: missing columns, null values in schema columns,
+            non-integral values in int columns, unparseable values, or
+            duplicate ``key`` values. No repair is attempted.
+    """
+    if not path or not os.path.exists(path) or os.path.getsize(path) == 0:
+        if empty_ok:
+            return pd.DataFrame({c: pd.Series(dtype=object) for c in schema})
+        raise FileNotFoundError(f"{name} not found: {path}")
+    try:
+        df = pd.read_csv(path)
+    except pd.errors.EmptyDataError:
+        if empty_ok:
+            return pd.DataFrame({c: pd.Series(dtype=object) for c in schema})
+        raise
+
+    missing = [c for c in schema if c not in df.columns]
     if missing:
         raise ValueError(f"{name} missing required column(s): {missing}")
+
+    nulls = [c for c in schema if df[c].isna().any()]
+    if nulls:
+        raise ValueError(
+            f"{name} has null values in required column(s): {nulls}. "
+            f"Inputs must arrive clean from the prep stage."
+        )
+
+    for col, dtype in schema.items():
+        if dtype is bool:
+            if df[col].dtype != bool:
+                raise ValueError(
+                    f"{name} column {col!r} must be boolean (True/False); "
+                    f"got dtype {df[col].dtype}."
+                )
+        elif dtype is int:
+            vals = pd.to_numeric(df[col])
+            if (vals % 1 != 0).any():
+                raise ValueError(f"{name} column {col!r} has non-integer values.")
+            df[col] = vals.astype(int)
+        elif dtype is float:
+            df[col] = pd.to_numeric(df[col]).astype(float)
+        elif dtype is Time:
+            df[col] = df[col].apply(Time)
+        else:
+            df[col] = df[col].astype(str)
+
+    if key is not None:
+        dup = df[key].duplicated(keep=False)
+        if dup.any():
+            dup_vals = sorted(df.loc[dup, key].unique())
+            raise ValueError(f"{name} has duplicate {key!r} values: {dup_vals}")
+
+    return df.reset_index(drop=True)
 
 _ROUND4_THROTTLE_GRACE = 2.0
 
@@ -183,7 +269,7 @@ class SemesterPlanner:
         return raw if os.path.isabs(raw) else os.path.join(workdir, raw)
 
     def _load_past(self):
-        """Read ``past.csv`` and return it validated against :data:`PAST_COLS`.
+        """Read ``past.csv`` validated against :data:`PAST_SCHEMA`.
 
         Empty/missing files yield an empty frame with the canonical schema.
         ``past.csv`` is expected to arrive clean from the prep stage: no
@@ -191,14 +277,7 @@ class SemesterPlanner:
         in the past-history producer, not here).
         """
         path = self._resolve_path("past_file")
-        if not path or not os.path.exists(path) or os.path.getsize(path) == 0:
-            return pd.DataFrame(columns=PAST_COLS)
-        try:
-            df = pd.read_csv(path)
-        except pd.errors.EmptyDataError:
-            return pd.DataFrame(columns=PAST_COLS)
-        _require_columns(df, PAST_COLS, "past.csv")
-        return df.reset_index(drop=True)
+        return load_frame(path, PAST_SCHEMA, "past.csv", empty_ok=True)
 
     # ------------------------------------------------------------------
     # Properties (date-derived; path attrs are set in __init__).
@@ -240,9 +319,9 @@ class SemesterPlanner:
 
         Expects a clean request.csv from the prep stage: strategy defaults are
         already filled (see :func:`astroq.queue.prep_common.standardize_request_strategy`),
-        so splan only validates the schema, stabilizes id/weight dtypes after the
-        CSV round-trip, derives slot columns, and fails on duplicate active
-        unique_id (which would otherwise surface as a cryptic Gurobi error).
+        so splan only validates/coerces against :data:`REQUEST_SCHEMA`, derives
+        slot columns, and fails on duplicate active unique_id (which would
+        otherwise surface as a cryptic Gurobi error).
 
         Slot columns appended by :meth:`_attach_slot_columns`:
 
@@ -257,23 +336,9 @@ class SemesterPlanner:
         left untouched.
         """
         request_file = self._resolve_path("request_file")
-        if not os.path.exists(request_file):
-            raise FileNotFoundError(f"Requests file not found: {request_file}")
-
-        rfa = pd.read_csv(request_file)
-        _require_columns(rfa, REQUEST_COLS, f"request.csv ({request_file!r})")
-
-        # Stabilize dtypes lost across the CSV round-trip: numeric ids read back
-        # as int64, so coerce the id columns splan keys on to str.
-        rfa["unique_id"] = rfa["unique_id"].astype(str)
-        rfa["target"] = rfa["target"].astype(str)
-        rfa["splan_weight"] = pd.to_numeric(rfa["splan_weight"], errors="coerce")
-        if rfa["splan_weight"].isna().any():
-            bad = int(rfa["splan_weight"].isna().sum())
-            raise ValueError(
-                f"request.csv has {bad} invalid or missing splan_weight value(s)."
-            )
-        rfa["inactive"] = rfa["inactive"].fillna(False).astype(bool)
+        rfa = load_frame(
+            request_file, REQUEST_SCHEMA, f"request.csv ({request_file!r})"
+        )
         logs.warning(
             f"There are {int(rfa['inactive'].sum())} inactive of {len(rfa)} requests."
         )
@@ -305,15 +370,12 @@ class SemesterPlanner:
         Mutates and returns ``rf`` (idempotent).
         """
         slot_size = self.config.getfloat("semester", "slot_size")
-        visit_s = self.queue.visit_seconds(
-            rf["exptime"].astype(float),
-            rf["n_exp"].astype(int),
-        )
+        visit_s = self.queue.visit_seconds(rf["exptime"], rf["n_exp"])
         rf["t_visit_slots"] = (
             (visit_s / (slot_size * 60.0)).round().clip(lower=1).astype(int)
         )
         rf["tau_intra_slots"] = (
-            (rf["tau_intra"].astype(float) * 60 / slot_size).round().astype(int)
+            (rf["tau_intra"] * 60 / slot_size).round().astype(int)
         )
         return rf
 
@@ -377,7 +439,7 @@ class SemesterPlanner:
         boost_by_uid = self._boost_by_uid
         uid_to_target = dict(
             zip(
-                self.requests_frame_all["unique_id"].astype(str),
+                self.requests_frame_all["unique_id"],
                 self.requests_frame_all["target"],
             )
         )
@@ -388,7 +450,7 @@ class SemesterPlanner:
             d_today,
             factor,
         )
-        joiner_uids = self.joiner["unique_id"].astype(str)
+        joiner_uids = self.joiner["unique_id"]
         joiner_d = self.joiner["d"]
         for uid in boost_by_uid:
             n_slots = int(((joiner_uids == uid) & (joiner_d == d_today)).sum())
@@ -438,7 +500,7 @@ class SemesterPlanner:
                 {"nights": 0, "n_exp": 0, "last": ""}, index=uids,
             )
         else:
-            night = self.past_df["timestamp"].astype(str).str[:10]
+            night = self.past_df["timestamp"].str[:10]
             g = self.past_df.assign(_night=night).groupby("unique_id")
             agg = pd.DataFrame({
                 "nights": g["_night"].nunique(),
@@ -451,7 +513,7 @@ class SemesterPlanner:
         rf["past_date_last_observed"] = agg["last"].astype(str).to_numpy()
 
         bonus = self.config.getfloat("semester", "maximum_bonus_size")
-        n_max = rf["n_inter_max"].astype(int).to_numpy()
+        n_max = rf["n_inter_max"].to_numpy()
         past = rf["past_nights_observed"].to_numpy()
         over = past > n_max
         desired = np.where(over, past, n_max - past)
@@ -761,11 +823,14 @@ class SemesterPlanner:
 
     @cached_property
     def _programs_frame(self):
-        """``programs.csv`` indexed by program code. Read once and left
-        unmutated (per-formula columns are derived on demand, e.g. via
-        :attr:`_program_awarded_slots`, rather than written back onto this
-        cached frame)."""
-        return pd.read_csv(self.programs_file).set_index("program")
+        """``programs.csv`` validated against :data:`PROGRAMS_SCHEMA`, indexed
+        by program code. Read once and left unmutated (per-formula columns are
+        derived on demand, e.g. via :attr:`_program_awarded_slots`, rather
+        than written back onto this cached frame)."""
+        df = load_frame(
+            self.programs_file, PROGRAMS_SCHEMA, "programs.csv", key="program"
+        )
+        return df.set_index("program")
 
     @cached_property
     def _program_awarded_slots(self):
@@ -843,24 +908,14 @@ class SemesterPlanner:
         inactive. Returns ``dict[program_code -> int past_slots]``.
         """
         rfa = self.requests_frame_all
-        t_visit = dict(
-            zip(rfa["unique_id"].astype(str), rfa["t_visit_slots"].astype(int))
-        )
+        t_visit = dict(zip(rfa["unique_id"], rfa["t_visit_slots"]))
         if self.past_df.empty:
             past_n = pd.Series(dtype="int64")
         else:
-            past_n = (
-                self.past_df.assign(
-                    unique_id=self.past_df["unique_id"].astype(str)
-                )
-                .groupby("unique_id")
-                .size()
-            )
+            past_n = self.past_df.groupby("unique_id").size()
 
         out = {}
-        for uid, prog in zip(
-            rfa["unique_id"].astype(str), rfa["program_code"]
-        ):
+        for uid, prog in zip(rfa["unique_id"], rfa["program_code"]):
             slots = int(past_n.get(uid, 0)) * t_visit.get(uid, 0)
             out[prog] = out.get(prog, 0) + slots
         return out
@@ -1667,11 +1722,7 @@ class SemesterPlanner:
         # Re-derive slot columns on the full frame (active + inactive) so the
         # throttle can count past usage on every row. Columns are pure
         # functions of the persisted data, so we don't ship them on disk. The
-        # persisted frame was already validated/clean when written, so no
-        # repair is needed here beyond stabilizing the inactive dtype.
-        requests_frame_all["inactive"] = (
-            requests_frame_all["inactive"].astype(bool)
-        )
+        # persisted frame was already validated when written; no repair here.
         instance._attach_slot_columns(requests_frame_all)
         instance.requests_frame_all = requests_frame_all
         instance.requests_frame = (
