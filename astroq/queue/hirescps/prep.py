@@ -307,41 +307,34 @@ def pull_requests(request_urls_path):
     Raises:
         ValueError: If ``request_urls_path`` is unset or empty.
     """
-    if not request_urls_path:
-        raise ValueError("request_urls_path is required.")
-    sheet_urls = pd.read_csv(request_urls_path)["url"].tolist()
+    sheet_urls = pd.read_csv(request_urls_path, comment="#")["url"].tolist()
 
     request_dfs = []
     custom_dfs = []
     for url in sheet_urls:
         url = (url or "").strip()
         df = _fetch_sheet_dataframe(url)
-        request_dfs.append(df[REQUEST_COLS])
-        custom_dfs.append(_customs_from_requests_df(df))
-    requests_df = (
-        pd.concat(request_dfs, ignore_index=True)
-        if request_dfs
-        else pd.DataFrame(columns=REQUEST_COLS)
-    )
-    custom_df = (
-        pd.concat(custom_dfs, ignore_index=True)
-        if custom_dfs
-        else pd.DataFrame(columns=CUSTOM_COLS)
-    )
-    # Convert ra (HH:MM:SS.ss) and dec (+/-DD:MM:SS.s) from sexagesimal to decimal degrees
-    if (
-        not requests_df.empty
-        and "ra" in requests_df.columns
-        and "dec" in requests_df.columns
-    ):
+
+        if df.empty:
+            continue
+
+        # Convert ra/dec (HH:MM:SS.s/+DD:MM:SS.s) to decimal degrees
         c = SkyCoord(
-            ra=requests_df["ra"].astype(str),
-            dec=requests_df["dec"].astype(str),
+            ra=df["ra"].astype(str), 
+            dec=df["dec"].astype(str),
             unit=(u.hourangle, u.deg),
         )
-        requests_df = requests_df.copy()
-        requests_df["ra"] = c.ra.deg
-        requests_df["dec"] = c.dec.deg
+        df["ra"] = c.ra.deg
+        df["dec"] = c.dec.deg
+
+        request_dfs.append(df[REQUEST_COLS])
+        custom_dfs.append(_customs_from_requests_df(df))
+
+    if not request_dfs:
+        raise ValueError("No requests found.")
+
+    requests_df = pd.concat(request_dfs, ignore_index=True)
+    custom_df = pd.concat(custom_dfs, ignore_index=True)
     requests_df, custom_df = _dedup_requests_by_hash(requests_df, custom_df)
     return requests_df, custom_df
 
