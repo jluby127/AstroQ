@@ -377,8 +377,6 @@ def pull_requests(request_urls_path):
     Raises:
         ValueError: If ``request_urls_path`` is unset or empty.
     """
-    if not request_urls_path:
-        raise ValueError("request_urls_path is required.")
     sheet_urls = pd.read_csv(request_urls_path, comment="#")["url"].tolist()
 
     request_dfs = []
@@ -392,14 +390,14 @@ def pull_requests(request_urls_path):
 
         # Convert ra/dec (HH:MM:SS.s/+DD:MM:SS.s) to decimal degrees
         c = SkyCoord(
-            ra=df["ra"].astype(str),
+            ra=df["ra"].astype(str), 
             dec=df["dec"].astype(str),
             unit=(u.hourangle, u.deg),
         )
         df["ra"] = c.ra.deg
         df["dec"] = c.dec.deg
 
-        request_dfs.append(df[SHEET_REQUEST_COLS])
+        request_dfs.append(df[REQUEST_COLS])
         custom_dfs.append(_customs_from_requests_df(df))
 
     if not request_dfs:
