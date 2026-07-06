@@ -531,6 +531,20 @@ class SemesterPlanner:
             list(self.requests_frame["unique_id"]), name="Shortfall"
         )
 
+        # ---- Eq. 3: shortfall definition. theta_r >= remaining nights owed
+        # minus scheduled nights (visits / n_intra_max); lb=0 from addVars. ----
+        logs.info("Constraint: Build theta variable")
+        rf_indexed = self.requests_frame.set_index("unique_id")
+        for uid, grp_keys in rs.groupby("unique_id", sort=False)["rds"]:
+            row = rf_indexed.loc[uid]
+            self.model.addConstr(
+                self.theta[uid]
+                >= row["n_inter_max"]
+                - row["past_nights_observed"]
+                - gp.quicksum(self.Yrds[k] for k in grp_keys) / row["n_intra_max"],
+                f"greater_than_nobs_shortfall_{uid}",
+            )
+
         # ---- Reserve slots for multi-slot exposures.
         # Constraint 1 in Lubin et al. (2026)
         #
@@ -571,6 +585,23 @@ class SemesterPlanner:
                 "reserve_multislot_{0}d_{1}s".format(*ds_on),
             )
 
+        # ---- Constraint 2: desired max unique nights. Multi-visit requests
+        # are capped on nights (Wrd); single-visit requests on visits (Yrds). ----
+        logs.info("Constraint: Set desired maximum observations.")
+        desired_max_obs = self.requests_frame.set_index("unique_id")[
+            "desired_max_obs"
+        ]
+        for uid, grp in rs.groupby("unique_id", sort=False):
+            if uid in multi_uids:
+                expr = gp.quicksum(
+                    self.Wrd[uid, d] for d in grp["d"].drop_duplicates()
+                )
+            else:
+                expr = gp.quicksum(self.Yrds[k] for k in grp["rds"])
+            self.model.addConstr(
+                expr <= desired_max_obs.loc[uid],
+                f"max_desired_unique_nights_for_request_{uid}",
+            )
 
         # ---- Enforce inter-night cadence
         # Constraint 3 in Lubin et al. (2026).
@@ -606,29 +637,12 @@ class SemesterPlanner:
                 term1 + term2 <= 1,
                 "enforce_internight_cadence_{0}_{1}".format(*rd_on),
             )
-        # ---- Constraint 2: desired max unique nights. Multi-visit requests
-        # are capped on nights (Wrd); single-visit requests on visits (Yrds). ----
-        logs.info("Constraint: Set desired maximum observations.")
-        desired_max_obs = self.requests_frame.set_index("unique_id")[
-            "desired_max_obs"
-        ]
-        for uid, grp in rs.groupby("unique_id", sort=False):
-            if uid in multi_uids:
-                expr = gp.quicksum(
-                    self.Wrd[uid, d] for d in grp["d"].drop_duplicates()
-                )
-            else:
-                expr = gp.quicksum(self.Yrds[k] for k in grp["rds"])
-            self.model.addConstr(
-                expr <= desired_max_obs.loc[uid],
-                f"max_desired_unique_nights_for_request_{uid}",
-            )
 
-        # ---- Enforce intra-night cadence. 
-        # Constraint 4 Lubin et al. (2026).
-        # For every (r,d,s) of a multi-visit request, find all future (r,d,s_future)
-        # where s < s_future < s + tau_intra_slots. If (r,d,s) is on then all (r,d,s_future) must be off.
-        # rs_intranight contains one row per (r,d,s) with a list all forbidden (r,d,s_future) 
+        # ---- Enforce intra-night cadence. Constraint 4 Lubin et al. (2026). For every
+        # (r,d,s) of a multi-visit request, find all future (r,d,s_future) where s <
+        # s_future < s + tau_intra_slots. If (r,d,s) is on then all (r,d,s_future) must
+        # be off. rs_intranight contains one row per (r,d,s) with a list all forbidden
+        # (r,d,s_future) 
         logs.info("Constraint: Enforce intra-night cadence.")
         rs_intranight = (
             pd.merge(
@@ -669,19 +683,6 @@ class SemesterPlanner:
                     visits <= n_intra_max, f"enforce_max_visits_{name_tag}"
                 )
 
-        # ---- Eq. 3: shortfall definition. theta_r >= remaining nights owed
-        # minus scheduled nights (visits / n_intra_max); lb=0 from addVars. ----
-        logs.info("Constraint: Build theta variable")
-        rf_indexed = self.requests_frame.set_index("unique_id")
-        for uid, grp_keys in rs.groupby("unique_id", sort=False)["rds"]:
-            row = rf_indexed.loc[uid]
-            self.model.addConstr(
-                self.theta[uid]
-                >= row["n_inter_max"]
-                - row["past_nights_observed"]
-                - gp.quicksum(self.Yrds[k] for k in grp_keys) / row["n_intra_max"],
-                f"greater_than_nobs_shortfall_{uid}",
-            )
 
         # ---- Throttle: structural, but re-parameterized by later rounds
         # (Round 4 re-adds it with a wider grace), so it stays a method. ----
