@@ -15,17 +15,38 @@ Variables:
   table_layout (str|None)                  : optional DataTables `tableLayout` option, e.g. 'auto'
   scroll_x (bool)                          : DataTables `scrollX` option
   responsive (bool)                        : DataTables `responsive` option
+  night_start_hhmm (str|None)              : HH:MM anchor for night-relative time sorting
 #}
 <script>
 $(document).ready(function() {
     if ($.fn.DataTable.isDataTable('#{{ table_id }}')) {
         $('#{{ table_id }}').DataTable().destroy();
     }
-    {%- if time_cols %}
+    {%- if time_cols or night_start_hhmm is defined %}
     function parseHHMM(s) {
         var m = (s || '').match(/(\d{1,2}):(\d{2})/);
         return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : NaN;
     }
+    {%- endif %}
+    {%- if night_start_hhmm is defined %}
+    (function() {
+        var nightStartMins = parseHHMM('{{ night_start_hhmm }}');
+        function minutesFromNightStart(hhmmStr) {
+            var m = parseHHMM(hhmmStr);
+            if (isNaN(m) || m >= 24 * 60) return 999999;
+            if (m < nightStartMins) m += 24 * 60;
+            return m - nightStartMins;
+        }
+        function cellText(d) {
+            if (typeof d === 'string' && d.indexOf('<') >= 0) {
+                return $('<div>').html(d).text().trim();
+            }
+            return (d || '').toString().trim();
+        }
+        $.fn.dataTable.ext.type.order['night-time-pre'] = function(d) {
+            return minutesFromNightStart(cellText(d));
+        };
+    })();
     {%- endif %}
     {%- if has_column_filters %}
     var numericCols = {{ numeric_cols | tojson }};
@@ -49,7 +70,7 @@ $(document).ready(function() {
         {%- endif %}
         columnDefs: [
             {%- for cd in column_defs %}
-            { targets: {{ cd.target }}, width: '{{ cd.width }}' }{% if not loop.last %},{% endif %}
+            { targets: {{ cd.target }}, width: '{{ cd.width }}'{% if cd.type is defined %}, type: '{{ cd.type }}'{% endif %} }{% if not loop.last %},{% endif %}
             {%- endfor %}
         ]{% if has_column_filters or has_init_complete_header_style %},
         initComplete: function() {

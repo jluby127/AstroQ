@@ -8,8 +8,9 @@ stored on ``SemesterPlanner`` and reused for plotting.
 
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from importlib.resources import files
+from zoneinfo import ZoneInfo
 
 import astropy as apy
 import astropy.units as u
@@ -28,7 +29,7 @@ def build_date_dictionary(semester_start_date, semester_length):
     """Single source of truth for the semester date grid.
 
     Args:
-        semester_start_date (str): ``'YYYY-MM-DD'`` ISO date of night 0.
+        semester_start_date (str): ``'YYYY-MM-DD'`` local civil date of night 0.
         semester_length (int): number of nights in the semester.
 
     """
@@ -38,6 +39,85 @@ def build_date_dictionary(semester_start_date, semester_length):
     ]
     all_dates_dict = {d: i for i, d in enumerate(all_dates_array)}
     return all_dates_array, all_dates_dict
+
+
+def _observer_timezone(observer):
+    """Return a tzinfo for ``observer`` (astroplan ``Observer``)."""
+    tz = observer.timezone
+    if isinstance(tz, str):
+        return ZoneInfo(tz)
+    return tz
+
+
+def _localize_civil_noon(local_date, observer):
+    """Local civil noon on ``YYYY-MM-DD`` at the observatory."""
+    tz = _observer_timezone(observer)
+    naive = datetime.strptime(local_date, "%Y-%m-%d").replace(
+        hour=12, minute=0, second=0, microsecond=0
+    )
+    if hasattr(tz, "localize"):
+        return tz.localize(naive)
+    return naive.replace(tzinfo=tz)
+
+
+def parse_utc_time(value):
+    """Parse a CSV timestamp as UTC ``astropy.time.Time``."""
+    t = Time(value, scale="utc")
+    return t.utc
+
+
+def observing_day_start(local_date, observer):
+    """Start of observing night ``local_date`` (local civil noon) as UTC ``Time``."""
+    local_noon = _localize_civil_noon(local_date, observer)
+    return Time(local_noon)
+
+
+def observing_day_end(local_date, observer):
+    """End of observing night ``local_date`` (local civil noon on the next day)."""
+    start = datetime.strptime(local_date, "%Y-%m-%d")
+    next_date = (start + timedelta(days=1)).strftime("%Y-%m-%d")
+    return observing_day_start(next_date, observer)
+
+
+def observing_day_window(local_date, observer):
+    """Half-open UTC interval ``[noon on local_date, noon on local_date + 1 day)``."""
+    return observing_day_start(local_date, observer), observing_day_end(
+        local_date, observer
+    )
+
+
+def observing_day_label_for_utc_time(utc_time, observer):
+    """Local civil date label for the observing night containing ``utc_time``."""
+    tz = _observer_timezone(observer)
+    local_dt = parse_utc_time(utc_time).to_datetime(timezone=tz)
+    shifted = local_dt - timedelta(hours=12)
+    return shifted.strftime("%Y-%m-%d")
+
+
+def observing_day_index_containing_time(utc_time, all_dates_array, observer):
+    """Night index ``d`` whose observing-day window contains ``utc_time``."""
+    label = observing_day_label_for_utc_time(utc_time, observer)
+    mapping = {d: i for i, d in enumerate(all_dates_array)}
+    if label not in mapping:
+        raise ValueError(
+            f"UTC time {utc_time} maps to observing day {label!r}, "
+            f"outside semester grid {all_dates_array[0]}..{all_dates_array[-1]}"
+        )
+    return mapping[label]
+
+
+def utc_time_to_observing_day_label(utc_time, all_dates_array, observer):
+    """Observing-day label for ``utc_time``; raises if outside the semester grid."""
+    d = observing_day_index_containing_time(utc_time, all_dates_array, observer)
+    return all_dates_array[d]
+
+
+def utc_interval_overlaps_observing_day(utc_start, utc_stop, local_date, observer):
+    """True when UTC ``[utc_start, utc_stop]`` overlaps observing night ``local_date``."""
+    win_start, win_end = observing_day_window(local_date, observer)
+    start = parse_utc_time(utc_start)
+    stop = parse_utc_time(utc_stop)
+    return start < win_end and stop > win_start
 
 
 class Access:
@@ -67,12 +147,12 @@ class Access:
             ``t_visit_slots`` (int >= 1) drives the multi-slot exposure
             dilation in :meth:`build_access`; if absent, defaults to 1
             per target (no dilation).
-        semester_start_date (str): ``'YYYY-MM-DD'`` ISO date of night 0 (UTC).
+        semester_start_date (str): ``'YYYY-MM-DD'`` local civil date of night 0.
         semester_length (int): number of nights in the semester.
         slot_size (int): slot length in minutes; must divide 1440 evenly.
 
     Keyword Args:
-        current_day (str, optional): today's ``'YYYY-MM-DD'`` for the
+        current_day (str, optional): today's local civil ``'YYYY-MM-DD'`` for the
             ``compute_future`` mask. Defaults to ``semester_start_date``.
         allocation_file (str, optional): path to ``allocation.csv``. ``None``
             treats every slot as allocated.
@@ -135,7 +215,6 @@ class Access:
             current_day if current_day is not None else semester_start_date
         )
 
-        self.start_date = Time(self.semester_start_date, format="iso", scale="utc")
         self.all_dates_array, self.all_dates_dict = build_date_dictionary(
             self.semester_start_date, self.semester_length
         )
@@ -172,9 +251,10 @@ class Access:
         )
         self.targets = apl.FixedTarget(name=self.request_frame.unique_id, coord=coords)
 
-        # Time grid for one night, first night of the semester
-        self.daily_start = Time(self.start_date, location=self.observatory.location)
-        self.daily_end = self.daily_start + TimeDelta(1.0, format="jd")
+        # Observing-day grid: each row d spans local civil noon → next local noon.
+        night0 = self.all_dates_array[0]
+        self.daily_start = observing_day_start(night0, self.observatory)
+        self.daily_end = observing_day_end(night0, self.observatory)
         self.timegrid = Time(
             np.arange(self.daily_start.jd, self.daily_end.jd, self.slot_size_time.jd),
             format="jd",
@@ -182,18 +262,27 @@ class Access:
         )
         self.timegrid = self.timegrid[np.argsort(self.timegrid.sidereal_time("mean"))]
 
-        # Slot midpoint for all nights in semester 2D array (slots, nights)
-        self.slotmidpoints_oneday = (
-            self.daily_start + (np.arange(self.nslots) + 0.5) * self.slot_size * u.min
+        jd_rows = []
+        for local_date in self.all_dates_array:
+            day_start = observing_day_start(local_date, self.observatory)
+            jd_rows.append(
+                day_start.jd
+                + (np.arange(self.nslots) + 0.5) * self.slot_size_time.jd
+            )
+        self.slotmidpoints = Time(
+            np.array(jd_rows),
+            format="jd",
+            location=self.observatory.location,
         )
-        days = np.arange(self.nnights) * u.day
-        self.slotmidpoints = (
-            self.slotmidpoints_oneday[np.newaxis, :] + days[:, np.newaxis]
-        )
+        self.slotmidpoints_oneday = self.slotmidpoints[0]
 
         # compute_clear reads weather_loss_file only when run_weather_loss
         # is True; otherwise the cube is unconditionally all-True.
         self.weather_loss_file = weather_loss_file
+
+    def observing_night_bounds(self, local_date):
+        """UTC ``Time`` bounds for observing night ``local_date`` (local civil label)."""
+        return observing_day_window(local_date, self.observatory)
 
     # ------------------------------------------------------------------
     # Adapter for the planner pipeline. Wires SemesterPlanner attributes
@@ -276,7 +365,7 @@ class Access:
         return mask
 
     def compute_future(self):
-        """Mask out nights before ``self.current_day`` for every target."""
+        """Mask out nights before ``self.current_day`` (local civil date)."""
         cube = np.ones(self._access_shape, dtype=bool)
         cube[:, : self.all_dates_dict[self.current_day], :] = False
         return cube
@@ -311,7 +400,7 @@ class Access:
         """Block ``tau_inter`` nights after each target's last observation.
 
         Reads ``past_date_last_observed`` off ``self.request_frame`` (a
-        ``YYYY-MM-DD`` UT-date string, ``""`` if the target has no past
+        local civil observing-day label, ``""`` if the target has no past
         observations). Falls back to all-True if the column is absent (e.g.
         standalone-Access use case).
         """
@@ -352,8 +441,8 @@ class Access:
         starid_to_index = {
             uid: idx for idx, uid in enumerate(self.request_frame["unique_id"])
         }
-        custom["start"] = custom["start"].apply(Time)
-        custom["stop"] = custom["stop"].apply(Time)
+        custom["start"] = custom["start"].apply(parse_utc_time)
+        custom["stop"] = custom["stop"].apply(parse_utc_time)
         for _, row in custom.iterrows():
             if row["unique_id"] not in starid_to_index:
                 continue
@@ -375,8 +464,8 @@ class Access:
         per_night = np.ones(self._access_shape[1:], dtype=bool)
         if self.allocation_file is not None:
             alloc = pd.read_csv(self.allocation_file)
-            alloc["start"] = alloc["start"].apply(Time)
-            alloc["stop"] = alloc["stop"].apply(Time)
+            alloc["start"] = alloc["start"].apply(parse_utc_time)
+            alloc["stop"] = alloc["stop"].apply(parse_utc_time)
             per_night = np.zeros_like(per_night)
             for _, row in alloc.iterrows():
                 per_night |= (self.slotmidpoints >= row["start"]) & (

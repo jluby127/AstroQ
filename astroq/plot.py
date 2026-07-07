@@ -96,6 +96,7 @@ def _render_datatable(
     scroll_x=None,
     responsive=None,
     add_tfoot=False,
+    night_start_hhmm=None,
 ):
     """Render a DataFrame to a self-contained DataTables HTML fragment.
 
@@ -128,6 +129,8 @@ def _render_datatable(
         auto_width, table_layout, scroll_x, responsive: passthroughs to DataTables.
         add_tfoot (bool): inject an empty ``<tfoot>`` so column-filter inputs have
             a row to mount onto.
+        night_start_hhmm (str | None): ``HH:MM`` night start for night-relative
+            time column sorting (columns with ``type: 'night-time'`` in column_defs).
 
     Returns:
         str: HTML fragment containing ``<style>`` + ``<table>`` + ``<script>``.
@@ -194,6 +197,8 @@ def _render_datatable(
         ctx["scroll_x"] = scroll_x
     if responsive is not None:
         ctx["responsive"] = responsive
+    if night_start_hhmm is not None:
+        ctx["night_start_hhmm"] = night_start_hhmm
     return template.render(**ctx)
 
 
@@ -1010,6 +1015,33 @@ def get_cof(semester_planner, all_stars, use_time=False):
     return fig
 
 
+def _birdseye_local_y_ticks(semester_planner, hour_step=2):
+    """Slot indices and local civil time labels for the birdseye y-axis."""
+    access = semester_planner.access_obj
+    tz = ac._observer_timezone(access.observatory)
+    n_slots = access.nslots
+    slot_times = access.slotmidpoints[0]
+
+    y_tickvals = []
+    y_ticktext = []
+    for local_hour in range(0, 24, hour_step):
+        best_slot = None
+        best_delta = None
+        target_min = local_hour * 60
+        for s in range(n_slots):
+            local_dt = slot_times[s].to_datetime(timezone=tz)
+            actual_min = local_dt.hour * 60 + local_dt.minute
+            delta = abs(actual_min - target_min)
+            if best_delta is None or delta < best_delta:
+                best_delta = delta
+                best_slot = s
+        if best_slot is not None:
+            y_tickvals.append(best_slot)
+            y_ticktext.append(f"{local_hour:02d}:00")
+
+    return y_tickvals, y_ticktext
+
+
 def get_birdseye(semester_planner, availablity, all_stars):
     """
     Produce the plotly figure showing the day/slot matrix intersection for a selection of stars
@@ -1155,16 +1187,9 @@ def get_birdseye(semester_planner, availablity, all_stars):
         else:
             x_ticktext_dates.append("")
 
-    # Y-axis: ticks every 2 hours, using slot_size
-    n_slots = int(24 * 60 // semester_planner.config.getint("semester", "slot_size"))
-    slots_per_2hr = int(2 * 60 // semester_planner.config.getint("semester", "slot_size"))
-    y_tickvals = list(range(0, n_slots, slots_per_2hr))
-    y_ticktext = []
-    for slot in y_tickvals:
-        total_minutes = slot * semester_planner.config.getint("semester", "slot_size")
-        hours = total_minutes // 60
-        minutes = total_minutes % 60
-        y_ticktext.append(f"{hours:02.0f}:{minutes:02.0f}")
+    # Y-axis: ticks every 2 hours at observatory local civil time
+    n_slots = semester_planner.access_obj.nslots
+    y_tickvals, y_ticktext = _birdseye_local_y_ticks(semester_planner, hour_step=2)
 
     # Calculate legend height based on number of traces
     num_traces = len(all_stars) + (
@@ -1178,7 +1203,6 @@ def get_birdseye(semester_planner, availablity, all_stars):
 
     # Add an invisible trace to force the secondary x-axis to appear
     # This trace must be associated with xaxis='x2' to make the secondary axis visible
-    n_slots = int(24 * 60 // semester_planner.config.getint("semester", "slot_size"))
     fig.add_trace(
         go.Scatter(
             x=[0, len(semester_planner.all_dates_array) - 1],
@@ -1196,7 +1220,7 @@ def get_birdseye(semester_planner, availablity, all_stars):
     fig.update_layout(
         width=1400,
         height=1000,
-        yaxis_title="Slot in Night",
+        yaxis_title="Local Time",
         xaxis_title="Night in Semester",
         xaxis=dict(
             title_font=dict(size=labelsize),
@@ -2899,7 +2923,9 @@ def get_script_plan(night_planner):
         from astropy.time import TimeDelta
 
         night_start_time, _ = get_nightly_times_from_allocation(
-            night_planner.allocation_file, night_planner.current_day
+            night_planner.allocation_file,
+            night_planner.current_day,
+            night_planner.queue.observatory,
         )
 
         # Convert the time columns to HST timestamps
@@ -3195,7 +3221,9 @@ _NIGHTPLAN_NUMERIC_COLS = [6, 7, 8, 9, 10, 11, 12, 13]
 _NIGHTPLAN_TIME_COLS = [0, 1, 2]
 
 
-def nightplan_table_to_html(script_df, table_id="script-table", page_size=100):
+def nightplan_table_to_html(
+    script_df, table_id="script-table", page_size=100, night_start_time=None
+):
     """
     Convert nightplan script DataFrame to HTML with same styling as request_frame_to_html.
 
@@ -3216,7 +3244,16 @@ def nightplan_table_to_html(script_df, table_id="script-table", page_size=100):
         header_len = len(str(col))
         widths.append(f"{max(content_max, header_len, 1) + 2}ch")
 
-    column_defs = [{"target": i, "width": w} for i, w in enumerate(widths)]
+    night_start_hhmm = None
+    if night_start_time is not None:
+        night_start_hhmm = str(night_start_time)[11:16]
+
+    column_defs = []
+    for i, w in enumerate(widths):
+        cd = {"target": i, "width": w}
+        if night_start_hhmm and i in _NIGHTPLAN_TIME_COLS:
+            cd["type"] = "night-time"
+        column_defs.append(cd)
     tooltips = [NIGHTPLAN_COLUMN_TOOLTIPS.get(col, "") for col in df.columns]
 
     return _render_datatable(
@@ -3234,6 +3271,7 @@ def nightplan_table_to_html(script_df, table_id="script-table", page_size=100):
         has_column_filters=True,
         filter_placeholder="Filter... (> < for HH:MM or numbers)",
         add_tfoot=True,
+        night_start_hhmm=night_start_hhmm,
     )
 
 

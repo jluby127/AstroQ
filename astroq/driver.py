@@ -631,7 +631,9 @@ def plot(args):
         from astroq.nplan import get_nightly_times_from_allocation
 
         night_start_time, _ = get_nightly_times_from_allocation(
-            night_planner.allocation_file, night_planner.current_day
+            night_planner.allocation_file,
+            night_planner.current_day,
+            night_planner.queue.observatory,
         )
 
         # build the plots

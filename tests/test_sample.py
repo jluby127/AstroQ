@@ -194,9 +194,12 @@ class TestClass(unittest.TestCase):
             )
 
     def test11_get_nightly_times_missing_day(self):
+        from astroq.queue.kpfcc.queue import KPFCC
+
         allo = "examples/hello_world/2018B/2018-08-05/band1/allocation.csv"
+        observer = KPFCC().observatory
         with self.assertRaises(ValueError):
-            nplan.get_nightly_times_from_allocation(allo, "1900-01-01")
+            nplan.get_nightly_times_from_allocation(allo, "1900-01-01", observer)
 
     def test12_webapp(self):
         """Drive every webapp route via Flask's test client against the hello_world

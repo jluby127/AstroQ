@@ -22,7 +22,7 @@ import astroq.queue
 logs = logging.getLogger(__name__)
 
 # Schema for h5 serialization bump when the on-disk layout changes
-SEMESTER_PLANNER_H5_SCHEMA = 4
+SEMESTER_PLANNER_H5_SCHEMA = 5
 
 # Canonical past.csv column schema. ``junk`` is optional.
 PAST_COLS = ["unique_id", "target", "timestamp", "exposure_time"]
@@ -96,10 +96,10 @@ class SemesterPlanner:
         # requests_frame (single source of truth, no parallel dict
         # attributes). Constraint methods derive `dict(zip(...))` adapters
         # locally where Gurobi's quicksum needs O(1) keyed lookup.
-        self._attach_past_columns()
 
         # Observability cube (single source of truth for which slots are valid).
         self.access_obj = ac.Access.from_planner(self)
+        self._attach_past_columns()
         self.access_record = self.access_obj.build_access()
         self.observability = self.access_obj.observability(
             self.access_record.is_observable
@@ -549,8 +549,10 @@ class SemesterPlanner:
     def _attach_past_columns(self):
         """Attach past-history aggregates and max-obs caps to ``requests_frame``.
 
-        Aggregates are indexed by ``unique_id`` over UT calendar nights
-        (``timestamp[:10]``); missing uids default to 0 (or ``""``).
+        Aggregates are indexed by ``unique_id`` over local observing-night
+        labels (UTC ``past.csv`` timestamps converted in
+        :func:`astroq.access.observing_day_label_for_utc_time`); missing uids
+        default to 0 (or ``""``).
         ``desired_max_obs`` is the Round-1 night cap; ``absolute_max_obs``
         relaxes it by ``maximum_bonus_size`` for the bonus round. Both
         collapse to ``past_nights_observed`` when a target is over-observed
@@ -558,14 +560,18 @@ class SemesterPlanner:
         """
         rf = self.requests_frame
         uids = rf["unique_id"]
+        observer = self.queue.observatory
 
         if self.past_df.empty:
             agg = pd.DataFrame(
                 {"nights": 0, "n_exp": 0, "last": ""}, index=uids,
             )
         else:
-            night = self.past_df["timestamp"].astype(str).str[:10]
-            g = self.past_df.assign(_night=night).groupby("unique_id")
+            night_labels = [
+                ac.observing_day_label_for_utc_time(ts, observer)
+                for ts in self.past_df["timestamp"]
+            ]
+            g = self.past_df.assign(_night=night_labels).groupby("unique_id")
             agg = pd.DataFrame({
                 "nights": g["_night"].nunique(),
                 "n_exp": g.size(),
@@ -1397,8 +1403,8 @@ class SemesterPlanner:
         instance._attach_slot_columns(instance.requests_frame)
 
         instance.past_df = past_df
-        instance._attach_past_columns()
         instance.access_obj = ac.Access.from_planner(instance)
+        instance._attach_past_columns()
         instance.access_record = access_record
         instance.schedule = schedule
 

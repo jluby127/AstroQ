@@ -92,7 +92,9 @@ def load_planners_from_outputs(outputs_dir: str) -> LoadedRun:
         night_planner = NightPlanner.from_hdf5(night_planner_h5)
         data_ttp = night_planner.solution
         night_start_time, _ = nplan.get_nightly_times_from_allocation(
-            night_planner.allocation_file, night_planner.current_day
+            night_planner.allocation_file,
+            night_planner.current_day,
+            night_planner.queue.observatory,
         )
     except Exception as e:
         logs.warning(
@@ -207,7 +209,10 @@ def build_nightplan_html(loaded: LoadedRun, band: str) -> str:
 
     figure_html_list = [
         pl.nightplan_table_to_html(
-            script_table_df, table_id="script-table", page_size=100
+            script_table_df,
+            table_id="script-table",
+            page_size=100,
+            night_start_time=loaded.night_start_time,
         ),
         _fig_to_html(ladder_fig),
         _fig_to_html(slew_animation_fig),
