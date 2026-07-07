@@ -5,8 +5,7 @@ From there, they can be used as is or saved as png files.
 
 # Standard library imports
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta
 from html import escape as html_escape
 from urllib.parse import quote
 import os
@@ -1019,96 +1018,6 @@ def get_cof(semester_planner, all_stars, use_time=False):
     return fig
 
 
-def _birdseye_obs_tz(semester_planner):
-    return getattr(semester_planner.queue.observatory, "timezone", None)
-
-
-def _birdseye_localize(date_str, tz):
-    """Attach observatory tz to a naive civil-midnight datetime."""
-    naive = datetime.strptime(date_str, "%Y-%m-%d")
-    if tz is None:
-        return naive.replace(tzinfo=timezone.utc)
-    if isinstance(tz, str):
-        return naive.replace(tzinfo=ZoneInfo(tz))
-    if hasattr(tz, "localize"):
-        return tz.localize(naive)
-    return naive.replace(tzinfo=tz)
-
-
-def _birdseye_to_local(dt_utc, tz):
-    if tz is None:
-        return dt_utc
-    if isinstance(tz, str):
-        return dt_utc.astimezone(ZoneInfo(tz))
-    return dt_utc.astimezone(tz)
-
-
-def _birdseye_local_midnight_roll(semester_planner):
-    """Roll birdseye rows so observatory-local civil midnight is the middle row.
-
-    Slots are indexed from UTC midnight on each calendar night; UTC noon is
-    row ``n_slots // 2``. Returns the ``np.roll`` shift on axis 0.
-    """
-    slot_size = semester_planner.config.getint("semester", "slot_size")
-    n_slots = int(24 * 60 // slot_size)
-    tz = _birdseye_obs_tz(semester_planner)
-    if not tz:
-        return 0
-
-    date_str = semester_planner.all_dates_array[0]
-    utc_midnight = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-    local_midnight = _birdseye_localize(date_str, tz)
-    offset_min = (
-        local_midnight.astimezone(timezone.utc) - utc_midnight
-    ).total_seconds() / 60.0
-    s_local_midnight = int(round(offset_min / slot_size)) % n_slots
-    return (n_slots // 2 - s_local_midnight) % n_slots
-
-
-def _birdseye_y_axis_ticks(semester_planner, slot_roll):
-    """Y-axis ticks at even local civil hours (00:00, 02:00, ...)."""
-    slot_size = semester_planner.config.getint("semester", "slot_size")
-    n_slots = int(24 * 60 // slot_size)
-    tz = _birdseye_obs_tz(semester_planner)
-    date_str = semester_planner.all_dates_array[0]
-    utc_midnight = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-
-    y_tickvals = []
-    y_ticktext = []
-    for local_hour in range(0, 24, 2):
-        slot = None
-        for s in range(n_slots):
-            t_local = _birdseye_to_local(
-                utc_midnight + timedelta(minutes=s * slot_size), tz
-            )
-            if t_local.hour == local_hour and t_local.minute == 0:
-                slot = s
-                break
-        if slot is None:
-            continue
-        y_tickvals.append((slot + slot_roll) % n_slots)
-        y_ticktext.append(f"{local_hour:02d}:00")
-    return y_tickvals, y_ticktext
-
-
-def _birdseye_slot_local_time(slot, semester_planner):
-    """Local civil hour label (HH:00) for a UTC-calendar slot index on night 0."""
-    slot_size = semester_planner.config.getint("semester", "slot_size")
-    tz = _birdseye_obs_tz(semester_planner)
-    date_str = semester_planner.all_dates_array[0]
-    utc_midnight = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-    t_local = _birdseye_to_local(
-        utc_midnight + timedelta(minutes=slot * slot_size), tz
-    )
-    return f"{t_local.hour:02d}:00"
-
-
-def _birdseye_roll_slots(z, roll):
-    if roll:
-        return np.roll(z, roll, axis=0)
-    return z
-
-
 def get_birdseye(semester_planner, availablity, all_stars):
     """
     Produce the plotly figure showing the day/slot matrix intersection for a selection of stars
@@ -1126,14 +1035,12 @@ def get_birdseye(semester_planner, availablity, all_stars):
     # fig.update_layout(width=1200, height=800, plot_bgcolor=clear, paper_bgcolor=clear)
     fig.update_layout(plot_bgcolor=clear, paper_bgcolor=clear)
 
-    slot_roll = _birdseye_local_midnight_roll(semester_planner)
-
     # when multiple StarPlotter obects are submitted or a programmatic StarPlotter object,
     # show the grayed out slots from the intersection of is_allocated and is_night
     if len(all_stars) > 1 or all_stars[0].allow_mapview == False:
         fig.add_trace(
             go.Heatmap(
-                z=_birdseye_roll_slots(availablity, slot_roll),
+                z=availablity,
                 colorscale=[[0, "rgba(0,0,0,0)"], [1, gray]],
                 zmin=0,
                 zmax=1,
@@ -1154,8 +1061,8 @@ def get_birdseye(semester_planner, availablity, all_stars):
             if all_stars[0].maps_names[m] == "is_observable_now":
                 continue
             map_name = all_stars[0].maps_names[m]
-            z_data = _birdseye_roll_slots(
-                1 - all_stars[0].maps[map_name].astype(int).T, slot_roll
+            z_data = (
+                1 - all_stars[0].maps[map_name].astype(int).T
             )  # Invert all other maps
 
             fig.add_trace(
@@ -1172,10 +1079,9 @@ def get_birdseye(semester_planner, availablity, all_stars):
             )
 
     for i in range(len(all_stars)):
-        starmap_display = _birdseye_roll_slots(all_stars[i].starmap, slot_roll)
         fig.add_trace(
             go.Heatmap(
-                z=starmap_display,
+                z=all_stars[i].starmap,
                 colorscale=[[0, "rgba(0,0,0,0)"], [1, all_stars[i].star_color_rgb]],
                 zmin=0,
                 zmax=1,
@@ -1193,7 +1099,7 @@ def get_birdseye(semester_planner, availablity, all_stars):
 
         if all_stars[i].draw_lines:
             # Add connecting line for points with value 1
-            points = np.argwhere(starmap_display == 1)
+            points = np.argwhere(all_stars[i].starmap == 1)
             sorted_indices = np.argsort(points[:, 1])  # sort by x (column index)
             x_coords = points[sorted_indices, 1]
             y_coords = points[sorted_indices, 0]
@@ -1257,9 +1163,16 @@ def get_birdseye(semester_planner, availablity, all_stars):
         else:
             x_ticktext_dates.append("")
 
-    # Y-axis: ticks every 2 hours in observatory-local civil time
-    y_tickvals, y_ticktext = _birdseye_y_axis_ticks(semester_planner, slot_roll)
+    # Y-axis: ticks every 2 hours, using slot_size
     n_slots = int(24 * 60 // semester_planner.config.getint("semester", "slot_size"))
+    slots_per_2hr = int(2 * 60 // semester_planner.config.getint("semester", "slot_size"))
+    y_tickvals = list(range(0, n_slots, slots_per_2hr))
+    y_ticktext = []
+    for slot in y_tickvals:
+        total_minutes = slot * semester_planner.config.getint("semester", "slot_size")
+        hours = total_minutes // 60
+        minutes = total_minutes % 60
+        y_ticktext.append(f"{hours:02.0f}:{minutes:02.0f}")
 
     # Calculate legend height based on number of traces
     num_traces = len(all_stars) + (
