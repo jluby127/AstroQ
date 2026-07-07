@@ -547,6 +547,58 @@ class SemesterPlanner:
             list(self.requests_frame["unique_id"]), name="Shortfall"
         )
 
+        programs = self.requests_frame["program_code"].unique().tolist()
+        self.program_fill_pct = self.model.addVars(
+            programs,
+            lb=0.0,
+            vtype=GRB.CONTINUOUS,
+            name="program_fill_pct",
+        )
+
+    def constraint_define_program_fill_pct(self):
+        """Link ``program_fill_pct[p]`` to scheduled slot-time / awarded slots."""
+        logs.info("Constraint: Defining program fill percent from Yrds.")
+
+        program_frame = pd.read_csv(self.programs_file).set_index("program")
+        slot_size = self.config.getfloat("semester", "slot_size")
+        hours_per_night = self.config.getfloat("semester", "hours_per_night")
+        awarded_slots_by_program = (
+            program_frame["nights"] * hours_per_night * 60 / slot_size
+        ).to_dict()
+
+        t_visit_slots = dict(
+            zip(self.requests_frame["unique_id"], self.requests_frame["t_visit_slots"])
+        )
+
+        program_request_ids = {
+            p: set(
+                self.requests_frame.loc[
+                    self.requests_frame["program_code"] == p, "unique_id"
+                ]
+            )
+            for p in self.program_fill_pct.keys()
+        }
+
+        for p, uids in program_request_ids.items():
+            awarded = awarded_slots_by_program.get(p)
+            if awarded is None or awarded <= 0:
+                logs.warning(
+                    "Program %s missing or has non-positive awarded slots; skipping fill pct.",
+                    p,
+                )
+                continue
+
+            slots_used = gp.quicksum(
+                self.Yrds[r, d, s] * t_visit_slots[r]
+                for r, d, s in self.yrds_tuples
+                if r in uids
+            )
+
+            self.model.addConstr(
+                self.program_fill_pct[p] == slots_used / float(awarded),
+                f"define_program_fill_pct_{p}",
+            )
+
     def _attach_past_columns(self):
         """Attach past-history aggregates and max-obs caps to ``requests_frame``.
 
@@ -1035,147 +1087,40 @@ class SemesterPlanner:
             GRB.MINIMIZE,
         )
 
-    def build_model_round2_priority_NEW(self):
-        """
-        New round 2 objective.
-
-        maximize the completion rate of all programs
-        """
-        # self.constraint_fix_previous_objective()
-
-        program_frame = pd.read_csv(self.programs_file).set_index("program")
-        slot_size = self.config.getfloat("semester", "slot_size")
-        hours_per_night = self.config.getfloat("semester", "hours_per_night")
-        awarded_slots_by_program = (
-            program_frame["nights"] * hours_per_night * 60 / slot_size
-        ).to_dict()
-
-        program_request_ids = {
-            p: set(
-                self.requests_frame.loc[
-                    self.requests_frame["program_code"] == p, "unique_id"
-                ]
-            )
-            for p in self.requests_frame["program_code"].unique()
+    def capture_program_fill_prior(self):
+        self.program_fill_prior = {
+            p: float(self.program_fill_pct[p].X) for p in self.program_fill_pct
         }
 
-        t_visit_slots = dict(
-            zip(self.requests_frame["unique_id"], self.requests_frame["t_visit_slots"])
-        )
-
-        self.program_awarded_slots = {}
-        self.program_fill_factor = {}
-        for p, uids in program_request_ids.items():
-            awarded_slots = awarded_slots_by_program.get(p)
-            if awarded_slots is None or awarded_slots <= 0:
-                logs.warning(
-                    "Program %s missing or has non-positive awarded slots; skipping fill factor.",
-                    p,
-                )
-                continue
-            slots_used = gp.quicksum(
-                self.Yrds[r, d, s] * t_visit_slots[r]
-                for r, d, s in self.yrds_tuples
-                if r in uids
-            )
-            self.program_awarded_slots[p] = float(awarded_slots)
-            self.program_fill_factor[p] = slots_used / awarded_slots
-
-            slots_used_val = sum(
-                self.Yrds[r, d, s].X * t_visit_slots[r]
-                for r, d, s in self.yrds_tuples
-                if r in uids
-            )
-            fill_factor_val = slots_used_val / awarded_slots
-
-            print("--------------------------------------------------")
-            print(f"program {p} awarded slots: {awarded_slots}")
-            print(f"program {p} slots used: {slots_used_val}")
-            print(f"program {p} fill factor: {fill_factor_val}")
-            print("--------------------------------------------------")
-
+    def constraint_fix_previous_program_fill(self, epsilon=0.2):
+        self.capture_program_fill_prior()
+        for p, prior in self.program_fill_prior.items():
             self.model.addConstr(
-                slots_used_val/awarded_slots <= self.program_fill_factor[p],
-                "maintain_fill_factor_for_program_" + p,
+                self.program_fill_pct[p] >= prior - epsilon,
+                f"fill_pct_floor_{p}",
             )
 
+    def build_model_round2_priority_v1(self):
+        print("Running Round 2 priority v2")
+        self.constraint_fix_previous_program_fill()
         self.model.setObjective(
-            gp.quicksum(self.program_fill_factor[p] for p in self.program_fill_factor.keys()),
+            gp.quicksum(self.program_fill_pct[p] for p in self.program_fill_pct),
             GRB.MAXIMIZE,
         )
-        
-    # def build_model_round2_priority_NEW(self):
-    #     """
-    #     New round 2 objective.
 
-    #     maximize the completion rate of all programs
-    #     """
-    #     # self.constraint_fix_previous_objective()
-
-    #     program_frame = pd.read_csv(self.programs_file).set_index("program")
-    #     slot_size = self.config.getfloat("semester", "slot_size")
-    #     hours_per_night = self.config.getfloat("semester", "hours_per_night")
-    #     awarded_slots_by_program = (
-    #         program_frame["nights"] * hours_per_night * 60 / slot_size
-    #     ).to_dict()
-
-    #     program_request_ids = {
-    #         p: set(
-    #             self.requests_frame.loc[
-    #                 self.requests_frame["program_code"] == p, "unique_id"
-    #             ]
-    #         )
-    #         for p in self.requests_frame["program_code"].unique()
-    #     }
-
-    #     t_visit_slots = dict(
-    #         zip(self.requests_frame["unique_id"], self.requests_frame["t_visit_slots"])
-    #     )
-
-    #     self.program_awarded_slots = {}
-    #     self.program_fill_factor = {}
-    #     for p, uids in program_request_ids.items():
-    #         awarded_slots = awarded_slots_by_program.get(p)
-    #         if awarded_slots is None or awarded_slots <= 0:
-    #             logs.warning(
-    #                 "Program %s missing or has non-positive awarded slots; skipping fill factor.",
-    #                 p,
-    #             )
-    #             continue
-    #         slots_used = gp.quicksum(
-    #             self.Yrds[r, d, s] * t_visit_slots[r]
-    #             for r, d, s in self.yrds_tuples
-    #             if r in uids
-    #         )
-    #         self.program_awarded_slots[p] = float(awarded_slots)
-    #         self.program_fill_factor[p] = slots_used / awarded_slots
-
-    #         slots_used_val = sum(
-    #             self.Yrds[r, d, s].X * t_visit_slots[r]
-    #             for r, d, s in self.yrds_tuples
-    #             if r in uids
-    #         )
-    #         fill_factor_val = slots_used_val / awarded_slots
-
-    #         print("--------------------------------------------------")
-    #         print(f"program {p} awarded slots: {awarded_slots}")
-    #         print(f"program {p} slots used: {slots_used_val}")
-    #         print(f"program {p} fill factor: {fill_factor_val}")
-    #         print("--------------------------------------------------")
-
-    #     # max tau s.t. tau <= fill_factor_p for all p in P
-    #     tau = self.model.addVar(lb=0.0, name="tau")
-    #     for p in self.program_fill_factor.keys():
-    #         # print(f"fill_factor_p for program {p}: {self.program_fill_factor[p]}")
-    #         self.model.addConstr(
-    #             tau <= self.program_fill_factor[p],
-    #             "tau_is_min_fill_factor_" + p,
-    #         )
-
-    #     self.model.setObjective(
-    #         tau,
-    #         GRB.MAXIMIZE,
-    #     )
+    def build_model_round2_priority_v2(self):
+        print("Running Round 2 priority v2")
+        self.constraint_fix_previous_program_fill()
+        tau = self.model.addVar(lb=0.0, name="tau")
+        for p in self.program_fill_pct.keys():
+            self.model.addConstr(
+                tau <= self.program_fill_pct[p],
+                "tau_is_min_fill_factor_" + p,
+            )
+        self.model.setObjective(
+            tau,
+            GRB.MAXIMIZE,
+        )
 
     def remove_constraint_throttle(self):
         """Remove throttle constraints from a prior round."""
@@ -1214,14 +1159,13 @@ class SemesterPlanner:
                 f"theta_le_prior_{uid}",
             )
 
-
     def build_model_round4_priority_NEW(self):
         """
         New round 4 objective.
 
         Minimize the number of empty slots.
         """
-        self.constraint_fix_previous_completion_rates()
+        self.constraint_fix_previous_completion_rates(epsilon=0.0)
         # grace = self.config.getfloat("semester", "throttle_grace")
         self.remove_constraint_throttle()
         self.constraint_throttle(throttle_grace=2.0)
@@ -1242,6 +1186,7 @@ class SemesterPlanner:
         self.constraint_build_enforce_intranight_cadence()
         self.constraint_set_min_max_visits_per_night()
         self.constraint_build_theta_multivisit()
+        self.constraint_define_program_fill_pct()
         self.constraint_throttle(throttle_grace=1.0)
         self.set_objective_minimize_theta_time_normalized()
         logs.info(f"Time to build constraints: {np.round(time.time() - t1, 3):.3f}")
@@ -1331,7 +1276,7 @@ class SemesterPlanner:
         self._finalize_round("Round1")
         if self.config.getboolean("semester", "run_bonus_round"):
             # self.build_model_round2()
-            self.build_model_round2_priority_NEW()
+            self.build_model_round2_priority_v1()
             self.optimize_model()
             self._finalize_round("Round2")
             self.build_model_round3_priority()
