@@ -801,18 +801,6 @@ class SemesterPlanner:
             zip(self.boost["unique_id"].astype(str), self.boost["boost"].astype(float))
         )
 
-    @cached_property
-    def _program_slot_expr(self):
-        """dict[program_code -> gp.LinExpr] of scheduled slot-time
-        (symbolic). Round-invariant -- Yrds vars and program membership
-        don't change across rounds -- so this is safe to cache."""
-        return {
-            p: gp.quicksum(
-                self.Yrds[k] * n for k, n in zip(g["rds"], g["t_visit_slots"])
-            )
-            for p, g in self.request_slots.groupby("program_code")
-        }
-
     def _program_slot_value(self):
         """dict[program_code -> float] of scheduled slot-time at the
         *current* Gurobi solution. Not cached -- ``.X`` changes every round."""
@@ -843,15 +831,19 @@ class SemesterPlanner:
         # Past budget: ALL rows (active + inactive).
         past_used_slots_by_program = self.programs["past_slots"]
 
-        # Schedulable budget: only ACTIVE targets get Yrds variables, so
-        # _program_slot_expr (built from requests_frame/yrds_tuples, both
-        # active-only) stays restricted to active uids.
-        program_slot_expr = self._program_slot_expr
+        # Schedulable budget: only ACTIVE targets get Yrds variables
+        # (request_slots is active-only).
+        slot_expr_by_program = {
+            p: gp.quicksum(
+                self.Yrds[k] * n for k, n in zip(g["rds"], g["t_visit_slots"])
+            )
+            for p, g in self.request_slots.groupby("program_code")
+        }
 
         clamped = []
         for program, awarded_slots_grace in awarded_slots_grace_by_program.items():
             awarded_slots_grace = int(awarded_slots_grace)
-            schedulable_slots = program_slot_expr.get(program, 0)
+            schedulable_slots = slot_expr_by_program.get(program, 0)
             past_used = int(past_used_slots_by_program.get(program, 0))
             if awarded_slots_grace < past_used:
                 clamped.append(program)
@@ -963,11 +955,10 @@ class SemesterPlanner:
     def build_model_round2(self):
         """Round 2: maximize the summed program fill factors, holding each
         program at or above its Round-1 fill. Not in Lubin et al. 2025."""
-        program_slot_expr = self._program_slot_expr
         program_slot_value = self._program_slot_value()
 
         fill_factor = {}
-        for p, _g in self.request_slots.groupby("program_code"):
+        for p, g in self.request_slots.groupby("program_code"):
             awarded_slots = self.programs["awarded_slots"].get(p)
             if awarded_slots is None or awarded_slots <= 0:
                 logs.warning(
@@ -977,7 +968,10 @@ class SemesterPlanner:
                 )
                 continue
             awarded_slots = float(awarded_slots)
-            fill_factor[p] = program_slot_expr.get(p, 0) / awarded_slots
+            slot_expr = gp.quicksum(
+                self.Yrds[k] * n for k, n in zip(g["rds"], g["t_visit_slots"])
+            )
+            fill_factor[p] = slot_expr / awarded_slots
 
             slots_used_val = program_slot_value.get(p, 0.0)
             logs.info(
@@ -1005,16 +999,18 @@ class SemesterPlanner:
         logs.info("Constraint: Holding program fill factors.")
 
         program_slot_value = self._program_slot_value()
-        program_slot_expr = self._program_slot_expr
 
-        for p, _g in self.request_slots.groupby("program_code"):
+        for p, g in self.request_slots.groupby("program_code"):
             r2_slots = program_slot_value.get(p, 0.0)
+            slot_expr = gp.quicksum(
+                self.Yrds[k] * n for k, n in zip(g["rds"], g["t_visit_slots"])
+            )
             logs.info(
                 f"Holding program {p} to at least {alpha * 100:.1f}% less than "
                 f"Round 2 scheduled slots: {r2_slots:.0f}"
             )
             self.model.addConstr(
-                r2_slots * (1 - alpha) <= program_slot_expr.get(p, 0),
+                r2_slots * (1 - alpha) <= slot_expr,
                 "hold_program_fill_factors_lower_" + p,
             )
 
