@@ -187,6 +187,7 @@ class SemesterPlanner:
         self.observability = self.access_obj.observability(
             self.access_record.is_observable
         )
+        self.observability["r"] = self.observability["unique_id"]
 
         self.build_model()
 
@@ -257,6 +258,7 @@ class SemesterPlanner:
         """
         rf = self.requests
         rf["r"] = rf["unique_id"]
+        self.past["r"] = self.past["unique_id"]
         slot_size = self.config.getfloat("semester", "slot_size")
         visit_s = self.queue.visit_seconds(rf["exptime"], rf["n_exp"])
         rf["t_visit_slots"] = (
@@ -268,7 +270,7 @@ class SemesterPlanner:
 
         rs = rf["r"]
         night = self.past["timestamp"].str[:10]
-        g = self.past.assign(_night=night, r=self.past["unique_id"]).groupby("r")
+        g = self.past.assign(_night=night).groupby("r")
         agg = pd.DataFrame({
             "nights": g["_night"].nunique(),
             "n_exp": g.size(),
@@ -299,7 +301,7 @@ class SemesterPlanner:
         )
 
         rfa = self.requests
-        past_n = self.past.assign(r=self.past["unique_id"]).groupby("r").size()
+        past_n = self.past.groupby("r").size()
         past_slots_by_r = (
             rfa["r"].map(past_n).fillna(0).astype(int) * rfa["t_visit_slots"]
         )
@@ -324,8 +326,6 @@ class SemesterPlanner:
           throttle, and priority rounds are defined over. Gurobi variables are
           looked up as ``self.Yrds[k]`` at constraint-build time, never stored
           in the frame.
-        - ``yrds_tuples`` -- the same ``(r, d, s)`` set as plain tuples
-          (the ``Yrds`` variable keys).
         - ``schedulable_r`` -- request indices with at least one observable slot,
           in first-appearance order.
 
@@ -341,20 +341,11 @@ class SemesterPlanner:
 
         # ---- relational tables the model is defined over ----
         self.request_slots = self.observability.merge(
-            self.requests_active[STRATEGY_COLS],
-            left_on="unique_id",
-            right_on="r",
+            self.requests_active[STRATEGY_COLS], on="r"
         )
         # rds: each row's (r, d, s) key into self.Yrds. Pure data, so the
         # frame never holds Gurobi objects; constraints look up self.Yrds[k].
         self.request_slots["rds"] = list(
-            zip(
-                self.request_slots["r"],
-                self.request_slots["d"],
-                self.request_slots["s"],
-            )
-        )
-        self.yrds_tuples = list(
             zip(
                 self.request_slots["r"],
                 self.request_slots["d"],
@@ -377,7 +368,7 @@ class SemesterPlanner:
 
         # ---- variables ----
         self.Yrds = self.model.addVars(
-            self.yrds_tuples, vtype=GRB.BINARY, name="Requests_Slots"
+            rs["rds"], vtype=GRB.BINARY, name="Requests_Slots"
         )
         wrd_keys = rs.query("n_intra_max > 1")[["r", "d"]].drop_duplicates()
         if not wrd_keys.empty:
@@ -695,7 +686,7 @@ class SemesterPlanner:
         self.model.setObjective(
             gp.quicksum(
                 t_visit[r] * self.Yrds[r, d, s]
-                for r, d, s in self.yrds_tuples
+                for r, d, s in self.request_slots["rds"]
                 if d == d_today
             ),
             GRB.MAXIMIZE,
@@ -709,7 +700,7 @@ class SemesterPlanner:
         self.model.setObjective(
             (total_slots - gp.quicksum(
                 t_visit[r] * self.Yrds[r, d, s]
-                for r, d, s in self.yrds_tuples
+                for r, d, s in self.request_slots["rds"]
             )),
             GRB.MINIMIZE,
         )
@@ -802,7 +793,7 @@ class SemesterPlanner:
                     (1.0 / weight_by_r.loc[r])
                     * self.Yrds[r, d, s]
                     * t_visit[r]
-                    for r, d, s in self.yrds_tuples
+                    for r, d, s in self.request_slots["rds"]
                     if r in rs_by_program[p]
                 )
                 for p in rs_by_program
@@ -1097,7 +1088,7 @@ class SemesterPlanner:
         sched = self.schedule
         sched_future = sched[sched["d"] >= today_idx]
         sched_today = sched[sched["d"] == today_idx]
-        t_visit_slots = self.requests_active.set_index("unique_id")["t_visit_slots"]
+        t_visit_slots = self.requests_active.set_index("r")["t_visit_slots"]
         slots_per_visit_future = sched_future["unique_id"].map(t_visit_slots).fillna(1)
         slots_per_visit_today = sched_today["unique_id"].map(t_visit_slots).fillna(1)
         future_reserved = int(slots_per_visit_future.sum())
@@ -1142,8 +1133,9 @@ class SemesterPlanner:
         requested_by_prog = rf.groupby("program_code")["requested_h"].sum()
 
         sched_with_prog = sched.merge(
-            self.requests_active[["unique_id", "program_code", "t_visit_slots"]],
-            on="unique_id",
+            self.requests_active[["r", "program_code", "t_visit_slots"]],
+            left_on="unique_id",
+            right_on="r",
             how="left",
         )
         sched_with_prog["scheduled_h"] = (

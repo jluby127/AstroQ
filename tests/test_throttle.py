@@ -21,7 +21,8 @@ def _make_planner(requests, past):
     sp = SemesterPlanner.__new__(SemesterPlanner)
     sp.requests = requests.copy()
     sp.requests["r"] = sp.requests["unique_id"]
-    sp.past = past
+    sp.past = past.copy()
+    sp.past["r"] = sp.past["unique_id"]
     sp.config = ConfigParser()
     sp.config.read_string(
         """
