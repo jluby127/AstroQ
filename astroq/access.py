@@ -59,11 +59,11 @@ class Access:
             ``compute_future`` mask. Defaults to ``semester_start_date``.
         allocation (pandas.DataFrame, optional): allocation blocks with
             ``start``/``stop`` as ``astropy.time.Time`` (see
-            ``astroq.splan.ALLOCATION_SCHEMA``). ``None`` treats every slot
+            ``astroq.io.ALLOCATION_SCHEMA``). ``None`` treats every slot
             as allocated.
         custom (pandas.DataFrame, optional): PI windows with ``unique_id``
             and ``start``/``stop`` ``Time`` columns (see
-            ``astroq.splan.CUSTOM_SCHEMA``). ``None`` skips custom-window
+            ``astroq.io.CUSTOM_SCHEMA``). ``None`` skips custom-window
             restriction.
 
     Example (standalone):
@@ -189,7 +189,7 @@ class Access:
         cfg = planner.config
         return cls(
             queue=planner.queue,
-            request_frame=planner.requests_frame,
+            request_frame=planner.requests_active,
             semester_start_date=cfg.get("global", "semester_start_day"),
             semester_length=planner.semester_length,
             slot_size=cfg.getfloat("semester", "slot_size"),

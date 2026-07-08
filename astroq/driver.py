@@ -17,6 +17,7 @@ import plotly.io as pio
 # Local imports
 
 import astroq.benchmarking as bn
+import astroq.io
 import astroq.queue
 import astroq.queue.kpfcc.prep as kpfcc
 import astroq.queue.hirescps.prep as hirescps
@@ -495,9 +496,9 @@ def kpfcc_prep(args):
 def _validate_past_csv_columns(past_source):
     """Warn if ``past_source`` is missing the required past.csv columns.
 
-    Required schema is the single source of truth :data:`astroq.splan.PAST_COLS`.
+    Required schema is the single source of truth :data:`astroq.io.PAST_COLS`.
     """
-    expected_columns = set(splan.PAST_COLS)
+    expected_columns = set(astroq.io.PAST_COLS)
     if not os.path.exists(past_source):
         logging.warning(f"Past history file '{past_source}' does not exist")
         return
