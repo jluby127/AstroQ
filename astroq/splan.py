@@ -288,12 +288,14 @@ class SemesterPlanner:
         self.custom = load_frame(
             self.custom_file, CUSTOM_SCHEMA, "custom.csv", empty_ok=True
         )
+        self.programs = self._load_programs()
 
         # Per-request derived columns that depend on past_df live on
         # requests_frame (single source of truth, no parallel dict
-        # attributes). Constraint methods derive `dict(zip(...))` adapters
-        # locally where Gurobi's quicksum needs O(1) keyed lookup.
+        # attributes). Per-program budget/past aggregates live on
+        # ``self.programs`` via :meth:`_attach_program_columns`.
         self._attach_past_columns()
+        self._attach_program_columns()
 
         # Observability cube (single source of truth for which slots are valid).
         self.access_obj = ac.Access.from_planner(self)
@@ -324,6 +326,13 @@ class SemesterPlanner:
         """
         path = self._resolve_path("past_file")
         return load_frame(path, PAST_SCHEMA, "past.csv", empty_ok=True)
+
+    def _load_programs(self):
+        """Read ``programs.csv`` validated against :data:`PROGRAMS_SCHEMA`."""
+        df = load_frame(
+            self.programs_file, PROGRAMS_SCHEMA, "programs.csv", key="program"
+        )
+        return df.set_index("program")
 
     # ------------------------------------------------------------------
     # Properties (date-derived; path attrs are set in __init__).
@@ -752,6 +761,37 @@ class SemesterPlanner:
         over = past > n_max
         rf["desired_max_obs"] = np.where(over, past, n_max - past).astype(int)
 
+    def _attach_program_columns(self):
+        """Attach semester budget and past-slot aggregates to ``self.programs``.
+
+        ``past_slots`` counts ALL request rows (active + inactive), matching
+        throttle semantics.
+        """
+        slot_size = self.config.getfloat("semester", "slot_size")
+        hours_per_night = self.config.getfloat("semester", "hours_per_night")
+
+        self.programs["awarded_hours"] = self.programs["nights"] * hours_per_night
+        self.programs["awarded_slots"] = (
+            self.programs["awarded_hours"] * 60 / slot_size
+        )
+
+        rfa = self.requests_frame_all
+        if self.past_df.empty:
+            past_n = pd.Series(dtype="int64")
+        else:
+            past_n = self.past_df.groupby("unique_id").size()
+        past_slots_by_uid = (
+            rfa["unique_id"].map(past_n).fillna(0).astype(int) * rfa["t_visit_slots"]
+        )
+        past_by_prog = (
+            pd.Series(past_slots_by_uid, index=rfa.index)
+            .groupby(rfa["program_code"])
+            .sum()
+        )
+        self.programs["past_slots"] = (
+            past_by_prog.reindex(self.programs.index).fillna(0).astype(int)
+        )
+
     @cached_property
     def _boost_by_uid(self):
         """dict[unique_id -> boost factor], or ``None`` if no boost was passed."""
@@ -759,40 +799,6 @@ class SemesterPlanner:
             return None
         return dict(
             zip(self.boost["unique_id"].astype(str), self.boost["boost"].astype(float))
-        )
-
-    @cached_property
-    def _programs_frame(self):
-        """``programs.csv`` validated against :data:`PROGRAMS_SCHEMA`, indexed
-        by program code. Read once and left unmutated (per-formula columns are
-        derived on demand, e.g. via :attr:`_program_awarded_slots`, rather
-        than written back onto this cached frame)."""
-        df = load_frame(
-            self.programs_file, PROGRAMS_SCHEMA, "programs.csv", key="program"
-        )
-        return df.set_index("program")
-
-    @cached_property
-    def _program_awarded_slots(self):
-        """Series[program -> awarded slots this semester].
-
-        Shared ``nights * hours_per_night * 60 / slot_size`` formula,
-        previously re-derived independently in constraint_throttle,
-        build_model_round2_priority_NEW, and to_string.
-        """
-        slot_size = self.config.getfloat("semester", "slot_size")
-        hours_per_night = self.config.getfloat("semester", "hours_per_night")
-        return self._programs_frame["nights"] * hours_per_night * 60 / slot_size
-
-    @cached_property
-    def _active_uids_by_program(self):
-        """dict[program_code -> {unique_id}] over active requests, built via
-        one groupby pass. Several priority-round methods previously rebuilt
-        this via a per-program boolean-mask comprehension instead."""
-        return (
-            self.requests_frame.groupby("program_code")["unique_id"]
-            .apply(set)
-            .to_dict()
         )
 
     @cached_property
@@ -819,44 +825,23 @@ class SemesterPlanner:
 
     # ---- throttling & bonus round ----
 
-    def _past_slots_by_program(self):
-        """Past slots consumed per program, summed over ALL request rows.
-
-        Counts both active and inactive requests: inactive targets can never
-        be scheduled, but their past observations still consume the program's
-        throttle budget, so a PI cannot reclaim time by flipping a target
-        inactive. Returns ``dict[program_code -> int past_slots]``.
-        """
-        rfa = self.requests_frame_all
-        t_visit = dict(zip(rfa["unique_id"], rfa["t_visit_slots"]))
-        if self.past_df.empty:
-            past_n = pd.Series(dtype="int64")
-        else:
-            past_n = self.past_df.groupby("unique_id").size()
-
-        out = {}
-        for uid, prog in zip(rfa["unique_id"], rfa["program_code"]):
-            slots = int(past_n.get(uid, 0)) * t_visit.get(uid, 0)
-            out[prog] = out.get(prog, 0) + slots
-        return out
-
     def constraint_throttle(self, throttle_grace=1.0):
         """
         Not described in Lubin et al. 2025.
 
         Ensure that no program is scheduled for more time than they bring to
         the queue (within a grace amount). Past usage is counted over ALL
-        request rows (active and inactive) via
-        :meth:`_past_slots_by_program`, while only active targets contribute
-        schedulable slots (inactive targets have no ``Yrds`` variables).
+        request rows (active and inactive) via ``self.programs["past_slots"]``,
+        while only active targets contribute schedulable slots (inactive
+        targets have no ``Yrds`` variables).
         """
         logs.info("Constraint: Throttling over-requested programs.")
         awarded_slots_grace_by_program = (
-            self._program_awarded_slots * throttle_grace
+            self.programs["awarded_slots"] * throttle_grace
         ).astype(int)
 
         # Past budget: ALL rows (active + inactive).
-        past_used_slots_by_program = self._past_slots_by_program()
+        past_used_slots_by_program = self.programs["past_slots"]
 
         # Schedulable budget: only ACTIVE targets get Yrds variables, so
         # _program_slot_expr (built from requests_frame/yrds_tuples, both
@@ -867,7 +852,7 @@ class SemesterPlanner:
         for program, awarded_slots_grace in awarded_slots_grace_by_program.items():
             awarded_slots_grace = int(awarded_slots_grace)
             schedulable_slots = program_slot_expr.get(program, 0)
-            past_used = past_used_slots_by_program.get(program, 0)
+            past_used = int(past_used_slots_by_program.get(program, 0))
             if awarded_slots_grace < past_used:
                 clamped.append(program)
                 awarded_slots_grace = past_used
@@ -978,13 +963,12 @@ class SemesterPlanner:
     def build_model_round2(self):
         """Round 2: maximize the summed program fill factors, holding each
         program at or above its Round-1 fill. Not in Lubin et al. 2025."""
-        awarded_slots_by_program = self._program_awarded_slots.to_dict()
         program_slot_expr = self._program_slot_expr
         program_slot_value = self._program_slot_value()
 
         fill_factor = {}
-        for p in self._active_uids_by_program:
-            awarded_slots = awarded_slots_by_program.get(p)
+        for p, _g in self.request_slots.groupby("program_code"):
+            awarded_slots = self.programs["awarded_slots"].get(p)
             if awarded_slots is None or awarded_slots <= 0:
                 logs.warning(
                     "Program %s missing or has non-positive awarded slots; "
@@ -992,6 +976,7 @@ class SemesterPlanner:
                     p,
                 )
                 continue
+            awarded_slots = float(awarded_slots)
             fill_factor[p] = program_slot_expr.get(p, 0) / awarded_slots
 
             slots_used_val = program_slot_value.get(p, 0.0)
@@ -1022,7 +1007,7 @@ class SemesterPlanner:
         program_slot_value = self._program_slot_value()
         program_slot_expr = self._program_slot_expr
 
-        for p in self._active_uids_by_program:
+        for p, _g in self.request_slots.groupby("program_code"):
             r2_slots = program_slot_value.get(p, 0.0)
             logs.info(
                 f"Holding program {p} to at least {alpha * 100:.1f}% less than "
@@ -1047,7 +1032,11 @@ class SemesterPlanner:
         rf_by_uid = self.requests_frame.set_index("unique_id")
         weight_by_id = rf_by_uid["splan_weight"]
         t_visit = rf_by_uid["t_visit_slots"]
-        program_request_ids = self._active_uids_by_program
+        uids_by_program = (
+            self.requests_frame.groupby("program_code")["unique_id"]
+            .apply(set)
+            .to_dict()
+        )
 
         self.model.setObjective(
             gp.quicksum(
@@ -1056,9 +1045,9 @@ class SemesterPlanner:
                     * self.Yrds[r, d, s]
                     * t_visit[r]
                     for r, d, s in self.yrds_tuples
-                    if r in program_request_ids[p]
+                    if r in uids_by_program[p]
                 )
-                for p in program_request_ids
+                for p in uids_by_program
             ),
             GRB.MAXIMIZE,
         )
@@ -1066,7 +1055,7 @@ class SemesterPlanner:
     def remove_constraint_throttle(self):
         """Remove throttle constraints from a prior round."""
         logs.info("Constraint: Removing previous throttle constraints.")
-        for program in self._programs_frame.index:
+        for program in self.programs.index:
             rm_const = self.model.getConstrByName(f"throttle_program_{program}")
             if rm_const is not None:
                 self.model.remove(rm_const)
@@ -1381,18 +1370,16 @@ class SemesterPlanner:
         )
 
         # ---- per-program table (hours) ----
-        awarded = self._programs_frame["nights"] * hours_per_night
-        awarded_slots = self._program_awarded_slots
+        awarded = self.programs["awarded_hours"]
+        awarded_slots = self.programs["awarded_slots"]
+        past_slots_by_prog = self.programs["past_slots"]
+        past_by_prog = past_slots_by_prog.astype("float64") / slots_per_hour
 
         rf = self.requests_frame.copy()
         rf["requested_h"] = (
             rf["t_visit_slots"] * rf["n_intra_max"] * rf["n_inter_max"]
         ) / slots_per_hour
         requested_by_prog = rf.groupby("program_code")["requested_h"].sum()
-        past_slots_by_prog = self._past_slots_by_program()
-        past_by_prog = (
-            pd.Series(past_slots_by_prog, dtype="float64") / slots_per_hour
-        )
 
         sched_with_prog = sched.merge(
             self.requests_frame[["unique_id", "program_code", "t_visit_slots"]],
@@ -1622,6 +1609,8 @@ class SemesterPlanner:
 
         instance.past_df = past_df
         instance._attach_past_columns()
+        instance.programs = instance._load_programs()
+        instance._attach_program_columns()
         # Downstream consumers only use the rehydrated access_obj for
         # coordinate-based queries (accessible_at, slotmidpoints); the
         # allocation/custom cubes live in the persisted access_record.
