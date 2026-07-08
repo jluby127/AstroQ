@@ -289,16 +289,6 @@ def main():
         required=True,
         help="Relative path of config file.",
     )
-    psr_plan_semester.add_argument(
-        "--boost",
-        nargs=2,
-        metavar=("UNIQUE_IDS", "FACTOR"),
-        default=None,
-        help=(
-            "Soft-bias targets onto current_day: comma-separated unique_ids, "
-            "then boost factor."
-        ),
-    )
     psr_plan_semester.set_defaults(func=astroq.driver.plan_semester)
 
     ## subcommand of astroq: plan-night -- run the night planner
