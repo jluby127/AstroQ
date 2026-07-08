@@ -513,14 +513,12 @@ class SemesterPlanner:
         )
 
         rs = self.request_slots
-        multi = rs[rs["n_intra_max"] > 1]
-        multi_uids = set(multi["unique_id"])
 
         # ---- variables ----
         self.Yrds = self.model.addVars(
             self.yrds_tuples, vtype=GRB.BINARY, name="Requests_Slots"
         )
-        wrd_keys = multi[["unique_id", "d"]].drop_duplicates()
+        wrd_keys = rs.query("n_intra_max > 1")[["unique_id", "d"]].drop_duplicates()
         if not wrd_keys.empty:
             self.Wrd = self.model.addVars(
                 list(wrd_keys.itertuples(index=False, name=None)),
@@ -585,31 +583,46 @@ class SemesterPlanner:
                 "reserve_multislot_{0}d_{1}s".format(*ds_on),
             )
 
-        # ---- Constraint 2: desired max unique nights. Multi-visit requests
-        # are capped on nights (Wrd); single-visit requests on visits (Yrds). ----
-        logs.info("Constraint: Set desired maximum observations.")
-        desired_max_obs = self.requests_frame.set_index("unique_id")[
-            "desired_max_obs"
-        ]
-        for uid, grp in rs.groupby("unique_id", sort=False):
-            if uid in multi_uids:
-                expr = gp.quicksum(
-                    self.Wrd[uid, d] for d in grp["d"].drop_duplicates()
-                )
-            else:
-                expr = gp.quicksum(self.Yrds[k] for k in grp["rds"])
+        # ---- Enforce desired maximum unique nights. Constraint 2 in Lubin et al.
+        # (2026).
+        #
+        # Cap scheduled observations at desired_max_obs per target. Single/multi-visit
+        # requests are treated differently. For single visit requests. We require the
+        # sum of the future scheduled visits not exceed the max value using the Yrds
+        # variable (Lubin et al. 2026 Eq. 7). For multi-visit requests, Yrds is replaced
+        # by Wrd since there may be multiple Yrds on a single night (Lubin et al. 2026
+        # Eq. 8). We handle these cases seperately since there are usually few multi-
+        # visit requrests, and thus we can keep the Wrd varaible small.
+        logs.info("Constraint: Enforce maximum n_inter_max")
+        desired_max_obs = rf_indexed["desired_max_obs"]
+        r_maxnights_single = (
+            rs.query("n_intra_max == 1")
+            .groupby("unique_id", sort=False)["rds"]
+            .agg(list)
+        )
+        for r, rds_keys in r_maxnights_single.items():
             self.model.addConstr(
-                expr <= desired_max_obs.loc[uid],
-                f"max_desired_unique_nights_for_request_{uid}",
+                gp.quicksum(self.Yrds[rds] for rds in rds_keys) <= desired_max_obs.loc[r],
+                "max_desired_unique_nights_for_request_{0}".format(r),
+            )
+        r_maxnights_multi = (
+            rs.query("n_intra_max > 1")
+            .drop_duplicates(["unique_id", "d"])
+            .groupby("unique_id", sort=False)["d"]
+            .agg(list)
+        )
+        for r, days in r_maxnights_multi.items():
+            self.model.addConstr(
+                gp.quicksum(self.Wrd[r, d] for d in days) <= desired_max_obs.loc[r],
+                "max_desired_unique_nights_for_request_{0}".format(r),
             )
 
-        # ---- Enforce inter-night cadence
-        # Constraint 3 in Lubin et al. (2026).
+        # ---- Enforce inter-night cadence Constraint 3 in Lubin et al. (2026).
         #
-        # If a request is observed on night d, it must be turned off on every
-        # future night d_future with d < d_future < d + tau_inter. rd_internight
-        # maps (unique_id, d) -> the rds that are forbidden when the request is
-        # observed on night d.
+        # If a request is observed on night d, it must be turned off on every future
+        # night d_future with d < d_future < d + tau_inter. rd_internight maps
+        # (unique_id, d) -> the rds that are forbidden when the request is observed on
+        # night d.
         logs.info("Constraint: Enforce inter-night cadence.")
         rd_internight = (
             rs.query("tau_inter > 1")[["unique_id", "d", "tau_inter"]]
@@ -646,8 +659,8 @@ class SemesterPlanner:
         logs.info("Constraint: Enforce intra-night cadence.")
         rs_intranight = (
             pd.merge(
-                multi[["unique_id", "d", "s", "tau_intra_slots"]],
-                multi[["unique_id", "d", "s", "rds"]],
+                rs.query("n_intra_max > 1")[["unique_id", "d", "s", "tau_intra_slots"]],
+                rs.query("n_intra_max > 1")[["unique_id", "d", "s", "rds"]],
                 suffixes=["", "_future"],   # left s -> s, right s -> s_future
                 on=["unique_id", "d"],
             )
@@ -662,27 +675,43 @@ class SemesterPlanner:
                 "enforce_intranight_cadence_{0}_{1}d_{2}s".format(*rds_on),
             )
 
-        # ---- Constraint 5: min/max visits per night. Wrd ties the night
-        # indicator to the visit count for multi-visit requests. ----
-        logs.info("Constraint: Bound minimum and maximum visits per night.")
-        for (uid, d), grp in rs.groupby(["unique_id", "d"], sort=False):
-            visits = gp.quicksum(self.Yrds[k] for k in grp["rds"])
-            name_tag = f"{uid}_{d}d_{grp['s'].iloc[0]}s"
-            n_intra_max = grp["n_intra_max"].iloc[0]
-            if uid in multi_uids:
-                self.model.addConstr(
-                    visits <= n_intra_max * self.Wrd[uid, d],
-                    f"enforce_max_visits1_{name_tag}",
-                )
-                self.model.addConstr(
-                    visits >= grp["n_intra_min"].iloc[0] * self.Wrd[uid, d],
-                    f"enforce_min_visits_{name_tag}",
-                )
-            else:
-                self.model.addConstr(
-                    visits <= n_intra_max, f"enforce_max_visits_{name_tag}"
-                )
+        # ---- Enforce min/max visits per night. Constraint 5 in Lubin et al. (2026). On
+        # days when a multi-visit request is scheduled Wrds = 1, the sum of the visits
+        # must be between n_intra_min and n_intra_max. There is an omission in Lubin et
+        # al (2026) where there is no explicit constraint applying this rule to
+        # single-visit requests. We implement that here. 
+        logs.info("Constraint: Enforce min/max visits per night.")
+        rd_multi = (
+            rs.query("n_intra_max > 1")
+            .groupby(["unique_id", "d"], sort=False)
+            .agg(
+                rds=("rds", list),
+                n_intra_min=("n_intra_min", "first"),
+                n_intra_max=("n_intra_max", "first"),
+            )
+        )
+        for rd_on, row in rd_multi.iterrows():
+            r, d = rd_on
+            n_visits_intra = gp.quicksum(self.Yrds[rds] for rds in row.rds)
+            self.model.addConstr(
+                n_visits_intra <= row.n_intra_max * self.Wrd[r, d],
+                "enforce_max_visits1_{0}_{1}d".format(*rd_on),
+            )
+            self.model.addConstr(
+                n_visits_intra >= row.n_intra_min * self.Wrd[r, d],
+                "enforce_min_visits_{0}_{1}d".format(*rd_on),
+            )
 
+        rd_single = (
+            rs.query("n_intra_max == 1")
+            .groupby(["unique_id", "d"], sort=False)["rds"]
+            .agg(list)
+        )
+        for rd_on, rds_on in rd_single.items():
+            self.model.addConstr(
+                gp.quicksum(self.Yrds[rds] for rds in rds_on) <= 1,
+                "enforce_max_visits_{0}_{1}d".format(*rd_on),
+            )
 
         # ---- Throttle: structural, but re-parameterized by later rounds
         # (Round 4 re-adds it with a wider grace), so it stays a method. ----
