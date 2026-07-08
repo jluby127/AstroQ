@@ -5,6 +5,7 @@ inactive ones, so a PI cannot reclaim budget by flipping a target inactive.
 """
 
 import unittest
+from configparser import ConfigParser
 
 import pandas as pd
 
@@ -14,8 +15,8 @@ from astroq.splan import SemesterPlanner
 def _make_planner(requests_frame_all, past_df):
     """Build a minimal SemesterPlanner stub (no Gurobi, no I/O).
 
-    Sets only the attributes ``_past_slots_by_program`` depends on and
-    attaches the slot columns the same way the real constructor does.
+    Sets only the attributes ``_attach_program_columns`` depends on and
+    attaches program columns the same way the real constructor does.
     """
     sp = SemesterPlanner.__new__(SemesterPlanner)
     sp.requests_frame_all = requests_frame_all
@@ -25,6 +26,19 @@ def _make_planner(requests_frame_all, past_df):
         .copy()
     )
     sp.past_df = past_df
+    sp.config = ConfigParser()
+    sp.config.read_string(
+        """
+        [semester]
+        slot_size = 20
+        hours_per_night = 12
+        """
+    )
+    sp.programs = pd.DataFrame(
+        {"hours": [10.0], "nights": [5.0]},
+        index=pd.Index(["2026A_X001"], name="program"),
+    )
+    sp._attach_program_columns()
     return sp
 
 
@@ -55,9 +69,8 @@ class TestPastSlotsByProgram(unittest.TestCase):
             }
         )
         sp = _make_planner(rfa, past)
-        by_prog = sp._past_slots_by_program()
         # (2 active + 4 inactive) exposures * 3 slots/visit = 18 slots.
-        self.assertEqual(by_prog["2026A_X001"], 18)
+        self.assertEqual(sp.programs.loc["2026A_X001", "past_slots"], 18)
 
     def test_inactive_only_still_counts(self):
         rfa = _requests_frame()
@@ -68,16 +81,14 @@ class TestPastSlotsByProgram(unittest.TestCase):
             }
         )
         sp = _make_planner(rfa, past)
-        by_prog = sp._past_slots_by_program()
         # If inactive past were ignored this would be 0.
-        self.assertEqual(by_prog["2026A_X001"], 6)
+        self.assertEqual(sp.programs.loc["2026A_X001", "past_slots"], 6)
 
     def test_empty_past(self):
         rfa = _requests_frame()
         past = pd.DataFrame(columns=["unique_id", "timestamp"])
         sp = _make_planner(rfa, past)
-        by_prog = sp._past_slots_by_program()
-        self.assertEqual(by_prog["2026A_X001"], 0)
+        self.assertEqual(sp.programs.loc["2026A_X001", "past_slots"], 0)
 
     def test_integer_unique_id_join(self):
         """Integer unique_ids in past.csv are stringified at load (PAST_SCHEMA),
@@ -109,9 +120,8 @@ class TestPastSlotsByProgram(unittest.TestCase):
         self.assertEqual(past["unique_id"].tolist(), ["101", "202", "202"])
 
         sp = _make_planner(rfa, past)
-        by_prog = sp._past_slots_by_program()
         # (1 active + 2 inactive) * 2 slots = 6.
-        self.assertEqual(by_prog["2026A_X001"], 6)
+        self.assertEqual(sp.programs.loc["2026A_X001", "past_slots"], 6)
 
 
 if __name__ == "__main__":
