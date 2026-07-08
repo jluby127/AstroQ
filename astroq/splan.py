@@ -29,7 +29,7 @@ logs = logging.getLogger(__name__)
 SEMESTER_PLANNER_H5_SCHEMA = 6
 
 # Request columns denormalized onto the observability grid to form
-# ``request_slots`` -- the single relational table build_model is defined over.
+# ``request_slots`` -- the single relational table the model is defined over.
 STRATEGY_COLS = [
     "r",
     "target",
@@ -189,6 +189,13 @@ class SemesterPlanner:
         )
         self.observability["r"] = self.observability["unique_id"]
 
+        self.request_slots = self.observability.merge(
+            self.requests_active[STRATEGY_COLS], on="r"
+        )
+        self.request_slots["rds"] = self.request_slots[["r", "d", "s"]].apply(
+            tuple, axis=1
+        )
+
         self.build_model()
 
         logs.debug("Initializing complete.")
@@ -317,19 +324,12 @@ class SemesterPlanner:
     def build_model(self):
         """Gurobi variables plus every structural constraint, inline.
 
-        First builds the relational tables the model is defined over:
+        Assumes ``self.request_slots`` (built in ``__init__``) -- one row per
+        observable ``(r, d, s)`` with an ``rds`` column holding each row's key
+        into ``self.Yrds``. Everything here is required by every scheduling
+        mode; rounds layer objectives and round-specific deltas on top
+        (``build_model_round*``).
 
-        - ``request_slots`` -- one row per observable ``(r, d, s)``: the
-          observability grid with the request's :data:`STRATEGY_COLS` joined on,
-          plus an ``rds`` column holding that row's ``(r, d, s)`` key
-          into ``self.Yrds``. The single table the structural constraints,
-          throttle, and priority rounds are defined over. Gurobi variables are
-          looked up as ``self.Yrds[k]`` at constraint-build time, never stored
-          in the frame. Schedulable requests are those appearing in
-          ``request_slots["r"].unique()``.
-
-        Everything here is required by every scheduling mode; rounds layer
-        objectives and round-specific deltas on top (``build_model_round*``).
         Paper map (Lubin et al. 2025 -> code): ``Y_{r,d,s}`` -> ``Yrds``,
         ``W_{r,d}`` -> ``Wrd``, shortfall -> ``theta``; constraint numbers
         below refer to that paper. Set-building is relational (merges /
@@ -337,30 +337,6 @@ class SemesterPlanner:
         """
         t0 = time.time()
         self.model = gp.Model("Semester_Scheduler")
-
-        # ---- relational tables the model is defined over ----
-        self.request_slots = self.observability.merge(
-            self.requests_active[STRATEGY_COLS], on="r"
-        )
-        # rds: each row's (r, d, s) key into self.Yrds. Pure data, so the
-        # frame never holds Gurobi objects; constraints look up self.Yrds[k].
-        self.request_slots["rds"] = list(
-            zip(
-                self.request_slots["r"],
-                self.request_slots["d"],
-                self.request_slots["s"],
-            )
-        )
-
-        # diagnostics: requests with no observable slot are absent from the model
-        schedulable = set(self.request_slots["r"].unique())
-        all_requests = list(self.requests_active["r"])
-        missing = sum(r not in schedulable for r in all_requests)
-        logs.warning(
-            f"There are {missing} targets out of {len(all_requests)} that have "
-            f"no valid day/slot pairs and therefore are effectively removed "
-            f"from the model."
-        )
 
         rs = self.request_slots
 
@@ -1078,6 +1054,13 @@ class SemesterPlanner:
 
         # ---- top-level summary as a Series ----
         today_idx = self.today_starting_night
+        active_with_future_slots = (
+            self.request_slots.loc[self.request_slots["d"] >= today_idx, "r"]
+            .unique()
+        )
+        n_active_future_slots = sum(
+            r in active_with_future_slots for r in self.requests_active["r"]
+        )
         is_alloc_2d = self.access_record["is_allocated"][0]
         allocated = int(is_alloc_2d.sum())
         allocated_future = int(is_alloc_2d[today_idx:].sum())
@@ -1096,6 +1079,7 @@ class SemesterPlanner:
             {
                 "Total requests": len(self.requests),
                 "Total requests (active)": len(self.requests_active),
+                "Total requests (active, future slots > 0)": n_active_future_slots,
                 "Total allocated slots": allocated,
                 "Total slots requested": slot_demand_slots(self.requests),
                 "Total slots requested (active)": slot_demand_slots(
