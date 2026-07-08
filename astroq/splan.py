@@ -31,7 +31,7 @@ SEMESTER_PLANNER_H5_SCHEMA = 6
 # Request columns denormalized onto the observability grid to form
 # ``request_slots`` -- the single relational table build_model is defined over.
 STRATEGY_COLS = [
-    "unique_id",
+    "r",
     "target",
     "program_code",
     "n_intra_min",
@@ -177,6 +177,7 @@ class SemesterPlanner:
         self.custom = self._load_frame("custom")
         self.programs = self._load_frame("programs")
 
+        # Add additional columns needed for model on the fly (not saved)
         self._add_request_columns()
         self._add_program_columns()
 
@@ -255,6 +256,7 @@ class SemesterPlanner:
         ``self.past``. Mutates in place (idempotent).
         """
         rf = self.requests
+        rf["r"] = rf["unique_id"]
         slot_size = self.config.getfloat("semester", "slot_size")
         visit_s = self.queue.visit_seconds(rf["exptime"], rf["n_exp"])
         rf["t_visit_slots"] = (
@@ -264,19 +266,14 @@ class SemesterPlanner:
             (rf["tau_intra"] * 60 / slot_size).round().astype(int)
         )
 
-        uids = rf["unique_id"]
-        if self.past.empty:
-            agg = pd.DataFrame(
-                {"nights": 0, "n_exp": 0, "last": ""}, index=uids,
-            )
-        else:
-            night = self.past["timestamp"].str[:10]
-            g = self.past.assign(_night=night).groupby("unique_id")
-            agg = pd.DataFrame({
-                "nights": g["_night"].nunique(),
-                "n_exp": g.size(),
-                "last": g["_night"].max(),
-            }).reindex(uids).fillna({"nights": 0, "n_exp": 0, "last": ""})
+        rs = rf["r"]
+        night = self.past["timestamp"].str[:10]
+        g = self.past.assign(_night=night, r=self.past["unique_id"]).groupby("r")
+        agg = pd.DataFrame({
+            "nights": g["_night"].nunique(),
+            "n_exp": g.size(),
+            "last": g["_night"].max(),
+        }).reindex(rs).fillna({"nights": 0, "n_exp": 0, "last": ""})
 
         rf["past_nights_observed"] = agg["nights"].astype(int).to_numpy()
         rf["past_n_exposures"] = agg["n_exp"].astype(int).to_numpy()
@@ -302,15 +299,12 @@ class SemesterPlanner:
         )
 
         rfa = self.requests
-        if self.past.empty:
-            past_n = pd.Series(dtype="int64")
-        else:
-            past_n = self.past.groupby("unique_id").size()
-        past_slots_by_uid = (
-            rfa["unique_id"].map(past_n).fillna(0).astype(int) * rfa["t_visit_slots"]
+        past_n = self.past.assign(r=self.past["unique_id"]).groupby("r").size()
+        past_slots_by_r = (
+            rfa["r"].map(past_n).fillna(0).astype(int) * rfa["t_visit_slots"]
         )
         past_by_prog = (
-            pd.Series(past_slots_by_uid, index=rfa.index)
+            pd.Series(past_slots_by_r, index=rfa.index)
             .groupby(rfa["program_code"])
             .sum()
         )
@@ -323,16 +317,16 @@ class SemesterPlanner:
 
         First builds the relational tables the model is defined over:
 
-        - ``request_slots`` -- one row per observable ``(unique_id, d, s)``: the
+        - ``request_slots`` -- one row per observable ``(r, d, s)``: the
           observability grid with the request's :data:`STRATEGY_COLS` joined on,
-          plus an ``rds`` column holding that row's ``(unique_id, d, s)`` key
+          plus an ``rds`` column holding that row's ``(r, d, s)`` key
           into ``self.Yrds``. The single table the structural constraints,
           throttle, and priority rounds are defined over. Gurobi variables are
           looked up as ``self.Yrds[k]`` at constraint-build time, never stored
           in the frame.
-        - ``yrds_tuples`` -- the same ``(unique_id, d, s)`` set as plain tuples
+        - ``yrds_tuples`` -- the same ``(r, d, s)`` set as plain tuples
           (the ``Yrds`` variable keys).
-        - ``schedulable_uids`` -- unique_ids with at least one observable slot,
+        - ``schedulable_r`` -- request indices with at least one observable slot,
           in first-appearance order.
 
         Everything here is required by every scheduling mode; rounds layer
@@ -347,26 +341,32 @@ class SemesterPlanner:
 
         # ---- relational tables the model is defined over ----
         self.request_slots = self.observability.merge(
-            self.requests_active[STRATEGY_COLS], on="unique_id"
+            self.requests_active[STRATEGY_COLS],
+            left_on="unique_id",
+            right_on="r",
         )
-        # rds: each row's (unique_id, d, s) key into self.Yrds. Pure data, so the
+        # rds: each row's (r, d, s) key into self.Yrds. Pure data, so the
         # frame never holds Gurobi objects; constraints look up self.Yrds[k].
         self.request_slots["rds"] = list(
             zip(
-                self.request_slots["unique_id"],
+                self.request_slots["r"],
                 self.request_slots["d"],
                 self.request_slots["s"],
             )
         )
         self.yrds_tuples = list(
-            self.observability.itertuples(index=False, name=None)
+            zip(
+                self.request_slots["r"],
+                self.request_slots["d"],
+                self.request_slots["s"],
+            )
         )
-        self.schedulable_uids = list(self.observability["unique_id"].unique())
+        self.schedulable_r = list(self.request_slots["r"].unique())
 
         # diagnostics: requests with no observable slot are absent from the model
-        schedulable = set(self.schedulable_uids)
-        all_requests = list(self.requests_active["unique_id"])
-        missing = sum(uid not in schedulable for uid in all_requests)
+        schedulable = set(self.schedulable_r)
+        all_requests = list(self.requests_active["r"])
+        missing = sum(r not in schedulable for r in all_requests)
         logs.warning(
             f"There are {missing} targets out of {len(all_requests)} that have "
             f"no valid day/slot pairs and therefore are effectively removed "
@@ -379,7 +379,7 @@ class SemesterPlanner:
         self.Yrds = self.model.addVars(
             self.yrds_tuples, vtype=GRB.BINARY, name="Requests_Slots"
         )
-        wrd_keys = rs.query("n_intra_max > 1")[["unique_id", "d"]].drop_duplicates()
+        wrd_keys = rs.query("n_intra_max > 1")[["r", "d"]].drop_duplicates()
         if not wrd_keys.empty:
             self.Wrd = self.model.addVars(
                 list(wrd_keys.itertuples(index=False, name=None)),
@@ -387,21 +387,21 @@ class SemesterPlanner:
                 name="OnSky",
             )
         self.theta = self.model.addVars(
-            list(self.requests_active["unique_id"]), name="Shortfall"
+            list(self.requests_active["r"]), name="Shortfall"
         )
 
         # ---- Eq. 3: shortfall definition. theta_r >= remaining nights owed
         # minus scheduled nights (visits / n_intra_max); lb=0 from addVars. ----
         logs.info("Constraint: Build theta variable")
-        rf_indexed = self.requests_active.set_index("unique_id")
-        for uid, grp_keys in rs.groupby("unique_id", sort=False)["rds"]:
-            row = rf_indexed.loc[uid]
+        rf_indexed = self.requests_active.set_index("r")
+        for r, grp_keys in rs.groupby("r", sort=False)["rds"]:
+            row = rf_indexed.loc[r]
             self.model.addConstr(
-                self.theta[uid]
+                self.theta[r]
                 >= row["n_inter_max"]
                 - row["past_nights_observed"]
                 - gp.quicksum(self.Yrds[k] for k in grp_keys) / row["n_intra_max"],
-                f"greater_than_nobs_shortfall_{uid}",
+                f"greater_than_nobs_shortfall_{r}",
             )
 
         # ---- Reserve slots for multi-slot exposures. Constraint 1 in Lubin et al.
@@ -457,7 +457,7 @@ class SemesterPlanner:
         desired_max_obs = rf_indexed["desired_max_obs"]
         r_maxnights_single = (
             rs.query("n_intra_max == 1")
-            .groupby("unique_id", sort=False)["rds"]
+            .groupby("r", sort=False)["rds"]
             .agg(list)
         )
         for r, rds_keys in r_maxnights_single.items():
@@ -467,8 +467,8 @@ class SemesterPlanner:
             )
         r_maxnights_multi = (
             rs.query("n_intra_max > 1")
-            .drop_duplicates(["unique_id", "d"])
-            .groupby("unique_id", sort=False)["d"]
+            .drop_duplicates(["r", "d"])
+            .groupby("r", sort=False)["d"]
             .agg(list)
         )
         for r, days in r_maxnights_multi.items():
@@ -481,18 +481,18 @@ class SemesterPlanner:
         #
         # If a request is observed on night d, it must be turned off on every future
         # night d_future with d < d_future < d + tau_inter. rd_internight maps
-        # (unique_id, d) -> the rds that are forbidden when the request is observed on
+        # (r, d) -> the rds that are forbidden when the request is observed on
         # night d.
         logs.info("Constraint: Enforce inter-night cadence.")
         rd_internight = (
-            rs.query("tau_inter > 1")[["unique_id", "d", "tau_inter"]]
-            .drop_duplicates(["unique_id", "d"])
-            .merge(rs[["unique_id", "d", "rds"]],suffixes=["", "_future"],on="unique_id")
+            rs.query("tau_inter > 1")[["r", "d", "tau_inter"]]
+            .drop_duplicates(["r", "d"])
+            .merge(rs[["r", "d", "rds"]], suffixes=["", "_future"], on="r")
             .query("d < d_future < d + tau_inter")
-            .groupby(["unique_id", "d"], sort=False)["rds"]
+            .groupby(["r", "d"], sort=False)["rds"]
             .agg(list)
         )
-        for rd_on, grp in rs.groupby(["unique_id", "d"], sort=False):
+        for rd_on, grp in rs.groupby(["r", "d"], sort=False):
             if rd_on not in rd_internight.index:
                 continue
             rds_on = grp["rds"] # (r,d,s) of request r on night d
@@ -519,13 +519,13 @@ class SemesterPlanner:
         logs.info("Constraint: Enforce intra-night cadence.")
         rs_intranight = (
             pd.merge(
-                rs.query("n_intra_max > 1")[["unique_id", "d", "s", "tau_intra_slots"]],
-                rs.query("n_intra_max > 1")[["unique_id", "d", "s", "rds"]],
+                rs.query("n_intra_max > 1")[["r", "d", "s", "tau_intra_slots"]],
+                rs.query("n_intra_max > 1")[["r", "d", "s", "rds"]],
                 suffixes=["", "_future"],   # left s -> s, right s -> s_future
-                on=["unique_id", "d"],
+                on=["r", "d"],
             )
             .query("s < s_future < s + tau_intra_slots")
-            .groupby(["unique_id", "d", "s"], sort=False)["rds"]
+            .groupby(["r", "d", "s"], sort=False)["rds"]
             .agg(list)
         )
         for rds_on, rds_off in rs_intranight.items():
@@ -543,7 +543,7 @@ class SemesterPlanner:
         logs.info("Constraint: Enforce min/max visits per night.")
         rd_multi = (
             rs.query("n_intra_max > 1")
-            .groupby(["unique_id", "d"], sort=False)
+            .groupby(["r", "d"], sort=False)
             .agg(
                 rds=("rds", list),
                 n_intra_min=("n_intra_min", "first"),
@@ -564,7 +564,7 @@ class SemesterPlanner:
 
         rd_single = (
             rs.query("n_intra_max == 1")
-            .groupby(["unique_id", "d"], sort=False)["rds"]
+            .groupby(["r", "d"], sort=False)["rds"]
             .agg(list)
         )
         for rd_on, rds_on in rd_single.items():
@@ -666,16 +666,16 @@ class SemesterPlanner:
 
     def _weighted_theta_expr(self):
         """Time-weighted global shortfall (Round 1 objective)."""
-        t_visit = self.requests_active.set_index("unique_id")["t_visit_slots"]
+        t_visit = self.requests_active.set_index("r")["t_visit_slots"]
         return gp.quicksum(
-            self.theta[uid] * t_visit[uid] for uid in self.schedulable_uids
+            self.theta[r] * t_visit[r] for r in self.schedulable_r
         )
 
     def _eval_weighted_theta(self):
         """Evaluate weighted shortfall at the current Gurobi solution."""
-        t_visit = self.requests_active.set_index("unique_id")["t_visit_slots"]
+        t_visit = self.requests_active.set_index("r")["t_visit_slots"]
         return sum(
-            self.theta[uid].X * t_visit[uid] for uid in self.schedulable_uids
+            self.theta[r].X * t_visit[r] for r in self.schedulable_r
         )
 
     def set_objective_minimize_theta_time_normalized(self):
@@ -691,11 +691,11 @@ class SemesterPlanner:
             current_day,
             d_today,
         )
-        t_visit = self.requests_active.set_index("unique_id")["t_visit_slots"]
+        t_visit = self.requests_active.set_index("r")["t_visit_slots"]
         self.model.setObjective(
             gp.quicksum(
-                t_visit[uid] * self.Yrds[uid, d, s]
-                for uid, d, s in self.yrds_tuples
+                t_visit[r] * self.Yrds[r, d, s]
+                for r, d, s in self.yrds_tuples
                 if d == d_today
             ),
             GRB.MAXIMIZE,
@@ -704,12 +704,12 @@ class SemesterPlanner:
     def set_objective_minimize_empty_slots(self):
         """Bonus round: minimize empty slots."""
         logs.info("Objective: Minimize the number of empty slots.")
-        t_visit = self.requests_active.set_index("unique_id")["t_visit_slots"]
+        t_visit = self.requests_active.set_index("r")["t_visit_slots"]
         total_slots = self.semester_length * self.access_obj.nslots
         self.model.setObjective(
             (total_slots - gp.quicksum(
-                t_visit[uid] * self.Yrds[uid, d, s]
-                for uid, d, s in self.yrds_tuples
+                t_visit[r] * self.Yrds[r, d, s]
+                for r, d, s in self.yrds_tuples
             )),
             GRB.MINIMIZE,
         )
@@ -787,11 +787,11 @@ class SemesterPlanner:
         weight = higher priority) within each program."""
         logs.info("Objective: Intra-program priorities.")
 
-        rf_by_uid = self.requests_active.set_index("unique_id")
-        weight_by_id = rf_by_uid["splan_weight"]
-        t_visit = rf_by_uid["t_visit_slots"]
-        uids_by_program = (
-            self.requests_active.groupby("program_code")["unique_id"]
+        rf_by_r = self.requests_active.set_index("r")
+        weight_by_r = rf_by_r["splan_weight"]
+        t_visit = rf_by_r["t_visit_slots"]
+        rs_by_program = (
+            self.requests_active.groupby("program_code")["r"]
             .apply(set)
             .to_dict()
         )
@@ -799,13 +799,13 @@ class SemesterPlanner:
         self.model.setObjective(
             gp.quicksum(
                 gp.quicksum(
-                    (1.0 / weight_by_id.loc[r])
+                    (1.0 / weight_by_r.loc[r])
                     * self.Yrds[r, d, s]
                     * t_visit[r]
                     for r, d, s in self.yrds_tuples
-                    if r in uids_by_program[p]
+                    if r in rs_by_program[p]
                 )
-                for p in uids_by_program
+                for p in rs_by_program
             ),
             GRB.MAXIMIZE,
         )
@@ -824,10 +824,10 @@ class SemesterPlanner:
         logs.info(
             "Constraint: Per-target shortfall must stay at or below prior round."
         )
-        for uid in self.schedulable_uids:
+        for r in self.schedulable_r:
             self.model.addConstr(
-                self.theta[uid] <= float(self.theta[uid].X),
-                f"theta_le_prior_{uid}",
+                self.theta[r] <= float(self.theta[r].X),
+                f"theta_le_prior_{r}",
             )
 
     def build_model_round4(self):
@@ -1047,14 +1047,15 @@ class SemesterPlanner:
         Sets ``self.schedule`` to a DataFrame with columns
         ``unique_id, d, s, target`` -- one row per scheduled exposure start.
         """
-        df = pd.DataFrame(self.Yrds.keys(), columns=["unique_id", "d", "s"])
+        df = pd.DataFrame(self.Yrds.keys(), columns=["r", "d", "s"])
         df["value"] = [self.Yrds[k].x for k in self.Yrds.keys()]
         sparse = df.query("value > 0").drop(columns=["value"]).copy()
         sparse = sparse.merge(
-            self.requests_active[["unique_id", "target"]],
-            on="unique_id",
+            self.requests_active[["r", "unique_id", "target"]],
+            on="r",
             how="left",
         )
+        sparse = sparse.drop(columns=["r"])
         sparse["target"] = sparse["target"].fillna("NO MATCHING NAME")
         self._ensure_output_dir()
         sparse.to_csv(
@@ -1262,7 +1263,7 @@ class SemesterPlanner:
             k[0] for k, v in self.Yrds.items() if v.x > 0 and k[1] == today_idx
         }
         selected_df = self.requests_active[
-            self.requests_active["unique_id"].isin(selected)
+            self.requests_active["r"].isin(selected)
         ].copy()
         selected_df["nplan_weight"] = 1.0
         self._ensure_output_dir()
