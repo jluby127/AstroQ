@@ -543,22 +543,21 @@ class SemesterPlanner:
                 f"greater_than_nobs_shortfall_{uid}",
             )
 
-        # ---- Reserve slots for multi-slot exposures.
-        # Constraint 1 in Lubin et al. (2026)
+        # ---- Reserve slots for multi-slot exposures. Constraint 1 in Lubin et al.
+        # (2026)
         #
-        # We forbid any request from being scheduled at (d,s) if there is a 
-        # *previous* request that started within t_visit_slots of (d,s). 
-        # This prevents two two requests from overlpaping. 
+        # We forbid any request from being scheduled at (d,s) if there is a *previous*
+        # request that started within t_visit_slots of (d,s). This prevents two two
+        # requests from overlpaping. 
         #
-        # Note on implementation: the same behavior can be achieved by requiring 
-        # that no slots be schedule t_visit_slots after a multi-slot exposure. 
-        # However, since most exposures are multi-slot, nearly every (r,d,s) 
-        # results in a seperate constraint. In earlier testing, this resulted a 
-        # long presolve. This implementation introduces a constraint for every
-        # unique (d,s).
+        # Note on implementation: the same behavior can be achieved by requiring that no
+        # slots be schedule t_visit_slots after a multi-slot exposure. However, since
+        # most exposures are multi-slot, nearly every (r,d,s) results in a seperate
+        # constraint. In earlier testing, this resulted a long presolve. This
+        # implementation introduces a constraint for every unique (d,s).
         #
-        # The rs_multislot has one row per (r,d,s,s_future) where s_future is a
-        # a slot within t_visit_slots of r,d,s. 
+        # The rs_multislot has one row per (r,d,s,s_future) where s_future is a a slot
+        # within t_visit_slots of r,d,s. 
         logs.info("Constraint: Reserve slots for multi-slot exposures.")
         max_t_visit = int(rs["t_visit_slots"].max())
         deltas = pd.DataFrame({"delta": np.arange(1, max_t_visit)})  # [] if all t == 1
@@ -572,9 +571,9 @@ class SemesterPlanner:
         )
 
         for ds_on, rds_on in rs.groupby(["d", "s"], sort=False)["rds"]:
-            # rds_off: r,d,s of visits that cover ds_on. 
-            # Empty when no exposure reaches this slot -- the constraint then collapses to
-            # one start per (d, s), still required so two requests can't share a slot.
+            # rds_off: r,d,s of visits that cover ds_on. Empty when no exposure reaches
+            # this slot -- the constraint then collapses to one start per (d, s), still
+            # required so two requests can't share a slot.
             rds_off = rs_multislot["rds"].loc[[ds_on]] if ds_on in rs_multislot.index else []
             self.model.addConstr(
                 gp.quicksum(self.Yrds[rds] for rds in rds_on)
@@ -754,15 +753,6 @@ class SemesterPlanner:
         rf["desired_max_obs"] = np.where(over, past, n_max - past).astype(int)
 
     @cached_property
-    def _t_visit_slots_by_uid(self):
-        """dict[unique_id -> t_visit_slots]. Built once; every constraint and
-        objective method that needs per-request slot durations reads this
-        instead of re-zipping ``requests_frame`` locally."""
-        return dict(
-            zip(self.requests_frame["unique_id"], self.requests_frame["t_visit_slots"])
-        )
-
-    @cached_property
     def _boost_by_uid(self):
         """dict[unique_id -> boost factor], or ``None`` if no boost was passed."""
         if self.boost is None:
@@ -921,16 +911,16 @@ class SemesterPlanner:
 
     def _weighted_theta_expr(self):
         """Time-weighted global shortfall (Round 1 objective without boost)."""
-        t_visit_slots = self._t_visit_slots_by_uid
+        t_visit = self.requests_frame.set_index("unique_id")["t_visit_slots"]
         return gp.quicksum(
-            self.theta[uid] * t_visit_slots[uid] for uid in self.schedulable_uids
+            self.theta[uid] * t_visit[uid] for uid in self.schedulable_uids
         )
 
     def _eval_weighted_theta(self):
         """Evaluate weighted shortfall at the current Gurobi solution."""
-        t_visit_slots = self._t_visit_slots_by_uid
+        t_visit = self.requests_frame.set_index("unique_id")["t_visit_slots"]
         return sum(
-            self.theta[uid].X * t_visit_slots[uid] for uid in self.schedulable_uids
+            self.theta[uid].X * t_visit[uid] for uid in self.schedulable_uids
         )
 
     def set_objective_minimize_theta_time_normalized(self):
@@ -962,10 +952,10 @@ class SemesterPlanner:
             current_day,
             d_today,
         )
-        t_visit_slots = self._t_visit_slots_by_uid
+        t_visit = self.requests_frame.set_index("unique_id")["t_visit_slots"]
         self.model.setObjective(
             gp.quicksum(
-                t_visit_slots[uid] * self.Yrds[uid, d, s]
+                t_visit[uid] * self.Yrds[uid, d, s]
                 for uid, d, s in self.yrds_tuples
                 if d == d_today
             ),
@@ -975,11 +965,11 @@ class SemesterPlanner:
     def set_objective_minimize_empty_slots(self):
         """Bonus round: minimize empty slots."""
         logs.info("Objective: Minimize the number of empty slots.")
-        t_visit_slots = self._t_visit_slots_by_uid
+        t_visit = self.requests_frame.set_index("unique_id")["t_visit_slots"]
         total_slots = self.semester_length * self.access_obj.nslots
         self.model.setObjective(
             (total_slots - gp.quicksum(
-                t_visit_slots[uid] * self.Yrds[uid, d, s]
+                t_visit[uid] * self.Yrds[uid, d, s]
                 for uid, d, s in self.yrds_tuples
             )),
             GRB.MINIMIZE,
@@ -1054,8 +1044,9 @@ class SemesterPlanner:
         weight = higher priority) within each program."""
         logs.info("Objective: Intra-program priorities.")
 
-        weight_by_id = self.requests_frame.set_index("unique_id")["splan_weight"]
-        t_visit_slots = self._t_visit_slots_by_uid
+        rf_by_uid = self.requests_frame.set_index("unique_id")
+        weight_by_id = rf_by_uid["splan_weight"]
+        t_visit = rf_by_uid["t_visit_slots"]
         program_request_ids = self._active_uids_by_program
 
         self.model.setObjective(
@@ -1063,7 +1054,7 @@ class SemesterPlanner:
                 gp.quicksum(
                     (1.0 / weight_by_id.loc[r])
                     * self.Yrds[r, d, s]
-                    * t_visit_slots[r]
+                    * t_visit[r]
                     for r, d, s in self.yrds_tuples
                     if r in program_request_ids[p]
                 )
