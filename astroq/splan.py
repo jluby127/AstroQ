@@ -184,18 +184,15 @@ class SemesterPlanner:
         # Observability cube (single source of truth for which slots are valid).
         self.access_obj = ac.Access.from_planner(self)
         self.access_record = self.access_obj.build_access()
-        self.observability = self.access_obj.observability(
-            self.access_record.is_observable
-        )
-        self.observability["r"] = self.observability["unique_id"]
 
-        self.request_slots = self.observability.merge(
-            self.requests_active[STRATEGY_COLS], on="r"
+        # Build the request_slots table (sparse r,d,s table) 
+        request_slots = (
+            self.access_obj.observability(self.access_record.is_observable)
+            .rename(columns={"unique_id": "r"})
+            .merge(self.requests_active[STRATEGY_COLS], on="r")
         )
-        self.request_slots["rds"] = self.request_slots[["r", "d", "s"]].apply(
-            tuple, axis=1
-        )
-
+        request_slots["rds"] = request_slots[["r", "d", "s"]].apply(tuple, axis=1)
+        self.request_slots = request_slots
         self.build_model()
 
         logs.debug("Initializing complete.")
@@ -204,7 +201,9 @@ class SemesterPlanner:
         """Load a validated CSV frame. ``kind`` maps to ``{kind}_file`` in config."""
         key = f"{kind}_file"
         raw = self.config.get("semester", key)
-        path = raw if os.path.isabs(raw) else os.path.join(self.workdir, raw)
+        path = raw if os.path.isabs(raw) else os.path.join(
+            self.config.get("global", "workdir"), raw
+        )
         return astroq.io.read_csv(path, kind)
 
     def _ensure_output_dir(self):
@@ -215,12 +214,8 @@ class SemesterPlanner:
     # ------------------------------------------------------------------
 
     @property
-    def workdir(self):
-        return self.config.get("global", "workdir")
-
-    @property
     def output_directory(self):
-        return os.path.join(self.workdir, "outputs")
+        return os.path.join(self.config.get("global", "workdir"), "outputs")
 
     @property
     def requests_active(self):
