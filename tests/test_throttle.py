@@ -19,7 +19,8 @@ def _make_planner(requests, past):
     attaches program columns the same way the real constructor does.
     """
     sp = SemesterPlanner.__new__(SemesterPlanner)
-    sp.requests = requests
+    sp.requests = requests.copy()
+    sp.requests["r"] = sp.requests["unique_id"]
     sp.past = past
     sp.config = ConfigParser()
     sp.config.read_string(
