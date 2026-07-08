@@ -337,7 +337,7 @@ class NightPlanner:
             [],
             str(self.current_day),
             observers_path,
-            all_active_requests=self.semester_planner.requests_frame,
+            all_active_requests=self.semester_planner.requests_active,
             evening_twilight_uids=evening_uids,
             morning_twilight_uids=morning_uids,
         )

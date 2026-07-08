@@ -324,7 +324,7 @@ class StarPlotter(object):
             starmap[d_values, s_values] = 1
 
             # Set the reserve slots
-            rf = semester_planner.requests_frame
+            rf = semester_planner.requests_active
             row = rf.loc[rf["unique_id"] == str(self.unique_id)]
             reserve_slots = int(row["t_visit_slots"].iloc[0]) if len(row) else 1
             for r in range(1, reserve_slots):
@@ -363,8 +363,8 @@ def process_stars(semester_planner):
     slew_overhead = queue.slew_overhead_mean
     readout_overhead = queue.readout_time
 
-    targets = semester_planner.requests_frame_all["target"].unique()
-    programs = semester_planner.requests_frame_all["program_code"].unique()
+    targets = semester_planner.requests["target"].unique()
+    programs = semester_planner.requests["program_code"].unique()
 
     # Make colors consistent for all stars in each program
     colors = sns.color_palette("deep", len(programs))
@@ -375,11 +375,11 @@ def process_stars(semester_planner):
 
     # Per-(uid, night) past-observation aggregates derived from past_df. Keys
     # are UT calendar dates (timestamp[:10]). Empty dicts when past_df is empty.
-    past_df = semester_planner.past_df
-    if not past_df.empty:
-        pdf = past_df.assign(
-            unique_id=past_df["unique_id"].astype(str),
-            night=past_df["timestamp"].astype(str).str[:10],
+    past = semester_planner.past
+    if not past.empty:
+        pdf = past.assign(
+            unique_id=past["unique_id"].astype(str),
+            night=past["timestamp"].astype(str).str[:10],
         )
         n_obs_by_uid = (
             pdf.groupby("unique_id").apply(
@@ -397,7 +397,7 @@ def process_stars(semester_planner):
 
     all_stars = []
     i = 0
-    for i, row in semester_planner.requests_frame_all.iterrows():
+    for i, row in semester_planner.requests.iterrows():
         # Create a StarPlotter object for each request, fill and compute relavant information
         newstar = StarPlotter(row["unique_id"])
         newstar.get_map(semester_planner, forecast_df)
@@ -531,7 +531,7 @@ def process_stars(semester_planner):
         # For inactive targets, they won't be in requests_frame, so create zero maps
         try:
             target_idx = np.where(
-                semester_planner.requests_frame["unique_id"] == newstar.unique_id
+                semester_planner.requests_active["unique_id"] == newstar.unique_id
             )[0][0]
             # Extract the 2D slice for this specific target from each 3D map
             newstar.maps = {
@@ -2386,7 +2386,7 @@ def _splan_weight_legend_label(weight):
 
 def _completion_by_request_frame(semester_planner, all_stars):
     """Per-request semester completion % joined with request.csv ``splan_weight``."""
-    req = semester_planner.requests_frame_all.set_index("unique_id")
+    req = semester_planner.requests.set_index("unique_id")
 
     rows = []
     for star in all_stars:
@@ -2562,8 +2562,8 @@ def get_request_frame(semester_planner, all_stars):
     starids = [star.unique_id for star in all_stars]
 
     # Filter the request frame to only include the specified stars
-    filtered_frame = semester_planner.requests_frame_all[
-        semester_planner.requests_frame_all["unique_id"].isin(starids)
+    filtered_frame = semester_planner.requests[
+        semester_planner.requests["unique_id"].isin(starids)
     ].copy()
 
     return filtered_frame

@@ -12,20 +12,15 @@ import pandas as pd
 from astroq.splan import SemesterPlanner
 
 
-def _make_planner(requests_frame_all, past_df):
+def _make_planner(requests, past):
     """Build a minimal SemesterPlanner stub (no Gurobi, no I/O).
 
     Sets only the attributes ``_attach_program_columns`` depends on and
     attaches program columns the same way the real constructor does.
     """
     sp = SemesterPlanner.__new__(SemesterPlanner)
-    sp.requests_frame_all = requests_frame_all
-    sp.requests_frame = (
-        requests_frame_all[~requests_frame_all["inactive"]]
-        .reset_index(drop=True)
-        .copy()
-    )
-    sp.past_df = past_df
+    sp.requests = requests
+    sp.past = past
     sp.config = ConfigParser()
     sp.config.read_string(
         """
@@ -42,7 +37,7 @@ def _make_planner(requests_frame_all, past_df):
     return sp
 
 
-def _requests_frame():
+def _requests():
     """One program, one active + one inactive target, identical strategy.
 
     ``t_visit_slots`` is supplied directly so the test does not depend on the
@@ -60,7 +55,7 @@ def _requests_frame():
 
 class TestPastSlotsByProgram(unittest.TestCase):
     def test_includes_inactive_past(self):
-        rfa = _requests_frame()
+        rfa = _requests()
         past = pd.DataFrame(
             {
                 # 2 exposures on the active target, 4 on the inactive one.
@@ -73,7 +68,7 @@ class TestPastSlotsByProgram(unittest.TestCase):
         self.assertEqual(sp.programs.loc["2026A_X001", "past_slots"], 18)
 
     def test_inactive_only_still_counts(self):
-        rfa = _requests_frame()
+        rfa = _requests()
         past = pd.DataFrame(
             {
                 "unique_id": ["INACT", "INACT"],
@@ -85,7 +80,7 @@ class TestPastSlotsByProgram(unittest.TestCase):
         self.assertEqual(sp.programs.loc["2026A_X001", "past_slots"], 6)
 
     def test_empty_past(self):
-        rfa = _requests_frame()
+        rfa = _requests()
         past = pd.DataFrame(columns=["unique_id", "timestamp"])
         sp = _make_planner(rfa, past)
         self.assertEqual(sp.programs.loc["2026A_X001", "past_slots"], 0)
@@ -96,7 +91,7 @@ class TestPastSlotsByProgram(unittest.TestCase):
         import os
         import tempfile
 
-        from astroq.splan import PAST_SCHEMA, load_frame
+        from astroq.io import read_csv
 
         rfa = pd.DataFrame(
             {
@@ -116,7 +111,7 @@ class TestPastSlotsByProgram(unittest.TestCase):
         )
         path = os.path.join(tempfile.mkdtemp(prefix="astroq_past_"), "past.csv")
         raw.to_csv(path, index=False)
-        past = load_frame(path, PAST_SCHEMA, "past.csv")
+        past = read_csv(path, "past")
         self.assertEqual(past["unique_id"].tolist(), ["101", "202", "202"])
 
         sp = _make_planner(rfa, past)
