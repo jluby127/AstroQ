@@ -42,6 +42,16 @@ STRATEGY_COLS = [
     "tau_intra_slots",
 ]
 
+REQUEST_SLOT_COLS = ("t_visit_slots", "tau_intra_slots")
+REQUEST_PAST_COLS = (
+    "past_nights_observed",
+    "past_n_exposures",
+    "past_date_last_observed",
+    "desired_max_obs",
+)
+REQUEST_DERIVED_COLS = REQUEST_SLOT_COLS + REQUEST_PAST_COLS
+PROGRAM_DERIVED_COLS = ("awarded_hours", "awarded_slots", "past_slots")
+
 
 _ROUND4_THROTTLE_GRACE = 2.0
 
@@ -147,10 +157,9 @@ class SemesterPlanner:
         cf (str): path to the ``config.ini`` file.
     """
 
-    def __init__(self, cf, *, boost=None):
+    def __init__(self, cf):
         """See class docstring."""
         logs.debug("Building the SemesterPlanner.")
-        self.boost = boost
 
         # Read config as text so we can persist it verbatim and recreate the
         # parser on from_hdf5.
@@ -161,20 +170,15 @@ class SemesterPlanner:
         self.schedule = None
         self.round_state = _initial_round_state()
 
+        # Load input data
         self.requests = self._load_frame("request")
-        self._attach_slot_columns(self.requests)
-
         self.past = self._load_frame("past")
         self.allocation = self._load_frame("allocation")
         self.custom = self._load_frame("custom")
         self.programs = self._load_frame("programs")
 
-        # Per-request derived columns that depend on past live on
-        # requests (single source of truth, no parallel dict
-        # attributes). Per-program budget/past aggregates live on
-        # ``self.programs`` via :meth:`_attach_program_columns`.
-        self._attach_past_columns()
-        self._attach_program_columns()
+        self._add_request_columns()
+        self._add_program_columns()
 
         # Observability cube (single source of truth for which slots are valid).
         self.access_obj = ac.Access.from_planner(self)
@@ -182,8 +186,6 @@ class SemesterPlanner:
         self.observability = self.access_obj.observability(
             self.access_record.is_observable
         )
-
-        self._log_boost_current_day_slots()
 
         self.build_model()
 
@@ -246,17 +248,13 @@ class SemesterPlanner:
     # Construction helpers.
     # ------------------------------------------------------------------
 
-    def _attach_slot_columns(self, rf):
-        """Append ``t_visit_slots`` and ``tau_intra_slots`` columns to ``rf``.
+    def _add_request_columns(self):
+        """Add REQUEST_DERIVED_COLS to ``self.requests``.
 
-        - ``t_visit_slots`` -- full per-visit duration in slots, from
-          :meth:`Queue.visit_seconds` (includes inter-shot readouts and
-          slew overhead). Rounded; clipped to >= 1.
-        - ``tau_intra_slots`` -- minimum intra-night spacing between
-          visits, in slots.
-
-        Mutates and returns ``rf`` (idempotent).
+        Slot cols from :meth:`Queue.visit_seconds`; past cols from
+        ``self.past``. Mutates in place (idempotent).
         """
+        rf = self.requests
         slot_size = self.config.getfloat("semester", "slot_size")
         visit_s = self.queue.visit_seconds(rf["exptime"], rf["n_exp"])
         rf["t_visit_slots"] = (
@@ -265,39 +263,60 @@ class SemesterPlanner:
         rf["tau_intra_slots"] = (
             (rf["tau_intra"] * 60 / slot_size).round().astype(int)
         )
-        return rf
 
-    def _log_boost_current_day_slots(self):
-        """Report observable slot counts on current_day for each boosted target."""
-        if self.boost is None:
-            return
-        current_day = self.config.get("global", "current_day")
-        d_today = self.today_starting_night
-        boost_by_uid = self._boost_by_uid
-        uid_to_target = dict(
-            zip(
-                self.requests["unique_id"],
-                self.requests["target"],
+        uids = rf["unique_id"]
+        if self.past.empty:
+            agg = pd.DataFrame(
+                {"nights": 0, "n_exp": 0, "last": ""}, index=uids,
             )
+        else:
+            night = self.past["timestamp"].str[:10]
+            g = self.past.assign(_night=night).groupby("unique_id")
+            agg = pd.DataFrame({
+                "nights": g["_night"].nunique(),
+                "n_exp": g.size(),
+                "last": g["_night"].max(),
+            }).reindex(uids).fillna({"nights": 0, "n_exp": 0, "last": ""})
+
+        rf["past_nights_observed"] = agg["nights"].astype(int).to_numpy()
+        rf["past_n_exposures"] = agg["n_exp"].astype(int).to_numpy()
+        rf["past_date_last_observed"] = agg["last"].astype(str).to_numpy()
+
+        n_max = rf["n_inter_max"].to_numpy()
+        past = rf["past_nights_observed"].to_numpy()
+        over = past > n_max
+        rf["desired_max_obs"] = np.where(over, past, n_max - past).astype(int)
+
+    def _add_program_columns(self):
+        """Add PROGRAM_DERIVED_COLS to ``self.programs``.
+
+        ``past_slots`` counts ALL request rows (active + inactive), matching
+        throttle semantics. Requires ``t_visit_slots`` on ``self.requests``.
+        """
+        slot_size = self.config.getfloat("semester", "slot_size")
+        hours_per_night = self.config.getfloat("semester", "hours_per_night")
+
+        self.programs["awarded_hours"] = self.programs["nights"] * hours_per_night
+        self.programs["awarded_slots"] = (
+            self.programs["awarded_hours"] * 60 / slot_size
         )
-        factor = next(iter(boost_by_uid.values()))
-        logs.info(
-            "Boost on current_day=%s (d=%d), factor=%g:",
-            current_day,
-            d_today,
-            factor,
+
+        rfa = self.requests
+        if self.past.empty:
+            past_n = pd.Series(dtype="int64")
+        else:
+            past_n = self.past.groupby("unique_id").size()
+        past_slots_by_uid = (
+            rfa["unique_id"].map(past_n).fillna(0).astype(int) * rfa["t_visit_slots"]
         )
-        obs_uids = self.observability["unique_id"]
-        obs_d = self.observability["d"]
-        for uid in boost_by_uid:
-            n_slots = int(((obs_uids == uid) & (obs_d == d_today)).sum())
-            target = uid_to_target.get(uid, "(unknown unique_id)")
-            logs.info(
-                "  %s (%s): %d observable slot(s) on current_day",
-                uid,
-                target,
-                n_slots,
-            )
+        past_by_prog = (
+            pd.Series(past_slots_by_uid, index=rfa.index)
+            .groupby(rfa["program_code"])
+            .sum()
+        )
+        self.programs["past_slots"] = (
+            past_by_prog.reindex(self.programs.index).fillna(0).astype(int)
+        )
 
     def build_model(self):
         """Gurobi variables plus every structural constraint, inline.
@@ -560,80 +579,6 @@ class SemesterPlanner:
 
         logs.info(f"Structural model built in {time.time() - t0:.3f}s")
 
-    def _attach_past_columns(self):
-        """Attach past-history aggregates and the max-obs cap to ``requests_frame``.
-
-        Aggregates are indexed by ``unique_id`` over UT calendar nights
-        (``timestamp[:10]``); missing uids default to 0 (or ``""``).
-        ``desired_max_obs`` is the per-target night cap (Constraint 2); it
-        collapses to ``past_nights_observed`` when a target is over-observed
-        so the model stays feasible.
-        """
-        rf = self.requests_active
-        uids = rf["unique_id"]
-
-        if self.past.empty:
-            agg = pd.DataFrame(
-                {"nights": 0, "n_exp": 0, "last": ""}, index=uids,
-            )
-        else:
-            night = self.past["timestamp"].str[:10]
-            g = self.past.assign(_night=night).groupby("unique_id")
-            agg = pd.DataFrame({
-                "nights": g["_night"].nunique(),
-                "n_exp": g.size(),
-                "last": g["_night"].max(),
-            }).reindex(uids).fillna({"nights": 0, "n_exp": 0, "last": ""})
-
-        rf["past_nights_observed"] = agg["nights"].astype(int).to_numpy()
-        rf["past_n_exposures"] = agg["n_exp"].astype(int).to_numpy()
-        rf["past_date_last_observed"] = agg["last"].astype(str).to_numpy()
-
-        n_max = rf["n_inter_max"].to_numpy()
-        past = rf["past_nights_observed"].to_numpy()
-        over = past > n_max
-        rf["desired_max_obs"] = np.where(over, past, n_max - past).astype(int)
-
-    def _attach_program_columns(self):
-        """Attach semester budget and past-slot aggregates to ``self.programs``.
-
-        ``past_slots`` counts ALL request rows (active + inactive), matching
-        throttle semantics.
-        """
-        slot_size = self.config.getfloat("semester", "slot_size")
-        hours_per_night = self.config.getfloat("semester", "hours_per_night")
-
-        self.programs["awarded_hours"] = self.programs["nights"] * hours_per_night
-        self.programs["awarded_slots"] = (
-            self.programs["awarded_hours"] * 60 / slot_size
-        )
-
-        rfa = self.requests
-        if self.past.empty:
-            past_n = pd.Series(dtype="int64")
-        else:
-            past_n = self.past.groupby("unique_id").size()
-        past_slots_by_uid = (
-            rfa["unique_id"].map(past_n).fillna(0).astype(int) * rfa["t_visit_slots"]
-        )
-        past_by_prog = (
-            pd.Series(past_slots_by_uid, index=rfa.index)
-            .groupby(rfa["program_code"])
-            .sum()
-        )
-        self.programs["past_slots"] = (
-            past_by_prog.reindex(self.programs.index).fillna(0).astype(int)
-        )
-
-    @cached_property
-    def _boost_by_uid(self):
-        """dict[unique_id -> boost factor], or ``None`` if no boost was passed."""
-        if self.boost is None:
-            return None
-        return dict(
-            zip(self.boost["unique_id"].astype(str), self.boost["boost"].astype(float))
-        )
-
     def _program_slot_value(self):
         """dict[program_code -> float] of scheduled slot-time at the
         *current* Gurobi solution. Not cached -- ``.X`` changes every round."""
@@ -720,7 +665,7 @@ class SemesterPlanner:
     # ==================================================================
 
     def _weighted_theta_expr(self):
-        """Time-weighted global shortfall (Round 1 objective without boost)."""
+        """Time-weighted global shortfall (Round 1 objective)."""
         t_visit = self.requests_active.set_index("unique_id")["t_visit_slots"]
         return gp.quicksum(
             self.theta[uid] * t_visit[uid] for uid in self.schedulable_uids
@@ -735,23 +680,7 @@ class SemesterPlanner:
 
     def set_objective_minimize_theta_time_normalized(self):
         """See Equation 1 in Lubin et al. 2025."""
-        theta_obj = self._weighted_theta_expr()
-        if self.boost is not None:
-            boost_by_uid = self._boost_by_uid
-            d_today = self.today_starting_night
-            boost_terms = [
-                boost_by_uid[uid] * self.Yrds[uid, d, s]
-                for uid, d, s in self.yrds_tuples
-                if d == d_today and uid in boost_by_uid
-            ]
-            if boost_terms:
-                logs.info(
-                    "Objective: boost term for %d unique_id(s) on current_day=%s.",
-                    len(boost_by_uid),
-                    self.config.get("global", "current_day"),
-                )
-                theta_obj -= gp.quicksum(boost_terms)
-        self.model.setObjective(theta_obj, GRB.MINIMIZE)
+        self.model.setObjective(self._weighted_theta_expr(), GRB.MINIMIZE)
 
     def set_objective_maximize_slots_used_tonight(self):
         """Upcoming-night round: maximize filled slots on ``current_day``."""
@@ -1421,13 +1350,11 @@ class SemesterPlanner:
         instance.config.read_string(config_ini_text)
         instance.queue = astroq.queue.from_config(instance.config)
 
-        instance._attach_slot_columns(requests)
         instance.requests = requests
-
         instance.past = past
-        instance._attach_past_columns()
         instance.programs = instance._load_frame("programs")
-        instance._attach_program_columns()
+        instance._add_request_columns()
+        instance._add_program_columns()
         # Downstream consumers only use the rehydrated access_obj for
         # coordinate-based queries (accessible_at, slotmidpoints); the
         # allocation/custom cubes live in the persisted access_record.

@@ -15,7 +15,7 @@ from astroq.splan import SemesterPlanner
 def _make_planner(requests, past):
     """Build a minimal SemesterPlanner stub (no Gurobi, no I/O).
 
-    Sets only the attributes ``_attach_program_columns`` depends on and
+    Sets only the attributes ``_add_program_columns`` depends on and
     attaches program columns the same way the real constructor does.
     """
     sp = SemesterPlanner.__new__(SemesterPlanner)
@@ -33,7 +33,7 @@ def _make_planner(requests, past):
         {"hours": [10.0], "nights": [5.0]},
         index=pd.Index(["2026A_X001"], name="program"),
     )
-    sp._attach_program_columns()
+    sp._add_program_columns()
     return sp
 
 

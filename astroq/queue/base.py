@@ -225,7 +225,7 @@ class Queue:
 
         This is the single source of truth for the splan-style "visit
         seconds" calculation. Callers (:meth:`visit_slots`,
-        :meth:`astroq.splan.SemesterPlanner._attach_slot_columns`) do
+        :meth:`astroq.splan.SemesterPlanner._add_request_columns`) do
         their own slot conversion (round vs ceil) on top of the seconds.
         """
         return (
