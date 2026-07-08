@@ -325,9 +325,8 @@ class SemesterPlanner:
           into ``self.Yrds``. The single table the structural constraints,
           throttle, and priority rounds are defined over. Gurobi variables are
           looked up as ``self.Yrds[k]`` at constraint-build time, never stored
-          in the frame.
-        - ``schedulable_r`` -- request indices with at least one observable slot,
-          in first-appearance order.
+          in the frame. Schedulable requests are those appearing in
+          ``request_slots["r"].unique()``.
 
         Everything here is required by every scheduling mode; rounds layer
         objectives and round-specific deltas on top (``build_model_round*``).
@@ -352,10 +351,9 @@ class SemesterPlanner:
                 self.request_slots["s"],
             )
         )
-        self.schedulable_r = list(self.request_slots["r"].unique())
 
         # diagnostics: requests with no observable slot are absent from the model
-        schedulable = set(self.schedulable_r)
+        schedulable = set(self.request_slots["r"].unique())
         all_requests = list(self.requests_active["r"])
         missing = sum(r not in schedulable for r in all_requests)
         logs.warning(
@@ -659,14 +657,14 @@ class SemesterPlanner:
         """Time-weighted global shortfall (Round 1 objective)."""
         t_visit = self.requests_active.set_index("r")["t_visit_slots"]
         return gp.quicksum(
-            self.theta[r] * t_visit[r] for r in self.schedulable_r
+            self.theta[r] * t_visit[r] for r in self.request_slots["r"].unique()
         )
 
     def _eval_weighted_theta(self):
         """Evaluate weighted shortfall at the current Gurobi solution."""
         t_visit = self.requests_active.set_index("r")["t_visit_slots"]
         return sum(
-            self.theta[r].X * t_visit[r] for r in self.schedulable_r
+            self.theta[r].X * t_visit[r] for r in self.request_slots["r"].unique()
         )
 
     def set_objective_minimize_theta_time_normalized(self):
@@ -815,7 +813,7 @@ class SemesterPlanner:
         logs.info(
             "Constraint: Per-target shortfall must stay at or below prior round."
         )
-        for r in self.schedulable_r:
+        for r in self.request_slots["r"].unique():
             self.model.addConstr(
                 self.theta[r] <= float(self.theta[r].X),
                 f"theta_le_prior_{r}",
