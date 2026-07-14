@@ -153,7 +153,7 @@ class TestClass(unittest.TestCase):
         )
         access_record = sp.access_obj.build_access()
 
-        night_d = sp.all_dates_dict[sp.config.get("global", "current_day")]
+        night_d = sp.access_obj.current_night_index
         uids = sp.requests_active["unique_id"].iloc[:3]
 
         req_index = sp.access_obj.request_frame.set_index("unique_id").index

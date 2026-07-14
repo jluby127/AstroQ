@@ -207,7 +207,7 @@ class SemesterPlanner:
         os.makedirs(self.output_directory, exist_ok=True)
 
     # ------------------------------------------------------------------
-    # Properties (date-derived; paths derived from config).
+    # Properties (paths derived from config).
     # ------------------------------------------------------------------
 
     @property
@@ -232,18 +232,6 @@ class SemesterPlanner:
             scale="utc",
         )
         return int(round(end.jd - start.jd)) + 1
-
-    @property
-    def all_dates_array(self):
-        return self.access_obj.all_dates_array
-
-    @property
-    def all_dates_dict(self):
-        return self.access_obj.all_dates_dict
-
-    @property
-    def today_starting_night(self):
-        return self.all_dates_dict[self.config.get("global", "current_day")]
 
     # ------------------------------------------------------------------
     # Construction helpers.
@@ -385,7 +373,9 @@ class SemesterPlanner:
             # rds_off: r,d,s of visits that cover ds_on. Empty when no exposure reaches
             # this slot -- the constraint then collapses to one start per (d, s), still
             # required so two requests can't share a slot.
-            rds_off = rs_multislot["rds"].loc[[ds_on]] if ds_on in rs_multislot.index else []
+            rds_off = (
+                rs_multislot["rds"].loc[[ds_on]] if ds_on in rs_multislot.index else []
+            )
             self.model.addConstr(
                 gp.quicksum(self.Yrds[rds] for rds in rds_on)
                 + gp.quicksum(self.Yrds[rds] for rds in rds_off)
@@ -632,7 +622,7 @@ class SemesterPlanner:
 
     def set_objective_maximize_slots_used_tonight(self):
         """Upcoming-night round: maximize filled slots on ``current_day``."""
-        d_today = self.today_starting_night
+        d_today = self.access_obj.current_night_index
         current_day = self.config.get("global", "current_day")
         logs.info(
             "Objective: Maximize slot usage on upcoming night current_day=%s (d=%d).",
@@ -1036,7 +1026,7 @@ class SemesterPlanner:
             )
 
         # ---- top-level summary as a Series ----
-        today_idx = self.today_starting_night
+        today_idx = self.access_obj.current_night_index
         active_with_future_slots = (
             self.request_slots.loc[self.request_slots["d"] >= today_idx, "r"]
             .unique()
@@ -1215,7 +1205,7 @@ class SemesterPlanner:
 
     def write_request_selected(self):
         """Write ``request_selected.csv`` -- the handoff to ``NightPlanner``."""
-        today_idx = self.all_dates_dict[self.config.get("global", "current_day")]
+        today_idx = self.access_obj.current_night_index
         selected = {
             k[0] for k, v in self.Yrds.items() if v.x > 0 and k[1] == today_idx
         }

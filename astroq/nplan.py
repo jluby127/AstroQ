@@ -255,7 +255,7 @@ class NightPlanner:
         )
 
     def _night_index(self) -> int:
-        return self.semester_planner.all_dates_dict[self.current_day]
+        return self.semester_planner.access_obj.current_night_index
 
     def _night_bounds(self):
         try:
