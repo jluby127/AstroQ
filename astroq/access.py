@@ -171,6 +171,11 @@ class Access:
             self.slotmidpoints_oneday[np.newaxis, :] + days[:, np.newaxis]
         )
 
+    @property
+    def current_night_index(self) -> int:
+        """Night index ``d`` for ``self.current_day``."""
+        return self.all_dates_dict[self.current_day]
+
     # ------------------------------------------------------------------
     # Adapter for the planner pipeline. Wires SemesterPlanner attributes
     # into the standalone constructor.
@@ -253,7 +258,7 @@ class Access:
     def compute_future(self):
         """Mask out nights before ``self.current_day`` for every target."""
         cube = np.ones(self._access_shape, dtype=bool)
-        cube[:, : self.all_dates_dict[self.current_day], :] = False
+        cube[:, : self.current_night_index, :] = False
         return cube
 
     def _broadcast_to_cube(self, arr, *, newaxis):

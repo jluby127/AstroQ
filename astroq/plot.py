@@ -405,7 +405,7 @@ def process_stars(semester_planner):
         uid = str(newstar.unique_id)
         newstar.observations_past = n_visits_by_uid.get(uid, {})
         newstar.observations_past_exposures = n_obs_by_uid.get(uid, {})
-        newstar.get_future(forecast_df, semester_planner.all_dates_array)
+        newstar.get_future(forecast_df, semester_planner.access_obj.all_dates_array)
 
         # Create COF arrays for each request
         combined_set = set(
@@ -422,7 +422,7 @@ def process_stars(semester_planner):
                     if date in combined_set
                     else 0
                 )
-                for date in semester_planner.all_dates_array
+                for date in semester_planner.access_obj.all_dates_array
             ]
             newstar.dates_observe_time = [
                 (
@@ -446,7 +446,7 @@ def process_stars(semester_planner):
                     if date in combined_set
                     else 0
                 )
-                for date in semester_planner.all_dates_array
+                for date in semester_planner.access_obj.all_dates_array
             ]
         else:
             # For inactive stars, only show past observations
@@ -454,7 +454,7 @@ def process_stars(semester_planner):
                 newstar.observations_past[date]
                 if date in newstar.observations_past.keys()
                 else 0
-                for date in semester_planner.all_dates_array
+                for date in semester_planner.access_obj.all_dates_array
             ]
             newstar.dates_observe_time = [
                 (
@@ -465,7 +465,7 @@ def process_stars(semester_planner):
                 / 3600
                 if date in newstar.observations_past_exposures.keys()
                 else 0
-                for date in semester_planner.all_dates_array
+                for date in semester_planner.access_obj.all_dates_array
             ]
 
         newstar.cume_observe = np.cumsum(newstar.dates_observe)
@@ -505,7 +505,7 @@ def process_stars(semester_planner):
                 )
             else:
                 newstar.cume_observe_pct = np.zeros(
-                    len(semester_planner.all_dates_array)
+                    len(semester_planner.access_obj.all_dates_array)
                 )
 
         # Create consistent colors across programs, and random colors for each star within programs
@@ -608,7 +608,7 @@ def process_stars(semester_planner):
             )
         else:
             programmatic_star.cume_observe_time_pct = np.zeros(
-                len(semester_planner.all_dates_array)
+                len(semester_planner.access_obj.all_dates_array)
             )
         programmatic_star.cume_observe_time = summed_cumulative_time  # in hours
 
@@ -631,7 +631,7 @@ def process_stars(semester_planner):
                 )
             else:
                 programmatic_star.cume_observe_pct = np.zeros(
-                    len(semester_planner.all_dates_array)
+                    len(semester_planner.access_obj.all_dates_array)
                 )
 
         # Compute sum of starmaps
@@ -692,9 +692,9 @@ def get_cof(semester_planner, all_stars, use_time=False):
     )  # autosize=True,margin=dict(l=40, r=40, t=40, b=40),
 
     # Convert calendar dates to night indices (0, 1, 2, ...)
-    night_indices = np.arange(len(semester_planner.all_dates_array))
+    night_indices = np.arange(len(semester_planner.access_obj.all_dates_array))
 
-    burn_line = np.linspace(0, 100, len(semester_planner.all_dates_array))
+    burn_line = np.linspace(0, 100, len(semester_planner.access_obj.all_dates_array))
     burn_line = np.round(burn_line, 2)
 
     # Add "Even Burn Rate" line as a shape so it's always visible and can't be toggled
@@ -724,7 +724,7 @@ def get_cof(semester_planner, all_stars, use_time=False):
     )
     lines = []
     if use_time is False:
-        cume_observe = np.zeros(len(semester_planner.all_dates_array))
+        cume_observe = np.zeros(len(semester_planner.access_obj.all_dates_array))
         max_value = 0
         cume_observe = np.sum([star.cume_observe for star in all_stars], axis=0)
         max_value = sum(star.total_observations_requested for star in all_stars)
@@ -740,7 +740,7 @@ def get_cof(semester_planner, all_stars, use_time=False):
             if total_past_obs > 0:
                 cume_observe_pct = (cume_observe / total_past_obs) * 100
             else:
-                cume_observe_pct = np.zeros(len(semester_planner.all_dates_array))
+                cume_observe_pct = np.zeros(len(semester_planner.access_obj.all_dates_array))
 
         # Add the Total trace first (so it appears below other traces)
         fig.add_trace(
@@ -757,7 +757,7 @@ def get_cof(semester_planner, all_stars, use_time=False):
                 + "<br># Obs Requested: "
                 + str(max_value)
                 + "<br>",
-                customdata=semester_planner.all_dates_array,
+                customdata=semester_planner.access_obj.all_dates_array,
             )
         )
     else:
@@ -774,7 +774,7 @@ def get_cof(semester_planner, all_stars, use_time=False):
                 getattr(
                     s,
                     "cume_observe_time",
-                    np.zeros(len(semester_planner.all_dates_array)),
+                    np.zeros(len(semester_planner.access_obj.all_dates_array)),
                 )
                 for s in all_stars
             ],
@@ -787,7 +787,7 @@ def get_cof(semester_planner, all_stars, use_time=False):
         if total_program_hours > 0:
             cume_time_pct = np.round(summed_cume_time / total_program_hours * 100, 2)
         else:
-            cume_time_pct = np.zeros(len(semester_planner.all_dates_array))
+            cume_time_pct = np.zeros(len(semester_planner.access_obj.all_dates_array))
 
         # Add the Total trace (time-based)
         # Build program label for hover: when multiple programs, show "All programs"; when one, show its name
@@ -810,7 +810,7 @@ def get_cof(semester_planner, all_stars, use_time=False):
                 + "<br>Total program time: "
                 + f"{total_program_hours:.1f} hours<br>"
                 + "<extra></extra>",
-                customdata=semester_planner.all_dates_array,
+                customdata=semester_planner.access_obj.all_dates_array,
             )
         )
 
@@ -831,7 +831,7 @@ def get_cof(semester_planner, all_stars, use_time=False):
                 y_vals = (
                     np.round(all_stars[i].cume_observe_time / total_prog_hours * 100, 2)
                     if total_prog_hours > 0
-                    else np.zeros(len(semester_planner.all_dates_array))
+                    else np.zeros(len(semester_planner.access_obj.all_dates_array))
                 )
             hovertemplate = (
                 "<b>"
@@ -863,20 +863,13 @@ def get_cof(semester_planner, all_stars, use_time=False):
                 line=dict(color=all_stars[i].star_color_rgb, width=2),
                 name=all_stars[i].target,
                 hovertemplate=hovertemplate,
-                customdata=semester_planner.all_dates_array,
+                customdata=semester_planner.access_obj.all_dates_array,
             )
         )
         last_pct = float(np.round(y_vals[-1], 2)) if len(y_vals) else 0
         lines.append(str(all_stars[i].target) + "," + str(last_pct))
 
-    # Find the night index for "today" (current_day)
-    try:
-        today_night_index = semester_planner.all_dates_array.index(
-            semester_planner.config.get("global", "current_day")
-        )
-    except (ValueError, AttributeError):
-        # Fallback to today_starting_night if available, otherwise use 0
-        today_night_index = getattr(semester_planner, "today_starting_night", 0) - 1
+    today_night_index = semester_planner.access_obj.current_night_index
 
     fig.add_vrect(
         x0=today_night_index,
@@ -902,8 +895,8 @@ def get_cof(semester_planner, all_stars, use_time=False):
     # Format dates as "Feb<br>01" (month and day on separate lines)
     x_ticktext_dates = []
     for day_idx in x_tickvals:
-        if day_idx < len(semester_planner.all_dates_array):
-            date_str = semester_planner.all_dates_array[day_idx]
+        if day_idx < len(semester_planner.access_obj.all_dates_array):
+            date_str = semester_planner.access_obj.all_dates_array[day_idx]
             # Parse date and format as "Feb<br>01" using HTML break tag
             date_obj = datetime.strptime(date_str, "%Y-%m-%d")
             month = date_obj.strftime("%b")
@@ -988,7 +981,7 @@ def get_cof(semester_planner, all_stars, use_time=False):
     # This trace must be associated with xaxis='x2' to make the secondary axis visible
     fig.add_trace(
         go.Scatter(
-            x=[0, len(semester_planner.all_dates_array) - 1],
+            x=[0, len(semester_planner.access_obj.all_dates_array) - 1],
             y=[100, 100],  # Position at top of y-axis range
             mode="markers",
             marker=dict(size=0.01, opacity=0),
@@ -1122,10 +1115,11 @@ def get_birdseye(semester_planner, availablity, all_stars):
             )
 
     # Add vertical dashed line denoting "today"
+    today = semester_planner.access_obj.current_night_index
     fig.add_vrect(
-        x0=semester_planner.today_starting_night
+        x0=today
         - 1,  # The minus one is just for aesthetic purposes.
-        x1=semester_planner.today_starting_night - 1,
+        x1=today - 1,
         annotation_text="Today",
         line_dash="dash",
         fillcolor=None,
@@ -1144,8 +1138,8 @@ def get_birdseye(semester_planner, availablity, all_stars):
     # Format dates as "Jan<br>15" or "Aug<br>12" (month and day on separate lines)
     x_ticktext_dates = []
     for day_idx in x_tickvals:
-        if day_idx < len(semester_planner.all_dates_array):
-            date_str = semester_planner.all_dates_array[day_idx]
+        if day_idx < len(semester_planner.access_obj.all_dates_array):
+            date_str = semester_planner.access_obj.all_dates_array[day_idx]
             # Parse date and format as "Jan<br>15" or "Aug<br>12" using HTML break tag
             date_obj = datetime.strptime(date_str, "%Y-%m-%d")
             month = date_obj.strftime("%b")
@@ -1180,7 +1174,7 @@ def get_birdseye(semester_planner, availablity, all_stars):
     n_slots = int(24 * 60 // semester_planner.config.getint("semester", "slot_size"))
     fig.add_trace(
         go.Scatter(
-            x=[0, len(semester_planner.all_dates_array) - 1],
+            x=[0, len(semester_planner.access_obj.all_dates_array) - 1],
             y=[n_slots + 1, n_slots + 1],  # Position just above visible area
             mode="markers",
             marker=dict(size=0.01, opacity=0),
