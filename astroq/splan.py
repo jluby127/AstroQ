@@ -159,7 +159,6 @@ class SemesterPlanner:
 
     def __init__(self, cf):
         """See class docstring."""
-        logs.debug("Building the SemesterPlanner.")
 
         # Read config as text so we can persist it verbatim and recreate the
         # parser on from_hdf5.
@@ -194,8 +193,6 @@ class SemesterPlanner:
         request_slots["rds"] = request_slots[["r", "d", "s"]].apply(tuple, axis=1)
         self.request_slots = request_slots
         self.build_model()
-
-        logs.debug("Initializing complete.")
 
     def _load_frame(self, kind):
         """Load a validated CSV frame. ``kind`` maps to ``{kind}_file`` in config."""
@@ -330,25 +327,18 @@ class SemesterPlanner:
         below refer to that paper. Set-building is relational (merges /
         groupbys over ``request_slots``); Python loops only emit ``addConstr``.
         """
-        t0 = time.time()
-        self.model = gp.Model("Semester_Scheduler")
+        logs.debug("Building the SemesterPlanner.")
+        logs.debug("Initializing complete.")
+        self.model = gp.Model("splan")
 
         rs = self.request_slots
 
         # ---- variables ----
-        self.Yrds = self.model.addVars(
-            rs["rds"], vtype=GRB.BINARY, name="Requests_Slots"
-        )
-        wrd_keys = rs.query("n_intra_max > 1")[["r", "d"]].drop_duplicates()
-        if not wrd_keys.empty:
-            self.Wrd = self.model.addVars(
-                list(wrd_keys.itertuples(index=False, name=None)),
-                vtype=GRB.BINARY,
-                name="OnSky",
-            )
-        self.theta = self.model.addVars(
-            list(self.requests_active["r"]), name="Shortfall"
-        )
+        self.Yrds = self.model.addVars(rs["rds"], vtype=GRB.BINARY, name="Yrds")
+        self.theta = self.model.addVars(self.requests_active["r"], name="Theta")
+        wrd_keys = rs.loc[rs.n_intra_max > 1].groupby(["r", "d"], sort=False).groups
+        if wrd_keys:
+            self.Wrd = self.model.addVars(wrd_keys.keys(), vtype=GRB.BINARY, name="Wrd")
 
         # ---- Eq. 3: shortfall definition. theta_r >= remaining nights owed
         # minus scheduled nights (visits / n_intra_max); lb=0 from addVars. ----
@@ -536,8 +526,6 @@ class SemesterPlanner:
         # ---- Throttle: structural, but re-parameterized by later rounds
         # (Round 4 re-adds it with a wider grace), so it stays a method. ----
         self.constraint_throttle(throttle_grace=1.0)
-
-        logs.info(f"Structural model built in {time.time() - t0:.3f}s")
 
     def _program_slot_value(self):
         """dict[program_code -> float] of scheduled slot-time at the
