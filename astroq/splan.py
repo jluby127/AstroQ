@@ -203,9 +203,6 @@ class SemesterPlanner:
         )
         return astroq.io.read_csv(path, kind)
 
-    def _ensure_output_dir(self):
-        os.makedirs(self.output_directory, exist_ok=True)
-
     # ------------------------------------------------------------------
     # Properties (paths derived from config).
     # ------------------------------------------------------------------
@@ -995,7 +992,7 @@ class SemesterPlanner:
         )
         sparse = sparse.drop(columns=["r"])
         sparse["target"] = sparse["target"].fillna("NO MATCHING NAME")
-        self._ensure_output_dir()
+        os.makedirs(self.output_directory, exist_ok=True)
         sparse.to_csv(
             os.path.join(self.output_directory, "semester_plan.csv"),
             index=False,
@@ -1213,7 +1210,7 @@ class SemesterPlanner:
             self.requests_active["r"].isin(selected)
         ].copy()
         selected_df["nplan_weight"] = 1.0
-        self._ensure_output_dir()
+        os.makedirs(self.output_directory, exist_ok=True)
         selected_df.to_csv(
             os.path.join(self.output_directory, "request_selected.csv"),
             index=False,
@@ -1236,7 +1233,7 @@ class SemesterPlanner:
         """
         if hdf5_path is None:
             hdf5_path = os.path.join(self.output_directory, "semester_planner.h5")
-        self._ensure_output_dir()
+        os.makedirs(self.output_directory, exist_ok=True)
         tmp_path = hdf5_path + ".tmp"
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
