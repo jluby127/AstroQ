@@ -36,7 +36,6 @@ SEMESTER ?= 2026A
 START_DATE ?= 2026-02-01
 END_DATE ?= 2026-07-31
 BANDS ?= band1 full-band1
-FILLER_PROGRAM ?= 2026A_N012
 
 ifdef BAND
   BANDS := $(BAND)
@@ -114,10 +113,10 @@ $(DATE_DIR)/%/prep-run: $(DATE_DIR)/%/config.ini
 	IS_FULL_BAND=$$(echo $(notdir $(@D)) | grep -q '^full-' && echo "true" || echo "false"); \
 	if [ "$$IS_FULL_BAND" = "true" ]; then \
 		echo "Prep full-band $$BAND_NUM (queue=$$QUEUE)..."; \
-		cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -fillers $(FILLER_PROGRAM) -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
+		cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
 	else \
 		echo "Prep band $$BAND_NUM (queue=$$QUEUE)..."; \
-		cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -fillers $(FILLER_PROGRAM) -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
+		cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
 	fi; \
 	touch $@
 
@@ -220,7 +219,7 @@ status:
 	@echo "  Start Date: $(START_DATE)"
 	@echo "  End Date: $(END_DATE)"
 	@echo "  Bands: $(BANDS)"
-	@echo "  Filler Program: $(FILLER_PROGRAM)"
+	@echo "  Filler Program: (none)"
 ifneq ($(strip $(BOOST_UIDS)),)
 	@echo "  Boost UIDs: $(BOOST_UIDS) (factor $(BOOST_FACTOR))"
 else

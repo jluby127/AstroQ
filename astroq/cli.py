@@ -219,8 +219,8 @@ def main():
         "--filler_programs",
         type=str,
         required=False,
-        default="2025B_E473",
-        help="The semester ID for the filler program. Ex. 2025B_E473.",
+        default=None,
+        help="Optional filler program code (e.g. 2025B_E473). Omit for no filler.",
     )
     psr_prep_hirescps.add_argument(
         "-band",
