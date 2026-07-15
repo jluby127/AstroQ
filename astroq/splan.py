@@ -6,11 +6,9 @@ nearly completely agnostic to all astronomy knowledge.
 
 import logging
 import os
-import time
 from configparser import ConfigParser
 from functools import cached_property
 from pathlib import Path
-from typing import Any
 
 import gurobipy as gp
 import h5py
@@ -53,55 +51,17 @@ REQUEST_DERIVED_COLS = REQUEST_SLOT_COLS + REQUEST_PAST_COLS
 PROGRAM_DERIVED_COLS = ("awarded_hours", "awarded_slots", "past_slots")
 
 
-_ROUND4_THROTTLE_GRACE = 2.0
 
-# Default cap on Round-1-optimum multiplier for the upcoming-night round's
-# global shortfall constraint. Referenced from both build_model_upcoming_night
-# and log_report; keep as one constant so the two never drift apart.
 _DEFAULT_GLOBAL_SHORTFALL_SLACK = 1.1
 
-# label -> (banner description, per-round build method). Each build method
-# layers round-specific constraint deltas + an objective on the structural
-# model from build_model().
-_ROUND_SPECS = {
-    "Round1": (
-        "Minimize time-weighted shortfall (Lubin et al.)",
-        "build_model_round1",
-    ),
-    "Round2": (
-        "Maximize inter-program fill factors",
-        "build_model_round2",
-    ),
-    "Round3": (
-        "Intra-program priorities (hold Round-2 fill)",
-        "build_model_round3",
-    ),
-    "Round4": (
-        "Minimize empty slots (re-throttle)",
-        "build_model_round4",
-    ),
-    "UpcomingNight": (
-        "Fill current night (cap global shortfall)",
-        "build_model_upcoming_night",
+# Pipelines keyed by ``[semester] mode`` (mode is required in config; no default).
+_MODE_PIPELINES = {
+    "shortfall": "run_model_shortfall",
+    "shortfall,balance,prioritize,fill-empty,fill-current-day": (
+        "run_model_shortfall_balance_prioritize_fillempty_fillcurrentday"
     ),
 }
-
-# The two supported scheduling modes, selected by ``[semester] mode``.
-MODE_SEQUENCES = {
-    "round1": ("Round1",),
-    "full": ("Round1", "Round2", "Round3", "Round4", "UpcomingNight"),
-}
-
-
-def _initial_round_state():
-    """Cross-round values captured as rounds solve. ``throttle_grace``
-    mirrors the grace factor currently enforced on the model."""
-    return {
-        "round1_weighted_theta": None,
-        "round2_slots_by_program": None,
-        "hold_fill_alpha": 0.0,
-        "throttle_grace": 1.0,
-    }
+_ALLOWED_MODES = list(_MODE_PIPELINES)
 
 _PROGRAM_STATS_KEY = """\
 ** Key
@@ -164,10 +124,10 @@ class SemesterPlanner:
         # parser on from_hdf5.
         self._config_ini_text = Path(cf).read_text()
         self.config = ConfigParser()
+        self.config.optionxform = str
         self.config.read_string(self._config_ini_text)
         self.queue = astroq.queue.from_config(self.config)
         self.schedule = None
-        self.round_state = _initial_round_state()
 
         # Load input data
         self.requests = self._load_frame("request")
@@ -197,7 +157,7 @@ class SemesterPlanner:
     def _load_frame(self, kind):
         """Load a validated CSV frame. ``kind`` maps to ``{kind}_file`` in config."""
         key = f"{kind}_file"
-        raw = self.config.get("semester", key)
+        raw = self.config.get("data", key)
         path = raw if os.path.isabs(raw) else os.path.join(
             self.config.get("global", "workdir"), raw
         )
@@ -218,16 +178,10 @@ class SemesterPlanner:
     @cached_property
     def semester_length(self):
         """Inclusive semester span in nights (computed once)."""
-        start = Time(
-            self.config.get("global", "semester_start_day"),
-            format="iso",
-            scale="utc",
-        )
-        end = Time(
-            self.config.get("global", "semester_end_day"),
-            format="iso",
-            scale="utc",
-        )
+        start = self.config.get("global", "semester_start_day")
+        end = self.config.get("global", "semester_end_day")
+        start = Time(start, format="iso", scale="utc")
+        end = Time(end, format="iso", scale="utc")
         return int(round(end.jd - start.jd)) + 1
 
     # ------------------------------------------------------------------
@@ -304,8 +258,7 @@ class SemesterPlanner:
         Assumes ``self.request_slots`` (built in ``__init__``) -- one row per
         observable ``(r, d, s)`` with an ``rds`` column holding each row's key
         into ``self.Yrds``. Everything here is required by every scheduling
-        mode; rounds layer objectives and round-specific deltas on top
-        (``build_model_round*``).
+        mode; pipeline steps layer objectives and step-specific constraints on top.
 
         Paper map (Lubin et al. 2025 -> code): ``Y_{r,d,s}`` -> ``Yrds``,
         ``W_{r,d}`` -> ``Wrd``, shortfall -> ``theta``; constraint numbers
@@ -575,50 +528,115 @@ class SemesterPlanner:
                 ", ".join(sorted(str(p) for p in clamped)),
             )
 
-    def constraint_fix_global_shortfall(self, slack_factor):
-        """Upcoming-night round: cap weighted shortfall at Round-1 optimum * slack."""
-        round1_theta = self.round_state["round1_weighted_theta"]
-        if round1_theta is None:
-            raise RuntimeError(
-                "Round 1 must be solved before fixing global shortfall."
-            )
-        cap = round1_theta * slack_factor
-        logs.info(
-            "Constraint: weighted shortfall <= Round-1 optimum * %g "
-            "(cap=%.3f from Round-1 weighted shortfall=%.3f)",
-            slack_factor,
-            cap,
-            round1_theta,
-        )
-        self.model.addConstr(
-            self._weighted_theta_expr() <= cap,
-            "fix_global_shortfall_upcoming_night",
-        )
-
     # ==================================================================
     # Objectives.
     # ==================================================================
 
-    def _weighted_theta_expr(self):
-        """Time-weighted global shortfall (Round 1 objective)."""
+    def _objective_weighted_theta(self):
+        """Time-weighted global shortfall (Lubin et al. Eq. 1)."""
         t_visit = self.requests_active.set_index("r")["t_visit_slots"]
         return gp.quicksum(
-            self.theta[r] * t_visit[r] for r in self.request_slots["r"].unique()
+            self.theta[r] * t_visit[r] for r in self.theta
         )
 
-    def _eval_weighted_theta(self):
-        """Evaluate weighted shortfall at the current Gurobi solution."""
+    def _objective_slots_used_tonight(self):
+        """Filled slot-time on ``current_day``."""
+        d_today = self.access_obj.current_night_index
         t_visit = self.requests_active.set_index("r")["t_visit_slots"]
-        return sum(
-            self.theta[r].X * t_visit[r] for r in self.request_slots["r"].unique()
+        return gp.quicksum(
+            t_visit[r] * self.Yrds[r, d, s]
+            for r, d, s in self.request_slots["rds"]
+            if d == d_today
         )
 
-    def set_objective_minimize_theta_time_normalized(self):
-        """See Equation 1 in Lubin et al. 2025."""
-        self.model.setObjective(self._weighted_theta_expr(), GRB.MINIMIZE)
+    # ==================================================================
+    # Model orchestration.
+    # ==================================================================
 
-    def set_objective_maximize_slots_used_tonight(self):
-        """Upcoming-night round: maximize filled slots on ``current_day``."""
+    def optimize_model(self, step):
+        """Apply per-step Gurobi params from config and solve."""
+        params = self.model.Params
+        for section in ("semester.default.gurobi", f"semester.{step}.gurobi"):
+            if not self.config.has_section(section):
+                continue
+            for key in self.config.options(section):
+                if not hasattr(params, key):
+                    logs.warning("Ignoring unknown Gurobi param %s", key)
+                    continue
+                template = getattr(params, key)
+                if isinstance(template, bool):
+                    val = self.config.getboolean(section, key)
+                else:
+                    raw = self.config.get(section, key)
+                    val = (
+                        int(raw)
+                        if isinstance(template, int) and "." not in raw
+                        else float(raw)
+                    )
+                setattr(params, key, val)
+        self.model.update()
+        self.model.optimize()
+
+        if self.model.Status == GRB.INFEASIBLE:
+            raise RuntimeError(
+                f"{step} solve infeasible (status={self.model.Status})"
+            )
+
+    def run_model(self):
+        """Dispatch to the semester scheduling pipeline named in ``[semester] mode``."""
+        mode = self.config.get("semester", "mode").strip().lower()
+        if mode not in _MODE_PIPELINES:
+            raise ValueError(
+                f"[semester] mode={mode!r} invalid; expected one of {_ALLOWED_MODES!r}"
+            )
+        getattr(self, _MODE_PIPELINES[mode])()
+        logs.info("Scheduling complete, clear skies!")
+
+    def run_model_shortfall(self):
+        """Shortfall-only pipeline: minimize weighted theta, write outputs."""
+        self.model.setObjective(self._objective_weighted_theta(), GRB.MINIMIZE)
+        self.optimize_model("shortfall")
+        self.build_schedule()
+        self.log_report("shortfall")
+        self.write_request_selected()
+        self.to_hdf5()
+
+    def run_model_shortfall_balance_prioritize_fillempty_fillcurrentday(self):
+        """Full pipeline: shortfall, then fill-current-day (middle steps Phase 2)."""
+        # ===== shortfall =====
+        self.model.setObjective(self._objective_weighted_theta(), GRB.MINIMIZE)
+        self.optimize_model("shortfall")
+        if self.model.SolCount == 0:
+            raise RuntimeError("shortfall solve produced no solution")
+        objective_shortfall_min = self.model.ObjVal
+
+        # ===== balance ===== (no-op — Phase 2)
+        pass
+
+        # ===== prioritize ===== (no-op — Phase 2)
+        pass
+
+        # ===== fill-empty ===== (no-op — Phase 2)
+        pass
+
+        # ===== fill-current-day =====
+        slack = self.config.getfloat(
+            "semester.fill-current-day",
+            "global_shortfall_slack",
+            fallback=_DEFAULT_GLOBAL_SHORTFALL_SLACK,
+        )
+        cap = objective_shortfall_min * slack
+        logs.info(
+            "Constraint: weighted shortfall <= shortfall optimum * %g "
+            "(cap=%.3f from objective_shortfall_min=%.3f)",
+            slack,
+            cap,
+            objective_shortfall_min,
+        )
+        self.model.addConstr(
+            self._objective_weighted_theta() <= cap,
+            "fix_global_shortfall_upcoming_night",
+        )
         d_today = self.access_obj.current_night_index
         current_day = self.config.get("global", "current_day")
         logs.info(
@@ -626,347 +644,14 @@ class SemesterPlanner:
             current_day,
             d_today,
         )
-        t_visit = self.requests_active.set_index("r")["t_visit_slots"]
-        self.model.setObjective(
-            gp.quicksum(
-                t_visit[r] * self.Yrds[r, d, s]
-                for r, d, s in self.request_slots["rds"]
-                if d == d_today
-            ),
-            GRB.MAXIMIZE,
-        )
+        self.model.setObjective(self._objective_slots_used_tonight(), GRB.MAXIMIZE)
+        self.optimize_model("fill-current-day")
 
-    def set_objective_minimize_empty_slots(self):
-        """Bonus round: minimize empty slots."""
-        logs.info("Objective: Minimize the number of empty slots.")
-        t_visit = self.requests_active.set_index("r")["t_visit_slots"]
-        total_slots = self.semester_length * self.access_obj.nslots
-        self.model.setObjective(
-            (total_slots - gp.quicksum(
-                t_visit[r] * self.Yrds[r, d, s]
-                for r, d, s in self.request_slots["rds"]
-            )),
-            GRB.MINIMIZE,
-        )
-
-    def build_model_round2(self):
-        """Round 2: maximize the summed program fill factors, holding each
-        program at or above its Round-1 fill. Not in Lubin et al. 2025."""
-        program_slot_value = self._program_slot_value()
-
-        fill_factor = {}
-        for p, g in self.request_slots.groupby("program_code"):
-            awarded_slots = self.programs["awarded_slots"].get(p)
-            if awarded_slots is None or awarded_slots <= 0:
-                logs.warning(
-                    "Program %s missing or has non-positive awarded slots; "
-                    "skipping fill factor.",
-                    p,
-                )
-                continue
-            awarded_slots = float(awarded_slots)
-            slot_expr = gp.quicksum(
-                self.Yrds[k] * n for k, n in zip(g["rds"], g["t_visit_slots"])
-            )
-            fill_factor[p] = slot_expr / awarded_slots
-
-            slots_used_val = program_slot_value.get(p, 0.0)
-            logs.info(
-                "Round2 priority: program %s awarded_slots=%.0f "
-                "slots_used=%.0f fill_factor=%.3f",
-                p,
-                awarded_slots,
-                slots_used_val,
-                slots_used_val / awarded_slots,
-            )
-            self.model.addConstr(
-                slots_used_val / awarded_slots <= fill_factor[p],
-                "maintain_fill_factor_for_program_" + p,
-            )
-
-        self.model.setObjective(
-            gp.quicksum(fill_factor.values()), GRB.MAXIMIZE
-        )
-
-    def constraint_hold_program_fill_factors(self, alpha=0.0):
-        """Constrain each program's scheduled slot-time to stay within
-        ``alpha`` (relative tolerance) of its value at the current solution.
-        Applied by Round 3 to hold the Round-2 fills."""
-        self.round_state["hold_fill_alpha"] = float(alpha)
-        logs.info("Constraint: Holding program fill factors.")
-
-        program_slot_value = self._program_slot_value()
-
-        for p, g in self.request_slots.groupby("program_code"):
-            r2_slots = program_slot_value.get(p, 0.0)
-            slot_expr = gp.quicksum(
-                self.Yrds[k] * n for k, n in zip(g["rds"], g["t_visit_slots"])
-            )
-            logs.info(
-                f"Holding program {p} to at least {alpha * 100:.1f}% less than "
-                f"Round 2 scheduled slots: {r2_slots:.0f}"
-            )
-            self.model.addConstr(
-                r2_slots * (1 - alpha) <= slot_expr,
-                "hold_program_fill_factors_lower_" + p,
-            )
-
-    def build_model_round3(self):
-        """Round 3: hold Round-2 program fills, optimize intra-program
-        priorities (``splan_weight``). Not in Lubin et al. 2025."""
-        self.constraint_hold_program_fill_factors()
-        self.set_objective_priorities_intra()
-
-    def set_objective_priorities_intra(self):
-        """Maximize slot-time weighted by inverse ``splan_weight`` (lower
-        weight = higher priority) within each program."""
-        logs.info("Objective: Intra-program priorities.")
-
-        rf_by_r = self.requests_active.set_index("r")
-        weight_by_r = rf_by_r["splan_weight"]
-        t_visit = rf_by_r["t_visit_slots"]
-        rs_by_program = (
-            self.requests_active.groupby("program_code")["r"]
-            .apply(set)
-            .to_dict()
-        )
-
-        self.model.setObjective(
-            gp.quicksum(
-                gp.quicksum(
-                    (1.0 / weight_by_r.loc[r])
-                    * self.Yrds[r, d, s]
-                    * t_visit[r]
-                    for r, d, s in self.request_slots["rds"]
-                    if r in rs_by_program[p]
-                )
-                for p in rs_by_program
-            ),
-            GRB.MAXIMIZE,
-        )
-
-    def remove_constraint_throttle(self):
-        """Remove throttle constraints from a prior round."""
-        logs.info("Constraint: Removing previous throttle constraints.")
-        for program in self.programs.index:
-            rm_const = self.model.getConstrByName(f"throttle_program_{program}")
-            if rm_const is not None:
-                self.model.remove(rm_const)
-
-    def constraint_fix_previous_completion_rates(self):
-        """Keep each target's shortfall no worse than the prior round's
-        solved value (lower ``theta`` is better)."""
-        logs.info(
-            "Constraint: Per-target shortfall must stay at or below prior round."
-        )
-        for r in self.request_slots["r"].unique():
-            self.model.addConstr(
-                self.theta[r] <= float(self.theta[r].X),
-                f"theta_le_prior_{r}",
-            )
-
-    def build_model_round4(self):
-        """Round 4: minimize empty slots with a widened throttle, holding
-        per-target shortfalls at their Round-3 values."""
-        self.constraint_fix_previous_completion_rates()
-        self.remove_constraint_throttle()
-        self.constraint_throttle(throttle_grace=_ROUND4_THROTTLE_GRACE)
-        self.round_state["throttle_grace"] = _ROUND4_THROTTLE_GRACE
-        self.set_objective_minimize_empty_slots()
-
-    # ==================================================================
-    # Model orchestration.
-    # ==================================================================
-
-    def build_model_round1(self):
-        """Round 1 objective per Lubin et al. 2025 (structural constraints
-        already live on the model from :meth:`build_model`)."""
-        self.set_objective_minimize_theta_time_normalized()
-
-    def build_model_upcoming_night(self):
-        """Upcoming-night round: cap global shortfall, fill ``current_day``."""
-        slack = self.config.getfloat(
-            "semester", "global_shortfall_slack", fallback=_DEFAULT_GLOBAL_SHORTFALL_SLACK
-        )
-        self.constraint_fix_global_shortfall(slack_factor=slack)
-        self.set_objective_maximize_slots_used_tonight()
-
-    def _resolve_mode(self):
-        """Resolve ``[semester] mode`` to a round-label sequence.
-
-        Two modes are supported: ``round1`` (default) and ``full`` (Rounds
-        1-5). The pre-refactor boolean keys are rejected with a migration
-        hint rather than silently ignored.
-        """
-        for legacy in ("run_bonus_round", "run_upcoming_night_round"):
-            if self.config.has_option("semester", legacy):
-                raise ValueError(
-                    f"[semester] {legacy} was replaced by "
-                    f"'mode = round1 | full'; update the config."
-                )
-        mode = self.config.get("semester", "mode", fallback="round1")
-        mode = mode.strip().lower()
-        if mode not in MODE_SEQUENCES:
-            valid = " | ".join(MODE_SEQUENCES)
-            raise ValueError(f"[semester] mode={mode!r} invalid; expected {valid}")
-        return mode, MODE_SEQUENCES[mode]
-
-    def _begin_round(self, round_label, *, round_num, round_total):
-        """Log a visible banner at the start of each scheduling round."""
-        desc, _ = _ROUND_SPECS[round_label]
-        logs.info(
-            "===== Semester Round %d/%d: %s =====", round_num, round_total, desc
-        )
-
-    def _log_solver_config_once(self, n_rounds):
-        """Emit semester solver settings once per ``run_model`` invocation."""
-        if not self.config.has_option("semester", "method"):
-            raise ValueError(
-                "[semester] method is required; expected milp or norel+milp"
-            )
-        method = self.config.get("semester", "method").strip().lower()
-        if method not in ("milp", "norel+milp"):
-            raise ValueError(
-                f"[semester] method={method!r} invalid; expected milp or norel+milp"
-            )
-
-        max_solve_time = self.config.getfloat("semester", "max_solve_time")
-        warmstart_time = self.config.getfloat("semester", "warmstart_time", fallback=0.0)
-        if method == "norel+milp":
-            if warmstart_time >= max_solve_time:
-                raise ValueError(
-                    f"[semester] max_solve_time={max_solve_time} must exceed "
-                    f"warmstart_time={warmstart_time} for method=norel+milp"
-                )
-            norel_budget = warmstart_time
-            milp_time = max_solve_time - warmstart_time
-        else:
-            if warmstart_time > 0:
-                logs.warning(
-                    "[semester] warmstart_time=%g ignored for method=milp",
-                    warmstart_time,
-                )
-            norel_budget = 0.0
-            milp_time = max_solve_time
-
-        logs.info(
-            "Semester: method=%s warmstart=%gs milp=%gs rounds=%d",
-            method,
-            norel_budget,
-            milp_time,
-            n_rounds,
-        )
-        return method, norel_budget, milp_time
-
-    def optimize_model(self, round_label="Round1", *, build_secs=0.0):
-        """Solve the Gurobi model (with IIS diagnostics on infeasibility)."""
-        logs.debug("Begin model solve for %s.", round_label)
-        # method/norel_budget/milp_time are parsed and validated once per
-        # run_model() call by _log_solver_config_once, not re-derived here.
-        norel_budget = self._solver_norel_budget
-        milp_time = self._solver_milp_time
-
-        is_first_round = round_label == "Round1"
-        show_gurobi = self.config.getboolean("semester", "show_gurobi_output")
-        if not is_first_round and self.config.has_option(
-            "semester", "show_gurobi_output_later_rounds"
-        ):
-            show_gurobi = self.config.getboolean(
-                "semester", "show_gurobi_output_later_rounds"
-            )
-        if is_first_round:
-            presolve = 2
-            mip_focus = 1
-        else:
-            presolve = self.config.getint(
-                "semester", "presolve_later_rounds", fallback=1
-            )
-            mip_focus = 2
-
-        self.model.params.TimeLimit = milp_time
-        self.model.Params.OutputFlag = int(show_gurobi)
-        self.model.params.MIPGap = self.config.getfloat("semester", "max_solve_gap")
-        self.model.params.NoRelHeurTime = norel_budget if is_first_round else 0.0
-        self.model.params.Presolve = presolve
-        self.model.params.MIPFocus = mip_focus
-        self.model.params.DegenMoves = -1
-        self.model.update()
-        self.model.optimize()
-
-        if self.model.Status == GRB.INFEASIBLE:
-            logs.critical(
-                "Model remains infeasible. Searching for invalid constraints."
-            )
-            self.model.computeIIS()
-            logs.critical("Printing bad constraints:")
-            for c in self.model.getConstrs():
-                if c.IISConstr:
-                    logs.critical("%s", c.ConstrName)
-            for c in self.model.getGenConstrs():
-                if c.IISGenConstr:
-                    logs.critical("%s", c.GenConstrName)
-        else:
-            logs.debug("Model Successfully Solved.")
-
-        runtime = float(self.model.Runtime)
-        nodes = float(self.model.NodeCount)
-        gap_pct = 100.0 * float(self.model.MIPGap)
-        if self.model.SolCount > 0:
-            obj_str = f"{float(self.model.ObjVal):.4g}"
-        else:
-            obj_str = "n/a"
-
-        logs.info(
-            "%s solve: status=%d runtime=%.1fs nodes=%.0f gap=%.2f%% "
-            "obj=%s build=%.1fs presolve=%d",
-            round_label,
-            int(self.model.Status),
-            runtime,
-            nodes,
-            gap_pct,
-            obj_str,
-            build_secs,
-            int(presolve),
-        )
-
-    def run_model(self):
-        """Solve the configured round sequence over the structural model.
-
-        The sequence comes from ``[semester] mode`` (:meth:`_resolve_mode`);
-        values later rounds need from earlier solves are captured in
-        ``self.round_state`` right after each solve.
-        """
-        mode, sequence = self._resolve_mode()
-        self.round_state = _initial_round_state()
-        self._solver_method, self._solver_norel_budget, self._solver_milp_time = (
-            self._log_solver_config_once(len(sequence))
-        )
-        logs.info("Semester scheduling mode: %s", mode)
-
-        for round_num, round_label in enumerate(sequence, start=1):
-            self._begin_round(
-                round_label, round_num=round_num, round_total=len(sequence)
-            )
-            _, build_method = _ROUND_SPECS[round_label]
-            t_build = time.time()
-            getattr(self, build_method)()
-            self.optimize_model(round_label, build_secs=time.time() - t_build)
-            if round_label == "Round1":
-                self.round_state["round1_weighted_theta"] = (
-                    self._eval_weighted_theta()
-                )
-            self._finalize_round(round_label)
-
-        logs.info("Scheduling complete, clear skies!")
-
-    def _finalize_round(self, round_label):
-        """Build schedule, log report, persist per-night handoff + snapshot."""
         self.build_schedule()
-        if round_label == "Round2":
-            self.round_state["round2_slots_by_program"] = (
-                self._program_slot_value()
-            )
-        self.log_report(round_label)
+        self.log_report(
+            "fill-current-day",
+            objective_shortfall_min=objective_shortfall_min,
+        )
         self.write_request_selected()
         self.to_hdf5()
 
@@ -1000,7 +685,15 @@ class SemesterPlanner:
         )
         self.schedule = sparse
 
-    def to_string(self, round_label="Round1", *, header="Semester Planner Statistics"):
+    def to_string(
+        self,
+        step="shortfall",
+        *,
+        header="Semester Planner Statistics",
+        throttle_grace=1.0,
+        slots_by_program_balance=None,
+        hold_fill_alpha=0.0,
+    ):
         """Run report: top-level summary Series + per-program hours DataFrame.
 
         Requires that :meth:`build_schedule` has been called so
@@ -1104,12 +797,8 @@ class SemesterPlanner:
         )
         table["proj"] = table["past"] + table["sched"]
 
-        # Grace / hold values reflect what is actually enforced on the model
-        # this round (captured in round_state as rounds solve).
-        throttle_grace = self.round_state["throttle_grace"]
-        round2_slots = self.round_state["round2_slots_by_program"]
-        hold_alpha = self.round_state["hold_fill_alpha"]
-        hold_active = round_label in ("Round3", "Round4", "UpcomingNight")
+        # Grace / hold values for report columns (from pipeline context).
+        hold_active = step in ("prioritize", "fill-empty", "fill-current-day")
 
         miff_pct = []
         maff_pct = []
@@ -1125,9 +814,9 @@ class SemesterPlanner:
             else:
                 maff_pct.append(0.0)
 
-            if hold_active and round2_slots is not None:
-                r2_slots = float(round2_slots.get(prog, 0.0))
-                min_slots = past_slots + r2_slots * (1.0 - hold_alpha)
+            if hold_active and slots_by_program_balance is not None:
+                balance_slots = float(slots_by_program_balance.get(prog, 0.0))
+                min_slots = past_slots + balance_slots * (1.0 - hold_fill_alpha)
                 if aw_slots > 0:
                     miff_pct.append(100.0 * min_slots / aw_slots)
                 else:
@@ -1155,7 +844,7 @@ class SemesterPlanner:
                     proj,
                     miff,
                     maff,
-                    round_label,
+                    step,
                 )
 
         display = table[["aw", "req", "past", "proj", "miff%", "maff%", "past%", "proj%"]].copy()
@@ -1180,24 +869,30 @@ class SemesterPlanner:
         ]
         return "\n".join(parts) + "\n"
 
-    def log_report(self, round_label):
+    def log_report(self, step, **report_ctx):
         """Emit the run-report text to stdout (no log prefix on table lines)."""
-        round1_theta = self.round_state["round1_weighted_theta"]
-        if round_label == "UpcomingNight" and round1_theta is not None:
+        objective_shortfall_min = report_ctx.get("objective_shortfall_min")
+        if step == "fill-current-day" and objective_shortfall_min is not None:
             slack = self.config.getfloat(
-                "semester", "global_shortfall_slack",
+                "semester.fill-current-day",
+                "global_shortfall_slack",
                 fallback=_DEFAULT_GLOBAL_SHORTFALL_SLACK,
             )
             logs.info(
-                "UpcomingNight: Round-1 weighted shortfall=%.3f cap=%.3f "
-                "post-round weighted shortfall=%.3f",
-                round1_theta,
-                round1_theta * slack,
-                self._eval_weighted_theta(),
+                "fill-current-day: shortfall objective=%.3f cap=%.3f "
+                "post-step shortfall objective=%.3f",
+                objective_shortfall_min,
+                objective_shortfall_min * slack,
+                self._objective_weighted_theta().getValue(),
             )
-        report = self.to_string(round_label)
+        report = self.to_string(
+            step,
+            throttle_grace=report_ctx.get("throttle_grace", 1.0),
+            slots_by_program_balance=report_ctx.get("slots_by_program_balance"),
+            hold_fill_alpha=report_ctx.get("hold_fill_alpha", 0.0),
+        )
         if report:
-            logs.info("Run report (%s):", round_label)
+            logs.info("Run report (%s):", step)
             print(report.rstrip(), flush=True)
 
     def write_request_selected(self):
@@ -1292,6 +987,7 @@ class SemesterPlanner:
         instance = cls.__new__(cls)
         instance._config_ini_text = config_ini_text
         instance.config = ConfigParser()
+        instance.config.optionxform = str
         instance.config.read_string(config_ini_text)
         instance.queue = astroq.queue.from_config(instance.config)
 
@@ -1308,7 +1004,6 @@ class SemesterPlanner:
         instance.access_obj = ac.Access.from_planner(instance)
         instance.access_record = access_record
         instance.schedule = schedule
-        instance.round_state = _initial_round_state()
 
         logs.info(f"SemesterPlanner loaded from HDF5: {hdf5_path}")
         return instance

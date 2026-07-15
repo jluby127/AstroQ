@@ -1,53 +1,76 @@
-"""Tests for the [semester] mode switch and round sequencing."""
+"""Tests for the [semester] mode switch and pipeline dispatch."""
 
 import unittest
-from configparser import ConfigParser
+from configparser import ConfigParser, NoOptionError
+from unittest.mock import patch
 
-from astroq.splan import MODE_SEQUENCES, _ROUND_SPECS, SemesterPlanner
+from astroq.splan import _ALLOWED_MODES, _MODE_PIPELINES, SemesterPlanner
 
 
 def _planner_with_config(text):
-    """Minimal planner stub: only ``config`` is needed by _resolve_mode."""
+    """Minimal planner stub: only ``config`` is needed by ``run_model``."""
     sp = SemesterPlanner.__new__(SemesterPlanner)
     sp.config = ConfigParser()
+    sp.config.optionxform = str
     sp.config.read_string(text)
     return sp
 
 
-class TestResolveMode(unittest.TestCase):
-    def test_default_is_round1(self):
-        sp = _planner_with_config("[semester]\n")
-        mode, sequence = sp._resolve_mode()
-        self.assertEqual(mode, "round1")
-        self.assertEqual(sequence, ("Round1",))
-
-    def test_full_runs_five_rounds(self):
-        sp = _planner_with_config("[semester]\nmode = full\n")
-        mode, sequence = sp._resolve_mode()
-        self.assertEqual(mode, "full")
+class TestRunModelDispatch(unittest.TestCase):
+    def test_mode_pipelines(self):
         self.assertEqual(
-            sequence, ("Round1", "Round2", "Round3", "Round4", "UpcomingNight")
+            _MODE_PIPELINES,
+            {
+                "shortfall": "run_model_shortfall",
+                "shortfall,balance,prioritize,fill-empty,fill-current-day": (
+                    "run_model_shortfall_balance_prioritize_fillempty_fillcurrentday"
+                ),
+            },
         )
+        self.assertEqual(
+            _ALLOWED_MODES,
+            [
+                "shortfall",
+                "shortfall,balance,prioritize,fill-empty,fill-current-day",
+            ],
+        )
+
+    def test_missing_mode_raises(self):
+        sp = _planner_with_config("[semester]\n")
+        with self.assertRaises(NoOptionError):
+            sp.run_model()
+
+    def test_shortfall_mode(self):
+        sp = _planner_with_config("[semester]\nmode = shortfall\n")
+        with patch.object(
+            sp, "run_model_shortfall_balance_prioritize_fillempty_fillcurrentday"
+        ) as full:
+            with patch.object(sp, "run_model_shortfall") as shortfall:
+                sp.run_model()
+                shortfall.assert_called_once()
+                full.assert_not_called()
+
+    def test_full_pipeline_mode(self):
+        sp = _planner_with_config(
+            f"[semester]\nmode = {_ALLOWED_MODES[1]}\n"
+        )
+        with patch.object(
+            sp, "run_model_shortfall_balance_prioritize_fillempty_fillcurrentday"
+        ) as full:
+            with patch.object(sp, "run_model_shortfall") as shortfall:
+                sp.run_model()
+                full.assert_called_once()
+                shortfall.assert_not_called()
 
     def test_unknown_mode_raises(self):
         sp = _planner_with_config("[semester]\nmode = bonus\n")
         with self.assertRaisesRegex(ValueError, "mode='bonus' invalid"):
-            sp._resolve_mode()
+            sp.run_model()
 
-    def test_legacy_keys_raise_with_migration_hint(self):
-        for legacy in ("run_bonus_round", "run_upcoming_night_round"):
-            sp = _planner_with_config(f"[semester]\n{legacy} = True\n")
-            with self.assertRaisesRegex(ValueError, "mode = round1 | full"):
-                sp._resolve_mode()
-
-    def test_every_round_has_a_build_method(self):
-        for sequence in MODE_SEQUENCES.values():
-            for label in sequence:
-                _, build_method = _ROUND_SPECS[label]
-                self.assertTrue(
-                    callable(getattr(SemesterPlanner, build_method)),
-                    f"{label} -> {build_method} is not a SemesterPlanner method",
-                )
+    def test_legacy_round1_raises(self):
+        sp = _planner_with_config("[semester]\nmode = round1\n")
+        with self.assertRaisesRegex(ValueError, "mode='round1' invalid"):
+            sp.run_model()
 
 
 if __name__ == "__main__":

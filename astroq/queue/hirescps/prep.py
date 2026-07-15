@@ -397,7 +397,7 @@ def pull_requests(request_urls_path):
         df["ra"] = c.ra.deg
         df["dec"] = c.dec.deg
 
-        request_dfs.append(df[REQUEST_COLS])
+        request_dfs.append(df[SHEET_REQUEST_COLS])
         custom_dfs.append(_customs_from_requests_df(df))
 
     if not request_dfs:
