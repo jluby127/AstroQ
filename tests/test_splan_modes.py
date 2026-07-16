@@ -93,6 +93,7 @@ class TestRunModelDispatch(unittest.TestCase):
         sp.model.ObjVal = 0.0
         sp.F = MagicMock()
         sp.F.sum.return_value = 0
+        sp.theta = {}
         sp.access_obj = MagicMock(current_night_index=4)
 
         with patch.object(sp, "optimize_model", side_effect=record):
@@ -107,29 +108,21 @@ class TestRunModelDispatch(unittest.TestCase):
                                     return_value=0,
                                 ):
                                     with patch.object(
-                                        sp, "_constraint_fix_theta_prior"
+                                        sp,
+                                        "_objective_minimize_empty_slots",
+                                        return_value=0,
                                     ):
                                         with patch.object(
                                             sp,
-                                            "_objective_minimize_empty_slots",
+                                            "_objective_weighted_theta",
                                             return_value=0,
                                         ):
                                             with patch.object(
                                                 sp,
-                                                "_objective_weighted_theta",
+                                                "_objective_slots_used_tonight",
                                                 return_value=0,
                                             ):
-                                                with patch.object(
-                                                    sp,
-                                                    "_objective_slots_used_tonight",
-                                                    return_value=0,
-                                                ):
-                                                    with patch.object(
-                                                        sp,
-                                                        "_step_config_float",
-                                                        return_value=0.0,
-                                                    ):
-                                                        sp.run_model_shortfall_balance_prioritize_fillempty_fillcurrentday()
+                                                sp.run_model_shortfall_balance_prioritize_fillempty_fillcurrentday()
 
         self.assertEqual(
             step_order,
