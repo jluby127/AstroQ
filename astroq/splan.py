@@ -602,34 +602,6 @@ class SemesterPlanner:
         return total_allocated - scheduled
 
     # ==================================================================
-    # Priority pipeline helpers (balance / prioritize / fill-empty).
-    # ==================================================================
-
-    def _step_config_float(self, step, key, fallback):
-        """Read a float from ``[semester.{step}]``, else return fallback."""
-        section = f"semester.{step}"
-        if self.config.has_section(section) and self.config.has_option(
-            section, key
-        ):
-            return self.config.getfloat(section, key)
-        return fallback
-
-    def _capture_theta_prior(self):
-        """Snapshot solved per-target shortfall before freezing."""
-        self.theta_prior = {r: float(self.theta[r].X) for r in self.theta}
-
-    def _constraint_fix_theta_prior(self):
-        """Keep each target's shortfall no worse than the prior step."""
-        self._capture_theta_prior()
-        logs.info("Constraint: Per-target shortfall frozen at prior values.")
-        for r, prior in self.theta_prior.items():
-            self.model.addConstr(
-                self.theta[r] <= prior,
-                f"theta_le_prior_{r}",
-            )
-
-
-    # ==================================================================
     # Model orchestration.
     # ==================================================================
 
@@ -688,8 +660,6 @@ class SemesterPlanner:
         self._constraint_fillfactor(max_fillfactor=1.0)
         self.model.setObjective(self._objective_weighted_theta(), GRB.MINIMIZE)
         self.optimize_model("shortfall")
-        if self.model.SolCount == 0:
-            raise RuntimeError("shortfall solve produced no solution")
         objective_shortfall_min = self.model.ObjVal
         self.build_schedule()
         self.log_report("shortfall")
@@ -704,7 +674,11 @@ class SemesterPlanner:
         self.log_report("balance")
 
         # ===== prioritize =====
-        hold_alpha = self._step_config_float("prioritize", "hold_fill_alpha", 0.0)
+        hold_alpha = self.config.getfloat(
+            "semester.prioritize",
+            "hold_fill_alpha",
+            fallback=0.0,
+        )
         hold_scale = 1.0 - hold_alpha
         self._constraint_fillfactor(
             min_fillfactor=pd.Series(self.model.getAttr("X", self.F)) * hold_scale,
@@ -715,7 +689,12 @@ class SemesterPlanner:
         self.log_report("prioritize", hold_fill_alpha=hold_alpha)
 
         # ===== fill-empty =====
-        self._constraint_fix_theta_prior()
+        logs.info("Constraint: Per-target shortfall frozen at prior values.")
+        for r in self.theta:
+            self.model.addConstr(
+                self.theta[r] <= float(self.theta[r].X),
+                f"theta_le_prior_{r}",
+            )
         self.model.setObjective(self._objective_minimize_empty_slots(), GRB.MINIMIZE)
         self.optimize_model("fill-empty")
         self.build_schedule()
@@ -788,23 +767,18 @@ class SemesterPlanner:
         )
         self.schedule = sparse
 
-    def to_string(
+    def to_string_summary(
         self,
-        step="shortfall",
         *,
         header="Semester Planner Statistics",
     ):
-        """Run report: top-level summary Series + per-program hours DataFrame.
+        """Global run-report summary (request/slot counts and fill factors).
 
         Requires that :meth:`build_schedule` has been called so
         ``self.schedule`` is set.
         """
         if self.schedule is None:
-            raise RuntimeError("call build_schedule() before to_string()")
-
-        slot_size = self.config.getfloat("semester", "slot_size")
-        hours_per_night = self.config.getfloat("semester", "hours_per_night")
-        slots_per_hour = 60 / slot_size
+            raise RuntimeError("call build_schedule() before to_string_summary()")
 
         def slot_demand_slots(frame):
             return int(
@@ -815,7 +789,6 @@ class SemesterPlanner:
                 ).sum()
             )
 
-        # ---- top-level summary as a Series ----
         today_idx = self.access_obj.current_night_index
         active_with_future_slots = (
             self.request_slots.loc[self.request_slots["d"] >= today_idx, "r"]
@@ -865,9 +838,28 @@ class SemesterPlanner:
             }
         )
 
-        # ---- per-program table (hours) ----
+        divider = "-" * 54
+        parts = [
+            header,
+            divider,
+            summary.to_string(float_format=lambda x: f"{int(round(x))}"),
+        ]
+        return "\n".join(parts) + "\n"
+
+    def to_string_programs(self):
+        """Per-program hours table and fill-factor statistics.
+
+        Requires that :meth:`build_schedule` has been called so
+        ``self.schedule`` is set.
+        """
+        if self.schedule is None:
+            raise RuntimeError("call build_schedule() before to_string_programs()")
+
+        slot_size = self.config.getfloat("semester", "slot_size")
+        slots_per_hour = 60 / slot_size
+        sched = self.schedule
+
         awarded = self.programs["awarded_hours"]
-        awarded_slots = self.programs["awarded_slots"]
         past_slots_by_prog = self.programs["past_slots"]
         past_by_prog = past_slots_by_prog.astype("float64") / slots_per_hour
 
@@ -901,55 +893,26 @@ class SemesterPlanner:
         has_aw = aw_col > 0
         table["past%"] = np.where(has_aw, 100.0 * table["past"] / aw_col, 0.0)
 
-        has_solution = (
-            getattr(self, "F", None) is not None
-            and getattr(self, "model", None) is not None
-            and self.model.SolCount > 0
-        )
-        if has_solution:
-            f_proj = pd.Series(self.model.getAttr("X", self.F))
-            f_lb = pd.Series(self.model.getAttr("LB", self.F))
-            f_ub = pd.Series(self.model.getAttr("UB", self.F))
-            idx = table.index.to_series()
-            table["proj%"] = idx.map(f_proj).fillna(0.0) * 100.0
-            table["miff%"] = idx.map(f_lb).fillna(0.0) * 100.0
-            table["maff%"] = idx.map(f_ub).fillna(0.0) * 100.0
-        else:
-            table["proj%"] = np.where(has_aw, 100.0 * table["proj"] / aw_col, 0.0)
-            table["miff%"] = 0.0
-            table["maff%"] = 0.0
+        f_proj = pd.Series(self.model.getAttr("X", self.F))
+        f_lb = pd.Series(self.model.getAttr("LB", self.F))
+        f_ub = pd.Series(self.model.getAttr("UB", self.F))
+        idx = table.index.to_series()
+        table["proj%"] = idx.map(f_proj).fillna(0.0) * 100.0
+        table["miff%"] = idx.map(f_lb).fillna(0.0) * 100.0
+        table["maff%"] = idx.map(f_ub).fillna(0.0) * 100.0
 
         table = table.sort_index()
 
-        for prog, row in table.iterrows():
-            miff = float(row["miff%"])
-            maff = float(row["maff%"])
-            proj = float(row["proj%"])
-            if proj < miff - 0.05 or proj > maff + 0.05:
-                logs.warning(
-                    "Program %s: proj%%=%.1f outside [miff%%=%.1f, maff%%=%.1f] "
-                    "in %s report",
-                    prog,
-                    proj,
-                    miff,
-                    maff,
-                    step,
-                )
-
-        display = table[["aw", "req", "past", "proj", "miff%", "maff%", "past%", "proj%"]].copy()
-        program_table = display.copy()
+        program_table = table[
+            ["aw", "req", "past", "proj", "miff%", "maff%", "past%", "proj%"]
+        ].copy()
         for col in ("aw", "req", "past", "proj"):
             program_table[col] = program_table[col].map(lambda x: f"{x:.1f}")
         for col in ("miff%", "maff%", "past%", "proj%"):
             program_table[col] = program_table[col].map(lambda x: f"{int(round(x))}%")
 
-        divider = "-" * 54
         stats_divider = "-" * 19 + " Program Statistics " + "-" * 19
         parts = [
-            header,
-            divider,
-            summary.to_string(float_format=lambda x: f"{int(round(x))}"),
-            "",
             stats_divider,
             program_table.to_string(),
             "",
@@ -974,10 +937,10 @@ class SemesterPlanner:
                 objective_shortfall_min * slack,
                 self._objective_weighted_theta().getValue(),
             )
-        report = self.to_string(step)
-        if report:
-            logs.info("Run report (%s):", step)
-            print(report.rstrip(), flush=True)
+        logs.info("Run report (%s):", step)
+        print(self.to_string_summary().rstrip(), flush=True)
+        print()
+        print(self.to_string_programs().rstrip(), flush=True)
 
     def write_request_selected(self):
         """Write ``request_selected.csv`` -- the handoff to ``NightPlanner``."""
