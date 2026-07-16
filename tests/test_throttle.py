@@ -32,7 +32,7 @@ def _make_planner(requests, past):
         """
     )
     sp.programs = pd.DataFrame(
-        {"hours": [10.0], "nights": [5.0]},
+        {"hours": [60.0]},
         index=pd.Index(["2026A_X001"], name="program"),
     )
     sp._add_program_columns()

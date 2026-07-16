@@ -91,6 +91,8 @@ class TestRunModelDispatch(unittest.TestCase):
         sp.model = MagicMock()
         sp.model.SolCount = 1
         sp.model.ObjVal = 0.0
+        sp.F = MagicMock()
+        sp.F.sum.return_value = 0
         sp.access_obj = MagicMock(current_night_index=4)
 
         with patch.object(sp, "optimize_model", side_effect=record):
@@ -98,57 +100,36 @@ class TestRunModelDispatch(unittest.TestCase):
                 with patch.object(sp, "log_report"):
                     with patch.object(sp, "write_request_selected"):
                         with patch.object(sp, "to_hdf5"):
-                            with patch.object(
-                                sp, "_constraint_balance_fill_factors"
-                            ):
+                            with patch.object(sp, "_constraint_fillfactor"):
                                 with patch.object(
                                     sp,
-                                    "_objective_maximize_fill_factors",
+                                    "_objective_prioritize_intra",
                                     return_value=0,
                                 ):
                                     with patch.object(
-                                        sp, "_constraint_hold_program_slots"
+                                        sp, "_constraint_fix_theta_prior"
                                     ):
                                         with patch.object(
                                             sp,
-                                            "_objective_prioritize_intra",
+                                            "_objective_minimize_empty_slots",
                                             return_value=0,
                                         ):
                                             with patch.object(
-                                                sp, "_constraint_fix_theta_prior"
+                                                sp,
+                                                "_objective_weighted_theta",
+                                                return_value=0,
                                             ):
                                                 with patch.object(
-                                                    sp, "_remove_constraint_throttle"
+                                                    sp,
+                                                    "_objective_slots_used_tonight",
+                                                    return_value=0,
                                                 ):
                                                     with patch.object(
-                                                        sp, "constraint_throttle"
+                                                        sp,
+                                                        "_step_config_float",
+                                                        return_value=0.0,
                                                     ):
-                                                        with patch.object(
-                                                            sp,
-                                                            "_objective_minimize_empty_slots",
-                                                            return_value=0,
-                                                        ):
-                                                            with patch.object(
-                                                                sp,
-                                                                "_objective_weighted_theta",
-                                                                return_value=0,
-                                                            ):
-                                                                with patch.object(
-                                                                    sp,
-                                                                    "_objective_slots_used_tonight",
-                                                                    return_value=0,
-                                                                ):
-                                                                    with patch.object(
-                                                                        sp,
-                                                                        "_program_slot_value",
-                                                                        return_value={},
-                                                                    ):
-                                                                        with patch.object(
-                                                                            sp,
-                                                                            "_step_config_float",
-                                                                            return_value=0.0,
-                                                                        ):
-                                                                            sp.run_model_shortfall_balance_prioritize_fillempty_fillcurrentday()
+                                                        sp.run_model_shortfall_balance_prioritize_fillempty_fillcurrentday()
 
         self.assertEqual(
             step_order,

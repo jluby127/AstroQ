@@ -414,28 +414,22 @@ def pull_requests(request_urls_path):
 # =============================================================================
 # Keck schedule — allocation.csv
 # =============================================================================
-# Keck tel schedule query form (HIRESr nights). Crossmatched against
+# Keck tel schedule query form (HIRESr + KPF-CC nights). Crossmatched against
 # request_urls.csv program codes to build allocation blocks for AstroQ.
 
 KECK_SCHEDULE_QUERY_URL = (
     "https://www2.keck.hawaii.edu/observing/keckSchedule/queryForm.php"
 )
-KECK_SCHEDULE_INSTRUMENT = "HIRESr"
+KECK_SCHEDULE_INSTRUMENTS = ("HIRESr", "KPF-CC")
 
 
-def pull_all_scheduled(start_date, end_date, output_path=None, timeout=60):
-    """Query the Keck schedule form for HIRESr and return a DataFrame.
-
-    Date bounds come from config ``semester_start_day`` / ``semester_end_day``.
-
-    Columns: ``Date, Time, Dark, TelNr, Instrument, Account, PI, Institution, ProjCode``.
-    If ``output_path`` is given, also write the same DataFrame to CSV.
-    """
+def _query_keck_schedule_form(instrument, start_date, end_date, timeout=60):
+    """Query the Keck tel schedule form for a single instrument."""
     payload = {
         "doQuery": "1",
         "table": "schedule",
         "Date": f"between {start_date} and {end_date}",
-        "Instrument": KECK_SCHEDULE_INSTRUMENT,
+        "Instrument": instrument,
         "cb_Date": "on",
         "cb_TelNr": "on",
         "cb_Instrument": "on",
@@ -451,14 +445,32 @@ def pull_all_scheduled(start_date, end_date, output_path=None, timeout=60):
     text = response.text.strip()
     if not text.startswith("Date,"):
         snippet = text[:200].replace("\n", " ")
-        raise RuntimeError(f"Unexpected response from schedule form: {snippet}")
+        raise RuntimeError(
+            f"Unexpected response from schedule form ({instrument}): {snippet}"
+        )
+    return pd.DataFrame(csv.DictReader(io.StringIO(text)))
 
-    df = pd.DataFrame(csv.DictReader(io.StringIO(text)))
-    if df.empty:
-        return df
-    df = df.sort_values(
-        ["Date", "Time", "Instrument", "ProjCode"], kind="mergesort"
-    ).reset_index(drop=True)
+
+def pull_all_scheduled(start_date, end_date, output_path=None, timeout=60):
+    """Query the Keck schedule form for HIRESr and KPF-CC nights.
+
+    Date bounds come from config ``semester_start_day`` / ``semester_end_day``.
+
+    Columns: ``Date, Time, Dark, TelNr, Instrument, Account, PI, Institution, ProjCode``.
+    If ``output_path`` is given, also write the same DataFrame to CSV.
+    """
+    frames = [
+        _query_keck_schedule_form(inst, start_date, end_date, timeout=timeout)
+        for inst in KECK_SCHEDULE_INSTRUMENTS
+    ]
+    frames = [f for f in frames if not f.empty]
+    if not frames:
+        df = pd.DataFrame()
+    else:
+        df = pd.concat(frames, ignore_index=True)
+        df = df.sort_values(
+            ["Date", "Time", "Instrument", "ProjCode"], kind="mergesort"
+        ).reset_index(drop=True)
     if output_path is not None:
         df.to_csv(output_path, index=False)
     return df

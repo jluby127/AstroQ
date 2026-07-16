@@ -140,15 +140,15 @@ def hirescps_prep(args):
             {
                 "program": awarded_programs,
                 "hours": list(hours_by_program.values()),
-                "nights": list(nights_by_program.values()),
             }
         )
-        # Manually add one row with for the Engineering program of bright backup stars. Arbitrarily give it 50 night of time. This is intentionally high so that this "program" is not effectively throttled.
+        # Manually add one row for the Engineering program of bright backup stars.
+        # High hours so this "program" is not effectively throttled.
         programmatics = pd.concat(
             [
                 programmatics,
                 pd.DataFrame(
-                    [{"program": args.filler_programs, "hours": 600.0, "nights": 50.0}]
+                    [{"program": args.filler_programs, "hours": 600.0}]
                 ),
             ],
             ignore_index=True,
@@ -180,7 +180,6 @@ def hirescps_prep(args):
             {
                 "program": awarded_programs,
                 "hours": list(hours_by_program.values()),
-                "nights": list(nights_by_program.values()),
             }
         )
         if args.filler_programs:
@@ -192,7 +191,6 @@ def hirescps_prep(args):
                             {
                                 "program": args.filler_programs,
                                 "hours": 600.0,
-                                "nights": 50.0,
                             }
                         ]
                     ),
@@ -333,15 +331,15 @@ def kpfcc_prep(args):
             {
                 "program": awarded_programs,
                 "hours": list(hours_by_program.values()),
-                "nights": list(nights_by_program.values()),
             }
         )
-        # Manually add one row with for the Engineering program of bright backup stars. Arbitrarily give it 50 night of time. This is intentionally high so that this "program" is not effectively throttled.
+        # Manually add one row for the Engineering program of bright backup stars.
+        # High hours so this "program" is not effectively throttled.
         programmatics = pd.concat(
             [
                 programmatics,
                 pd.DataFrame(
-                    [{"program": args.filler_programs, "hours": 600.0, "nights": 50.0}]
+                    [{"program": args.filler_programs, "hours": 600.0}]
                 ),
             ],
             ignore_index=True,
@@ -361,7 +359,6 @@ def kpfcc_prep(args):
             {
                 "program": awarded_programs,
                 "hours": list(hours_by_program.values()),
-                "nights": list(nights_by_program.values()),
             }
         )
         programmatics.to_csv(os.path.join(savepath, "programs.csv"), index=False)

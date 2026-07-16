@@ -15,6 +15,8 @@ from astropy.time import Time
 from astroq.io import (
     ALLOCATION_SCHEMA,
     CUSTOM_SCHEMA,
+    DEFAULT_MAX_FILLFACTOR,
+    DEFAULT_MIN_FILLFACTOR,
     PAST_SCHEMA,
     PROGRAMS_SCHEMA,
     REQUEST_SCHEMA,
@@ -102,11 +104,30 @@ class TestReadCsv(unittest.TestCase):
 
     def test_duplicate_key_raises(self):
         progs = pd.DataFrame(
-            {"program": ["P1", "P1"], "hours": [10.0, 20.0], "nights": [1.0, 2.0]}
+            {"program": ["P1", "P1"], "hours": [10.0, 20.0]}
         )
         path = _write_csv(progs)
         with self.assertRaisesRegex(ValueError, "duplicate"):
             read_csv(path, "programs")
+
+    def test_programs_fillfactor_defaults(self):
+        path = _write_csv(pd.DataFrame({"program": ["P1"], "hours": [12.0]}))
+        df = read_csv(path, "programs")
+        self.assertEqual(df.loc["P1", "min_fillfactor"], DEFAULT_MIN_FILLFACTOR)
+        self.assertEqual(df.loc["P1", "max_fillfactor"], DEFAULT_MAX_FILLFACTOR)
+
+    def test_programs_custom_max_fillfactor(self):
+        path = _write_csv(
+            pd.DataFrame(
+                {
+                    "program": ["P1"],
+                    "hours": [12.0],
+                    "max_fillfactor": [2.0],
+                }
+            )
+        )
+        df = read_csv(path, "programs")
+        self.assertEqual(df.loc["P1", "max_fillfactor"], 2.0)
 
     def test_missing_file_raises_without_empty_ok(self):
         with self.assertRaises(FileNotFoundError):
