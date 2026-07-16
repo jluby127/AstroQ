@@ -549,6 +549,131 @@ class SemesterPlanner:
             if d == d_today
         )
 
+    def _objective_maximize_fill_factors(self):
+        """Maximize the sum of per-program fill factors."""
+        logs.info("Objective: Maximize sum of program fill factors.")
+        return gp.quicksum(
+            self.program_fill_factor[p] for p in self.program_fill_factor
+        )
+
+    def _objective_prioritize_intra(self):
+        """Weight scheduled slot-time by inverse ``splan_weight`` per target."""
+        logs.info("Objective: Intra-program priorities (inverse splan_weight).")
+        splan_weight = self.requests_active.set_index("r")["splan_weight"]
+        return gp.quicksum(
+            (1.0 / splan_weight.loc[r])
+            * self.Yrds[k]
+            * n
+            for k, n, r in zip(
+                self.request_slots["rds"],
+                self.request_slots["t_visit_slots"],
+                self.request_slots["r"],
+            )
+        )
+
+    def _objective_minimize_empty_slots(self):
+        """Minimize unscheduled allocated slot-time."""
+        logs.info("Objective: Minimize empty allocated slots.")
+        total_allocated = int(self.access_record["is_allocated"][0].sum())
+        scheduled = gp.quicksum(
+            self.Yrds[k] * n
+            for k, n in zip(
+                self.request_slots["rds"],
+                self.request_slots["t_visit_slots"],
+            )
+        )
+        return total_allocated - scheduled
+
+    # ==================================================================
+    # Priority pipeline helpers (balance / prioritize / fill-empty).
+    # ==================================================================
+
+    def _step_config_float(self, step, key, fallback):
+        """Read a float from ``[semester.{step}]``, else return fallback."""
+        section = f"semester.{step}"
+        if self.config.has_section(section) and self.config.has_option(
+            section, key
+        ):
+            return self.config.getfloat(section, key)
+        return fallback
+
+    def _remove_constraint_throttle(self):
+        """Drop throttle constraints so a later step can re-add at new grace."""
+        logs.info("Constraint: Removing previous throttle constraints.")
+        for program in self.programs.index:
+            rm_const = self.model.getConstrByName(f"throttle_program_{program}")
+            if rm_const is not None:
+                self.model.remove(rm_const)
+
+    def _capture_theta_prior(self):
+        """Snapshot solved per-target shortfall before freezing."""
+        self.theta_prior = {r: float(self.theta[r].X) for r in self.theta}
+
+    def _constraint_fix_theta_prior(self):
+        """Keep each target's shortfall no worse than the prior step."""
+        self._capture_theta_prior()
+        logs.info("Constraint: Per-target shortfall frozen at prior values.")
+        for r, prior in self.theta_prior.items():
+            self.model.addConstr(
+                self.theta[r] <= prior,
+                f"theta_le_prior_{r}",
+            )
+
+    def _constraint_balance_fill_factors(self):
+        """Freeze shortfall per-program fill; build fill-factor expressions."""
+        logs.info("Constraint: Maintaining shortfall per-program fill factors.")
+        prior_slots = self._program_slot_value()
+        self.program_fill_factor = {}
+        for p, g in self.request_slots.groupby("program_code"):
+            awarded = float(self.programs.loc[p, "awarded_slots"])
+            if awarded <= 0:
+                logs.warning(
+                    "Program %s has non-positive awarded slots; skipping fill factor.",
+                    p,
+                )
+                continue
+            slots_used = gp.quicksum(
+                self.Yrds[k] * n for k, n in zip(g["rds"], g["t_visit_slots"])
+            )
+            self.program_fill_factor[p] = slots_used / awarded
+            prior_fill = prior_slots.get(p, 0.0) / awarded
+            logs.info(
+                "Program %s: shortfall fill=%.4f (awarded=%.0f, used=%.0f slots)",
+                p,
+                prior_fill,
+                awarded,
+                prior_slots.get(p, 0.0),
+            )
+            self.model.addConstr(
+                prior_fill <= self.program_fill_factor[p],
+                f"maintain_fill_factor_{p}",
+            )
+
+    def _constraint_hold_program_slots(self, alpha=0.0):
+        """Hold each program's scheduled slot-time at or above balance step."""
+        logs.info(
+            "Constraint: Holding program slot totals (alpha=%g).",
+            alpha,
+        )
+        balance_slots = self._program_slot_value()
+        for p, g in self.request_slots.groupby("program_code"):
+            hold_slots = balance_slots.get(p, 0.0) * (1.0 - alpha)
+            if hold_slots <= 0:
+                continue
+            future_slots = gp.quicksum(
+                self.Yrds[k] * n for k, n in zip(g["rds"], g["t_visit_slots"])
+            )
+            logs.info(
+                "Program %s: hold >= %.0f scheduled slots",
+                p,
+                hold_slots,
+            )
+            self.model.addConstr(
+                hold_slots <= future_slots,
+                f"hold_program_slots_{p}",
+            )
+
+
     # ==================================================================
     # Model orchestration.
     # ==================================================================
@@ -602,22 +727,51 @@ class SemesterPlanner:
         self.to_hdf5()
 
     def run_model_shortfall_balance_prioritize_fillempty_fillcurrentday(self):
-        """Full pipeline: shortfall, then fill-current-day (middle steps Phase 2)."""
+        """Full pipeline: shortfall through fill-current-day."""
         # ===== shortfall =====
         self.model.setObjective(self._objective_weighted_theta(), GRB.MINIMIZE)
         self.optimize_model("shortfall")
         if self.model.SolCount == 0:
             raise RuntimeError("shortfall solve produced no solution")
         objective_shortfall_min = self.model.ObjVal
+        self.build_schedule()
+        self.log_report("shortfall")
 
-        # ===== balance ===== (no-op — Phase 2)
-        pass
+        # ===== balance =====
+        self._constraint_balance_fill_factors()
+        self.model.setObjective(self._objective_maximize_fill_factors(), GRB.MAXIMIZE)
+        self.optimize_model("balance")
+        slots_by_program_balance = self._program_slot_value()
+        self.build_schedule()
+        self.log_report("balance", throttle_grace=1.0)
 
-        # ===== prioritize ===== (no-op — Phase 2)
-        pass
+        # ===== prioritize =====
+        hold_alpha = self._step_config_float("prioritize", "hold_fill_alpha", 0.0)
+        self._constraint_hold_program_slots(hold_alpha)
+        self.model.setObjective(self._objective_prioritize_intra(), GRB.MAXIMIZE)
+        self.optimize_model("prioritize")
+        self.build_schedule()
+        self.log_report(
+            "prioritize",
+            throttle_grace=1.0,
+            slots_by_program_balance=slots_by_program_balance,
+            hold_fill_alpha=hold_alpha,
+        )
 
-        # ===== fill-empty ===== (no-op — Phase 2)
-        pass
+        # ===== fill-empty =====
+        fill_throttle = self._step_config_float("fill-empty", "throttle_grace", 2.0)
+        self._constraint_fix_theta_prior()
+        self._remove_constraint_throttle()
+        self.constraint_throttle(throttle_grace=fill_throttle)
+        self.model.setObjective(self._objective_minimize_empty_slots(), GRB.MINIMIZE)
+        self.optimize_model("fill-empty")
+        self.build_schedule()
+        self.log_report(
+            "fill-empty",
+            throttle_grace=fill_throttle,
+            slots_by_program_balance=slots_by_program_balance,
+            hold_fill_alpha=hold_alpha,
+        )
 
         # ===== fill-current-day =====
         slack = self.config.getfloat(
@@ -651,6 +805,9 @@ class SemesterPlanner:
         self.log_report(
             "fill-current-day",
             objective_shortfall_min=objective_shortfall_min,
+            throttle_grace=fill_throttle,
+            slots_by_program_balance=slots_by_program_balance,
+            hold_fill_alpha=hold_alpha,
         )
         self.write_request_selected()
         self.to_hdf5()
