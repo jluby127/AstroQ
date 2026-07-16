@@ -1571,6 +1571,13 @@ def get_timebar(
     programmatics = pd.read_csv(
         os.path.join(semester_planner.config.get("global", "workdir"), "programs.csv")
     )
+    if "max_fillfactor" not in programmatics.columns:
+        programmatics["max_fillfactor"] = 1.25
+    else:
+        programmatics["max_fillfactor"] = (
+            pd.to_numeric(programmatics["max_fillfactor"], errors="coerce")
+            .fillna(1.25)
+        )
 
     # Per-visit overhead scalars come from the queue (single source of truth).
     slew_overhead = semester_planner.queue.slew_overhead_mean
@@ -1612,11 +1619,13 @@ def get_timebar(
     if len(programs_used) > 1:
         program_rows = programmatics[programmatics["program"].isin(programs_used)]
         total_allocated_hours = program_rows["hours"].sum()
-        total_allocated_nights = program_rows["nights"].sum()
     else:
         program_rows = programmatics[programmatics["program"] == programs_used[0]]
         total_allocated_hours = program_rows["hours"].sum()
-        total_allocated_nights = program_rows["nights"].sum()
+    total_allocated_nights = total_allocated_hours / hours_per_night
+    max_schedulable_hours = (
+        program_rows["hours"] * program_rows["max_fillfactor"]
+    ).sum()
 
     # Calculate unused hours
     unused_hours = total_allocated_hours - total_future_hours - total_past_hours
@@ -1680,7 +1689,7 @@ def get_timebar(
     top_margin = 180 if total_requested_hours > total_allocated_hours else 130
 
     fig.update_layout(
-        title_text=f"<b>Total Requested:</b> {total_requested_hours:.1f} hours ≈ {total_requested_hours / hours_per_night:.1f} nights<br><b>Total Allocated:</b> {total_allocated_hours:.1f} hours = {total_allocated_nights:.1f} nights ----> w/ losses = {total_allocated_nights * 0.75:.1f} nights <br>Requested time is measured in hours. Allocated time is measured in nights. Conversion is 12 hours per night.<br>All bars include exposure times and standard overheads.",
+        title_text=f"<b>Total Requested:</b> {total_requested_hours:.1f} hours ≈ {total_requested_hours / hours_per_night:.1f} nights<br><b>Total Allocated:</b> {total_allocated_hours:.1f} hours ≈ {total_allocated_nights:.1f} nights ----> w/ losses = {total_allocated_nights * 0.75:.1f} nights <br>Requested and allocated time are measured in hours ({hours_per_night:.0f} hours per night for night equivalents).<br>All bars include exposure times and standard overheads.",
         template="plotly_white",
         showlegend=False,
         height=710,  # Increased height for more vertical spacing between labels
@@ -1716,14 +1725,11 @@ def get_timebar(
         yref="y",
     )
 
-    # Add gray vertical dashed line at total_allocated_hours * throttle_grace
-    grace_factor = semester_planner.config.getfloat(
-        "semester", "throttle_grace", fallback=1.0
-    )
+    # Add gray vertical dashed line at max schedulable time (hours * max_fillfactor)
     fig.add_shape(
         type="line",
-        x0=total_allocated_hours * grace_factor,
-        x1=total_allocated_hours * grace_factor,
+        x0=max_schedulable_hours,
+        x1=max_schedulable_hours,
         y0=-0.5,
         y1=len(labels) - 0.5,
         line=dict(color="gray", width=2, dash="dash"),
@@ -1761,15 +1767,19 @@ def get_timebar(
         )
     )
 
-    # Add invisible scatter trace for hover text on the throttle grace line
-    grace_value = total_allocated_hours * grace_factor
+    # Add invisible scatter trace for hover text on the max schedulable line
     fig.add_trace(
         go.Scatter(
-            x=[grace_value] * len(labels),
+            x=[max_schedulable_hours] * len(labels),
             y=labels,  # Use categorical labels instead of numeric positions
             mode="markers",
             marker=dict(size=20, opacity=0),  # Invisible but hoverable markers
-            hovertemplate=f"<b>Maximum Schedulable Time</b><br>{grace_value:.2f} hours<br>We allow for over-filled requests by a factor of up to {grace_factor:.2f} your allocation<br>Algorithmically, you are forbidden from getting more time than this.<extra></extra>",
+            hovertemplate=(
+                f"<b>Maximum Schedulable Time</b><br>{max_schedulable_hours:.2f} hours<br>"
+                "Sum of awarded hours times per-program max_fillfactor "
+                "(default 1.25). Algorithmically, you are forbidden from "
+                "getting more time than this.<extra></extra>"
+            ),
             hoverlabel=dict(bgcolor="gray", font_color="white"),
             showlegend=False,
         )
@@ -1812,6 +1822,13 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
     programmatics = pd.read_csv(
         os.path.join(semester_planner.config.get("global", "workdir"), "programs.csv")
     )
+    if "max_fillfactor" not in programmatics.columns:
+        programmatics["max_fillfactor"] = 1.25
+    else:
+        programmatics["max_fillfactor"] = (
+            pd.to_numeric(programmatics["max_fillfactor"], errors="coerce")
+            .fillna(1.25)
+        )
 
     # Per-visit overhead scalars come from the queue (single source of truth).
     slew_overhead = semester_planner.queue.slew_overhead_mean
@@ -2000,7 +2017,7 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
             yref=yref,
         )
 
-        # Add gray vertical dashed line at allocated * throttle_grace
+        # Add gray vertical dashed line for weather loss estimate
         weather_loss_factor = 0.2
         fig.add_shape(
             type="line",
@@ -2013,14 +2030,18 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
             yref=yref,
         )
 
-        # Add gray vertical dashed line at allocated * throttle_grace
-        grace_factor = semester_planner.config.getfloat(
-        "semester", "throttle_grace", fallback=1.0
-    )
+        # Add gray vertical dashed line at allocated * max_fillfactor
+        program_row = programmatics.loc[programmatics["program"] == program_code]
+        max_ff = (
+            float(program_row["max_fillfactor"].iloc[0])
+            if len(program_row) > 0
+            else 1.25
+        )
+        max_schedulable = allocated * max_ff
         fig.add_shape(
             type="line",
-            x0=allocated * grace_factor,
-            x1=allocated * grace_factor,
+            x0=max_schedulable,
+            x1=max_schedulable,
             y0=-0.5,
             y1=4.5,
             line=dict(color="gray", width=2, dash="dash"),
@@ -2059,15 +2080,19 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
             col=col,
         )
 
-        # Add invisible scatter for hover on throttle grace line
-        grace_value = allocated * grace_factor
+        # Add invisible scatter for hover on max schedulable line
         fig.add_trace(
             go.Scatter(
-                x=[grace_value],
+                x=[max_schedulable],
                 y=[category_names[2]],  # Middle bar (Future Scheduled)
                 mode="markers",
                 marker=dict(size=15, opacity=0),
-                hovertemplate=f"<b>{program_code} Throttle Grace</b><br>{grace_value:.2f} hours<br>Allocated time times throttle grace factor ({grace_factor:.2f})<extra></extra>",
+                hovertemplate=(
+                    f"<b>{program_code} Maximum Schedulable</b><br>"
+                    f"{max_schedulable:.2f} hours<br>"
+                    f"Awarded hours times max_fillfactor ({max_ff:.2f})"
+                    "<extra></extra>"
+                ),
                 hoverlabel=dict(bgcolor="gray", font_color="white"),
                 showlegend=False,
             ),
@@ -2076,7 +2101,7 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
         )
 
         # Update x-axis for this subplot (scaled to this program's data)
-        # Include allocated*grace and weather loss so the gray lines are visible when they exceed the bars
+        # Include max schedulable and weather loss so the gray lines are visible
         weather_loss_value = allocated - allocated * weather_loss_factor
         program_max = max(
             data["unused"],
@@ -2085,7 +2110,7 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
             data["past"],
             data["requested"],
             data["allocated"],
-            allocated * grace_factor,
+            max_schedulable,
             weather_loss_value,
         )
         program_max = max(program_max, 1.0)  # Ensure at least 1.0 to avoid empty scale

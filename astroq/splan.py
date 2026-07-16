@@ -89,7 +89,7 @@ class SemesterPlanner:
         - ``allocation.csv`` -- telescope time blocks for the semester.
         - ``past.csv`` -- prior observations (caps future ``n_inter_max``).
         - ``custom.csv`` -- PI-supplied per-target observability windows.
-        - ``programs.csv`` -- awarded nights per program (drives throttling).
+        - ``programs.csv`` -- awarded hours per program (drives throttling).
 
     Key outputs (written to ``<workdir>/outputs``):
         - ``semester_plan.csv`` -- sparse schedule with columns
@@ -139,6 +139,7 @@ class SemesterPlanner:
         # Add additional columns needed for model on the fly (not saved)
         self._add_request_columns()
         self._add_program_columns()
+        self._validate_program_coverage()
 
         # Observability cube (single source of truth for which slots are valid).
         self.access_obj = ac.Access.from_planner(self)
@@ -231,11 +232,15 @@ class SemesterPlanner:
         throttle semantics. Requires ``t_visit_slots`` on ``self.requests``.
         """
         slot_size = self.config.getfloat("semester", "slot_size")
-        hours_per_night = self.config.getfloat("semester", "hours_per_night")
 
-        self.programs["awarded_hours"] = self.programs["nights"] * hours_per_night
+        if "min_fillfactor" not in self.programs.columns:
+            self.programs["min_fillfactor"] = 0.0
+        if "max_fillfactor" not in self.programs.columns:
+            self.programs["max_fillfactor"] = 1.25
+
+        self.programs["awarded_hours"] = self.programs["hours"]
         self.programs["awarded_slots"] = (
-            self.programs["awarded_hours"] * 60 / slot_size
+            self.programs["hours"] * 60 / slot_size
         )
 
         rfa = self.requests
@@ -251,6 +256,15 @@ class SemesterPlanner:
         self.programs["past_slots"] = (
             past_by_prog.reindex(self.programs.index).fillna(0).astype(int)
         )
+
+    def _validate_program_coverage(self):
+        """Every request program_code must appear in programs.csv."""
+        codes = set(self.requests["program_code"].dropna().astype(str))
+        missing = sorted(codes - set(self.programs.index.astype(str)))
+        if missing:
+            raise ValueError(
+                f"program_code(s) missing from programs.csv: {missing}"
+            )
 
     def build_model(self):
         """Gurobi variables plus every structural constraint, inline.
@@ -463,70 +477,80 @@ class SemesterPlanner:
                 "enforce_max_visits_{0}_{1}d".format(*rd_on),
             )
 
-        # ---- Throttle: structural, but re-parameterized by later rounds
-        # (Round 4 re-adds it with a wider grace), so it stays a method. ----
-        self.constraint_throttle(throttle_grace=1.0)
-
-    def _program_slot_value(self):
-        """dict[program_code -> float] of scheduled slot-time at the
-        *current* Gurobi solution. Not cached -- ``.X`` changes every round."""
-        return {
-            p: sum(
-                self.Yrds[k].X * n for k, n in zip(g["rds"], g["t_visit_slots"])
-            )
-            for p, g in self.request_slots.groupby("program_code")
-        }
-
-    # ---- throttling & bonus round ----
-
-    def constraint_throttle(self, throttle_grace=1.0):
-        """
-        Not described in Lubin et al. 2025.
-
-        Ensure that no program is scheduled for more time than they bring to
-        the queue (within a grace amount). Past usage is counted over ALL
-        request rows (active and inactive) via ``self.programs["past_slots"]``,
-        while only active targets contribute schedulable slots (inactive
-        targets have no ``Yrds`` variables).
-        """
-        logs.info("Constraint: Throttling over-requested programs.")
-        awarded_slots_grace_by_program = (
-            self.programs["awarded_slots"] * throttle_grace
-        ).astype(int)
-
-        # Past budget: ALL rows (active + inactive).
-        past_used_slots_by_program = self.programs["past_slots"]
-
-        # Schedulable budget: only ACTIVE targets get Yrds variables
-        # (request_slots is active-only).
-        slot_expr_by_program = {
+        # ---- Per-program fill factor F[p] and linking constraints ----
+        logs.info("Constraint: Program fill factors (F[p]).")
+        self.sched_slots_by_program = {
             p: gp.quicksum(
                 self.Yrds[k] * n for k, n in zip(g["rds"], g["t_visit_slots"])
             )
-            for p, g in self.request_slots.groupby("program_code")
+            for p, g in rs.groupby("program_code")
         }
-
-        clamped = []
-        for program, awarded_slots_grace in awarded_slots_grace_by_program.items():
-            awarded_slots_grace = int(awarded_slots_grace)
-            schedulable_slots = slot_expr_by_program.get(program, 0)
-            past_used = int(past_used_slots_by_program.get(program, 0))
-            if awarded_slots_grace < past_used:
-                clamped.append(program)
-                awarded_slots_grace = past_used
-
+        self.program_keys = self.programs.index[
+            self.programs["awarded_slots"] > 0
+        ]
+        self.F = self.model.addVars(self.program_keys, name="F")
+        awarded = self.programs["awarded_slots"]
+        past = self.programs["past_slots"]
+        for p in self.program_keys:
             self.model.addConstr(
-                awarded_slots_grace - past_used >= schedulable_slots,
-                f"throttle_program_{program}",
+                self.F[p] * float(awarded[p])
+                == float(past[p]) + self.sched_slots_by_program.get(p, 0),
+                f"f_link_{p}",
             )
+        self._constraint_fillfactor()
 
-        if clamped:
-            logs.warning(
-                "Throttle: %d program(s) at/over grace from past alone "
-                "(no new scheduling allowed): %s",
-                len(clamped),
-                ", ".join(sorted(str(p) for p in clamped)),
-            )
+    def _constraint_fillfactor(self, *, min_fillfactor=None, max_fillfactor=None):
+        """Set F[p] lower/upper bounds from self.programs, with optional overrides.
+
+        F[p] tracks projected fill factor (past + scheduled) / awarded. Because
+        sched_slots >= 0, F[p] is structurally floored at past_ff = past/awarded;
+        a ceiling below that floor would be infeasible, so we clamp UB up to
+        past_ff (which pins F=past_ff and forces sched=0 -- the graceful
+        "no new scheduling for over-budget programs" behavior of the old throttle).
+
+        Args:
+            min_fillfactor: optional floor override, scalar (all programs) or
+                pd.Series keyed by program. Applied as lb = max(csv_min, override).
+            max_fillfactor: optional ceiling override, scalar or pd.Series.
+                Replaces csv_max for this call (ub = override).
+
+        Bounds not overridden reset to their csv values on every call, so a
+        step must re-pass any floor/ceiling it wants to preserve.
+        """
+        def _at(val, p):
+            if isinstance(val, pd.Series):
+                return float(val[p])
+            return float(val)
+
+        awarded = self.programs["awarded_slots"]
+        past = self.programs["past_slots"]
+
+        for p in self.F:
+            lb = float(self.programs.at[p, "min_fillfactor"])
+            ub = float(self.programs.at[p, "max_fillfactor"])
+
+            if min_fillfactor is not None:
+                lb = max(lb, _at(min_fillfactor, p))
+            if max_fillfactor is not None:
+                ub = _at(max_fillfactor, p)
+
+            past_ff = float(past[p]) / float(awarded[p])
+            if past_ff > ub:
+                logs.warning(
+                    "Program %s over ceiling from past alone "
+                    "(past_ff=%.3f > max_fillfactor=%.3f); pinning F, sched=0.",
+                    p,
+                    past_ff,
+                    ub,
+                )
+                ub = past_ff
+
+            lb = min(lb, ub)
+            self.F[p].LB = lb
+            self.F[p].UB = ub
+
+        if getattr(self, "model", None) is not None:
+            self.model.update()
 
     # ==================================================================
     # Objectives.
@@ -547,13 +571,6 @@ class SemesterPlanner:
             t_visit[r] * self.Yrds[r, d, s]
             for r, d, s in self.request_slots["rds"]
             if d == d_today
-        )
-
-    def _objective_maximize_fill_factors(self):
-        """Maximize the sum of per-program fill factors."""
-        logs.info("Objective: Maximize sum of program fill factors.")
-        return gp.quicksum(
-            self.program_fill_factor[p] for p in self.program_fill_factor
         )
 
     def _objective_prioritize_intra(self):
@@ -597,14 +614,6 @@ class SemesterPlanner:
             return self.config.getfloat(section, key)
         return fallback
 
-    def _remove_constraint_throttle(self):
-        """Drop throttle constraints so a later step can re-add at new grace."""
-        logs.info("Constraint: Removing previous throttle constraints.")
-        for program in self.programs.index:
-            rm_const = self.model.getConstrByName(f"throttle_program_{program}")
-            if rm_const is not None:
-                self.model.remove(rm_const)
-
     def _capture_theta_prior(self):
         """Snapshot solved per-target shortfall before freezing."""
         self.theta_prior = {r: float(self.theta[r].X) for r in self.theta}
@@ -617,60 +626,6 @@ class SemesterPlanner:
             self.model.addConstr(
                 self.theta[r] <= prior,
                 f"theta_le_prior_{r}",
-            )
-
-    def _constraint_balance_fill_factors(self):
-        """Freeze shortfall per-program fill; build fill-factor expressions."""
-        logs.info("Constraint: Maintaining shortfall per-program fill factors.")
-        prior_slots = self._program_slot_value()
-        self.program_fill_factor = {}
-        for p, g in self.request_slots.groupby("program_code"):
-            awarded = float(self.programs.loc[p, "awarded_slots"])
-            if awarded <= 0:
-                logs.warning(
-                    "Program %s has non-positive awarded slots; skipping fill factor.",
-                    p,
-                )
-                continue
-            slots_used = gp.quicksum(
-                self.Yrds[k] * n for k, n in zip(g["rds"], g["t_visit_slots"])
-            )
-            self.program_fill_factor[p] = slots_used / awarded
-            prior_fill = prior_slots.get(p, 0.0) / awarded
-            logs.info(
-                "Program %s: shortfall fill=%.4f (awarded=%.0f, used=%.0f slots)",
-                p,
-                prior_fill,
-                awarded,
-                prior_slots.get(p, 0.0),
-            )
-            self.model.addConstr(
-                prior_fill <= self.program_fill_factor[p],
-                f"maintain_fill_factor_{p}",
-            )
-
-    def _constraint_hold_program_slots(self, alpha=0.0):
-        """Hold each program's scheduled slot-time at or above balance step."""
-        logs.info(
-            "Constraint: Holding program slot totals (alpha=%g).",
-            alpha,
-        )
-        balance_slots = self._program_slot_value()
-        for p, g in self.request_slots.groupby("program_code"):
-            hold_slots = balance_slots.get(p, 0.0) * (1.0 - alpha)
-            if hold_slots <= 0:
-                continue
-            future_slots = gp.quicksum(
-                self.Yrds[k] * n for k, n in zip(g["rds"], g["t_visit_slots"])
-            )
-            logs.info(
-                "Program %s: hold >= %.0f scheduled slots",
-                p,
-                hold_slots,
-            )
-            self.model.addConstr(
-                hold_slots <= future_slots,
-                f"hold_program_slots_{p}",
             )
 
 
@@ -719,6 +674,7 @@ class SemesterPlanner:
 
     def run_model_shortfall(self):
         """Shortfall-only pipeline: minimize weighted theta, write outputs."""
+        self._constraint_fillfactor(max_fillfactor=1.0)
         self.model.setObjective(self._objective_weighted_theta(), GRB.MINIMIZE)
         self.optimize_model("shortfall")
         self.build_schedule()
@@ -729,6 +685,7 @@ class SemesterPlanner:
     def run_model_shortfall_balance_prioritize_fillempty_fillcurrentday(self):
         """Full pipeline: shortfall through fill-current-day."""
         # ===== shortfall =====
+        self._constraint_fillfactor(max_fillfactor=1.0)
         self.model.setObjective(self._objective_weighted_theta(), GRB.MINIMIZE)
         self.optimize_model("shortfall")
         if self.model.SolCount == 0:
@@ -738,40 +695,31 @@ class SemesterPlanner:
         self.log_report("shortfall")
 
         # ===== balance =====
-        self._constraint_balance_fill_factors()
-        self.model.setObjective(self._objective_maximize_fill_factors(), GRB.MAXIMIZE)
+        self._constraint_fillfactor(
+            min_fillfactor=pd.Series(self.model.getAttr("X", self.F))
+        )
+        self.model.setObjective(self.F.sum(), GRB.MAXIMIZE)
         self.optimize_model("balance")
-        slots_by_program_balance = self._program_slot_value()
         self.build_schedule()
-        self.log_report("balance", throttle_grace=1.0)
+        self.log_report("balance")
 
         # ===== prioritize =====
         hold_alpha = self._step_config_float("prioritize", "hold_fill_alpha", 0.0)
-        self._constraint_hold_program_slots(hold_alpha)
+        hold_scale = 1.0 - hold_alpha
+        self._constraint_fillfactor(
+            min_fillfactor=pd.Series(self.model.getAttr("X", self.F)) * hold_scale,
+        )
         self.model.setObjective(self._objective_prioritize_intra(), GRB.MAXIMIZE)
         self.optimize_model("prioritize")
         self.build_schedule()
-        self.log_report(
-            "prioritize",
-            throttle_grace=1.0,
-            slots_by_program_balance=slots_by_program_balance,
-            hold_fill_alpha=hold_alpha,
-        )
+        self.log_report("prioritize", hold_fill_alpha=hold_alpha)
 
         # ===== fill-empty =====
-        fill_throttle = self._step_config_float("fill-empty", "throttle_grace", 2.0)
         self._constraint_fix_theta_prior()
-        self._remove_constraint_throttle()
-        self.constraint_throttle(throttle_grace=fill_throttle)
         self.model.setObjective(self._objective_minimize_empty_slots(), GRB.MINIMIZE)
         self.optimize_model("fill-empty")
         self.build_schedule()
-        self.log_report(
-            "fill-empty",
-            throttle_grace=fill_throttle,
-            slots_by_program_balance=slots_by_program_balance,
-            hold_fill_alpha=hold_alpha,
-        )
+        self.log_report("fill-empty", hold_fill_alpha=hold_alpha)
 
         # ===== fill-current-day =====
         slack = self.config.getfloat(
@@ -805,8 +753,6 @@ class SemesterPlanner:
         self.log_report(
             "fill-current-day",
             objective_shortfall_min=objective_shortfall_min,
-            throttle_grace=fill_throttle,
-            slots_by_program_balance=slots_by_program_balance,
             hold_fill_alpha=hold_alpha,
         )
         self.write_request_selected()
@@ -847,9 +793,6 @@ class SemesterPlanner:
         step="shortfall",
         *,
         header="Semester Planner Statistics",
-        throttle_grace=1.0,
-        slots_by_program_balance=None,
-        hold_fill_alpha=0.0,
     ):
         """Run report: top-level summary Series + per-program hours DataFrame.
 
@@ -954,39 +897,28 @@ class SemesterPlanner:
         )
         table["proj"] = table["past"] + table["sched"]
 
-        # Grace / hold values for report columns (from pipeline context).
-        hold_active = step in ("prioritize", "fill-empty", "fill-current-day")
-
-        miff_pct = []
-        maff_pct = []
-        for prog, row in table.iterrows():
-            aw_slots = float(awarded_slots.get(prog, 0.0))
-            past_slots = float(past_slots_by_prog.get(prog, 0))
-
-            if aw_slots > 0:
-                grace_slots = int(aw_slots * throttle_grace)
-                if grace_slots < past_slots:
-                    grace_slots = int(past_slots)
-                maff_pct.append(100.0 * grace_slots / aw_slots)
-            else:
-                maff_pct.append(0.0)
-
-            if hold_active and slots_by_program_balance is not None:
-                balance_slots = float(slots_by_program_balance.get(prog, 0.0))
-                min_slots = past_slots + balance_slots * (1.0 - hold_fill_alpha)
-                if aw_slots > 0:
-                    miff_pct.append(100.0 * min_slots / aw_slots)
-                else:
-                    miff_pct.append(0.0)
-            else:
-                miff_pct.append(0.0)
-
-        table["miff%"] = miff_pct
-        table["maff%"] = maff_pct
         aw_col = table["aw"]
         has_aw = aw_col > 0
         table["past%"] = np.where(has_aw, 100.0 * table["past"] / aw_col, 0.0)
-        table["proj%"] = np.where(has_aw, 100.0 * table["proj"] / aw_col, 0.0)
+
+        has_solution = (
+            getattr(self, "F", None) is not None
+            and getattr(self, "model", None) is not None
+            and self.model.SolCount > 0
+        )
+        if has_solution:
+            f_proj = pd.Series(self.model.getAttr("X", self.F))
+            f_lb = pd.Series(self.model.getAttr("LB", self.F))
+            f_ub = pd.Series(self.model.getAttr("UB", self.F))
+            idx = table.index.to_series()
+            table["proj%"] = idx.map(f_proj).fillna(0.0) * 100.0
+            table["miff%"] = idx.map(f_lb).fillna(0.0) * 100.0
+            table["maff%"] = idx.map(f_ub).fillna(0.0) * 100.0
+        else:
+            table["proj%"] = np.where(has_aw, 100.0 * table["proj"] / aw_col, 0.0)
+            table["miff%"] = 0.0
+            table["maff%"] = 0.0
+
         table = table.sort_index()
 
         for prog, row in table.iterrows():
@@ -1009,7 +941,7 @@ class SemesterPlanner:
         for col in ("aw", "req", "past", "proj"):
             program_table[col] = program_table[col].map(lambda x: f"{x:.1f}")
         for col in ("miff%", "maff%", "past%", "proj%"):
-            program_table[col] = program_table[col].map(lambda x: f"{x:.1f}%")
+            program_table[col] = program_table[col].map(lambda x: f"{int(round(x))}%")
 
         divider = "-" * 54
         stats_divider = "-" * 19 + " Program Statistics " + "-" * 19
@@ -1042,12 +974,7 @@ class SemesterPlanner:
                 objective_shortfall_min * slack,
                 self._objective_weighted_theta().getValue(),
             )
-        report = self.to_string(
-            step,
-            throttle_grace=report_ctx.get("throttle_grace", 1.0),
-            slots_by_program_balance=report_ctx.get("slots_by_program_balance"),
-            hold_fill_alpha=report_ctx.get("hold_fill_alpha", 0.0),
-        )
+        report = self.to_string(step)
         if report:
             logs.info("Run report (%s):", step)
             print(report.rstrip(), flush=True)

@@ -36,7 +36,10 @@ ALLOCATION_SCHEMA = {"start": Time, "stop": Time}
 
 CUSTOM_SCHEMA = {"unique_id": str, "target": str, "start": Time, "stop": Time}
 
-PROGRAMS_SCHEMA = {"program": str, "hours": float, "nights": float}
+PROGRAMS_SCHEMA = {"program": str, "hours": float}
+
+DEFAULT_MIN_FILLFACTOR = 0.0
+DEFAULT_MAX_FILLFACTOR = 1.25
 
 REQUEST_COLS = list(REQUEST_SCHEMA)
 PAST_COLS = list(PAST_SCHEMA)
@@ -74,6 +77,22 @@ def read_csv(path, type):
 
     elif type == "programs":
         df = _load_frame(path, PROGRAMS_SCHEMA, "programs.csv", key="program")
+        if "min_fillfactor" not in df.columns:
+            df["min_fillfactor"] = DEFAULT_MIN_FILLFACTOR
+        else:
+            df["min_fillfactor"] = (
+                pd.to_numeric(df["min_fillfactor"], errors="coerce")
+                .fillna(DEFAULT_MIN_FILLFACTOR)
+                .astype(float)
+            )
+        if "max_fillfactor" not in df.columns:
+            df["max_fillfactor"] = DEFAULT_MAX_FILLFACTOR
+        else:
+            df["max_fillfactor"] = (
+                pd.to_numeric(df["max_fillfactor"], errors="coerce")
+                .fillna(DEFAULT_MAX_FILLFACTOR)
+                .astype(float)
+            )
         df = df.set_index("program")
 
     elif type == "allocation":
