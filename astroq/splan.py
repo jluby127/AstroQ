@@ -750,6 +750,7 @@ class SemesterPlanner:
         self._constraint_fillfactor(max_fillfactor=1.0)
         self.model.setObjective(self._objective_weighted_theta(), GRB.MINIMIZE)
         self.optimize_model("shortfall")
+        import pdb; pdb.set_trace()
         self.build_schedule()
         self.log_report("shortfall")
         self.write_request_selected()
@@ -968,12 +969,12 @@ class SemesterPlanner:
                 "past_hours": "past",
                 "proj_hours": "proj",
             }
-        )[(*hour_cols,)]
+        )[list(hour_cols)]
         table["proj%"] = 100.0 * ledger["fill_proj"]
         table["miff%"] = 100.0 * ledger["fill_min"]
         table["maff%"] = 100.0 * ledger["fill_max"]
         table["past%"] = np.where(aw > 0, 100.0 * ledger["past_hours"] / aw, 0.0)
-        table = table[[*hour_cols, *pct_cols]]
+        table = table[list(hour_cols) + list(pct_cols)]
         table[["proj%", "miff%", "maff%"]] = table[["proj%", "miff%", "maff%"]].fillna(
             0.0
         )

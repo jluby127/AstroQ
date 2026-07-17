@@ -72,52 +72,9 @@ labelsize = 38
 hours_per_night = 12.0
 
 
-def cumulative_by_night(ps, n_nights, *, group_col, group_val, metric="visits"):
-    """Cumulative visits or slot sum aligned to night index 0..n_nights-1."""
-    sub = ps.loc[ps[group_col] == group_val]
-    if sub.empty:
-        return np.zeros(n_nights, dtype=float)
-    if metric == "visits":
-        daily = sub.groupby(sub.index).size()
-    else:
-        daily = sub.groupby(sub.index)["t_visit_slots"].sum()
-    return daily.reindex(range(n_nights), fill_value=0).cumsum().to_numpy(dtype=float)
-
-
-def daily_visits_by_night(ps, n_nights, *, group_col, group_val):
-    """Per-night visit counts (non-cumulative) aligned to night index."""
-    sub = ps.loc[ps[group_col] == group_val]
-    if sub.empty:
-        return np.zeros(n_nights, dtype=int)
-    return (
-        sub.groupby(sub.index)
-        .size()
-        .reindex(range(n_nights), fill_value=0)
-        .to_numpy(dtype=int)
-    )
-
-
-def _visit_counts_by_date(
-    ps, *, group_col, group_val, past, today_idx, all_dates_array
-):
-    """Map calendar date -> visit count for one star or program."""
-    sub = ps.loc[ps[group_col] == group_val]
-    if past:
-        sub = sub.loc[sub.index < today_idx]
-    else:
-        sub = sub.loc[sub.index >= today_idx]
-    if sub.empty:
-        return {}
-    return {
-        all_dates_array[int(d)]: int(n)
-        for d, n in sub.groupby(sub.index).size().items()
-    }
-
-
 def _charged_hours_from_ps(semester_planner, ps, *, program_codes=None, unique_ids=None):
     """Past and scheduled charged hours from ``timeline``."""
-    slot_size = semester_planner.config.getfloat("semester", "slot_size")
-    slots_per_hour = 60 / slot_size
+    slots_per_hour = semester_planner.slots_per_hour
     sub = ps
     if program_codes is not None:
         sub = sub[sub["program_code"].isin(program_codes)]
@@ -132,42 +89,6 @@ def _charged_hours_from_ps(semester_planner, ps, *, program_codes=None, unique_i
         sub.loc[sub.index >= today_idx, "t_visit_slots"].sum() / slots_per_hour
     )
     return float(past_h), float(sched_h)
-
-
-def _cof_pct_curve(
-    semester_planner,
-    ps,
-    n_nights,
-    *,
-    group_col,
-    group_val,
-    use_time,
-    denominator,
-):
-    """Cumulative COF % array for one program or request."""
-    metric = "slots" if use_time else "visits"
-    cume = cumulative_by_night(
-        ps, n_nights, group_col=group_col, group_val=group_val, metric=metric
-    )
-    if use_time:
-        slot_size = semester_planner.config.getfloat("semester", "slot_size")
-        cume = cume / (60 / slot_size)
-    if denominator > 0:
-        return np.round(cume / denominator * 100, 2)
-    if not use_time and cume[-1] > 0:
-        return np.round(cume / cume[-1] * 100, 2)
-    return np.zeros(n_nights, dtype=float)
-
-
-def _cof_group_for_star(star):
-    """Return (group_col, group_val) for slicing ``timeline``."""
-    if getattr(star, "allow_mapview", True) is False:
-        return "program_code", star.program
-    return "unique_id", str(star.unique_id)
-
-
-def _visit_denominator(star):
-    return getattr(star, "requested_visits", star.total_observations_requested)
 
 
 def programs_ledger_for_plot(semester_planner):

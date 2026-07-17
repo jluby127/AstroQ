@@ -1,15 +1,12 @@
 """AstroQ plotting package: semester figures, night figures, and HTML tables."""
 
 from astroq.plot._common import (
-    cumulative_by_night,
-    daily_visits_by_night,
     gray,
     clear,
     labelsize,
     hours_per_night,
-    _cof_pct_curve,
     _football_cache_dir,
-    _visit_denominator,
+    programs_ledger_for_plot,
 )
 from astroq.plot.context import (
     PlotData,
@@ -41,8 +38,6 @@ __all__ = [
     "PlotSelection",
     "RequestView",
     "build_plot_data",
-    "cumulative_by_night",
-    "daily_visits_by_night",
     "get_birdseye",
     "get_cof",
     "get_completion_histogram_by_weight",
@@ -58,7 +53,6 @@ __all__ = [
     "dataframe_to_html",
     "nightplan_table_to_html",
     "request_frame_to_html",
-    "_cof_pct_curve",
     "_football_cache_dir",
-    "_visit_denominator",
+    "programs_ledger_for_plot",
 ]
