@@ -1,6 +1,18 @@
 """Night-plan Plotly figures (ladder, script plan)."""
 
-from astroq.plot._common import *  # noqa: F403
+import os
+from datetime import timedelta
+
+import numpy as np
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from astropy.time import TimeDelta
+
+from astroq.nplan import get_nightly_times_from_allocation
+from astroq.plot.tables import NIGHTPLAN_COLUMNS
+from astroq.ttp.plot import _as_model, schedule_to_ladder_frame
+
 
 def _min_to_utc_hhmm(night_start, minutes):
     if night_start is None or pd.isna(minutes):
@@ -187,8 +199,6 @@ def get_ladder(data, tonight_start_time):
     Returns:
         fig (plotly figure): a plotly figure illustrating the night plan solution.
     """
-
-    from astroq.ttp.plot import schedule_to_ladder_frame, _as_model
 
     model = _as_model(data)
     orderData = schedule_to_ladder_frame(model)
@@ -625,28 +635,7 @@ def get_script_plan(night_planner):
         }
     )
 
-    # Select and reorder only the specific columns requested
-    # desired_columns = [
-    #     'Start Exposure', 'unique_id', 'target', 'program_code', 'ra', 'dec',
-    #     'exptime', 'n_exp', 'n_intra_max', 'tau_intra', 'weather_band_1', 'weather_band_2', 'weather_band_3', 'teff',
-    #     'jmag', 'Vmag', 'epoch', 'gaia_id', 'First Available', 'Last Available'
-    # ]
-    desired_columns = [
-        "Earliest Start",
-        "Start Exposure",
-        "Latest Finish",
-        "unique_id",
-        "target",
-        "program_code",
-        "ra",
-        "dec",
-        "exptime",
-        "n_exp",
-        "n_intra_max",
-        "tau_intra",
-        "jmag",
-        "Vmag",
-    ]
+    desired_columns = NIGHTPLAN_COLUMNS
 
     # Keep only the columns that exist in the merged dataframe
     available_columns = [col for col in desired_columns if col in merged_df.columns]
@@ -681,10 +670,6 @@ def get_script_plan(night_planner):
 
     # Convert time fields from "minutes from start of night" to HST timestamps
     try:
-        # Get the night start time from the night planner
-        from astroq.nplan import get_nightly_times_from_allocation
-        from astropy.time import TimeDelta
-
         night_start_time, _ = get_nightly_times_from_allocation(
             night_planner.allocation_file, night_planner.current_day
         )
@@ -717,7 +702,7 @@ def get_script_plan(night_planner):
                 )
             )
 
-    except Exception as e:
+    except (AttributeError, OSError, TypeError, ValueError) as e:
         print(f"Warning: Could not convert time fields to HST timestamps: {e}")
         print("Time fields will remain as minutes from start of night")
 
@@ -742,73 +727,4 @@ def get_script_plan(night_planner):
             )
 
     return final_df
-
-
-REQUEST_FRAME_COLUMNS = [
-    "target",
-    "unique_id",
-    "program_code",
-    "ra",
-    "dec",
-    "exptime",
-    "n_exp",
-    "n_inter_max",
-    "tau_inter",
-    "n_intra_max",
-    "n_intra_min",
-    "tau_intra",
-    "weather_band_1",
-    "weather_band_2",
-    "weather_band_3",
-    "inactive",
-    "comments",
-]
-BOOLEAN_COLUMNS = {
-    "weather_band_1": "Band1",
-    "weather_band_2": "Band2",
-    "weather_band_3": "Band3",
-    "inactive": "Inactive",
-}
-REQUEST_FRAME_DISPLAY_NAMES = {
-    "target": "Target",
-    "unique_id": "ID",
-    "program_code": "Program",
-    "ra": "RA",
-    "dec": "Dec",
-    "exptime": "ExpTime",
-    "comments": "Comments",
-}
-# Tooltips shown when hovering over column headers.
-REQUEST_FRAME_COLUMN_TOOLTIPS = {
-    "Star": "Name of the star",
-    "ID": "Keck OB database unique ID",
-    "Program": "Program Code",
-    "RA": "RA in decimal degrees",
-    "Dec": "Declination in decimal degrees",
-    "ExpTime": "Exposure time in seconds",
-    "n_exp": "Number of Exposures per Visit",
-    "n_inter_max": "Maximum number of unique nights to observe the star",
-    "tau_inter": "The minimum inter-night cadence between unique night observations",
-    "n_intra_max": "The desired number of visits to the star in each night it is observed",
-    "n_intra_min": "The accepted minimum number of visits to the star in each night it is observed",
-    "tau_intra": "The minimum intra-night cadence between visits within a night in hours",
-    "Band1": "Allowed to observe in Band1?",
-    "Band2": "Allowed to observe in Band2?",
-    "Band3": "Allowed to observe in Band3?",
-    "Inactive": "Is the star set to inactive?",
-    "Comments": "Observer notes (e.g. from Keck star list)",
-}
-
-
-_REQUEST_BAND_COLS = ("Band1", "Band2", "Band3", "Inactive")
-_REQUEST_NO_PAD_COLS = (
-    "n_inter_max",
-    "tau_inter",
-    "n_intra_max",
-    "n_intra_min",
-    "tau_intra",
-)
-# Numeric columns (post-rename): RA(3), Dec(4), ExpTime(5), n_exp(6),
-# n_inter_max(7), tau_inter(8), n_intra_max(9), n_intra_min(10), tau_intra(11).
-_REQUEST_NUMERIC_COLS = [3, 4, 5, 6, 7, 8, 9, 10, 11]
 

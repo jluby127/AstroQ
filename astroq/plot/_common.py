@@ -1,54 +1,22 @@
 """
-Module for constructing the standard AstroQ plots. All plots are returned as html strings.
-From there, they can be used as is or saved as png files.
+Shared plotting helpers: layout constants, charged-hours helpers, and HTML tables.
+
+Figure builders live in ``semester.py`` and ``night.py``; they import third-party
+libraries directly rather than re-exporting them through this module.
 """
 
-# Standard library imports
-from collections import defaultdict
-from datetime import datetime, timedelta
 from html import escape as html_escape
-from urllib.parse import quote
-import os
-import base64
+from importlib.resources import files as _resource_files
+from pathlib import Path as _Path
 import re
-from io import BytesIO
 
-# Third-party imports
-import numpy as np
-import pandas as pd
-import seaborn as sns
-import astropy.units as u
-from astropy.coordinates import SkyCoord
-import astroplan as apl
 import jinja2
 import matplotlib
-import matplotlib.pyplot as plt
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-from astropy.time import TimeDelta
-from scipy.interpolate import griddata
-
-# Local imports
-import astroq.access as ac
+import numpy as np
 
 # Jinja templates ship with the webapp subpackage. ``importlib.resources`` keeps
 # the lookup correct for both source checkouts and installed wheels.
-from importlib.resources import files as _resource_files
-from pathlib import Path as _Path
-
 _TEMPLATE_DIR = str(_resource_files("astroq.webapp").joinpath("templates"))
-
-
-def _football_cache_dir(semester_planner):
-    """Directory holding the cached sky-availability grids for ``get_football``.
-
-    One cache per workdir keeps the on-disk artifacts adjacent to the run that
-    produced them and avoids polluting the installed package. Tests monkeypatch
-    this function to redirect the cache into a tmp dir.
-    """
-    return _Path(semester_planner.config.get("global", "workdir")) / "cache"
-
 
 _TEMPLATE_ENV = jinja2.Environment(
     loader=jinja2.FileSystemLoader(_TEMPLATE_DIR),
@@ -59,17 +27,27 @@ _TEMPLATE_ENV = jinja2.Environment(
     lstrip_blocks=True,
 )
 
-# Configure matplotlib for headless rendering
+# Configure matplotlib for headless rendering (used by get_football cache build).
 matplotlib.use("Agg")
 
 # just used for color reproducibility
 np.random.seed(24)
 
-# Global variables from dynamic.py
+# Global layout constants (legacy names from dynamic.py)
 gray = "rgb(210,210,210)"
 clear = "rgba(255,255,255,1)"
 labelsize = 38
 hours_per_night = 12.0
+
+
+def _football_cache_dir(semester_planner):
+    """Directory holding the cached sky-availability grids for ``get_football``.
+
+    One cache per workdir keeps the on-disk artifacts adjacent to the run that
+    produced them and avoids polluting the installed package. Tests monkeypatch
+    this function to redirect the cache into a tmp dir.
+    """
+    return _Path(semester_planner.config.get("global", "workdir")) / "cache"
 
 
 def _charged_hours_from_ps(semester_planner, ps, *, program_codes=None, unique_ids=None):
@@ -115,7 +93,7 @@ def programs_ledger_for_plot(semester_planner):
     )
 
 
-def _render_datatable(
+def _render_datatable(  # pylint: disable=too-many-arguments,too-many-locals
     df,
     *,
     template_name,
@@ -238,4 +216,3 @@ def _render_datatable(
     if responsive is not None:
         ctx["responsive"] = responsive
     return template.render(**ctx)
-
