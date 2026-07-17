@@ -1567,16 +1567,7 @@ def get_timebar(
     Returns:
         fig (plotly figure): a plotly figure showing the time used vs forecasted vs available as a horizontal bar chart
     """
-    programmatics = pd.read_csv(
-        os.path.join(semester_planner.config.get("global", "workdir"), "programs.csv")
-    )
-    if "max_fillfactor" not in programmatics.columns:
-        programmatics["max_fillfactor"] = 1.25
-    else:
-        programmatics["max_fillfactor"] = (
-            pd.to_numeric(programmatics["max_fillfactor"], errors="coerce")
-            .fillna(1.25)
-        )
+    programmatics = semester_planner.programs_ledger
 
     # Charged hours are the splan slot-based single source of truth.
     ps = semester_planner.timeline
@@ -1595,12 +1586,11 @@ def get_timebar(
         total_requested_hours - total_past_hours - total_future_hours
     )
 
-    if len(programs_used) > 1:
-        program_rows = programmatics[programmatics["program"].isin(programs_used)]
-        total_allocated_hours = program_rows["hours"].sum()
-    else:
-        program_rows = programmatics[programmatics["program"] == programs_used[0]]
-        total_allocated_hours = program_rows["hours"].sum()
+    programs_used_unique = sorted(set(programs_used))
+    program_rows = programmatics.loc[
+        programmatics.index.isin(programs_used_unique)
+    ]
+    total_allocated_hours = program_rows["hours"].sum()
     total_allocated_nights = total_allocated_hours / hours_per_night
     max_schedulable_hours = (
         program_rows["hours"] * program_rows["max_fillfactor"]
@@ -1798,22 +1788,9 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
     Returns:
         fig (plotly figure): a plotly figure showing time breakdown per program as a grid of horizontal bar charts
     """
-    programmatics = pd.read_csv(
-        os.path.join(semester_planner.config.get("global", "workdir"), "programs.csv")
-    )
-    if "max_fillfactor" not in programmatics.columns:
-        programmatics["max_fillfactor"] = 1.25
-    else:
-        programmatics["max_fillfactor"] = (
-            pd.to_numeric(programmatics["max_fillfactor"], errors="coerce")
-            .fillna(1.25)
-        )
+    ledger = semester_planner.programs_ledger
 
-    # Charged hours are the splan slot-based single source of truth.
-    ps = semester_planner.timeline
-
-    # Get all programs from programs.csv
-    all_programs_in_csv = set(programmatics["program"].unique())
+    all_programs_in_csv = set(ledger.index)
     programs_with_requests = set(programs_dict.keys())
 
     # Find programs in CSV that don't have any requests
@@ -1835,19 +1812,18 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
         total_requested_hours = sum(
             starobj.total_requested_hours for starobj in program_stars
         )
-        total_past_hours, total_future_hours = _charged_hours_from_ps(
-            semester_planner, ps, program_codes=[program_code]
-        )
+        if program_code in ledger.index:
+            row = ledger.loc[program_code]
+            total_past_hours = float(row["past_hours"])
+            total_future_hours = float(row["sched_hours"])
+            total_allocated_hours = float(row["hours"])
+        else:
+            total_past_hours = 0.0
+            total_future_hours = 0.0
+            total_allocated_hours = 0.0
         total_incomplete_hours = (
             total_requested_hours - total_past_hours - total_future_hours
         )
-
-        # Get allocated hours for this program
-        program_row = programmatics[programmatics["program"] == program_code]
-        if len(program_row) > 0:
-            total_allocated_hours = program_row["hours"].sum()
-        else:
-            total_allocated_hours = 0
 
         # Calculate unused hours
         unused_hours = total_allocated_hours - total_future_hours - total_past_hours
@@ -1879,12 +1855,10 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
 
     # Process programs without requests (all bars = 0, but show allocated time)
     for program_code in sorted(programs_without_requests):
-        # Get allocated hours for this program from programs.csv
-        program_row = programmatics[programmatics["program"] == program_code]
-        if len(program_row) > 0:
-            total_allocated_hours = program_row["hours"].sum()
+        if program_code in ledger.index:
+            total_allocated_hours = float(ledger.loc[program_code, "hours"])
         else:
-            total_allocated_hours = 0
+            total_allocated_hours = 0.0
 
         # All values are zero for programs with no requests
         program_data[program_code] = {
@@ -1990,12 +1964,10 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
         )
 
         # Add gray vertical dashed line at allocated * max_fillfactor
-        program_row = programmatics.loc[programmatics["program"] == program_code]
-        max_ff = (
-            float(program_row["max_fillfactor"].iloc[0])
-            if len(program_row) > 0
-            else 1.25
-        )
+        if program_code in ledger.index:
+            max_ff = float(ledger.loc[program_code, "max_fillfactor"])
+        else:
+            max_ff = 1.25
         max_schedulable = allocated * max_ff
         fig.add_shape(
             type="line",

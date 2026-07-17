@@ -50,6 +50,16 @@ REQUEST_PAST_COLS = (
 REQUEST_DERIVED_COLS = REQUEST_SLOT_COLS + REQUEST_PAST_COLS
 PROGRAM_DERIVED_COLS = ("awarded_hours", "awarded_slots", "past_slots")
 
+PROGRAM_LEDGER_COLS = (
+    "past_hours",
+    "sched_hours",
+    "proj_hours",
+    "requested_hours",
+    "fill_proj_pct",
+    "fill_min_pct",
+    "fill_max_pct",
+)
+
 TIMELINE_VALUE_COLS = (
     "unique_id",
     "program_code",
@@ -201,6 +211,16 @@ class SemesterPlanner:
         end = Time(end, format="iso", scale="utc")
         return int(round(end.jd - start.jd)) + 1
 
+    @cached_property
+    def slot_size(self):
+        """Minutes per scheduling slot from ``[semester] slot_size``."""
+        return self.config.getfloat("semester", "slot_size")
+
+    @property
+    def slots_per_hour(self):
+        """Slots per awarded/executed hour (inverse of slot duration)."""
+        return 60 / self.slot_size
+
     # ------------------------------------------------------------------
     # Construction helpers.
     # ------------------------------------------------------------------
@@ -214,13 +234,12 @@ class SemesterPlanner:
         rf = self.requests
         rf["r"] = rf["unique_id"]
         self.past["r"] = self.past["unique_id"]
-        slot_size = self.config.getfloat("semester", "slot_size")
         visit_s = self.queue.visit_seconds(rf["exptime"], rf["n_exp"])
         rf["t_visit_slots"] = (
-            (visit_s / (slot_size * 60.0)).round().clip(lower=1).astype(int)
+            (visit_s / (self.slot_size * 60.0)).round().clip(lower=1).astype(int)
         )
         rf["tau_intra_slots"] = (
-            (rf["tau_intra"] * 60 / slot_size).round().astype(int)
+            (rf["tau_intra"] * self.slots_per_hour).round().astype(int)
         )
 
         rs = rf["r"]
@@ -247,8 +266,6 @@ class SemesterPlanner:
         ``past_slots`` counts ALL request rows (active + inactive), matching
         throttle semantics. Requires ``t_visit_slots`` on ``self.requests``.
         """
-        slot_size = self.config.getfloat("semester", "slot_size")
-
         if "min_fillfactor" not in self.programs.columns:
             self.programs["min_fillfactor"] = 0.0
         if "max_fillfactor" not in self.programs.columns:
@@ -256,7 +273,7 @@ class SemesterPlanner:
 
         self.programs["awarded_hours"] = self.programs["hours"]
         self.programs["awarded_slots"] = (
-            self.programs["hours"] * 60 / slot_size
+            self.programs["hours"] * self.slots_per_hour
         )
 
         req_cols = ["r", "program_code", "t_visit_slots"]
@@ -304,37 +321,43 @@ class SemesterPlanner:
             raise RuntimeError("call build_schedule() before accessing timeline")
         return pd.concat([self._timeline_past(), self._timeline_future()])
 
-    def program_charged_hours(self):
-        """Per-program past / scheduled / projected hours from ``timeline``."""
-        slot_size = self.config.getfloat("semester", "slot_size")
-        slots_per_hour = 60 / slot_size
+    @property
+    def programs_ledger(self):
+        """``programs`` enriched with timeline charged hours and fill factors.
+        Requires :meth:`build_schedule` so ``timeline`` is defined. Does not
+        mutate ``self.programs``.
+        """
+        if self.schedule is None:
+            raise RuntimeError("No schedule created")
+        sph = self.slots_per_hour
+        idx = self.programs.index
         ps = self.timeline
-        prog_index = self.programs.index.astype(str)
-        if ps.empty:
-            hours = pd.DataFrame(
-                {"past": 0.0, "sched": 0.0, "proj": 0.0}, index=prog_index
+        today = self.access_obj.current_night_index
+        def hours(mask):
+            return (
+                ps.loc[mask, "t_visit_slots"]
+                .groupby(ps.loc[mask, "program_code"])
+                .sum()
+                .reindex(idx, fill_value=0)
+                / sph
             )
-            return hours
-
-        today_idx = self.access_obj.current_night_index
-        past_slots = (
-            ps.loc[ps.index < today_idx]
-            .groupby("program_code")["t_visit_slots"]
-            .sum()
+        rf = self.requests_active
+        req_h = (
+            rf["t_visit_slots"] * rf["n_intra_max"] * rf["n_inter_max"] / sph
+        ).groupby(rf["program_code"]).sum().reindex(idx, fill_value=0)
+        out = self.programs.assign(
+            past_hours=hours(ps.index < today),
+            sched_hours=hours(ps.index >= today),
+            requested_hours=req_h,
         )
-        sched_slots = (
-            ps.loc[ps.index >= today_idx]
-            .groupby("program_code")["t_visit_slots"]
-            .sum()
-        )
-        hours = (
-            pd.DataFrame({"past": past_slots, "sched": sched_slots})
-            .astype(float)
-            / slots_per_hour
-        )
-        hours = hours.reindex(prog_index).fillna(0.0)
-        hours["proj"] = hours["past"] + hours["sched"]
-        return hours
+        out["proj_hours"] = out["past_hours"] + out["sched_hours"]
+        for col, attr in (
+            ("fill_proj_pct", "X"),
+            ("fill_min_pct", "LB"),
+            ("fill_max_pct", "UB"),
+        ):
+            out[col] = idx.map(pd.Series(self.model.getAttr(attr, self.F))) * 100.0
+        return out
 
     def _validate_program_coverage(self):
         """Every request program_code must appear in programs.csv."""
@@ -935,56 +958,35 @@ class SemesterPlanner:
         if self.schedule is None:
             raise RuntimeError("call build_schedule() before to_string_programs()")
 
-        slot_size = self.config.getfloat("semester", "slot_size")
-        slots_per_hour = 60 / slot_size
-
-        awarded = self.programs["awarded_hours"]
-        charged = self.program_charged_hours()
-
-        rf = self.requests_active.copy()
-        rf["requested_h"] = (
-            rf["t_visit_slots"] * rf["n_intra_max"] * rf["n_inter_max"]
-        ) / slots_per_hour
-        requested_by_prog = rf.groupby("program_code")["requested_h"].sum()
-
-        table = (
-            pd.DataFrame({"aw": awarded})
-            .join(requested_by_prog.rename("req"), how="left")
-            .join(charged[["past", "sched", "proj"]], how="left")
-            .fillna(0.0)
+        hour_cols = ("aw", "req", "past", "proj")
+        pct_cols = ("miff%", "maff%", "past%", "proj%")
+        ledger = self.programs_ledger.sort_index()
+        aw = ledger["awarded_hours"]
+        table = ledger.rename(
+            columns={
+                "awarded_hours": "aw",
+                "requested_hours": "req",
+                "past_hours": "past",
+                "proj_hours": "proj",
+                "fill_proj_pct": "proj%",
+                "fill_min_pct": "miff%",
+                "fill_max_pct": "maff%",
+            }
+        )[(*hour_cols, "proj%", "miff%", "maff%")]
+        table["past%"] = np.where(aw > 0, 100.0 * ledger["past_hours"] / aw, 0.0)
+        table = table[[*hour_cols, *pct_cols]]
+        table[["proj%", "miff%", "maff%"]] = table[["proj%", "miff%", "maff%"]].fillna(
+            0.0
         )
-
-        aw_col = table["aw"]
-        has_aw = aw_col > 0
-        table["past%"] = np.where(has_aw, 100.0 * table["past"] / aw_col, 0.0)
-
-        f_proj = pd.Series(self.model.getAttr("X", self.F))
-        f_lb = pd.Series(self.model.getAttr("LB", self.F))
-        f_ub = pd.Series(self.model.getAttr("UB", self.F))
-        idx = table.index.to_series()
-        table["proj%"] = idx.map(f_proj).fillna(0.0) * 100.0
-        table["miff%"] = idx.map(f_lb).fillna(0.0) * 100.0
-        table["maff%"] = idx.map(f_ub).fillna(0.0) * 100.0
-
-        table = table.sort_index()
-
-        program_table = table[
-            ["aw", "req", "past", "proj", "miff%", "maff%", "past%", "proj%"]
-        ].copy()
-        for col in ("aw", "req", "past", "proj"):
-            program_table[col] = program_table[col].map(lambda x: f"{x:.1f}")
-        for col in ("miff%", "maff%", "past%", "proj%"):
-            program_table[col] = program_table[col].map(lambda x: f"{int(round(x))}%")
+        for col in hour_cols:
+            table[col] = table[col].map("{:.1f}".format)
+        for col in pct_cols:
+            table[col] = table[col].map(lambda x: f"{int(round(x))}%")
 
         stats_divider = "-" * 19 + " Program Statistics " + "-" * 19
-        parts = [
-            stats_divider,
-            program_table.to_string(),
-            "",
-            _PROGRAM_STATS_KEY,
-            "",
-        ]
-        return "\n".join(parts) + "\n"
+        return "\n".join(
+            [stats_divider, table.to_string(), "", _PROGRAM_STATS_KEY, ""]
+        ) + "\n"
 
     def log_report(self, step, **report_ctx):
         """Emit the run-report text to stdout (no log prefix on table lines)."""
