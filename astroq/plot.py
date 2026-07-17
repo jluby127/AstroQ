@@ -72,6 +72,104 @@ labelsize = 38
 hours_per_night = 12.0
 
 
+def cumulative_by_night(ps, n_nights, *, group_col, group_val, metric="visits"):
+    """Cumulative visits or slot sum aligned to night index 0..n_nights-1."""
+    sub = ps.loc[ps[group_col] == group_val]
+    if sub.empty:
+        return np.zeros(n_nights, dtype=float)
+    if metric == "visits":
+        daily = sub.groupby(sub.index).size()
+    else:
+        daily = sub.groupby(sub.index)["t_visit_slots"].sum()
+    return daily.reindex(range(n_nights), fill_value=0).cumsum().to_numpy(dtype=float)
+
+
+def daily_visits_by_night(ps, n_nights, *, group_col, group_val):
+    """Per-night visit counts (non-cumulative) aligned to night index."""
+    sub = ps.loc[ps[group_col] == group_val]
+    if sub.empty:
+        return np.zeros(n_nights, dtype=int)
+    return (
+        sub.groupby(sub.index)
+        .size()
+        .reindex(range(n_nights), fill_value=0)
+        .to_numpy(dtype=int)
+    )
+
+
+def _visit_counts_by_date(
+    ps, *, group_col, group_val, past, today_idx, all_dates_array
+):
+    """Map calendar date -> visit count for one star or program."""
+    sub = ps.loc[ps[group_col] == group_val]
+    if past:
+        sub = sub.loc[sub.index < today_idx]
+    else:
+        sub = sub.loc[sub.index >= today_idx]
+    if sub.empty:
+        return {}
+    return {
+        all_dates_array[int(d)]: int(n)
+        for d, n in sub.groupby(sub.index).size().items()
+    }
+
+
+def _charged_hours_from_ps(semester_planner, ps, *, program_codes=None, unique_ids=None):
+    """Past and scheduled charged hours from ``timeline``."""
+    slot_size = semester_planner.config.getfloat("semester", "slot_size")
+    slots_per_hour = 60 / slot_size
+    sub = ps
+    if program_codes is not None:
+        sub = sub[sub["program_code"].isin(program_codes)]
+    if unique_ids is not None:
+        uids = {str(u) for u in unique_ids}
+        sub = sub[sub["unique_id"].isin(uids)]
+    today_idx = semester_planner.access_obj.current_night_index
+    past_h = (
+        sub.loc[sub.index < today_idx, "t_visit_slots"].sum() / slots_per_hour
+    )
+    sched_h = (
+        sub.loc[sub.index >= today_idx, "t_visit_slots"].sum() / slots_per_hour
+    )
+    return float(past_h), float(sched_h)
+
+
+def _cof_pct_curve(
+    semester_planner,
+    ps,
+    n_nights,
+    *,
+    group_col,
+    group_val,
+    use_time,
+    denominator,
+):
+    """Cumulative COF % array for one program or request."""
+    metric = "slots" if use_time else "visits"
+    cume = cumulative_by_night(
+        ps, n_nights, group_col=group_col, group_val=group_val, metric=metric
+    )
+    if use_time:
+        slot_size = semester_planner.config.getfloat("semester", "slot_size")
+        cume = cume / (60 / slot_size)
+    if denominator > 0:
+        return np.round(cume / denominator * 100, 2)
+    if not use_time and cume[-1] > 0:
+        return np.round(cume / cume[-1] * 100, 2)
+    return np.zeros(n_nights, dtype=float)
+
+
+def _cof_group_for_star(star):
+    """Return (group_col, group_val) for slicing ``timeline``."""
+    if getattr(star, "allow_mapview", True) is False:
+        return "program_code", star.program
+    return "unique_id", str(star.unique_id)
+
+
+def _visit_denominator(star):
+    return getattr(star, "requested_visits", star.total_observations_requested)
+
+
 def _render_datatable(
     df,
     *,
@@ -248,6 +346,7 @@ class StarPlotter(object):
         self.total_observations_requested = (
             self.n_exp * self.n_intra_max * self.n_inter_max
         )
+        self.requested_visits = self.n_intra_max * self.n_inter_max
         self.total_requested_seconds = (
             self.total_observations_requested * self.exptime
             + queue.readout_time * (self.n_exp - 1) * self.n_inter_max
@@ -356,12 +455,16 @@ def process_stars(semester_planner):
     nulltime = np.array(nulltime).T
 
     forecast_df = semester_planner.schedule
-    forecast_df["unique_id"] = forecast_df["unique_id"].astype(str)
+    if forecast_df is None:
+        forecast_df = pd.DataFrame(columns=["unique_id", "d", "s", "target"])
+    else:
+        forecast_df = forecast_df.copy()
+        forecast_df["unique_id"] = forecast_df["unique_id"].astype(str)
 
-    # Per-visit overhead scalars come from the queue (single source of truth).
-    queue = semester_planner.queue
-    slew_overhead = queue.slew_overhead_mean
-    readout_overhead = queue.readout_time
+    ps = semester_planner.timeline
+    n_nights = len(semester_planner.access_obj.all_dates_array)
+    all_dates_array = semester_planner.access_obj.all_dates_array
+    today_idx = semester_planner.access_obj.current_night_index
 
     targets = semester_planner.requests["target"].unique()
     programs = semester_planner.requests["program_code"].unique()
@@ -373,27 +476,7 @@ def process_stars(semester_planner):
     ]
     program_colors_rgb_vals = dict(zip(programs, rgb_strings))
 
-    # Per-(uid, night) past-observation aggregates derived from past_df. Keys
-    # are UT calendar dates (timestamp[:10]). Empty dicts when past_df is empty.
-    past = semester_planner.past
-    if not past.empty:
-        pdf = past.assign(
-            unique_id=past["unique_id"].astype(str),
-            night=past["timestamp"].astype(str).str[:10],
-        )
-        n_obs_by_uid = (
-            pdf.groupby("unique_id").apply(
-                lambda g: g.groupby("night").size().to_dict()
-            ).to_dict()
-        )
-        n_visits_by_uid = (
-            pdf.groupby("unique_id").apply(
-                lambda g: g.groupby("night")["timestamp"].nunique().to_dict()
-            ).to_dict()
-        )
-    else:
-        n_obs_by_uid = {}
-        n_visits_by_uid = {}
+    queue = semester_planner.queue
 
     all_stars = []
     i = 0
@@ -403,110 +486,57 @@ def process_stars(semester_planner):
         newstar.get_map(semester_planner, forecast_df)
         newstar.get_stats(row, semester_planner.config.getint("semester", "slot_size"), queue)
         uid = str(newstar.unique_id)
-        newstar.observations_past = n_visits_by_uid.get(uid, {})
-        newstar.observations_past_exposures = n_obs_by_uid.get(uid, {})
-        newstar.get_future(forecast_df, semester_planner.access_obj.all_dates_array)
-
-        # Create COF arrays for each request
-        combined_set = set(
-            list(newstar.observations_past.keys())
-            + list(newstar.observations_future.keys())
+        newstar.observations_past = _visit_counts_by_date(
+            ps,
+            group_col="unique_id",
+            group_val=uid,
+            past=True,
+            today_idx=today_idx,
+            all_dates_array=all_dates_array,
         )
-        # For inactive stars, only include past observations; for active stars, include both past and future
-        if newstar.inactive == False:
-            newstar.dates_observe = [
-                newstar.observations_past[date]
-                if date in newstar.observations_past.keys()
-                else (
-                    newstar.observations_future[date] * newstar.n_exp
-                    if date in combined_set
-                    else 0
-                )
-                for date in semester_planner.access_obj.all_dates_array
-            ]
-            newstar.dates_observe_time = [
-                (
-                    newstar.observations_past_exposures[date] * newstar.exptime
-                    + readout_overhead * (newstar.observations_past[date] - 1)
-                    + slew_overhead * (newstar.observations_past[date] - 1)
-                )
-                / 3600
-                if date in newstar.observations_past_exposures.keys()
-                else (
-                    (
-                        newstar.observations_future[date]
-                        * newstar.n_exp
-                        * newstar.exptime
-                        + readout_overhead
-                        * (newstar.n_exp - 1)
-                        * newstar.observations_future[date]
-                        + slew_overhead * newstar.observations_future[date]
-                    )
-                    / 3600
-                    if date in combined_set
-                    else 0
-                )
-                for date in semester_planner.access_obj.all_dates_array
-            ]
-        else:
-            # For inactive stars, only show past observations
-            newstar.dates_observe = [
-                newstar.observations_past[date]
-                if date in newstar.observations_past.keys()
-                else 0
-                for date in semester_planner.access_obj.all_dates_array
-            ]
-            newstar.dates_observe_time = [
-                (
-                    newstar.observations_past_exposures[date] * newstar.exptime
-                    + readout_overhead * (newstar.observations_past[date] - 1)
-                    + slew_overhead * (newstar.observations_past[date] - 1)
-                )
-                / 3600
-                if date in newstar.observations_past_exposures.keys()
-                else 0
-                for date in semester_planner.access_obj.all_dates_array
-            ]
+        newstar.get_future(forecast_df, all_dates_array)
+        newstar.observations_future = _visit_counts_by_date(
+            ps,
+            group_col="unique_id",
+            group_val=uid,
+            past=False,
+            today_idx=today_idx,
+            all_dates_array=all_dates_array,
+        )
 
-        newstar.cume_observe = np.cumsum(newstar.dates_observe)
-        newstar.cume_observe_time = np.cumsum(newstar.dates_observe_time)  # in hours
+        daily_visits = daily_visits_by_night(
+            ps, n_nights, group_col="unique_id", group_val=uid
+        )
+        newstar.dates_observe = daily_visits.tolist()
+        newstar.cume_observe = np.cumsum(daily_visits)
 
         if newstar.inactive:
-            newstar.total_observations_requested = np.max(newstar.cume_observe)
+            newstar.total_observations_requested = int(np.max(newstar.cume_observe))
+            newstar.requested_visits = int(np.max(newstar.cume_observe))
             newstar.total_requested_seconds = (
                 newstar.total_observations_requested * newstar.exptime
-                + slew_overhead * newstar.total_observations_requested
+                + queue.slew_overhead_mean * newstar.total_observations_requested
             )
             newstar.total_requested_hours = newstar.total_requested_seconds / 3600
             newstar.total_requested_nights = (
                 newstar.total_requested_hours / hours_per_night
             )
 
-        # Handle division by zero for inactive stars (total_observations_requested = 0)
-        if newstar.total_observations_requested > 0:
+        denom = _visit_denominator(newstar)
+        if denom > 0:
             newstar.cume_observe_pct = np.round(
-                (
-                    np.cumsum(newstar.dates_observe)
-                    / newstar.total_observations_requested
-                )
-                * 100.0,
-                3,
+                newstar.cume_observe / denom * 100.0, 3
             )
         else:
-            # For inactive stars, show percentage based on total past observations if any exist
-            total_past_obs = (
-                sum(newstar.observations_past.values())
-                if newstar.observations_past
-                else 0
+            total_past_visits = (
+                int(newstar.cume_observe[-1]) if len(newstar.cume_observe) else 0
             )
-            if total_past_obs > 0:
+            if total_past_visits > 0:
                 newstar.cume_observe_pct = np.round(
-                    (np.cumsum(newstar.dates_observe) / total_past_obs) * 100.0, 3
+                    newstar.cume_observe / total_past_visits * 100.0, 3
                 )
             else:
-                newstar.cume_observe_pct = np.zeros(
-                    len(semester_planner.access_obj.all_dates_array)
-                )
+                newstar.cume_observe_pct = np.zeros(n_nights)
 
         # Create consistent colors across programs, and random colors for each star within programs
         newstar.program_color_rgb = program_colors_rgb_vals[newstar.program]
@@ -575,64 +605,23 @@ def process_stars(semester_planner):
         programmatic_star.target = all_stars[prog_indices[0]].program
         programmatic_star.program = all_stars[prog_indices[0]].program
 
-        # Compute the COF data for all stars in the given program
-        cume_observe = [all_stars[k].cume_observe for k in prog_indices]
-        programmatic_star.cume_observe = np.sum(
-            [all_stars[k].cume_observe for k in prog_indices], axis=0
+        prog_code = unique_programs[i]
+        programmatic_star.cume_observe = cumulative_by_night(
+            ps, n_nights, group_col="program_code", group_val=prog_code, metric="visits"
         )
-        stars_stacked = np.vstack(cume_observe)
-        summed_cumulative = np.sum(stars_stacked, axis=0)
-        max_value = np.sum(
-            [all_stars[k].total_observations_requested for k in prog_indices]
-        )
-        programmatic_star.cume_observe_pct = np.round(
-            summed_cumulative / max_value * 100, 2
-        )
-
-        # Compute the cumulative observe time for all stars in the given program
-        cume_observe_time = [all_stars[k].cume_observe_time for k in prog_indices]
-        stars_stacked_time = np.vstack(cume_observe_time)
-        summed_cumulative_time = np.sum(stars_stacked_time, axis=0)
-        total_requested_prog = np.sum(
-            [all_stars[k].total_requested_hours for k in prog_indices]
-        )
-        allocated = programmatics[programmatics["program"] == unique_programs[i]][
-            "hours"
-        ].sum()
-        # Use requested as divisor when requested < allocated, else allocated
-        max_value_time = min(total_requested_prog, allocated)
-        # summed_cumulative_time and max_value_time are both in hours
-        if max_value_time > 0:
-            programmatic_star.cume_observe_time_pct = np.round(
-                summed_cumulative_time / max_value_time * 100, 2
-            )
-        else:
-            programmatic_star.cume_observe_time_pct = np.zeros(
-                len(semester_planner.access_obj.all_dates_array)
-            )
-        programmatic_star.cume_observe_time = summed_cumulative_time  # in hours
-
-        # Handle division by zero for programs with only inactive stars
+        max_value = sum(_visit_denominator(all_stars[k]) for k in prog_indices)
         if max_value > 0:
             programmatic_star.cume_observe_pct = np.round(
-                summed_cumulative / max_value * 100, 2
+                programmatic_star.cume_observe / max_value * 100, 2
             )
         else:
-            # For inactive-only programs, use total past observations as denominator
-            total_past_obs = sum(
-                sum(all_stars[k].observations_past.values())
-                if all_stars[k].observations_past
-                else 0
-                for k in prog_indices
-            )
-            if total_past_obs > 0:
+            total_past_visits = int(programmatic_star.cume_observe[-1])
+            if total_past_visits > 0:
                 programmatic_star.cume_observe_pct = (
-                    summed_cumulative / total_past_obs * 100
+                    programmatic_star.cume_observe / total_past_visits * 100
                 )
             else:
-                programmatic_star.cume_observe_pct = np.zeros(
-                    len(semester_planner.access_obj.all_dates_array)
-                )
+                programmatic_star.cume_observe_pct = np.zeros(n_nights)
 
         # Compute sum of starmaps
         super_map = np.zeros(np.shape(all_stars[prog_indices[0]].starmap))
@@ -647,8 +636,8 @@ def process_stars(semester_planner):
                 combined_past[date] = combined_past.get(date, 0) + count
         programmatic_star.observations_past = combined_past
 
-        programmatic_star.total_observations_requested = np.sum(
-            [all_stars[k].total_observations_requested for k in prog_indices]
+        programmatic_star.total_observations_requested = sum(
+            _visit_denominator(all_stars[k]) for k in prog_indices
         )
         programmatic_star.total_requested_hours = np.sum(
             [all_stars[k].total_requested_hours for k in prog_indices]
@@ -723,24 +712,32 @@ def get_cof(semester_planner, all_stars, use_time=False):
         )
     )
     lines = []
+    ps = semester_planner.timeline
+    n_nights = len(semester_planner.access_obj.all_dates_array)
+    is_programmatic = not getattr(all_stars[0], "allow_mapview", True)
+
+    if is_programmatic:
+        program_codes = {s.program for s in all_stars}
+        total_sub = ps[ps["program_code"].isin(program_codes)]
+    else:
+        uids = [str(s.unique_id) for s in all_stars]
+        total_sub = ps[ps["unique_id"].isin(uids)]
+
     if use_time is False:
-        cume_observe = np.zeros(len(semester_planner.access_obj.all_dates_array))
-        max_value = 0
-        cume_observe = np.sum([star.cume_observe for star in all_stars], axis=0)
-        max_value = sum(star.total_observations_requested for star in all_stars)
-        # Handle division by zero: if all stars are inactive, use total past observations as denominator
-        if max_value > 0:
-            cume_observe_pct = np.round((cume_observe / max_value) * 100, 2)
+        total_denom = sum(_visit_denominator(s) for s in all_stars)
+        daily = total_sub.groupby(total_sub.index).size().reindex(
+            range(n_nights), fill_value=0
+        )
+        cume_observe = daily.cumsum().to_numpy(dtype=float)
+        if total_denom > 0:
+            cume_observe_pct = np.round(cume_observe / total_denom * 100, 2)
         else:
-            # For inactive-only programs, calculate total past observations
-            total_past_obs = sum(
-                sum(star.observations_past.values()) if star.observations_past else 0
-                for star in all_stars
+            total_past = int(cume_observe[-1]) if len(cume_observe) else 0
+            cume_observe_pct = (
+                np.round(cume_observe / total_past * 100, 2)
+                if total_past > 0
+                else np.zeros(n_nights)
             )
-            if total_past_obs > 0:
-                cume_observe_pct = (cume_observe / total_past_obs) * 100
-            else:
-                cume_observe_pct = np.zeros(len(semester_planner.access_obj.all_dates_array))
 
         # Add the Total trace first (so it appears below other traces)
         fig.add_trace(
@@ -754,42 +751,32 @@ def get_cof(semester_planner, all_stars, use_time=False):
                 + "<br>Date: "
                 + "%{customdata}"
                 + "<br>% Complete: %{y}"
-                + "<br># Obs Requested: "
-                + str(max_value)
+                + "<br># Visits Requested: "
+                + str(int(total_denom))
                 + "<br>",
                 customdata=semester_planner.access_obj.all_dates_array,
             )
         )
     else:
-        # use_time=True: normalize by program hours from programs.csv
+        # use_time=True: normalize by awarded program hours from programs.csv
         programmatics_cof = pd.read_csv(
             os.path.join(semester_planner.config.get("global", "workdir"), "programs.csv")
         )
-        programs_in_stars = set(
-            getattr(s, "program", getattr(s, "target", None)) for s in all_stars
+        programs_in_stars = {s.program for s in all_stars}
+        total_program_hours = programmatics_cof.loc[
+            programmatics_cof["program"].isin(programs_in_stars), "hours"
+        ].sum()
+        slot_size = semester_planner.config.getfloat("semester", "slot_size")
+        slots_per_hour = 60 / slot_size
+        daily_slots = total_sub.groupby(total_sub.index)["t_visit_slots"].sum().reindex(
+            range(n_nights), fill_value=0
         )
-        programs_in_stars = {p for p in programs_in_stars if p is not None}
-        summed_cume_time = np.sum(
-            [
-                getattr(
-                    s,
-                    "cume_observe_time",
-                    np.zeros(len(semester_planner.access_obj.all_dates_array)),
-                )
-                for s in all_stars
-            ],
-            axis=0,
-        )
-        total_program_hours = programmatics_cof[
-            programmatics_cof["program"].isin(programs_in_stars)
-        ]["hours"].sum()
-        # summed_cume_time and total_program_hours are both in hours
+        cume_hours = daily_slots.cumsum().to_numpy(dtype=float) / slots_per_hour
         if total_program_hours > 0:
-            cume_time_pct = np.round(summed_cume_time / total_program_hours * 100, 2)
+            cume_time_pct = np.round(cume_hours / total_program_hours * 100, 2)
         else:
-            cume_time_pct = np.zeros(len(semester_planner.access_obj.all_dates_array))
+            cume_time_pct = np.zeros(n_nights)
 
-        # Add the Total trace (time-based)
         # Build program label for hover: when multiple programs, show "All programs"; when one, show its name
         if len(programs_in_stars) == 1:
             total_trace_label = "<b>" + list(programs_in_stars)[0] + "</b> (Total)<br>"
@@ -806,7 +793,7 @@ def get_cof(semester_planner, all_stars, use_time=False):
                 + "Night: %{x}"
                 + "<br>Date: "
                 + "%{customdata}"
-                + "<br>Time % Complete: %{y}"
+                + "<br>Time charged (% of awarded hours): %{y}"
                 + "<br>Total program time: "
                 + f"{total_program_hours:.1f} hours<br>"
                 + "<extra></extra>",
@@ -814,44 +801,56 @@ def get_cof(semester_planner, all_stars, use_time=False):
             )
         )
 
+    programmatics_cof = None
+    if use_time:
+        programmatics_cof = pd.read_csv(
+            os.path.join(semester_planner.config.get("global", "workdir"), "programs.csv")
+        )
+
     # Then add individual star traces (so they appear above the Total trace)
     for i in range(len(all_stars)):
+        group_col, group_val = _cof_group_for_star(all_stars[i])
         if use_time:
-            y_vals = getattr(all_stars[i], "cume_observe_time_pct", None)
-            prog_for_star = getattr(all_stars[i], "program", all_stars[i].target)
-            total_prog_hours = (
-                programmatics_cof.loc[
-                    programmatics_cof["program"] == prog_for_star, "hours"
-                ].iloc[0]
-                if prog_for_star in programmatics_cof["program"].values
-                else 0.0
+            prog_for_star = all_stars[i].program
+            total_prog_hours = programmatics_cof.loc[
+                programmatics_cof["program"] == prog_for_star, "hours"
+            ].sum()
+            y_vals = _cof_pct_curve(
+                semester_planner,
+                ps,
+                n_nights,
+                group_col=group_col,
+                group_val=group_val,
+                use_time=True,
+                denominator=total_prog_hours,
             )
-            if y_vals is None:
-                # Individual stars: compute from cume_observe_time (hours) / program hours
-                y_vals = (
-                    np.round(all_stars[i].cume_observe_time / total_prog_hours * 100, 2)
-                    if total_prog_hours > 0
-                    else np.zeros(len(semester_planner.access_obj.all_dates_array))
-                )
             hovertemplate = (
                 "<b>"
                 + str(prog_for_star)
                 + "</b><br>Night: %{x}"
                 + "<br>Date: "
                 + "%{customdata}"
-                + "<br>Time % Complete: %{y}<br>Total program time: "
+                + "<br>Time charged (% of awarded hours): %{y}<br>Total program time: "
                 + f"{total_prog_hours:.1f} hours<br>"
                 + "<extra></extra>"
             )
         else:
-            y_vals = all_stars[i].cume_observe_pct
+            y_vals = _cof_pct_curve(
+                semester_planner,
+                ps,
+                n_nights,
+                group_col=group_col,
+                group_val=group_val,
+                use_time=False,
+                denominator=_visit_denominator(all_stars[i]),
+            )
             hovertemplate = (
                 "Night: %{x}"
                 + "<br>Date: "
                 + "%{customdata}"
                 + "<br>% Complete: %{y}"
-                + "<br># Obs Requested: "
-                + str(all_stars[i].total_observations_requested)
+                + "<br># Visits Requested: "
+                + str(_visit_denominator(all_stars[i]))
                 + "<br>"
             )
 
@@ -912,7 +911,7 @@ def get_cof(semester_planner, all_stars, use_time=False):
     )  # Between 150-300px, 25px per trace
 
     yaxis_title = (
-        "Time % Complete (vs program hours)" if use_time else "Request % Complete"
+        "Time charged (% of awarded hours)" if use_time else "Visit % Complete"
     )
     fig.update_layout(
         width=1400,
@@ -1579,39 +1578,19 @@ def get_timebar(
             .fillna(1.25)
         )
 
-    # Per-visit overhead scalars come from the queue (single source of truth).
-    slew_overhead = semester_planner.queue.slew_overhead_mean
-    readout_overhead = semester_planner.queue.readout_time
+    # Charged hours are the splan slot-based single source of truth.
+    ps = semester_planner.timeline
 
-    # Accumulate total times across all stars
-    total_past = 0
-    total_future = 0
-    total_incomplete = 0
     total_requested_hours = 0
-
     programs_used = []
     for starobj in all_stars:
-        # Past: day-by-day sum of (exposure time) + (readout) + (slew) per visit
-        # Per date, visits = observations_past[date]: exposure = exptime * n_exp * visits; readout = readout_overhead * (n_exp - 1) * visits; slew = slew_overhead * visits
-        for visits in starobj.observations_past.values():
-            total_past += visits * (
-                starobj.exptime * starobj.n_exp
-                + readout_overhead * (starobj.n_exp - 1)
-                + slew_overhead
-            )
-        # Future: same day-by-day formula (a) exposures*visits, (b) readout*(n_exp-1)*visits, (c) slew*visits
-        for visits in starobj.observations_future.values():
-            total_future += visits * (
-                starobj.exptime * starobj.n_exp
-                + readout_overhead * (starobj.n_exp - 1)
-                + slew_overhead
-            )
         total_requested_hours += starobj.total_requested_hours
         programs_used.append(starobj.program)
 
-    # Convert to hours for better readability
-    total_past_hours = total_past / 3600
-    total_future_hours = total_future / 3600
+    uids = [str(s.unique_id) for s in all_stars]
+    total_past_hours, total_future_hours = _charged_hours_from_ps(
+        semester_planner, ps, unique_ids=uids
+    )
     total_incomplete_hours = (
         total_requested_hours - total_past_hours - total_future_hours
     )
@@ -1689,7 +1668,7 @@ def get_timebar(
     top_margin = 180 if total_requested_hours > total_allocated_hours else 130
 
     fig.update_layout(
-        title_text=f"<b>Total Requested:</b> {total_requested_hours:.1f} hours ≈ {total_requested_hours / hours_per_night:.1f} nights<br><b>Total Allocated:</b> {total_allocated_hours:.1f} hours ≈ {total_allocated_nights:.1f} nights ----> w/ losses = {total_allocated_nights * 0.75:.1f} nights <br>Requested and allocated time are measured in hours ({hours_per_night:.0f} hours per night for night equivalents).<br>All bars include exposure times and standard overheads.",
+        title_text=f"<b>Total Requested:</b> {total_requested_hours:.1f} hours ≈ {total_requested_hours / hours_per_night:.1f} nights<br><b>Total Allocated:</b> {total_allocated_hours:.1f} hours ≈ {total_allocated_nights:.1f} nights ----> w/ losses = {total_allocated_nights * 0.75:.1f} nights <br>Requested and allocated time are measured in hours ({hours_per_night:.0f} hours per night for night equivalents).<br>Past and future bars use splan charged hours (slot-based).",
         template="plotly_white",
         showlegend=False,
         height=710,  # Increased height for more vertical spacing between labels
@@ -1830,9 +1809,8 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
             .fillna(1.25)
         )
 
-    # Per-visit overhead scalars come from the queue (single source of truth).
-    slew_overhead = semester_planner.queue.slew_overhead_mean
-    readout_overhead = semester_planner.queue.readout_time
+    # Charged hours are the splan slot-based single source of truth.
+    ps = semester_planner.timeline
 
     # Get all programs from programs.csv
     all_programs_in_csv = set(programmatics["program"].unique())
@@ -1854,31 +1832,12 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
     for program_code in sorted(programs_with_requests):
         program_stars = programs_dict[program_code]
 
-        # Calculate times for this program (same logic as get_timebar)
-        total_past = 0
-        total_future = 0
-        total_requested_hours = 0
-
-        for starobj in program_stars:
-            # Past: day-by-day sum of (exposure) + (readout) + (slew) per visit; per date: visits * (exptime*n_exp + readout*(n_exp-1) + slew)
-            for visits in starobj.observations_past.values():
-                total_past += visits * (
-                    starobj.exptime * starobj.n_exp
-                    + readout_overhead * (starobj.n_exp - 1)
-                    + slew_overhead
-                )
-            # Future: same day-by-day formula
-            for visits in starobj.observations_future.values():
-                total_future += visits * (
-                    starobj.exptime * starobj.n_exp
-                    + readout_overhead * (starobj.n_exp - 1)
-                    + slew_overhead
-                )
-            total_requested_hours += starobj.total_requested_hours
-
-        # Convert to hours
-        total_past_hours = total_past / 3600
-        total_future_hours = total_future / 3600
+        total_requested_hours = sum(
+            starobj.total_requested_hours for starobj in program_stars
+        )
+        total_past_hours, total_future_hours = _charged_hours_from_ps(
+            semester_planner, ps, program_codes=[program_code]
+        )
         total_incomplete_hours = (
             total_requested_hours - total_past_hours - total_future_hours
         )

@@ -107,6 +107,30 @@ def read_csv(path, type):
     return df
 
 
+def validate_past_in_semester(past, semester_start_day, semester_end_day):
+    """Require every past.csv timestamp to fall within the semester night range.
+
+    Args:
+        past (pandas.DataFrame): validated past frame from :func:`read_csv`.
+        semester_start_day (str): ``YYYY-MM-DD`` from ``[global] semester_start_day``.
+        semester_end_day (str): ``YYYY-MM-DD`` from ``[global] semester_end_day``.
+
+    Raises:
+        ValueError: if any UT calendar date lies outside the inclusive range.
+    """
+    if past.empty:
+        return
+    nights = past["timestamp"].astype(str).str[:10]
+    bad = (nights < semester_start_day) | (nights > semester_end_day)
+    if bad.any():
+        oos = sorted(nights[bad].unique())
+        raise ValueError(
+            f"past.csv timestamps outside semester date range "
+            f"[{semester_start_day}, {semester_end_day}]: {oos[:5]}"
+            + (" ..." if len(oos) > 5 else "")
+        )
+
+
 def _load_frame(path, schema, name, *, empty_ok=False, key=None):
     """Read ``path`` and validate/coerce against ``schema``.
 
