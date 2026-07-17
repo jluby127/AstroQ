@@ -17,8 +17,6 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 
-from astroq.plot._common import hours_per_night
-
 MAP_NAMES = [
     "is_allocated",
     "is_custom",
@@ -126,20 +124,25 @@ class PlotData:
         return dict(out)
 
     def select_all(self, *, aggregate_by_program: bool = False) -> PlotSelection:
+        """All requests, optionally aggregated by program."""
         return PlotSelection(aggregate_by_program=aggregate_by_program)
 
     def select_program(self, program_code: str) -> PlotSelection:
+        """Single program selection."""
         return PlotSelection(program_codes=frozenset({program_code}))
 
     def select_target(self, unique_id: str) -> PlotSelection:
+        """Single request selection."""
         return PlotSelection(unique_ids=frozenset({str(unique_id)}))
 
     def starmap_for(self, id_: str, *, is_program: bool = False) -> np.ndarray:
+        """Forecast starmap for one request or program aggregate."""
         if is_program:
             return self.program_starmaps[str(id_)]
         return self.starmaps[str(id_)]
 
     def maps_for(self, uid: str) -> dict[str, np.ndarray]:
+        """Per-request access cubes for birdseye overlay."""
         return self.maps.get(
             str(uid),
             {n: np.zeros((self.n_nights, self.n_slots), dtype=bool) for n in MAP_NAMES},
@@ -377,7 +380,7 @@ def _build_starmaps(forecast_df, request_table, uids, n_nights, n_slots):
     return starmaps, cube
 
 
-def _build_maps(access, semester_planner, uids, n_nights, n_slots):
+def _build_maps(access, semester_planner, uids):
     """Per-request access cubes {map_name: (n_nights, n_slots)} for active requests."""
     active = semester_planner.requests_active["unique_id"].astype(str).tolist()
     row_of_active = {uid: i for i, uid in enumerate(active)}
@@ -402,7 +405,6 @@ def _build_onsky_cadence(cume_visits):
         increases = np.where(np.diff(col.to_numpy()) > 0)[0]
         for gap in np.diff(increases):
             records.append((col.name, int(gap)))
-        return None
 
     cume_visits.apply(gaps)
     return pd.DataFrame(records, columns=["unique_id", "onsky_tau_inter"])
@@ -429,7 +431,6 @@ def build_plot_data(semester_planner) -> PlotData:
     n_nights = len(all_dates_array)
     slot_size = semester_planner.slot_size
     n_slots = int((24 * 60) / slot_size)
-    slots_per_hour = 60 / slot_size
 
     uids = semester_planner.requests["unique_id"].astype(str).tolist()
     program_codes = semester_planner.requests["program_code"].astype(str).unique()
@@ -481,7 +482,7 @@ def build_plot_data(semester_planner) -> PlotData:
         # which plotly serializes differently from an int heatmap.
         program_starmaps[str(code)] = cube[rows].sum(axis=0).T.astype(float)
 
-    maps = _build_maps(access, semester_planner, uids, n_nights, n_slots)
+    maps = _build_maps(access, semester_planner, uids)
     onsky_cadence = _build_onsky_cadence(cume_visits)
 
     programs_df = pd.read_csv(

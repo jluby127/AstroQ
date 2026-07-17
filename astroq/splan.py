@@ -398,6 +398,7 @@ class SemesterPlanner:
         logs.info("Constraint: Build theta variable")
         rf_indexed = self.requests_active.set_index("r")
         for r, grp_keys in rs.groupby("r", sort=False)["rds"]:
+            self.theta[r].LB = 0 # minimum shortfall, i.e do not over-shedule requests
             row = rf_indexed.loc[r]
             self.model.addConstr(
                 self.theta[r]
@@ -750,7 +751,6 @@ class SemesterPlanner:
         self._constraint_fillfactor(max_fillfactor=1.0)
         self.model.setObjective(self._objective_weighted_theta(), GRB.MINIMIZE)
         self.optimize_model("shortfall")
-        import pdb; pdb.set_trace()
         self.build_schedule()
         self.log_report("shortfall")
         self.write_request_selected()

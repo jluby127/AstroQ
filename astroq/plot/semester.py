@@ -1,39 +1,51 @@
 """Semester-scope Plotly figures."""
 
-from astroq.plot._common import (  # noqa: F401
-    gray,
-    clear,
-    labelsize,
-    hours_per_night,
-    go,
-    px,
-    np,
-    pd,
-    os,
-    sns,
-    datetime,
-    timedelta,
-    html_escape,
-    quote,
-    base64,
-    BytesIO,
-    re,
-    plt,
-    make_subplots,
-    u,
-    SkyCoord,
-    apl,
-    ac,
-    griddata,
-    TimeDelta,
+import base64
+import os
+from io import BytesIO
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+import seaborn as sns
+from plotly.subplots import make_subplots
+from scipy.interpolate import griddata
+
+import astroq.access as ac
+
+from astroq.plot._common import (
     _charged_hours_from_ps,
     _football_cache_dir,
+    gray,
+    hours_per_night,
+    labelsize,
     programs_ledger_for_plot,
-    _render_datatable,
-    _TEMPLATE_ENV,
-    _Path,
 )
-from astroq.plot.context import MAP_NAMES, PlotData, PlotSelection  # noqa: F401
+from astroq.plot._layout import (
+    FIG_WIDTH,
+    TIMEBAR_CATEGORY_NAMES,
+    TIMEBAR_COLORS,
+    TIMEBAR_WEATHER_LOSS_FACTOR,
+    add_timebar_guide_lines,
+    add_timebar_subplot_guides,
+    birdseye_slot_yaxis,
+    completion_layout,
+    force_secondary_xaxis,
+    hide_x2_legend_entries,
+    log_axis_cadence,
+    log_axis_counts,
+    log_scatter_layout,
+    timebar_category_labels,
+    timebar_clip_hours,
+    timebar_grid_layout,
+    timebar_layout,
+    timebar_single_title,
+    timebar_text_labels,
+    timeline_layout,
+    today_vrect,
+)
+from astroq.plot.context import MAP_NAMES
 
 def get_cof(plot_data, selection, use_time=False):
     """Cumulative Observability Function (COF) for a selection of requests/programs.
@@ -49,7 +61,6 @@ def get_cof(plot_data, selection, use_time=False):
     sel = plot_data.select(selection)
     table = sel.table
     fig = go.Figure()
-    fig.update_layout(plot_bgcolor=gray, paper_bgcolor=clear)
 
     dates = plot_data.all_dates_array
     n_nights = plot_data.n_nights
@@ -179,133 +190,29 @@ def get_cof(plot_data, selection, use_time=False):
                 customdata=dates,
             )
         )
-        return None
 
     pd.Series(sel.ids).apply(add_request_trace)
 
-    today_night_index = plot_data.semester_planner.access_obj.current_night_index
-
-    fig.add_vrect(
-        x0=today_night_index,
-        x1=today_night_index,
-        annotation_text="Today",
-        line_dash="dash",
-        fillcolor=None,
-        line_width=2,
-        line_color="black",
-        annotation_position="bottom left",
-    )
-
-    # X-axis: ticks every 23 days, plus the last day (matching birdseye)
-    x_tick_step = 23
-    x_tickvals = list(range(0, plot_data.semester_planner.semester_length, x_tick_step))
-    if (plot_data.semester_planner.semester_length - 1) not in x_tickvals:
-        x_tickvals.append(plot_data.semester_planner.semester_length - 1)
-    x_ticktext = [
-        str(val + 1) for val in x_tickvals
-    ]  # Night indices (1-indexed for display, matching birdseye)
-
-    # Create calendar date labels for secondary x-axis (top axis)
-    # Format dates as "Feb<br>01" (month and day on separate lines)
-    x_ticktext_dates = []
-    for day_idx in x_tickvals:
-        if day_idx < len(plot_data.semester_planner.access_obj.all_dates_array):
-            date_str = plot_data.semester_planner.access_obj.all_dates_array[day_idx]
-            # Parse date and format as "Feb<br>01" using HTML break tag
-            date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-            month = date_obj.strftime("%b")
-            day = date_obj.strftime("%d")
-            x_ticktext_dates.append(f"{month}<br>{day}")
-        else:
-            x_ticktext_dates.append("")
+    sp = plot_data.semester_planner
+    today_vrect(fig, sp.access_obj.current_night_index)
 
     yaxis_title = (
         "Time charged (% of awarded hours)" if use_time else "Visit % Complete"
     )
     fig.update_layout(
-        width=1400,
-        height=1000,
-        xaxis_title="Night in Semester",
-        yaxis_title=yaxis_title,
-        showlegend=True,
-        legend=dict(
-            orientation="h",
-            x=0.5,
-            y=-0.15,  # Position below plot
-            xanchor="center",
-            yanchor="top",
-            bgcolor="rgba(255,255,255,0.7)",
-            bordercolor="black",
-            borderwidth=1,
-            font=dict(size=labelsize - 18),
-            # Standardize legend size
-            itemsizing="constant",  # All legend items same size
-            itemwidth=30,  # Fixed width for legend items
-            # Make legend more compact
-            groupclick="toggleitem",  # Click group to toggle all items
-            # Standardize legend dimensions
-            tracegroupgap=5,  # Gap between trace groups
-            traceorder="normal",  # Keep order as traces were added
-        ),
-        xaxis=dict(
-            title_font=dict(size=labelsize),
-            tickfont=dict(size=labelsize - 4),
-            tickvals=x_tickvals,
-            ticktext=x_ticktext,
-            tickmode="array",
-            showgrid=False,
-            zeroline=False,
-            anchor="y",
-            side="bottom",
-            range=[0, plot_data.semester_planner.semester_length - 1],  # Explicitly set range
-        ),
-        xaxis2=dict(
-            title="",
-            tickvals=x_tickvals,
-            ticktext=x_ticktext_dates,
-            tickmode="array",
-            showgrid=False,
-            side="top",
-            overlaying="x",
-            tickfont=dict(size=labelsize - 6),
-            showticklabels=True,
-            range=[
-                0,
-                plot_data.semester_planner.semester_length - 1,
-            ],  # Match primary x-axis range
-        ),
-        yaxis=dict(
-            title_font=dict(size=labelsize),
-            tickfont=dict(size=labelsize - 4),
-            showgrid=False,
-            zeroline=False,
-        ),
-        margin=dict(
-            b=200, t=100
-        ),  # Bottom margin for legend below, top margin for date labels
-    )
-
-    # Add an invisible trace AFTER layout to force the secondary x-axis to appear
-    # This trace must be associated with xaxis='x2' to make the secondary axis visible
-    fig.add_trace(
-        go.Scatter(
-            x=[0, len(plot_data.semester_planner.access_obj.all_dates_array) - 1],
-            y=[100, 100],  # Position at top of y-axis range
-            mode="markers",
-            marker=dict(size=0.01, opacity=0),
-            showlegend=False,
-            hoverinfo="skip",
-            xaxis="x2",
-            name="",  # Empty name to prevent legend entry
+        **timeline_layout(
+            sp,
+            yaxis_title=yaxis_title,
+            yaxis=dict(
+                title_font=dict(size=labelsize),
+                tickfont=dict(size=labelsize - 4),
+                showgrid=False,
+                zeroline=False,
+            ),
         )
     )
-
-    # Explicitly hide any trace with xaxis='x2' or empty name from the legend
-    for trace in fig.data:
-        if hasattr(trace, "xaxis") and str(trace.xaxis) == "x2":
-            trace.update(showlegend=False)
-        if hasattr(trace, "name") and (trace.name == "" or trace.name is None):
-            trace.update(showlegend=False)
+    force_secondary_xaxis(fig, sp, 100)
+    hide_x2_legend_entries(fig)
 
     return fig
 
@@ -324,7 +231,6 @@ def get_birdseye(plot_data, selection):
     table = sel.table
     availablity = plot_data.nulltime
     fig = go.Figure()
-    fig.update_layout(plot_bgcolor=clear, paper_bgcolor=clear)
 
     # Multiple requests or a program aggregate: show the grayed-out unavailable
     # slots. A single request: overlay its per-map availability cubes.
@@ -379,135 +285,20 @@ def get_birdseye(plot_data, selection):
                 showlegend=True,
             )
         )
-        return None
 
     pd.Series(sel.ids).apply(add_starmap)
 
-    # Add vertical dashed line denoting "today"
-    today = plot_data.semester_planner.access_obj.current_night_index
-    fig.add_vrect(
-        x0=today
-        - 1,  # The minus one is just for aesthetic purposes.
-        x1=today - 1,
-        annotation_text="Today",
-        line_dash="dash",
-        fillcolor=None,
-        line_width=2,
-        line_color="black",
-        annotation_position="bottom left",
-    )
-    # X-axis: ticks every 23 days, plus the last day
-    x_tick_step = 23
-    x_tickvals = list(range(0, plot_data.semester_planner.semester_length, x_tick_step))
-    if (plot_data.semester_planner.semester_length - 1) not in x_tickvals:
-        x_tickvals.append(plot_data.semester_planner.semester_length - 1)
-    x_ticktext = [str(val + 1) for val in x_tickvals]
+    sp = plot_data.semester_planner
+    today_vrect(fig, sp.access_obj.current_night_index)
 
-    # Create calendar date labels for secondary x-axis (top axis)
-    # Format dates as "Jan<br>15" or "Aug<br>12" (month and day on separate lines)
-    x_ticktext_dates = []
-    for day_idx in x_tickvals:
-        if day_idx < len(plot_data.semester_planner.access_obj.all_dates_array):
-            date_str = plot_data.semester_planner.access_obj.all_dates_array[day_idx]
-            # Parse date and format as "Jan<br>15" or "Aug<br>12" using HTML break tag
-            date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-            month = date_obj.strftime("%b")
-            day = date_obj.strftime("%d")
-            x_ticktext_dates.append(f"{month}<br>{day}")
-        else:
-            x_ticktext_dates.append("")
-
-    # Y-axis: ticks every 2 hours, using slot_size
-    n_slots = int(24 * 60 // plot_data.semester_planner.config.getint("semester", "slot_size"))
-    slots_per_2hr = int(2 * 60 // plot_data.semester_planner.config.getint("semester", "slot_size"))
-    y_tickvals = list(range(0, n_slots, slots_per_2hr))
-    y_ticktext = []
-    for slot in y_tickvals:
-        total_minutes = slot * plot_data.semester_planner.config.getint("semester", "slot_size")
-        hours = total_minutes // 60
-        minutes = total_minutes % 60
-        y_ticktext.append(f"{hours:02.0f}:{minutes:02.0f}")
-
-    # Add an invisible trace to force the secondary x-axis to appear
-    # This trace must be associated with xaxis='x2' to make the secondary axis visible
-    n_slots = int(24 * 60 // plot_data.semester_planner.config.getint("semester", "slot_size"))
-    fig.add_trace(
-        go.Scatter(
-            x=[0, len(plot_data.semester_planner.access_obj.all_dates_array) - 1],
-            y=[n_slots + 1, n_slots + 1],  # Position just above visible area
-            mode="markers",
-            marker=dict(size=0.01, opacity=0),
-            showlegend=False,
-            legendgroup=None,
-            hoverinfo="skip",
-            xaxis="x2",
-            name="",  # Empty name to prevent legend entry
-        )
-    )
-
+    yaxis, n_slots = birdseye_slot_yaxis(sp)
+    force_secondary_xaxis(fig, sp, n_slots + 1)
     fig.update_layout(
-        width=1400,
-        height=1000,
-        yaxis_title="Slot in Night",
-        xaxis_title="Night in Semester",
-        xaxis=dict(
-            title_font=dict(size=labelsize),
-            tickfont=dict(size=labelsize - 4),
-            tickvals=x_tickvals,
-            ticktext=x_ticktext,
-            tickmode="array",
-            showgrid=False,
-            anchor="y",
-            side="bottom",
-            range=[0, plot_data.semester_planner.semester_length - 1],  # Explicitly set range
-        ),
-        yaxis=dict(
-            title_font=dict(size=labelsize),
-            tickfont=dict(size=labelsize - 4),
-            tickvals=y_tickvals,
-            ticktext=y_ticktext,
-            tickmode="array",
-            showgrid=False,
-        ),
-        template="plotly_white",
-        showlegend=True,
-        legend=dict(
-            orientation="h",
-            x=0.5,
-            y=-0.15,  # Position below plot
-            xanchor="center",
-            yanchor="top",
-            font=dict(size=labelsize - 18),
-            bgcolor="rgba(255,255,255,0.7)",
-            bordercolor="black",
-            borderwidth=1,
-            # Standardize legend size
-            itemsizing="constant",  # All legend items same size
-            itemwidth=30,  # Fixed width for legend items
-            # Make legend more compact
-            groupclick="toggleitem",  # Click group to toggle all items
-            # Standardize legend dimensions
-            tracegroupgap=5,  # Gap between trace groups
-            traceorder="normal",  # Keep order as traces were added
-        ),
-        xaxis2=dict(
-            title="",
-            tickvals=x_tickvals,
-            ticktext=x_ticktext_dates,
-            tickmode="array",
-            showgrid=False,
-            side="top",
-            overlaying="x",
-            tickfont=dict(size=labelsize - 6),
-            showticklabels=True,
-            range=[
-                0,
-                plot_data.semester_planner.semester_length - 1,
-            ],  # Match primary x-axis range
-        ),
-        margin=dict(
-            b=200, t=100
-        ),  # Bottom margin for legend below, top margin for date labels
+        **timeline_layout(
+            sp,
+            yaxis_title="Slot in Night",
+            yaxis=yaxis,
+        )
     )
     return fig
 
@@ -556,7 +347,6 @@ def get_tau_inter_line(plot_data, selection, use_program_colors=False):
                 hovertemplate="%{text}<br>X: %{x}<br>Y: %{y}<extra></extra>",
             )
         )
-        return None
 
     if not points.empty:
         points.groupby("target", sort=False).apply(add_target_trace)
@@ -576,41 +366,12 @@ def get_tau_inter_line(plot_data, selection, use_program_colors=False):
     )
 
     fig.update_layout(
-        width=1400,
-        height=800,
-        xaxis_title="Requested Minimum Inter-Night Cadence",
-        yaxis_title="On Sky Inter-Night Cadence",
-        template="plotly_white",
-        xaxis=dict(
-            type="log",
-            title_font=dict(size=labelsize),
-            tickfont=dict(size=labelsize - 4),
-            showgrid=True,
-            gridcolor="lightgray",
-            gridwidth=0.5,
-            tickmode="array",
-            tickvals=[1, 10, 100],
-            ticktext=["1", "10", "100"],
-            range=[
-                np.log10(0.5),
-                np.log10(180),
-            ],  # Set range from 0.5 to 180 in log scale
-        ),
-        yaxis=dict(
-            type="log",
-            title_font=dict(size=labelsize),
-            tickfont=dict(size=labelsize - 4),
-            showgrid=True,
-            gridcolor="lightgray",
-            gridwidth=0.5,
-            tickmode="array",
-            tickvals=[1, 10, 100],
-            ticktext=["1", "10", "100"],
-            range=[
-                np.log10(0.5),
-                np.log10(180),
-            ],  # Set range from 0.5 to 180 in log scale
-        ),
+        **log_scatter_layout(
+            xaxis_title="Requested Minimum Inter-Night Cadence",
+            yaxis_title="On Sky Inter-Night Cadence",
+            xaxis=log_axis_cadence(),
+            yaxis=log_axis_cadence(),
+        )
     )
     return fig
 
@@ -630,7 +391,6 @@ def get_rawobs(plot_data, selection, use_program_colors=False):
     sel = plot_data.select(selection)
     color_col = "program_color" if use_program_colors else "star_color"
     fig = go.Figure()
-    fig.update_layout(plot_bgcolor=clear, paper_bgcolor=clear)
 
     t = sel.table.assign(
         total_completed=lambda d: d["past_visits"] + d["future_visits"]
@@ -661,7 +421,6 @@ def get_rawobs(plot_data, selection, use_program_colors=False):
                 ],
             )
         )
-        return None
 
     t.apply(add_point, axis=1)
 
@@ -676,8 +435,7 @@ def get_rawobs(plot_data, selection, use_program_colors=False):
         int(t["total_completed"].max()) if len(t) else 1,
     )
     # Ensure min_val is at least 1 for log scale
-    if min_val < 1:
-        min_val = 1
+    min_val = max(min_val, 1)
 
     # Add 100% complete reference line (y = x) - solid black line
     fig.add_trace(
@@ -718,37 +476,14 @@ def get_rawobs(plot_data, selection, use_program_colors=False):
     )
 
     fig.update_layout(
-        width=1400,
-        height=800,
-        xaxis_title="Total Requested Observations",
-        yaxis_title="Total Observations (Past + Scheduled)",
-        template="plotly_white",
-        showlegend=True,  # Show legend so stars can be toggled on/off
-        xaxis=dict(
-            type="log",  # Log scale for x-axis
-            title_font=dict(size=labelsize),
-            tickfont=dict(size=labelsize - 4),
-            showgrid=True,
-            gridcolor="lightgray",
-            minor=dict(
-                showgrid=False,  # Hide minor grid lines
-                ticks="",  # Hide minor tick marks
-            ),
-            dtick=1,  # Major ticks at powers of 10
-        ),
-        yaxis=dict(
-            type="log",  # Log scale for y-axis
-            title_font=dict(size=labelsize),
-            tickfont=dict(size=labelsize - 4),
-            showgrid=True,
-            gridcolor="lightgray",
-            minor=dict(
-                showgrid=False,  # Hide minor grid lines
-                ticks="",  # Hide minor tick marks
-            ),
-            dtick=1,  # Major ticks at powers of 10
-        ),
-        margin=dict(b=100, t=50),
+        **log_scatter_layout(
+            xaxis_title="Total Requested Observations",
+            yaxis_title="Total Observations (Past + Scheduled)",
+            xaxis=log_axis_counts(),
+            yaxis=log_axis_counts(),
+            showlegend=True,
+            margin=dict(b=100, t=50),
+        )
     )
 
     return fig
@@ -757,7 +492,7 @@ def get_rawobs(plot_data, selection, use_program_colors=False):
 def get_timebar(
     plot_data,
     selection,
-    use_program_colors=False,
+    use_program_colors=False,  # pylint: disable=unused-argument
     prevent_negative=False,
 ):
     """Horizontal bar chart of requested vs past vs scheduled vs allocated hours.
@@ -807,24 +542,11 @@ def get_timebar(
     # Calculate unused hours
     unused_hours = total_allocated_hours - total_future_hours - total_past_hours
 
-    # Apply negative value prevention if enabled
-    if prevent_negative:
-        total_incomplete_hours = max(0, total_incomplete_hours)
-        unused_hours = max(0, unused_hours)
-
-    # Create bar chart data
-    # Reverse order so bars appear top to bottom: Requested, Completed, Scheduled, Incomplete, Not used, Sum
-    # Labels include descriptions for clarity
-    labels = [
-        "<b>Unused Time</b><br>(allocation - past - future)<br>If you have positive unused time, <br>consider adding or changing requests",
-        "<b>Incomplete Time</b><br>(requested - past - future)<br>If you have incomplete time, <br>some of your requests are infeasible <br> consider changing them, <br> i.e. cadence or redistributing",
-        "<b>Future Scheduled Time</b>",
-        "<b>Past Completed Time</b>",
-        "<b>Requested Time</b>",
-    ]
-    sum_hours = (
-        total_past_hours + total_future_hours + total_incomplete_hours + unused_hours
+    unused_hours, total_incomplete_hours = timebar_clip_hours(
+        unused_hours, total_incomplete_hours, prevent_negative
     )
+
+    labels = timebar_category_labels()
     values = [
         unused_hours,
         total_incomplete_hours,
@@ -832,21 +554,7 @@ def get_timebar(
         total_past_hours,
         total_requested_hours,
     ]
-    colors = [
-        "#FF0000",
-        "#F18F01",
-        "#A23B72",
-        "#2E86AB",
-        "#00FF00",
-    ]  # Red, Orange, Purple, Blue, Green
-
-    # Create the horizontal bar chart
-    # Calculate percentages based on total allocated hours for all bars
-    text_labels = []
-    for i, (label, val) in enumerate(zip(labels, values)):
-        # Calculate percentage relative to total allocated hours
-        pct = (val / total_allocated_hours * 100) if total_allocated_hours > 0 else 0
-        text_labels.append(f"{val:.1f} hrs ({pct:.1f}%)")
+    text_labels = timebar_text_labels(values, total_allocated_hours)
 
     fig = go.Figure(
         data=[
@@ -854,7 +562,7 @@ def get_timebar(
                 x=values,
                 y=labels,
                 orientation="h",
-                marker=dict(color=colors),
+                marker=dict(color=TIMEBAR_COLORS),
                 text=text_labels,
                 textposition="auto",
                 hovertemplate="<b>%{y}</b><br>%{x:.2f} hours<br><extra></extra>",
@@ -862,104 +570,24 @@ def get_timebar(
         ]
     )
 
-    # Adjust margin if there's a warning to display
     top_margin = 180 if total_requested_hours > total_allocated_hours else 130
-
     fig.update_layout(
-        title_text=f"<b>Total Requested:</b> {total_requested_hours:.1f} hours ≈ {total_requested_hours / hours_per_night:.1f} nights<br><b>Total Allocated:</b> {total_allocated_hours:.1f} hours ≈ {total_allocated_nights:.1f} nights ----> w/ losses = {total_allocated_nights * 0.75:.1f} nights <br>Requested and allocated time are measured in hours ({hours_per_night:.0f} hours per night for night equivalents).<br>Past and future bars use splan charged hours (slot-based).",
-        template="plotly_white",
-        showlegend=False,
-        height=710,  # Increased height for more vertical spacing between labels
-        width=1400,
-        margin=dict(t=top_margin, b=50, l=200, r=50),
-        bargap=0.2,
-        xaxis=dict(title="Hours", titlefont=dict(size=14), tickfont=dict(size=12)),
-        yaxis=dict(title="", titlefont=dict(size=14), tickfont=dict(size=11)),
-    )
-
-    # Add black vertical dashed line at total_allocated_hours
-    fig.add_shape(
-        type="line",
-        x0=total_allocated_hours,
-        x1=total_allocated_hours,
-        y0=-0.5,
-        y1=len(labels) - 0.5,
-        line=dict(color="black", width=2, dash="dash"),
-        xref="x",
-        yref="y",
-    )
-
-    # Add gray vertical dashed line for weather loss factor
-    weather_loss_factor = 0.2
-    fig.add_shape(
-        type="line",
-        x0=total_allocated_hours - total_allocated_hours * weather_loss_factor,
-        x1=total_allocated_hours - total_allocated_hours * weather_loss_factor,
-        y0=-0.5,
-        y1=len(labels) - 0.5,
-        line=dict(color="gray", width=2, dash="dash"),
-        xref="x",
-        yref="y",
-    )
-
-    # Add gray vertical dashed line at max schedulable time (hours * max_fillfactor)
-    fig.add_shape(
-        type="line",
-        x0=max_schedulable_hours,
-        x1=max_schedulable_hours,
-        y0=-0.5,
-        y1=len(labels) - 0.5,
-        line=dict(color="gray", width=2, dash="dash"),
-        xref="x",
-        yref="y",
-    )
-
-    # Add invisible scatter trace for hover text on the allocated time line
-    # Use the same categorical labels as the bar chart to avoid numeric y-axis ticks
-    fig.add_trace(
-        go.Scatter(
-            x=[total_allocated_hours] * len(labels),
-            y=labels,  # Use categorical labels instead of numeric positions
-            mode="markers",
-            marker=dict(size=20, opacity=0),  # Invisible but hoverable markers
-            hovertemplate=f"<b>Allocated Time</b><br>{total_allocated_hours:.2f} hours<br>This line represents the total allocated time for your program<extra></extra>",
-            hoverlabel=dict(bgcolor="black", font_color="white"),
-            showlegend=False,
-        )
-    )
-
-    # Add invisible scatter trace for hover text on the weather loss factor line
-    weather_loss_value = (
-        total_allocated_hours - total_allocated_hours * weather_loss_factor
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=[weather_loss_value] * len(labels),
-            y=labels,  # Use categorical labels instead of numeric positions
-            mode="markers",
-            marker=dict(size=20, opacity=0),  # Invisible but hoverable markers
-            hovertemplate=f"<b>Weather Loss Factor</b><br>{weather_loss_value:.2f} hours<br>Allocated time minus {weather_loss_factor * 100:.0f}% weather loss<br>This is only a first order estimate based on historical losses.<extra></extra>",
-            hoverlabel=dict(bgcolor="gray", font_color="white"),
-            showlegend=False,
-        )
-    )
-
-    # Add invisible scatter trace for hover text on the max schedulable line
-    fig.add_trace(
-        go.Scatter(
-            x=[max_schedulable_hours] * len(labels),
-            y=labels,  # Use categorical labels instead of numeric positions
-            mode="markers",
-            marker=dict(size=20, opacity=0),  # Invisible but hoverable markers
-            hovertemplate=(
-                f"<b>Maximum Schedulable Time</b><br>{max_schedulable_hours:.2f} hours<br>"
-                "Sum of awarded hours times per-program max_fillfactor "
-                "(default 1.25). Algorithmically, you are forbidden from "
-                "getting more time than this.<extra></extra>"
+        **timebar_layout(
+            timebar_single_title(
+                total_requested_hours,
+                total_allocated_hours,
+                total_allocated_nights,
+                hours_per_night,
             ),
-            hoverlabel=dict(bgcolor="gray", font_color="white"),
-            showlegend=False,
+            top_margin,
         )
+    )
+
+    add_timebar_guide_lines(
+        fig,
+        labels,
+        total_allocated_hours=total_allocated_hours,
+        max_schedulable_hours=max_schedulable_hours,
     )
 
     # Add warning annotation if requested time exceeds allocated time
@@ -979,11 +607,12 @@ def get_timebar(
     return fig
 
 
-def get_timebar_by_program(plot_data, selection=None, prevent_negative=False):
+def get_timebar_by_program(plot_data, selection=None, prevent_negative=False):  # pylint: disable=unused-argument
     """
     Create a grid of horizontal bar charts showing time breakdown for each program individually
 
-    Each program displays 5 bars: Unused, Incomplete, Future Scheduled, Past Completed, and Requested.
+    Each program displays 5 bars: Unused, Incomplete, Future Scheduled,
+    Past Completed, and Requested.
     A dashed vertical line represents their total allocated time. Programs are
     arranged in a 3-column grid, each subplot on its own x-scale.
 
@@ -995,7 +624,6 @@ def get_timebar_by_program(plot_data, selection=None, prevent_negative=False):
     Returns:
         plotly.graph_objects.Figure: grid of per-program time-budget bars.
     """
-    semester_planner = plot_data.semester_planner
     ledger = programs_ledger_for_plot(plot_data.semester_planner)
     prog_table = plot_data.program_table
 
@@ -1033,14 +661,7 @@ def get_timebar_by_program(plot_data, selection=None, prevent_negative=False):
     )
 
     # Colors in display order: Red, Orange, Purple, Blue, Green
-    display_colors = ["#FF0000", "#F18F01", "#A23B72", "#2E86AB", "#00FF00"]
-    category_names = [
-        "Unused",
-        "Incomplete",
-        "Future Scheduled",
-        "Past Completed",
-        "Requested",
-    ]
+    category_names = TIMEBAR_CATEGORY_NAMES
 
     # Add bars for each program in its own subplot
     for idx, program_code in enumerate(all_program_codes):
@@ -1065,120 +686,44 @@ def get_timebar_by_program(plot_data, selection=None, prevent_negative=False):
                 x=program_values,
                 y=category_names,
                 orientation="h",
-                marker=dict(color=display_colors),
+                marker=dict(color=TIMEBAR_COLORS),
                 text=[f"{v:.1f}" if v > 0 else "" for v in program_values],
                 textposition="auto",
-                hovertemplate=f"<b>{program_code}</b><br>%{{y}}<br>%{{x:.2f}} hours<extra></extra>",
+                hovertemplate=(
+                    f"<b>{program_code}</b><br>%{{y}}<br>%{{x:.2f}} hours<extra></extra>"
+                ),
                 showlegend=False,
             ),
             row=row,
             col=col,
         )
 
-        # Add vertical dashed line for allocated time
         allocated = data["allocated"]
-        # For subplots, determine the correct axis reference
-        # In make_subplots, axes are numbered: x, x2, x3, ... and y, y2, y3, ...
         if idx == 0:
             xref, yref = "x", "y"
         else:
             xref, yref = f"x{idx + 1}", f"y{idx + 1}"
 
-        fig.add_shape(
-            type="line",
-            x0=allocated,
-            x1=allocated,
-            y0=-0.5,
-            y1=4.5,
-            line=dict(color="black", width=2, dash="dash"),
-            xref=xref,
-            yref=yref,
-        )
-
-        # Add gray vertical dashed line for weather loss estimate
-        weather_loss_factor = 0.2
-        fig.add_shape(
-            type="line",
-            x0=allocated - allocated * weather_loss_factor,
-            x1=allocated - allocated * weather_loss_factor,
-            y0=-0.5,
-            y1=4.5,
-            line=dict(color="gray", width=2, dash="dash"),
-            xref=xref,
-            yref=yref,
-        )
-
-        # Add gray vertical dashed line at allocated * max_fillfactor
         if program_code in ledger.index:
             max_ff = float(ledger.loc[program_code, "max_fillfactor"])
         else:
             max_ff = 1.25
         max_schedulable = allocated * max_ff
-        fig.add_shape(
-            type="line",
-            x0=max_schedulable,
-            x1=max_schedulable,
-            y0=-0.5,
-            y1=4.5,
-            line=dict(color="gray", width=2, dash="dash"),
+
+        add_timebar_subplot_guides(
+            fig,
+            row=row,
+            col=col,
             xref=xref,
             yref=yref,
+            program_code=program_code,
+            allocated=allocated,
+            max_schedulable=max_schedulable,
+            category_names=category_names,
+            max_fillfactor=max_ff,
         )
 
-        # Add invisible scatter for hover on allocated line
-        fig.add_trace(
-            go.Scatter(
-                x=[allocated],
-                y=[category_names[2]],  # Middle bar (Future Scheduled)
-                mode="markers",
-                marker=dict(size=15, opacity=0),
-                hovertemplate=f"<b>{program_code} Allocated Time</b><br>{allocated:.2f} hours<br>Total allocated time for this program<extra></extra>",
-                hoverlabel=dict(bgcolor="black", font_color="white"),
-                showlegend=False,
-            ),
-            row=row,
-            col=col,
-        )
-
-        # Add invisible scatter for hover on weather loss line
-        weather_loss_value = allocated - allocated * weather_loss_factor
-        fig.add_trace(
-            go.Scatter(
-                x=[weather_loss_value],
-                y=[category_names[2]],  # Middle bar (Future Scheduled)
-                mode="markers",
-                marker=dict(size=15, opacity=0),
-                hovertemplate=f"<b>{program_code} Weather Loss Factor</b><br>{weather_loss_value:.2f} hours<br>Allocated time minus {weather_loss_factor * 100:.0f}% weather loss<extra></extra>",
-                hoverlabel=dict(bgcolor="gray", font_color="white"),
-                showlegend=False,
-            ),
-            row=row,
-            col=col,
-        )
-
-        # Add invisible scatter for hover on max schedulable line
-        fig.add_trace(
-            go.Scatter(
-                x=[max_schedulable],
-                y=[category_names[2]],  # Middle bar (Future Scheduled)
-                mode="markers",
-                marker=dict(size=15, opacity=0),
-                hovertemplate=(
-                    f"<b>{program_code} Maximum Schedulable</b><br>"
-                    f"{max_schedulable:.2f} hours<br>"
-                    f"Awarded hours times max_fillfactor ({max_ff:.2f})"
-                    "<extra></extra>"
-                ),
-                hoverlabel=dict(bgcolor="gray", font_color="white"),
-                showlegend=False,
-            ),
-            row=row,
-            col=col,
-        )
-
-        # Update x-axis for this subplot (scaled to this program's data)
-        # Include max schedulable and weather loss so the gray lines are visible
-        weather_loss_value = allocated - allocated * weather_loss_factor
+        weather_loss_value = allocated * (1 - TIMEBAR_WEATHER_LOSS_FACTOR)
         program_max = max(
             data["unused"],
             data["incomplete"],
@@ -1188,22 +733,24 @@ def get_timebar_by_program(plot_data, selection=None, prevent_negative=False):
             data["allocated"],
             max_schedulable,
             weather_loss_value,
+            1.0,
         )
-        program_max = max(program_max, 1.0)  # Ensure at least 1.0 to avoid empty scale
 
         fig.update_xaxes(title="Hours", range=[0, program_max * 1.1], row=row, col=col)
-
-        # Update y-axis for this subplot (no labels)
         fig.update_yaxes(title="", showticklabels=False, row=row, col=col)
 
-    # Update overall layout
     fig.update_layout(
-        title_text="<b>Time Breakdown by Program</b><br>Each program shows 5 bars (top to bottom): Requested (green), Past Completed (blue), Future Scheduled (purple), Incomplete (orange), Unused (red)<br>Dashed vertical line represents total allocated time. Note each grid is on its own scaling.",
-        template="plotly_white",
-        showlegend=False,
-        height=max(600, num_rows * 250),
-        width=1400,
-        margin=dict(t=150, b=50, l=50, r=50),
+        **timebar_grid_layout(
+            (
+                "<b>Time Breakdown by Program</b><br>"
+                "Each program shows 5 bars (top to bottom): Requested (green), "
+                "Past Completed (blue), Future Scheduled (purple), Incomplete (orange), "
+                "Unused (red)<br>"
+                "Dashed vertical line represents total allocated time. "
+                "Note each grid is on its own scaling."
+            ),
+            num_rows,
+        )
     )
 
     return fig
@@ -1256,7 +803,8 @@ def get_football(plot_data, selection, use_program_colors=False):
     )
 
     semester = (
-        plot_data.semester_planner.config.get("global", "semester_start_day")[:4] + plot_data.semester_planner.config.get("global", "semester")[-1]
+        plot_data.semester_planner.config.get("global", "semester_start_day")[:4]
+        + plot_data.semester_planner.config.get("global", "semester")[-1]
     )
     cache_dir = _football_cache_dir(plot_data.semester_planner)
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -1279,7 +827,9 @@ def get_football(plot_data, selection, use_program_colors=False):
         grid_access = ac.Access(
             queue=plot_data.semester_planner.queue,
             request_frame=seasonality_frame,
-            semester_start_date=plot_data.semester_planner.config.get("global", "semester_start_day"),
+            semester_start_date=plot_data.semester_planner.config.get(
+                "global", "semester_start_day"
+            ),
             semester_length=semester_length,
             slot_size=plot_data.semester_planner.config.getint("semester", "slot_size"),
         )
@@ -1306,16 +856,16 @@ def get_football(plot_data, selection, use_program_colors=False):
         )
 
     if os.path.exists(cache_image_file):
-        with open(cache_image_file, "r") as f:
+        with open(cache_image_file, encoding="utf-8") as f:
             img_base64 = f.read()
     else:
         RA_shifted = np.radians(RA_grid - 180)
         DEC_rad = np.radians(DEC_grid)
 
-        fig_mpl, ax = plt.subplots(
+        _, ax = plt.subplots(
             subplot_kw={"projection": "mollweide"}, figsize=(10, 5)
         )
-        im = ax.pcolormesh(
+        ax.pcolormesh(
             RA_shifted,
             DEC_rad,
             NIGHTS_grid,
@@ -1332,7 +882,7 @@ def get_football(plot_data, selection, use_program_colors=False):
         buf.seek(0)
         img_base64 = base64.b64encode(buf.read()).decode()
 
-        with open(cache_image_file, "w") as f:
+        with open(cache_image_file, "w", encoding="utf-8") as f:
             f.write(img_base64)
 
     fig = go.Figure()
@@ -1398,7 +948,6 @@ def get_football(plot_data, selection, use_program_colors=False):
                     hovertemplate="%{text}<br>RA: %{lon:.2f}°, Dec: %{lat:.2f}°<extra></extra>",
                 )
             )
-            return None
 
         program_frame.groupby("program_code").apply(add_program_trace)
 
@@ -1431,7 +980,7 @@ def get_football(plot_data, selection, use_program_colors=False):
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         template="none",
-        width=1400,
+        width=FIG_WIDTH,
         height=800,
         xaxis=dict(showgrid=False, visible=True),
         yaxis=dict(showgrid=False, visible=True),
@@ -1565,16 +1114,15 @@ def get_completion_histogram_by_weight(plot_data, selection):
         )
 
     fig.update_layout(
-        width=1400,
-        height=600,
-        title="Completion Rate by splan_weight",
-        xaxis_title="Completion Rate (%)",
-        yaxis_title="Number of Requests",
-        barmode="stack",
-        plot_bgcolor=clear,
-        paper_bgcolor=clear,
-        xaxis=dict(categoryorder="array", categoryarray=_COMPLETION_BIN_LABELS),
-        legend=dict(title="splan_weight"),
+        **completion_layout(
+            height=600,
+            title="Completion Rate by splan_weight",
+            xaxis_title="Completion Rate (%)",
+            yaxis_title="Number of Requests",
+            barmode="stack",
+            xaxis=dict(categoryorder="array", categoryarray=_COMPLETION_BIN_LABELS),
+            legend=dict(title="splan_weight"),
+        )
     )
     return fig
 
@@ -1613,21 +1161,20 @@ def get_completion_vs_target_name(plot_data, selection):
         )
 
     fig.update_layout(
-        width=1400,
-        height=700,
-        title="Completion Rate by Target",
-        xaxis_title="Target",
-        yaxis_title="Completion Rate (%)",
-        plot_bgcolor=clear,
-        paper_bgcolor=clear,
-        xaxis=dict(
-            categoryorder="array",
-            categoryarray=target_order,
-            tickangle=-45,
-        ),
-        yaxis=dict(range=[0, 100]),
-        margin=dict(b=150),
-        showlegend=True,
+        **completion_layout(
+            height=700,
+            title="Completion Rate by Target",
+            xaxis_title="Target",
+            yaxis_title="Completion Rate (%)",
+            xaxis=dict(
+                categoryorder="array",
+                categoryarray=target_order,
+                tickangle=-45,
+            ),
+            yaxis=dict(range=[0, 100]),
+            margin=dict(b=150),
+            showlegend=True,
+        )
     )
     return fig
 

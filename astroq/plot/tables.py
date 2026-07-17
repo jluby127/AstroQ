@@ -1,9 +1,9 @@
 """HTML table renderers for webapp and CLI."""
 
+import re
 from urllib.parse import quote
 
 import pandas as pd
-import re
 
 from astroq.plot._common import _render_datatable
 
@@ -118,7 +118,8 @@ def request_frame_to_html(
     Convert a request frame (from request.csv) to HTML for admin/program/star pages.
 
     Displays only: target, unique_id, program_code, ra, dec, exptime, n_exp,
-    n_inter_max, tau_inter, n_intra_max, n_intra_min, tau_intra, Band1, Band2, Band3, Inactive, Comments.
+    n_inter_max, tau_inter, n_intra_max, n_intra_min, tau_intra, Band1, Band2,
+    Band3, Inactive, Comments.
     Boolean columns (weather bands, inactive) are shown as Y/N with transparent green/red.
 
     Args:
