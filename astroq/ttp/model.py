@@ -28,8 +28,8 @@ class TTPModel:
 
             unique_id        str                            primary key
             coord            SkyCoord column                ICRS
-            first_available  Time column                    earliest start of accessibility window
-            last_available   Time column                    latest end of accessibility window
+            time_earliest_start  Time column              earliest allowed start
+            time_latest_finish   Time column              latest allowed finish
             t_visit          Quantity column (time)         per-visit duration
             n_intra_max      int column                     max visits per night
             tau_intra        Quantity column (time)         min spacing between visits within a night
@@ -67,6 +67,9 @@ class TTPModel:
     Notes:
         Internal naming is aligned with Handley+ 2024 (``N``, ``M``, ``Yi``,
         ``Xijm``, ``arcs``) and AstroQ vocabulary (``t_visit``, ``tau_intra``).
+        Window bounds on ``nodes`` are ``t_earliest_start`` / ``t_latest_finish``
+        (minutes from ``night_start``); scheduled times on ``schedule`` are
+        ``t_start`` / ``t_end``.
 
     Usage:
         tm = TTPModel(...)
@@ -100,8 +103,8 @@ class TTPModel:
     _COLUMN_SPECS = {
         "unique_id":       None,      # str, primary key
         "coord":           SkyCoord,  # ICRS
-        "first_available": Time,
-        "last_available":  Time,
+        "time_earliest_start": Time,
+        "time_latest_finish":  Time,
         "t_visit":         u.s,       # Quantity with time units
         "n_intra_max":     None,      # int
         "tau_intra":       u.s,       # Quantity with time units
@@ -148,10 +151,10 @@ class TTPModel:
         self.night_end = night_end
 
         if len(self.requests) > 0:
-            dfa = self.requests["first_available"] - night_start
+            dfa = self.requests["time_earliest_start"] - night_start
             if dfa.min().to_value(u.s) > 0:
                 logs.warning(
-                    "min(first_available) is {:.1f} after night_start".format(
+                    "min(time_earliest_start) is {:.1f} after night_start".format(
                         dfa.min().to(u.min)
                     )
                 )
@@ -187,8 +190,12 @@ class TTPModel:
         # remains the single source of truth on the model.
         r = self.requests
         rdf = self.requests["unique_id","n_intra_max","weight"].to_pandas()
-        rdf["t_early"] = (r["first_available"] - self.night_start).to_value(u.min).astype(float)
-        rdf["t_late"] =  (r["last_available"] - self.night_start).to_value(u.min).astype(float)
+        rdf["t_earliest_start"] = (
+            r["time_earliest_start"] - self.night_start
+        ).to_value(u.min).astype(float)
+        rdf["t_latest_finish"] = (
+            r["time_latest_finish"] - self.night_start
+        ).to_value(u.min).astype(float)
         rdf["tau_intra"] = r["tau_intra"].to_value(u.min).astype(float)
         rdf["t_visit"] = r["t_visit"].to_value(u.min).astype(float)
         rdf["ra"] = r["coord"].ra.deg.astype(float)
@@ -215,8 +222,8 @@ class TTPModel:
             "request_idx": -1,
             "visit_seq": 0,
             "is_anchor": True,
-            "t_early": 0.0,
-            "t_late": self.dur_min,
+            "t_earliest_start": 0.0,
+            "t_latest_finish": self.dur_min,
             "t_visit": 0.0,
             "tau_intra": 0.0,
             "weight": 0.0,
@@ -427,7 +434,7 @@ class TTPModel:
 
         # First exposure pinned to start (or earliest feasible) -- same policy
         # as the single-state model, now per start-anchor arc.
-        t_earliest = nodes[~nodes.is_anchor].t_early.min()
+        t_earliest = nodes[~nodes.is_anchor].t_earliest_start.min()
         t_start = max(0.0, t_earliest)
         for key in out_by_node[0]:
             _, j, _, _, _ = key
@@ -504,11 +511,11 @@ class TTPModel:
             row = nodes.loc[i]
             visited = gp.quicksum(self.Yi[(i, s)] for s in node_states[i])
             self.model.addConstr(
-                self.ti[i] >= (row.t_early + row.t_visit) * visited,
+                self.ti[i] >= (row.t_earliest_start + row.t_visit) * visited,
                 f"rise_constr_{i}",
             )
             self.model.addConstr(
-                self.ti[i] <= row.t_late * visited, f"set_constr_{i}"
+                self.ti[i] <= row.t_latest_finish * visited, f"set_constr_{i}"
             )
 
         # eq. B3 - intra-night separation (multi-visit only).

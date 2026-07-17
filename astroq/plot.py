@@ -324,7 +324,7 @@ class StarPlotter(object):
             starmap[d_values, s_values] = 1
 
             # Set the reserve slots
-            rf = semester_planner.requests_frame
+            rf = semester_planner.requests_active
             row = rf.loc[rf["unique_id"] == str(self.unique_id)]
             reserve_slots = int(row["t_visit_slots"].iloc[0]) if len(row) else 1
             for r in range(1, reserve_slots):
@@ -363,8 +363,8 @@ def process_stars(semester_planner):
     slew_overhead = queue.slew_overhead_mean
     readout_overhead = queue.readout_time
 
-    targets = semester_planner.requests_frame_all["target"].unique()
-    programs = semester_planner.requests_frame_all["program_code"].unique()
+    targets = semester_planner.requests["target"].unique()
+    programs = semester_planner.requests["program_code"].unique()
 
     # Make colors consistent for all stars in each program
     colors = sns.color_palette("deep", len(programs))
@@ -375,11 +375,11 @@ def process_stars(semester_planner):
 
     # Per-(uid, night) past-observation aggregates derived from past_df. Keys
     # are UT calendar dates (timestamp[:10]). Empty dicts when past_df is empty.
-    past_df = semester_planner.past_df
-    if not past_df.empty:
-        pdf = past_df.assign(
-            unique_id=past_df["unique_id"].astype(str),
-            night=past_df["timestamp"].astype(str).str[:10],
+    past = semester_planner.past
+    if not past.empty:
+        pdf = past.assign(
+            unique_id=past["unique_id"].astype(str),
+            night=past["timestamp"].astype(str).str[:10],
         )
         n_obs_by_uid = (
             pdf.groupby("unique_id").apply(
@@ -397,7 +397,7 @@ def process_stars(semester_planner):
 
     all_stars = []
     i = 0
-    for i, row in semester_planner.requests_frame_all.iterrows():
+    for i, row in semester_planner.requests.iterrows():
         # Create a StarPlotter object for each request, fill and compute relavant information
         newstar = StarPlotter(row["unique_id"])
         newstar.get_map(semester_planner, forecast_df)
@@ -405,7 +405,7 @@ def process_stars(semester_planner):
         uid = str(newstar.unique_id)
         newstar.observations_past = n_visits_by_uid.get(uid, {})
         newstar.observations_past_exposures = n_obs_by_uid.get(uid, {})
-        newstar.get_future(forecast_df, semester_planner.all_dates_array)
+        newstar.get_future(forecast_df, semester_planner.access_obj.all_dates_array)
 
         # Create COF arrays for each request
         combined_set = set(
@@ -422,7 +422,7 @@ def process_stars(semester_planner):
                     if date in combined_set
                     else 0
                 )
-                for date in semester_planner.all_dates_array
+                for date in semester_planner.access_obj.all_dates_array
             ]
             newstar.dates_observe_time = [
                 (
@@ -446,7 +446,7 @@ def process_stars(semester_planner):
                     if date in combined_set
                     else 0
                 )
-                for date in semester_planner.all_dates_array
+                for date in semester_planner.access_obj.all_dates_array
             ]
         else:
             # For inactive stars, only show past observations
@@ -454,7 +454,7 @@ def process_stars(semester_planner):
                 newstar.observations_past[date]
                 if date in newstar.observations_past.keys()
                 else 0
-                for date in semester_planner.all_dates_array
+                for date in semester_planner.access_obj.all_dates_array
             ]
             newstar.dates_observe_time = [
                 (
@@ -465,7 +465,7 @@ def process_stars(semester_planner):
                 / 3600
                 if date in newstar.observations_past_exposures.keys()
                 else 0
-                for date in semester_planner.all_dates_array
+                for date in semester_planner.access_obj.all_dates_array
             ]
 
         newstar.cume_observe = np.cumsum(newstar.dates_observe)
@@ -505,7 +505,7 @@ def process_stars(semester_planner):
                 )
             else:
                 newstar.cume_observe_pct = np.zeros(
-                    len(semester_planner.all_dates_array)
+                    len(semester_planner.access_obj.all_dates_array)
                 )
 
         # Create consistent colors across programs, and random colors for each star within programs
@@ -525,14 +525,13 @@ def process_stars(semester_planner):
             "is_moon",
             "is_inter",
             "is_future",
-            "is_clear",
             "is_observable_now",
         ]
         # Find the target index for this star in the access record
         # For inactive targets, they won't be in requests_frame, so create zero maps
         try:
             target_idx = np.where(
-                semester_planner.requests_frame["unique_id"] == newstar.unique_id
+                semester_planner.requests_active["unique_id"] == newstar.unique_id
             )[0][0]
             # Extract the 2D slice for this specific target from each 3D map
             newstar.maps = {
@@ -609,7 +608,7 @@ def process_stars(semester_planner):
             )
         else:
             programmatic_star.cume_observe_time_pct = np.zeros(
-                len(semester_planner.all_dates_array)
+                len(semester_planner.access_obj.all_dates_array)
             )
         programmatic_star.cume_observe_time = summed_cumulative_time  # in hours
 
@@ -632,7 +631,7 @@ def process_stars(semester_planner):
                 )
             else:
                 programmatic_star.cume_observe_pct = np.zeros(
-                    len(semester_planner.all_dates_array)
+                    len(semester_planner.access_obj.all_dates_array)
                 )
 
         # Compute sum of starmaps
@@ -693,9 +692,9 @@ def get_cof(semester_planner, all_stars, use_time=False):
     )  # autosize=True,margin=dict(l=40, r=40, t=40, b=40),
 
     # Convert calendar dates to night indices (0, 1, 2, ...)
-    night_indices = np.arange(len(semester_planner.all_dates_array))
+    night_indices = np.arange(len(semester_planner.access_obj.all_dates_array))
 
-    burn_line = np.linspace(0, 100, len(semester_planner.all_dates_array))
+    burn_line = np.linspace(0, 100, len(semester_planner.access_obj.all_dates_array))
     burn_line = np.round(burn_line, 2)
 
     # Add "Even Burn Rate" line as a shape so it's always visible and can't be toggled
@@ -725,7 +724,7 @@ def get_cof(semester_planner, all_stars, use_time=False):
     )
     lines = []
     if use_time is False:
-        cume_observe = np.zeros(len(semester_planner.all_dates_array))
+        cume_observe = np.zeros(len(semester_planner.access_obj.all_dates_array))
         max_value = 0
         cume_observe = np.sum([star.cume_observe for star in all_stars], axis=0)
         max_value = sum(star.total_observations_requested for star in all_stars)
@@ -741,7 +740,7 @@ def get_cof(semester_planner, all_stars, use_time=False):
             if total_past_obs > 0:
                 cume_observe_pct = (cume_observe / total_past_obs) * 100
             else:
-                cume_observe_pct = np.zeros(len(semester_planner.all_dates_array))
+                cume_observe_pct = np.zeros(len(semester_planner.access_obj.all_dates_array))
 
         # Add the Total trace first (so it appears below other traces)
         fig.add_trace(
@@ -758,7 +757,7 @@ def get_cof(semester_planner, all_stars, use_time=False):
                 + "<br># Obs Requested: "
                 + str(max_value)
                 + "<br>",
-                customdata=semester_planner.all_dates_array,
+                customdata=semester_planner.access_obj.all_dates_array,
             )
         )
     else:
@@ -775,7 +774,7 @@ def get_cof(semester_planner, all_stars, use_time=False):
                 getattr(
                     s,
                     "cume_observe_time",
-                    np.zeros(len(semester_planner.all_dates_array)),
+                    np.zeros(len(semester_planner.access_obj.all_dates_array)),
                 )
                 for s in all_stars
             ],
@@ -788,7 +787,7 @@ def get_cof(semester_planner, all_stars, use_time=False):
         if total_program_hours > 0:
             cume_time_pct = np.round(summed_cume_time / total_program_hours * 100, 2)
         else:
-            cume_time_pct = np.zeros(len(semester_planner.all_dates_array))
+            cume_time_pct = np.zeros(len(semester_planner.access_obj.all_dates_array))
 
         # Add the Total trace (time-based)
         # Build program label for hover: when multiple programs, show "All programs"; when one, show its name
@@ -811,7 +810,7 @@ def get_cof(semester_planner, all_stars, use_time=False):
                 + "<br>Total program time: "
                 + f"{total_program_hours:.1f} hours<br>"
                 + "<extra></extra>",
-                customdata=semester_planner.all_dates_array,
+                customdata=semester_planner.access_obj.all_dates_array,
             )
         )
 
@@ -832,7 +831,7 @@ def get_cof(semester_planner, all_stars, use_time=False):
                 y_vals = (
                     np.round(all_stars[i].cume_observe_time / total_prog_hours * 100, 2)
                     if total_prog_hours > 0
-                    else np.zeros(len(semester_planner.all_dates_array))
+                    else np.zeros(len(semester_planner.access_obj.all_dates_array))
                 )
             hovertemplate = (
                 "<b>"
@@ -864,20 +863,13 @@ def get_cof(semester_planner, all_stars, use_time=False):
                 line=dict(color=all_stars[i].star_color_rgb, width=2),
                 name=all_stars[i].target,
                 hovertemplate=hovertemplate,
-                customdata=semester_planner.all_dates_array,
+                customdata=semester_planner.access_obj.all_dates_array,
             )
         )
         last_pct = float(np.round(y_vals[-1], 2)) if len(y_vals) else 0
         lines.append(str(all_stars[i].target) + "," + str(last_pct))
 
-    # Find the night index for "today" (current_day)
-    try:
-        today_night_index = semester_planner.all_dates_array.index(
-            semester_planner.config.get("global", "current_day")
-        )
-    except (ValueError, AttributeError):
-        # Fallback to today_starting_night if available, otherwise use 0
-        today_night_index = getattr(semester_planner, "today_starting_night", 0) - 1
+    today_night_index = semester_planner.access_obj.current_night_index
 
     fig.add_vrect(
         x0=today_night_index,
@@ -903,8 +895,8 @@ def get_cof(semester_planner, all_stars, use_time=False):
     # Format dates as "Feb<br>01" (month and day on separate lines)
     x_ticktext_dates = []
     for day_idx in x_tickvals:
-        if day_idx < len(semester_planner.all_dates_array):
-            date_str = semester_planner.all_dates_array[day_idx]
+        if day_idx < len(semester_planner.access_obj.all_dates_array):
+            date_str = semester_planner.access_obj.all_dates_array[day_idx]
             # Parse date and format as "Feb<br>01" using HTML break tag
             date_obj = datetime.strptime(date_str, "%Y-%m-%d")
             month = date_obj.strftime("%b")
@@ -989,7 +981,7 @@ def get_cof(semester_planner, all_stars, use_time=False):
     # This trace must be associated with xaxis='x2' to make the secondary axis visible
     fig.add_trace(
         go.Scatter(
-            x=[0, len(semester_planner.all_dates_array) - 1],
+            x=[0, len(semester_planner.access_obj.all_dates_array) - 1],
             y=[100, 100],  # Position at top of y-axis range
             mode="markers",
             marker=dict(size=0.01, opacity=0),
@@ -1123,10 +1115,11 @@ def get_birdseye(semester_planner, availablity, all_stars):
             )
 
     # Add vertical dashed line denoting "today"
+    today = semester_planner.access_obj.current_night_index
     fig.add_vrect(
-        x0=semester_planner.today_starting_night
+        x0=today
         - 1,  # The minus one is just for aesthetic purposes.
-        x1=semester_planner.today_starting_night - 1,
+        x1=today - 1,
         annotation_text="Today",
         line_dash="dash",
         fillcolor=None,
@@ -1145,8 +1138,8 @@ def get_birdseye(semester_planner, availablity, all_stars):
     # Format dates as "Jan<br>15" or "Aug<br>12" (month and day on separate lines)
     x_ticktext_dates = []
     for day_idx in x_tickvals:
-        if day_idx < len(semester_planner.all_dates_array):
-            date_str = semester_planner.all_dates_array[day_idx]
+        if day_idx < len(semester_planner.access_obj.all_dates_array):
+            date_str = semester_planner.access_obj.all_dates_array[day_idx]
             # Parse date and format as "Jan<br>15" or "Aug<br>12" using HTML break tag
             date_obj = datetime.strptime(date_str, "%Y-%m-%d")
             month = date_obj.strftime("%b")
@@ -1181,7 +1174,7 @@ def get_birdseye(semester_planner, availablity, all_stars):
     n_slots = int(24 * 60 // semester_planner.config.getint("semester", "slot_size"))
     fig.add_trace(
         go.Scatter(
-            x=[0, len(semester_planner.all_dates_array) - 1],
+            x=[0, len(semester_planner.access_obj.all_dates_array) - 1],
             y=[n_slots + 1, n_slots + 1],  # Position just above visible area
             mode="markers",
             marker=dict(size=0.01, opacity=0),
@@ -1578,6 +1571,13 @@ def get_timebar(
     programmatics = pd.read_csv(
         os.path.join(semester_planner.config.get("global", "workdir"), "programs.csv")
     )
+    if "max_fillfactor" not in programmatics.columns:
+        programmatics["max_fillfactor"] = 1.25
+    else:
+        programmatics["max_fillfactor"] = (
+            pd.to_numeric(programmatics["max_fillfactor"], errors="coerce")
+            .fillna(1.25)
+        )
 
     # Per-visit overhead scalars come from the queue (single source of truth).
     slew_overhead = semester_planner.queue.slew_overhead_mean
@@ -1619,11 +1619,13 @@ def get_timebar(
     if len(programs_used) > 1:
         program_rows = programmatics[programmatics["program"].isin(programs_used)]
         total_allocated_hours = program_rows["hours"].sum()
-        total_allocated_nights = program_rows["nights"].sum()
     else:
         program_rows = programmatics[programmatics["program"] == programs_used[0]]
         total_allocated_hours = program_rows["hours"].sum()
-        total_allocated_nights = program_rows["nights"].sum()
+    total_allocated_nights = total_allocated_hours / hours_per_night
+    max_schedulable_hours = (
+        program_rows["hours"] * program_rows["max_fillfactor"]
+    ).sum()
 
     # Calculate unused hours
     unused_hours = total_allocated_hours - total_future_hours - total_past_hours
@@ -1687,7 +1689,7 @@ def get_timebar(
     top_margin = 180 if total_requested_hours > total_allocated_hours else 130
 
     fig.update_layout(
-        title_text=f"<b>Total Requested:</b> {total_requested_hours:.1f} hours ≈ {total_requested_hours / hours_per_night:.1f} nights<br><b>Total Allocated:</b> {total_allocated_hours:.1f} hours = {total_allocated_nights:.1f} nights ----> w/ losses = {total_allocated_nights * 0.75:.1f} nights <br>Requested time is measured in hours. Allocated time is measured in nights. Conversion is 12 hours per night.<br>All bars include exposure times and standard overheads.",
+        title_text=f"<b>Total Requested:</b> {total_requested_hours:.1f} hours ≈ {total_requested_hours / hours_per_night:.1f} nights<br><b>Total Allocated:</b> {total_allocated_hours:.1f} hours ≈ {total_allocated_nights:.1f} nights ----> w/ losses = {total_allocated_nights * 0.75:.1f} nights <br>Requested and allocated time are measured in hours ({hours_per_night:.0f} hours per night for night equivalents).<br>All bars include exposure times and standard overheads.",
         template="plotly_white",
         showlegend=False,
         height=710,  # Increased height for more vertical spacing between labels
@@ -1723,12 +1725,11 @@ def get_timebar(
         yref="y",
     )
 
-    # Add gray vertical dashed line at total_allocated_hours * throttle_grace
-    grace_factor = semester_planner.config.getfloat("semester", "throttle_grace")
+    # Add gray vertical dashed line at max schedulable time (hours * max_fillfactor)
     fig.add_shape(
         type="line",
-        x0=total_allocated_hours * grace_factor,
-        x1=total_allocated_hours * grace_factor,
+        x0=max_schedulable_hours,
+        x1=max_schedulable_hours,
         y0=-0.5,
         y1=len(labels) - 0.5,
         line=dict(color="gray", width=2, dash="dash"),
@@ -1766,15 +1767,19 @@ def get_timebar(
         )
     )
 
-    # Add invisible scatter trace for hover text on the throttle grace line
-    grace_value = total_allocated_hours * grace_factor
+    # Add invisible scatter trace for hover text on the max schedulable line
     fig.add_trace(
         go.Scatter(
-            x=[grace_value] * len(labels),
+            x=[max_schedulable_hours] * len(labels),
             y=labels,  # Use categorical labels instead of numeric positions
             mode="markers",
             marker=dict(size=20, opacity=0),  # Invisible but hoverable markers
-            hovertemplate=f"<b>Maximum Schedulable Time</b><br>{grace_value:.2f} hours<br>We allow for over-filled requests by a factor of up to {grace_factor:.2f} your allocation<br>Algorithmically, you are forbidden from getting more time than this.<extra></extra>",
+            hovertemplate=(
+                f"<b>Maximum Schedulable Time</b><br>{max_schedulable_hours:.2f} hours<br>"
+                "Sum of awarded hours times per-program max_fillfactor "
+                "(default 1.25). Algorithmically, you are forbidden from "
+                "getting more time than this.<extra></extra>"
+            ),
             hoverlabel=dict(bgcolor="gray", font_color="white"),
             showlegend=False,
         )
@@ -1817,6 +1822,13 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
     programmatics = pd.read_csv(
         os.path.join(semester_planner.config.get("global", "workdir"), "programs.csv")
     )
+    if "max_fillfactor" not in programmatics.columns:
+        programmatics["max_fillfactor"] = 1.25
+    else:
+        programmatics["max_fillfactor"] = (
+            pd.to_numeric(programmatics["max_fillfactor"], errors="coerce")
+            .fillna(1.25)
+        )
 
     # Per-visit overhead scalars come from the queue (single source of truth).
     slew_overhead = semester_planner.queue.slew_overhead_mean
@@ -2005,7 +2017,7 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
             yref=yref,
         )
 
-        # Add gray vertical dashed line at allocated * throttle_grace
+        # Add gray vertical dashed line for weather loss estimate
         weather_loss_factor = 0.2
         fig.add_shape(
             type="line",
@@ -2018,12 +2030,18 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
             yref=yref,
         )
 
-        # Add gray vertical dashed line at allocated * throttle_grace
-        grace_factor = semester_planner.config.getfloat("semester", "throttle_grace")
+        # Add gray vertical dashed line at allocated * max_fillfactor
+        program_row = programmatics.loc[programmatics["program"] == program_code]
+        max_ff = (
+            float(program_row["max_fillfactor"].iloc[0])
+            if len(program_row) > 0
+            else 1.25
+        )
+        max_schedulable = allocated * max_ff
         fig.add_shape(
             type="line",
-            x0=allocated * grace_factor,
-            x1=allocated * grace_factor,
+            x0=max_schedulable,
+            x1=max_schedulable,
             y0=-0.5,
             y1=4.5,
             line=dict(color="gray", width=2, dash="dash"),
@@ -2062,15 +2080,19 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
             col=col,
         )
 
-        # Add invisible scatter for hover on throttle grace line
-        grace_value = allocated * grace_factor
+        # Add invisible scatter for hover on max schedulable line
         fig.add_trace(
             go.Scatter(
-                x=[grace_value],
+                x=[max_schedulable],
                 y=[category_names[2]],  # Middle bar (Future Scheduled)
                 mode="markers",
                 marker=dict(size=15, opacity=0),
-                hovertemplate=f"<b>{program_code} Throttle Grace</b><br>{grace_value:.2f} hours<br>Allocated time times throttle grace factor ({grace_factor:.2f})<extra></extra>",
+                hovertemplate=(
+                    f"<b>{program_code} Maximum Schedulable</b><br>"
+                    f"{max_schedulable:.2f} hours<br>"
+                    f"Awarded hours times max_fillfactor ({max_ff:.2f})"
+                    "<extra></extra>"
+                ),
                 hoverlabel=dict(bgcolor="gray", font_color="white"),
                 showlegend=False,
             ),
@@ -2079,7 +2101,7 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
         )
 
         # Update x-axis for this subplot (scaled to this program's data)
-        # Include allocated*grace and weather loss so the gray lines are visible when they exceed the bars
+        # Include max schedulable and weather loss so the gray lines are visible
         weather_loss_value = allocated - allocated * weather_loss_factor
         program_max = max(
             data["unused"],
@@ -2088,7 +2110,7 @@ def get_timebar_by_program(semester_planner, programs_dict, prevent_negative=Fal
             data["past"],
             data["requested"],
             data["allocated"],
-            allocated * grace_factor,
+            max_schedulable,
             weather_loss_value,
         )
         program_max = max(program_max, 1.0)  # Ensure at least 1.0 to avoid empty scale
@@ -2362,14 +2384,28 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
     return fig
 
 
+def _completion_splan_weight(req_row):
+    """Numeric ``splan_weight`` for completion plots (matches semester optimizer)."""
+    if req_row is None:
+        return np.nan
+    for col in ("splan_weight", "weight"):
+        if col in req_row.index and pd.notna(req_row.get(col)):
+            return float(pd.to_numeric(req_row[col], errors="coerce"))
+    return np.nan
+
+
+def _splan_weight_legend_label(weight):
+    if pd.isna(weight):
+        return "splan_weight: (missing)"
+    w = float(weight)
+    if w == int(w):
+        return f"splan_weight: {int(w)}"
+    return f"splan_weight: {w}"
+
+
 def _completion_by_request_frame(semester_planner, all_stars):
-    """Per-request semester completion % joined with request.csv weight."""
-    req = semester_planner.requests_frame_all
-    weight_by_id = (
-        pd.to_numeric(req.set_index("unique_id")["weight"], errors="coerce")
-        if "weight" in req.columns
-        else pd.Series(dtype=float)
-    )
+    """Per-request semester completion % joined with request.csv ``splan_weight``."""
+    req = semester_planner.requests.set_index("unique_id")
 
     rows = []
     for star in all_stars:
@@ -2378,17 +2414,14 @@ def _completion_by_request_frame(semester_planner, all_stars):
             if len(star.cume_observe_pct) > 0
             else 0.0
         )
-        if star.unique_id in weight_by_id.index:
-            weight = weight_by_id.loc[star.unique_id]
-        else:
-            weight = np.nan
+        req_row = req.loc[star.unique_id] if star.unique_id in req.index else None
         rows.append(
             {
                 "unique_id": star.unique_id,
                 "target": star.target,
                 "program": star.program,
                 "completion_pct": pct,
-                "weight": weight,
+                "splan_weight": _completion_splan_weight(req_row),
             }
         )
     return pd.DataFrame(rows)
@@ -2401,16 +2434,6 @@ def _weight_legend_label(weight):
     if w == int(w):
         return f"weight: {int(w)}"
     return f"weight: {w}"
-
-
-def _priority_legend_label(weight):
-    """Histogram legend: weight 1 -> p1, etc."""
-    if pd.isna(weight):
-        return "(missing)"
-    w = float(weight)
-    if w == int(w):
-        return f"p{int(w)}"
-    return f"p{w}"
 
 
 def _sorted_weight_values(weights):
@@ -2445,11 +2468,11 @@ def _completion_bin_label(pct):
 
 def get_completion_histogram_by_weight(semester_planner, all_stars):
     """
-    Histogram of request completion rate (%), one curve per unique weight value.
+    Histogram of request completion rate (%), one curve per ``splan_weight``.
     """
     df = _completion_by_request_frame(semester_planner, all_stars)
     fig = go.Figure()
-    weight_values = _sorted_weight_values(df["weight"].unique())
+    weight_values = _sorted_weight_values(df["splan_weight"].unique())
     colors = sns.color_palette("deep", max(len(weight_values), 1))
     rgb_strings = [
         f"rgb({int(r * 255)}, {int(g * 255)}, {int(b * 255)})"
@@ -2457,7 +2480,9 @@ def get_completion_histogram_by_weight(semester_planner, all_stars):
     ]
 
     for i, weight in enumerate(weight_values):
-        subset = df.loc[_weight_series_matches(df["weight"], weight), "completion_pct"]
+        subset = df.loc[
+            _weight_series_matches(df["splan_weight"], weight), "completion_pct"
+        ]
         bin_labels = subset.map(_completion_bin_label)
         counts = (
             bin_labels.value_counts()
@@ -2468,8 +2493,7 @@ def get_completion_histogram_by_weight(semester_planner, all_stars):
             go.Bar(
                 x=_COMPLETION_BIN_LABELS,
                 y=counts,
-                name=_priority_legend_label(weight),
-                opacity=0.65,
+                name=_splan_weight_legend_label(weight),
                 marker_color=rgb_strings[i % len(rgb_strings)],
             )
         )
@@ -2477,14 +2501,14 @@ def get_completion_histogram_by_weight(semester_planner, all_stars):
     fig.update_layout(
         width=1400,
         height=600,
-        title="Completion Rate by Priority",
+        title="Completion Rate by splan_weight",
         xaxis_title="Completion Rate (%)",
         yaxis_title="Number of Requests",
-        barmode="overlay",
+        barmode="stack",
         plot_bgcolor=clear,
         paper_bgcolor=clear,
         xaxis=dict(categoryorder="array", categoryarray=_COMPLETION_BIN_LABELS),
-        legend=dict(title="Priority"),
+        legend=dict(title="splan_weight"),
     )
     return fig
 
@@ -2511,7 +2535,7 @@ def get_completion_vs_target_name(semester_planner, all_stars):
                 customdata=np.stack(
                     [
                         sub["program"].to_numpy(),
-                        sub["weight"].map(_weight_legend_label).to_numpy(),
+                        sub["splan_weight"].map(_splan_weight_legend_label).to_numpy(),
                     ],
                     axis=-1,
                 ),
@@ -2557,11 +2581,187 @@ def get_request_frame(semester_planner, all_stars):
     starids = [star.unique_id for star in all_stars]
 
     # Filter the request frame to only include the specified stars
-    filtered_frame = semester_planner.requests_frame_all[
-        semester_planner.requests_frame_all["unique_id"].isin(starids)
+    filtered_frame = semester_planner.requests[
+        semester_planner.requests["unique_id"].isin(starids)
     ].copy()
 
     return filtered_frame
+
+
+def _min_to_utc_hhmm(night_start, minutes):
+    if night_start is None or pd.isna(minutes):
+        return ""
+    return (night_start + TimeDelta(float(minutes) * 60, format="sec")).isot[11:16]
+
+
+def _floor_utc_hour(dt):
+    return dt.replace(minute=0, second=0, microsecond=0)
+
+
+def _ladder_utc_ticks(night_start_time, x_min, x_max):
+    """Whole-hour UTC tick positions within ``[x_min, x_max]`` (minutes from night start)."""
+    start_dt = night_start_time.to_datetime()
+    utc_tickvals, utc_ticktext = [], []
+    t = _floor_utc_hour(start_dt)
+    while True:
+        offset_min = (t - start_dt).total_seconds() / 60.0
+        if offset_min > x_max + 1e-9:
+            break
+        if offset_min >= x_min - 1e-9:
+            utc_tickvals.append(offset_min)
+            utc_ticktext.append(t.strftime("%H:%M"))
+        t += timedelta(hours=1)
+    return utc_tickvals, utc_ticktext
+
+
+def _ladder_minute_axis_ticks(x_min, x_max, interval=60):
+    """Tick positions for minutes-since-start (0, 60, 120, …), not UTC-aligned."""
+    first = 0 if x_min <= 0 else int(np.ceil(x_min / interval)) * interval
+    tickvals = []
+    v = float(first)
+    while v <= x_max + 1e-9:
+        if v >= x_min - 1e-9:
+            tickvals.append(v)
+        v += interval
+    return tickvals, [str(int(round(v))) for v in tickvals]
+
+
+def _add_ladder_night_boundary(fig, x, utc_hhmm, *, side):
+    """Vertical marker at night start or end with UTC time label."""
+    fig.add_shape(
+        type="line",
+        x0=x,
+        x1=x,
+        y0=0,
+        y1=1,
+        xref="x",
+        yref="paper",
+        line=dict(color="black", width=1.5),
+        layer="above",
+    )
+    if side == "start":
+        label = f"Night start {utc_hhmm} (UT)"
+        xanchor = "left"
+    else:
+        label = f"Night end {utc_hhmm} (UT)"
+        xanchor = "right"
+    fig.add_annotation(
+        x=x,
+        y=0.99,
+        xref="x",
+        yref="paper",
+        text=f"<b>{label}</b>",
+        showarrow=False,
+        yanchor="top",
+        xanchor=xanchor,
+        font=dict(size=11, color="black"),
+    )
+
+
+def _night_duration_min(model):
+    """Night length in minutes (works on live and HDF5-reloaded models)."""
+    dur = getattr(model, "dur_min", None)
+    if dur is not None:
+        return float(dur)
+    stats = getattr(model, "stats", None) or {}
+    if "dur_min" in stats:
+        return float(stats["dur_min"])
+    night_start = getattr(model, "night_start", None)
+    night_end = getattr(model, "night_end", None)
+    if night_start is not None and night_end is not None:
+        return (night_end.jd - night_start.jd) * 24 * 60
+    return 600.0
+
+
+def _night_timeline_segments(model):
+    """Chronological (idle, visit, slew) segments from 0 .. dur_min."""
+    scheduled = model.schedule[~model.schedule["is_anchor"]]
+    scheduled = scheduled[scheduled["scheduled"]].sort_values("order")
+    dur = _night_duration_min(model)
+    cursor = 0.0
+    segments = []
+    for _, row in scheduled.iterrows():
+        t0, t1 = float(row["t_start"]), float(row["t_end"])
+        slew = float(row["t_slew"]) if pd.notna(row["t_slew"]) else 0.0
+        if t0 > cursor + 1e-9:
+            segments.append(("idle", cursor, t0))
+        segments.append(("visit", t0, t1))
+        if slew > 0:
+            segments.append(("slew", t1, t1 + slew))
+        cursor = t1 + slew
+    if cursor < dur - 1e-9:
+        segments.append(("idle", cursor, dur))
+    return segments
+
+
+def _night_aggregate_segments(model):
+    """Contiguous visit, slew, idle totals (left-aligned) for the aggregate summary row."""
+    totals = {"visit": 0.0, "slew": 0.0, "idle": 0.0}
+    for kind, x0, x1 in _night_timeline_segments(model):
+        totals[kind] += x1 - x0
+    cursor = 0.0
+    segments = []
+    for kind in ("visit", "slew", "idle"):
+        width = totals[kind]
+        if width <= 1e-9:
+            continue
+        segments.append((kind, cursor, cursor + width))
+        cursor += width
+    return segments
+
+
+_VISIT_COLOR = "lightgreen"
+_SLEW_COLOR = "#FFE4B5"
+_IDLE_COLOR = "#FFB3B3"
+_ACCESS_LINE_COLOR = "lightgreen"
+_ACCESS_LINE_WIDTH = 2
+_ACCESS_FILL_COLOR = "white"
+_LADDER_BG = "#f4f4f4"
+_SEGMENT_COLORS = {"visit": _VISIT_COLOR, "slew": _SLEW_COLOR, "idle": _IDLE_COLOR}
+
+
+def _add_ladder_required_visit_bar(fig, *, y, x0, visit_len, showlegend=False):
+    """Cross-hatched bar for an unscheduled request's required visit duration."""
+    x1 = x0 + visit_len
+    fig.add_trace(
+        go.Scatter(
+            x=[x0, x1, x1, x0, x0],
+            y=[y, y, y, y, y],
+            mode="lines",
+            fill="toself",
+            fillcolor="white",
+            fillpattern=dict(
+                shape="/",
+                bgcolor="white",
+                fgcolor="#666666",
+                fgopacity=0.75,
+                size=8,
+                solidity=0.4,
+            ),
+            line=dict(color="#888888", width=1),
+            hoverinfo="skip",
+            showlegend=showlegend,
+            name="Required visit",
+            legendgroup="required_visit",
+        )
+    )
+
+
+def _synthetic_ladder_row(columns):
+    """Blank ladder row with NaN numerics and empty UTC strings."""
+    row = {}
+    for col in columns:
+        if col == "_row_kind":
+            continue
+        if col.endswith("(UTC)") or col == "Scheduled (UTC)":
+            row[col] = ""
+        elif col == "is_scheduled":
+            row[col] = False
+        elif col == "Target":
+            row[col] = " "
+        else:
+            row[col] = np.nan
+    return row
 
 
 def get_ladder(data, tonight_start_time):
@@ -2582,26 +2782,35 @@ def get_ladder(data, tonight_start_time):
         orderData = pd.DataFrame(
             columns=[
                 "unique_id",
-                "human_target",
-                "First Available",
-                "Last Available",
+                "Target",
+                "Earliest Start",
+                "Latest Finish",
                 "Start Exposure",
                 "Stop Exposure",
-                "Total Exp Time (min)",
+                "Visit Length (min)",
                 "Slew to Next (min)",
-                "Minutes the from Start of the Night",
+                "Scheduled (min. from start)",
             ]
         )
     if "Slew to Next (min)" not in orderData.columns:
         orderData["Slew to Next (min)"] = 0.0
 
-    if model.night_start is not None and len(orderData):
-        orderData["UTC Start Time"] = [
-            (model.night_start + TimeDelta(se * 60, format="sec")).isot[11:16]
-            if se > 0
-            else ""
+    night_start = getattr(model, "night_start", None)
+    if night_start is not None and len(orderData):
+        orderData["Scheduled (UTC)"] = [
+            _min_to_utc_hhmm(night_start, se) if se > 0 else ""
             for se in orderData["Start Exposure"]
         ]
+        orderData["Earliest start (UTC)"] = [
+            _min_to_utc_hhmm(night_start, t) for t in orderData["Earliest Start"]
+        ]
+        orderData["Latest finish (UTC)"] = [
+            _min_to_utc_hhmm(night_start, t) for t in orderData["Latest Finish"]
+        ]
+    elif len(orderData):
+        orderData["Scheduled (UTC)"] = ""
+        orderData["Earliest start (UTC)"] = ""
+        orderData["Latest finish (UTC)"] = ""
 
     on_sky = model.schedule[~model.schedule["is_anchor"]]
     n_unscheduled = int((~on_sky["scheduled"]).sum())
@@ -2609,54 +2818,118 @@ def get_ladder(data, tonight_start_time):
     # reverse so the plot flows top -> bottom with time; after reversal,
     # the lowest indices (bottom of plot) hold the unscheduled block.
     orderData = orderData.iloc[::-1].reset_index(drop=True)
+    orderData["_row_kind"] = "target"
 
-    # Each weight tier gets a different color. Keys are integer tiers (1–10); values may be float.
-    colordict = {
-        "10": "red",
-        "9": "tomato",
-        "8": "darkorange",
-        "9": "sandybrown",
-        "7": "gold",
-        "6": "olive",
-        "5": "green",
-        "4": "cyan",
-        "3": "darkviolet",
-        "2": "magenta",
-        "1": "blue",
-    }
+    n_before_insert = len(orderData)
+    summary_y = None
+    aggregate_y = None
+    if n_unscheduled > 0 and n_unscheduled < n_before_insert:
+        unsched_header = _synthetic_ladder_row(orderData.columns)
+        unsched_header["unique_id"] = "__unsched_header__"
+        unsched_header["Target"] = "Unscheduled targets"
+        unsched_header["_row_kind"] = "section_header"
 
-    def _weight_color(weight):
-        key = str(int(round(float(weight))))
-        return colordict.get(key, "gray")
+        aggregate = _synthetic_ladder_row(orderData.columns)
+        aggregate["unique_id"] = "__aggregate__"
+        aggregate["Target"] = " "
+        aggregate["_row_kind"] = "aggregate"
 
-    hover_cols = [
-        "First Available",
-        "Last Available",
-        "Exposure Time (min)",
-        "N_shots",
-        "Total Exp Time (min)",
-        "Slew to Next (min)",
-        "UTC Start Time",
+        summary = _synthetic_ladder_row(orderData.columns)
+        summary["unique_id"] = "__summary__"
+        summary["Target"] = "All scheduled targets"
+        summary["_row_kind"] = "summary"
+
+        sched_header = _synthetic_ladder_row(orderData.columns)
+        sched_header["unique_id"] = "__sched_header__"
+        sched_header["Target"] = "Scheduled targets"
+        sched_header["_row_kind"] = "section_header"
+
+        orderData = pd.concat(
+            [
+                orderData.iloc[:n_unscheduled],
+                pd.DataFrame([unsched_header]),
+                pd.DataFrame([aggregate]),
+                pd.DataFrame([summary]),
+                orderData.iloc[n_unscheduled:],
+                pd.DataFrame([sched_header]),
+            ],
+            ignore_index=True,
+        )
+        aggregate_y = n_unscheduled + 1
+        summary_y = n_unscheduled + 2
+
+    # Hide scatter markers on synthetic rows
+    mask = orderData["_row_kind"] != "target"
+    orderData.loc[mask, "Scheduled (min. from start)"] = np.nan
+
+    # One categorical slot per dataframe row (Target names are not unique).
+    orderData["_ladder_y"] = orderData.index.astype(str)
+
+    plot_height = max(400, 40 * len(orderData) + 200)
+    categories = orderData["_ladder_y"].tolist()
+    y_ticktext = [
+        "" if kind in ("section_header", "summary", "aggregate") else target
+        for target, kind in zip(orderData["Target"], orderData["_row_kind"])
     ]
     fig = px.scatter(
         orderData,
-        x="Minutes the from Start of the Night",
-        y="human_target",
-        hover_data=hover_cols,
+        x="Scheduled (min. from start)",
+        y="_ladder_y",
         title="Night Plan",
         width=800,
-        height=1000,
-    )  # color='Program'
-    fig.update_layout(yaxis_title="")
+        height=plot_height,
+    )
+    fig.update_traces(
+        customdata=np.column_stack(
+            [
+                orderData["Target"],
+                orderData["Scheduled (UTC)"].fillna(""),
+                orderData["Earliest Start"],
+                orderData["Earliest start (UTC)"].fillna(""),
+                orderData["Latest Finish"],
+                orderData["Latest finish (UTC)"].fillna(""),
+                orderData["Visit Length (min)"],
+                orderData["Slew to Next (min)"],
+            ]
+        ),
+        hovertemplate=(
+            "<b>%{customdata[0]}</b><br>"
+            "Scheduled (min. from start): %{x:.1f}<br>"
+            "Scheduled (UTC): %{customdata[1]}<br>"
+            "Earliest start (min. from start): %{customdata[2]:.1f}<br>"
+            "Earliest start (UTC): %{customdata[3]}<br>"
+            "Latest finish (min. from start): %{customdata[4]:.1f}<br>"
+            "Latest finish (UTC): %{customdata[5]}<br>"
+            "Visit Length (min): %{customdata[6]:.1f}<br>"
+            "Slew to Next (min): %{customdata[7]:.1f}"
+            "<extra></extra>"
+        ),
+        marker=dict(size=0, opacity=0),
+    )
+    fig.update_layout(
+        margin=dict(l=160),
+        plot_bgcolor=_LADDER_BG,
+        paper_bgcolor="white",
+        yaxis_title="",
+        yaxis=dict(
+            categoryorder="array",
+            categoryarray=categories,
+            tickmode="array",
+            tickvals=categories,
+            ticktext=y_ticktext,
+        ),
+    )
+    # x-axis titles/ticks applied after x_max is known (minutes bottom, UTC top)
     fig.add_shape(
         type="rect",
         x0=-100,
         x1=-80,
         y0=-0.5,
         y1=0.5,
-        fillcolor="red",
+        fillcolor=_VISIT_COLOR,
+        line=dict(width=0),
         showlegend=True,
-        name="Exposure",
+        name="Visit",
     )
     fig.add_shape(
         type="rect",
@@ -2664,7 +2937,8 @@ def get_ladder(data, tonight_start_time):
         x1=-80,
         y0=-0.5,
         y1=0.5,
-        fillcolor="dimgray",
+        fillcolor=_SLEW_COLOR,
+        line=dict(width=0),
         showlegend=True,
         name="Slew",
     )
@@ -2674,122 +2948,221 @@ def get_ladder(data, tonight_start_time):
         x1=-80,
         y0=-0.5,
         y1=0.5,
-        fillcolor="lime",
-        opacity=0.3,
+        fillcolor=_IDLE_COLOR,
+        line=dict(width=0),
+        showlegend=True,
+        name="Idle",
+    )
+    fig.add_shape(
+        type="rect",
+        x0=-100,
+        x1=-80,
+        y0=-0.5,
+        y1=0.5,
+        fillcolor=_ACCESS_FILL_COLOR,
+        line=dict(color=_ACCESS_LINE_COLOR, width=_ACCESS_LINE_WIDTH),
         showlegend=True,
         name="Accessible",
     )
 
     new_already_processed = []
-    ifixer = 0  # for multi-visit targets, it throws off the one row per target plotting...this fixes it
-    for i in range(len(orderData["unique_id"])):
+    ifixer = 0
+    required_visit_bars = []
+    for i in range(len(orderData)):
+        if orderData["_row_kind"].iloc[i] != "target":
+            continue
         if orderData["unique_id"][i] not in new_already_processed:
             indices = [
                 k
-                for k in range(len(orderData["unique_id"]))
+                for k in range(len(orderData))
                 if orderData["unique_id"][k] == orderData["unique_id"][i]
             ]
             for j in range(len(indices)):
                 if j == 0:
-                    # only do this once, otherwise the green bar gets discolored compared to other rows
                     fig.add_shape(
                         type="rect",
-                        x0=orderData["First Available"][indices[j]],
-                        x1=orderData["Last Available"][indices[j]],
+                        x0=orderData["Earliest Start"][indices[j]],
+                        x1=orderData["Latest Finish"][indices[j]],
                         y0=i + ifixer - 0.5,
                         y1=i + ifixer + 0.5,
-                        fillcolor="lime",
-                        opacity=0.3,
+                        fillcolor=_ACCESS_FILL_COLOR,
+                        line=dict(color=_ACCESS_LINE_COLOR, width=_ACCESS_LINE_WIDTH),
                         showlegend=False,
                     )
-                fig.add_shape(
-                    type="rect",
-                    x0=orderData["Start Exposure"][indices[j]],
-                    x1=orderData["Start Exposure"][indices[j]]
-                    + orderData["Total Exp Time (min)"][indices[j]],
-                    y0=i + ifixer - 0.5,
-                    y1=i + ifixer + 0.5,
-                    fillcolor=_weight_color(orderData["Weight"][indices[j]]),
-                )
+                start_exp = float(orderData["Start Exposure"][indices[j]])
+                visit_len = float(orderData["Visit Length (min)"][indices[j]])
+                is_scheduled = bool(orderData["is_scheduled"].iloc[indices[j]])
+                if is_scheduled and start_exp > 0:
+                    fig.add_shape(
+                        type="rect",
+                        x0=start_exp,
+                        x1=start_exp + visit_len,
+                        y0=i + ifixer - 0.5,
+                        y1=i + ifixer + 0.5,
+                        fillcolor=_VISIT_COLOR,
+                        line=dict(width=0),
+                    )
+                elif not is_scheduled and visit_len > 0:
+                    earliest = float(orderData["Earliest Start"][indices[j]])
+                    if not np.isnan(earliest):
+                        required_visit_bars.append(
+                            (
+                                orderData["_ladder_y"].iloc[indices[j]],
+                                earliest,
+                                visit_len,
+                            )
+                        )
                 slew = float(orderData["Slew to Next (min)"][indices[j]])
-                if slew > 0:
+                if is_scheduled and slew > 0:
                     fig.add_shape(
                         type="rect",
                         x0=orderData["Stop Exposure"][indices[j]],
                         x1=orderData["Stop Exposure"][indices[j]] + slew,
                         y0=i + ifixer - 0.5,
                         y1=i + ifixer + 0.5,
-                        fillcolor="dimgray",
+                        fillcolor=_SLEW_COLOR,
                         line=dict(width=0),
                     )
             new_already_processed.append(orderData["unique_id"][i])
         else:
-            # if we already did this star, it is a multi-visit star and we need to adjust the row counter for plotting purposes
             ifixer -= 1
 
-    if n_unscheduled and n_unscheduled < len(orderData):
-        sep_y = n_unscheduled - 0.5
-        fig.add_hline(y=sep_y, line_color="black", line_width=1, line_dash="solid")
+    for bar_idx, (target, x0, visit_len) in enumerate(required_visit_bars):
+        _add_ladder_required_visit_bar(
+            fig,
+            y=target,
+            x0=x0,
+            visit_len=visit_len,
+            showlegend=(bar_idx == 0),
+        )
 
-    x_min = 0
-    night_start = getattr(model, "night_start", None)
+    if aggregate_y is not None:
+        for kind, x0, x1 in _night_aggregate_segments(model):
+            fig.add_shape(
+                type="rect",
+                x0=x0,
+                x1=x1,
+                y0=aggregate_y - 0.5,
+                y1=aggregate_y + 0.5,
+                fillcolor=_SEGMENT_COLORS[kind],
+                line=dict(width=0),
+                showlegend=False,
+            )
+
+    if summary_y is not None:
+        for kind, x0, x1 in _night_timeline_segments(model):
+            fig.add_shape(
+                type="rect",
+                x0=x0,
+                x1=x1,
+                y0=summary_y - 0.5,
+                y1=summary_y + 0.5,
+                fillcolor=_SEGMENT_COLORS[kind],
+                line=dict(width=0),
+                showlegend=False,
+            )
+
+    for idx in range(len(orderData)):
+        row = orderData.iloc[idx]
+        if row["_row_kind"] not in ("section_header", "summary"):
+            continue
+        label = row["Target"]
+        fig.add_annotation(
+            y=idx,
+            xref="paper",
+            x=0,
+            xanchor="right",
+            text=f"<b>{label}</b>",
+            showarrow=False,
+            font=dict(size=13, color="black"),
+        )
+
     night_end = getattr(model, "night_end", None)
+    fallback_end = None
     if night_start is not None and night_end is not None:
-        x_max = (night_end.jd - night_start.jd) * 24 * 60
+        fallback_end = (night_end.jd - night_start.jd) * 24 * 60
+    elif hasattr(model, "dur_min") and model.dur_min is not None:
+        fallback_end = float(model.dur_min)
+    elif getattr(model, "stats", None) and "dur_min" in model.stats:
+        fallback_end = float(model.stats["dur_min"])
     elif len(orderData) > 0:
+        target_rows = orderData[orderData["_row_kind"] == "target"]
         end_times = (
-            orderData["Start Exposure"]
-            + orderData["Total Exp Time (min)"]
-            + orderData["Slew to Next (min)"]
+            target_rows["Start Exposure"]
+            + target_rows["Visit Length (min)"]
+            + target_rows["Slew to Next (min)"]
         )
-        x_max = end_times.max()
+        fallback_end = float(end_times.max())
     else:
-        x_max = 600
-    fig.update_layout(xaxis_range=[x_min, x_max])
-    for x_line, label in [(x_min, "start"), (x_max, "end")]:
-        fig.add_vline(
-            x=x_line,
-            line_color="black",
-            line_width=1,
-            annotation_text=label,
-            annotation_position="top",
+        fallback_end = 600.0
+
+    x_min = 0.0
+    x_max = fallback_end
+    if tonight_start_time is not None:
+        utc_tickvals, utc_ticktext = _ladder_utc_ticks(
+            tonight_start_time, x_min, x_max
         )
-    # Add secondary x-axis with UTC time
-    start_time = tonight_start_time.to_datetime()
-    # Create tick positions (every 60 minutes or so, adjust as needed)
-    tick_interval = 60  # minutes
-    tick_positions = list(range(0, int(x_max) + tick_interval, tick_interval))
-    tick_labels = [
-        (start_time + timedelta(minutes=pos)).strftime("%H:%M")
-        for pos in tick_positions
-    ]
-    # Add secondary x-axis
-    # Add an invisible trace to force the secondary axis to appear
+    else:
+        utc_tickvals, utc_ticktext = [], []
+
+    min_tickvals, min_ticktext = _ladder_minute_axis_ticks(x_min, x_max)
+
+    for x_line in utc_tickvals:
+        fig.add_shape(
+            type="line",
+            x0=x_line,
+            x1=x_line,
+            y0=0,
+            y1=1,
+            xref="x",
+            yref="paper",
+            line=dict(color="white", width=1),
+            layer="below",
+        )
+
+    if tonight_start_time is not None:
+        night_end_min = fallback_end
+        start_utc = tonight_start_time.isot[11:16]
+        if night_end is not None:
+            end_utc = night_end.isot[11:16]
+        else:
+            end_utc = _min_to_utc_hhmm(tonight_start_time, night_end_min)
+        _add_ladder_night_boundary(fig, 0.0, start_utc, side="start")
+        _add_ladder_night_boundary(fig, night_end_min, end_utc, side="end")
+
+    y_ref = orderData["_ladder_y"].iloc[-1] if len(orderData) else ""
     fig.add_trace(
         go.Scatter(
             x=[x_min, x_max],
-            y=["unique_id", "unique_id"],  # Place just below the visible range
+            y=[y_ref, y_ref],
             mode="markers",
-            marker=dict(size=0.1, opacity=0),
+            marker=dict(size=0.001, opacity=0),
             showlegend=False,
             hoverinfo="skip",
             xaxis="x2",
         )
     )
-    # Create the secondary x-axis configuration
     fig.update_layout(
+        xaxis=dict(
+            title="time since start [min]",
+            range=[x_min, x_max],
+            tickmode="array",
+            tickvals=min_tickvals,
+            ticktext=min_ticktext,
+            showgrid=False,
+        ),
         xaxis2=dict(
-            title=dict(text="UTC Time", standoff=0),
+            title=dict(text="time [UTC]", standoff=0),
             overlaying="x",
             side="top",
             range=[x_min, x_max],
             tickmode="array",
-            tickvals=tick_positions,
-            ticktext=tick_labels,
+            tickvals=utc_tickvals,
+            ticktext=utc_ticktext,
             showgrid=False,
             showline=True,
             mirror=True,
-        )
+        ),
     )
 
     return fig
@@ -2826,15 +3199,15 @@ def get_script_plan(night_planner):
     scheduled = on_sky[on_sky["scheduled"]].sort_values("order")
 
     merged_df = request_selected_df.merge(
-        scheduled[["unique_id", "t_start", "t_early", "t_late"]],
+        scheduled[["unique_id", "t_start", "t_earliest_start", "t_latest_finish"]],
         on="unique_id",
         how="inner",
     )
     merged_df = merged_df.rename(
         columns={
             "t_start": "Start Exposure",
-            "t_early": "First Available",
-            "t_late": "Last Available",
+            "t_earliest_start": "Earliest Start",
+            "t_latest_finish": "Latest Finish",
         }
     )
 
@@ -2845,9 +3218,9 @@ def get_script_plan(night_planner):
     #     'jmag', 'Vmag', 'epoch', 'gaia_id', 'First Available', 'Last Available'
     # ]
     desired_columns = [
-        "First Available",
+        "Earliest Start",
         "Start Exposure",
-        "Last Available",
+        "Latest Finish",
         "unique_id",
         "target",
         "program_code",
@@ -2912,8 +3285,8 @@ def get_script_plan(night_planner):
                 )
             )
 
-        if "First Available" in final_df.columns:
-            final_df["First Available"] = final_df["First Available"].apply(
+        if "Earliest Start" in final_df.columns:
+            final_df["Earliest Start"] = final_df["Earliest Start"].apply(
                 lambda x: (
                     str(TimeDelta(x * 60, format="sec") + night_start_time)[11:16]
                     if pd.notna(x)
@@ -2921,8 +3294,8 @@ def get_script_plan(night_planner):
                 )
             )
 
-        if "Last Available" in final_df.columns:
-            final_df["Last Available"] = final_df["Last Available"].apply(
+        if "Latest Finish" in final_df.columns:
+            final_df["Latest Finish"] = final_df["Latest Finish"].apply(
                 lambda x: (
                     str(TimeDelta(x * 60, format="sec") + night_start_time)[11:16]
                     if pd.notna(x)
@@ -3156,9 +3529,9 @@ def request_frame_to_html(
 
 
 NIGHTPLAN_COLUMNS = [
-    "First Available",
+    "Earliest Start",
     "Start Exposure",
-    "Last Available",
+    "Latest Finish",
     "unique_id",
     "target",
     "program_code",
@@ -3172,9 +3545,9 @@ NIGHTPLAN_COLUMNS = [
     "Vmag",
 ]
 NIGHTPLAN_COLUMN_TOOLTIPS = {
-    "First Available": "First available time to observe (HH:MM). Use > < >= <= with HH:MM to filter.",
+    "Earliest Start": "Earliest allowed start time (HH:MM). Use > < >= <= with HH:MM to filter.",
     "Start Exposure": "Scheduled start time (HH:MM). Use > < >= <= with HH:MM to filter.",
-    "Last Available": "Last available time to observe (HH:MM). Use > < >= <= with HH:MM to filter.",
+    "Latest Finish": "Latest allowed finish time (HH:MM). Use > < >= <= with HH:MM to filter.",
     "unique_id": "Keck OB database unique ID",
     "target": "Name of the target",
     "program_code": "Program Code",
@@ -3200,7 +3573,7 @@ def nightplan_table_to_html(script_df, table_id="script-table", page_size=100):
     Convert nightplan script DataFrame to HTML with same styling as request_frame_to_html.
 
     Same colors, fonts, fontsize, filtering (partial match, numeric > < >= <=), hover tooltips.
-    Displays: First Available, Start Exposure, Last Available, unique_id, target, program_code,
+    Displays: Earliest Start, Start Exposure, Latest Finish, unique_id, target, program_code,
     ra, dec, exptime, n_exp, n_intra_max, tau_intra, jmag, Vmag.
     """
     df = script_df.copy().reset_index(drop=True)
@@ -3239,9 +3612,9 @@ def nightplan_table_to_html(script_df, table_id="script-table", page_size=100):
 
 # Default per-column widths for `dataframe_to_html` (legacy generic table).
 _GENERIC_WIDTH_MAP = {
-    "First Available": "80px",
+    "Earliest Start": "80px",
     "Start Exposure": "80px",
-    "Last Available": "80px",
+    "Latest Finish": "80px",
     "unique_id": "200px",
     "target": "200px",
     "program_code": "120px",

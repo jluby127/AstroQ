@@ -1,3 +1,4 @@
+name: astroq
 channels:
   - conda-forge
   - defaults

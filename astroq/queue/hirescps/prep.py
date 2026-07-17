@@ -22,6 +22,8 @@ import requests
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 
+from astroq.queue.prep_common import standardize_request_strategy
+
 logs = logging.getLogger(__name__)
 
 
@@ -65,8 +67,21 @@ REQUEST_COLS_CORE = [
     "priority",
 ]
 
-# On-disk ``request.csv`` from prep (no start/stop columns): comments last.
-REQUEST_COLS = REQUEST_COLS_CORE + ["comments"]
+# On-disk ``request.csv`` from prep (no start/stop columns).
+REQUEST_COLS = REQUEST_COLS_CORE + ["splan_weight", "comments"]
+
+# Sheet rows before ``attach_splan_weight`` (no ``splan_weight`` column).
+SHEET_REQUEST_COLS = REQUEST_COLS_CORE + ["comments"]
+
+PRIORITY_TO_SPLAN_WEIGHT = {
+    "p1": 1,
+    "p2": 2,
+    "p3": 3,
+    "p4": 3,
+    "p5": 3,
+}
+_DEFAULT_SPLAN_WEIGHT_NO_PRIORITIES = 2
+_UNKNOWN_PRIORITY_SPLAN_WEIGHT = 3
 
 # Full Google Sheet ``requests`` tab (CPS template): … priority, start, stop, comments.
 REQUEST_COLS_READ = REQUEST_COLS_CORE + ["start", "stop", "comments"]
@@ -284,6 +299,61 @@ def _dedup_requests_by_hash(requests_df, custom_df):
     return out, custom_df
 
 
+def _normalize_priority_token(value):
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    text = str(value).strip().lower()
+    if not text or text == "nan":
+        return None
+    return text
+
+
+def priority_token_to_splan_weight(token):
+    """Map observer priority token (``p1`` … ``p5``) to semester MILP weight."""
+    key = _normalize_priority_token(token)
+    if key is None:
+        return None
+    weight = PRIORITY_TO_SPLAN_WEIGHT.get(key)
+    if weight is None:
+        logs.warning(
+            "Unknown priority token %r; using splan_weight=%s",
+            token,
+            _UNKNOWN_PRIORITY_SPLAN_WEIGHT,
+        )
+        return _UNKNOWN_PRIORITY_SPLAN_WEIGHT
+    return weight
+
+
+def attach_splan_weight(requests_df):
+    """Add ``splan_weight`` from ``priority`` with empty-row fill rules."""
+    if requests_df is None or requests_df.empty:
+        out = (
+            requests_df.copy()
+            if requests_df is not None
+            else pd.DataFrame(columns=REQUEST_COLS)
+        )
+        if "splan_weight" not in out.columns:
+            out["splan_weight"] = pd.Series(dtype=int)
+        return out
+
+    df = requests_df.copy()
+    if "priority" not in df.columns:
+        df["priority"] = ""
+
+    tokens = df["priority"].map(_normalize_priority_token)
+    splan = tokens.map(priority_token_to_splan_weight)
+
+    specified = splan[tokens.notna()]
+    if specified.empty:
+        splan = splan.fillna(_DEFAULT_SPLAN_WEIGHT_NO_PRIORITIES)
+    else:
+        empty_fallback = int(specified.max())
+        splan = splan.fillna(empty_fallback)
+
+    df["splan_weight"] = splan.astype(int)
+    return df
+
+
 def pull_requests(request_urls_path):
     """
     Pull HIRES-CPS request and custom-window data from the per-program Google
@@ -307,70 +377,59 @@ def pull_requests(request_urls_path):
     Raises:
         ValueError: If ``request_urls_path`` is unset or empty.
     """
-    if not request_urls_path:
-        raise ValueError("request_urls_path is required.")
-    sheet_urls = pd.read_csv(request_urls_path)["url"].tolist()
+    sheet_urls = pd.read_csv(request_urls_path, comment="#")["url"].tolist()
 
     request_dfs = []
     custom_dfs = []
     for url in sheet_urls:
         url = (url or "").strip()
         df = _fetch_sheet_dataframe(url)
-        request_dfs.append(df[REQUEST_COLS])
-        custom_dfs.append(_customs_from_requests_df(df))
-    requests_df = (
-        pd.concat(request_dfs, ignore_index=True)
-        if request_dfs
-        else pd.DataFrame(columns=REQUEST_COLS)
-    )
-    custom_df = (
-        pd.concat(custom_dfs, ignore_index=True)
-        if custom_dfs
-        else pd.DataFrame(columns=CUSTOM_COLS)
-    )
-    # Convert ra (HH:MM:SS.ss) and dec (+/-DD:MM:SS.s) from sexagesimal to decimal degrees
-    if (
-        not requests_df.empty
-        and "ra" in requests_df.columns
-        and "dec" in requests_df.columns
-    ):
+
+        if df.empty:
+            continue
+
+        # Convert ra/dec (HH:MM:SS.s/+DD:MM:SS.s) to decimal degrees
         c = SkyCoord(
-            ra=requests_df["ra"].astype(str),
-            dec=requests_df["dec"].astype(str),
+            ra=df["ra"].astype(str), 
+            dec=df["dec"].astype(str),
             unit=(u.hourangle, u.deg),
         )
-        requests_df = requests_df.copy()
-        requests_df["ra"] = c.ra.deg
-        requests_df["dec"] = c.dec.deg
+        df["ra"] = c.ra.deg
+        df["dec"] = c.dec.deg
+
+        request_dfs.append(df[SHEET_REQUEST_COLS])
+        custom_dfs.append(_customs_from_requests_df(df))
+
+    if not request_dfs:
+        raise ValueError("No requests found.")
+
+    requests_df = pd.concat(request_dfs, ignore_index=True)
+    custom_df = pd.concat(custom_dfs, ignore_index=True)
     requests_df, custom_df = _dedup_requests_by_hash(requests_df, custom_df)
-    return requests_df, custom_df
+    requests_df = attach_splan_weight(requests_df)
+    requests_df = standardize_request_strategy(requests_df)
+    return requests_df[REQUEST_COLS], custom_df
 
 
 # =============================================================================
 # Keck schedule — allocation.csv
 # =============================================================================
-# Keck tel schedule query form (HIRESr nights). Crossmatched against
+# Keck tel schedule query form (HIRESr + KPF-CC nights). Crossmatched against
 # request_urls.csv program codes to build allocation blocks for AstroQ.
 
 KECK_SCHEDULE_QUERY_URL = (
     "https://www2.keck.hawaii.edu/observing/keckSchedule/queryForm.php"
 )
-KECK_SCHEDULE_INSTRUMENT = "HIRESr"
+KECK_SCHEDULE_INSTRUMENTS = ("HIRESr", "KPF-CC")
 
 
-def pull_all_scheduled(start_date, end_date, output_path=None, timeout=60):
-    """Query the Keck schedule form for HIRESr and return a DataFrame.
-
-    Date bounds come from config ``semester_start_day`` / ``semester_end_day``.
-
-    Columns: ``Date, Time, Dark, TelNr, Instrument, Account, PI, Institution, ProjCode``.
-    If ``output_path`` is given, also write the same DataFrame to CSV.
-    """
+def _query_keck_schedule_form(instrument, start_date, end_date, timeout=60):
+    """Query the Keck tel schedule form for a single instrument."""
     payload = {
         "doQuery": "1",
         "table": "schedule",
         "Date": f"between {start_date} and {end_date}",
-        "Instrument": KECK_SCHEDULE_INSTRUMENT,
+        "Instrument": instrument,
         "cb_Date": "on",
         "cb_TelNr": "on",
         "cb_Instrument": "on",
@@ -386,14 +445,32 @@ def pull_all_scheduled(start_date, end_date, output_path=None, timeout=60):
     text = response.text.strip()
     if not text.startswith("Date,"):
         snippet = text[:200].replace("\n", " ")
-        raise RuntimeError(f"Unexpected response from schedule form: {snippet}")
+        raise RuntimeError(
+            f"Unexpected response from schedule form ({instrument}): {snippet}"
+        )
+    return pd.DataFrame(csv.DictReader(io.StringIO(text)))
 
-    df = pd.DataFrame(csv.DictReader(io.StringIO(text)))
-    if df.empty:
-        return df
-    df = df.sort_values(
-        ["Date", "Time", "Instrument", "ProjCode"], kind="mergesort"
-    ).reset_index(drop=True)
+
+def pull_all_scheduled(start_date, end_date, output_path=None, timeout=60):
+    """Query the Keck schedule form for HIRESr and KPF-CC nights.
+
+    Date bounds come from config ``semester_start_day`` / ``semester_end_day``.
+
+    Columns: ``Date, Time, Dark, TelNr, Instrument, Account, PI, Institution, ProjCode``.
+    If ``output_path`` is given, also write the same DataFrame to CSV.
+    """
+    frames = [
+        _query_keck_schedule_form(inst, start_date, end_date, timeout=timeout)
+        for inst in KECK_SCHEDULE_INSTRUMENTS
+    ]
+    frames = [f for f in frames if not f.empty]
+    if not frames:
+        df = pd.DataFrame()
+    else:
+        df = pd.concat(frames, ignore_index=True)
+        df = df.sort_values(
+            ["Date", "Time", "Instrument", "ProjCode"], kind="mergesort"
+        ).reset_index(drop=True)
     if output_path is not None:
         df.to_csv(output_path, index=False)
     return df
@@ -451,56 +528,51 @@ JUMP_HIRES_PAST_EXPLORER_ID = 285
 JUMP_PAST_QUERY_TMP_FILENAME = "past_jump-query-tmp.csv"
 
 
-def exposures_to_visits(data, request_csv_path=None):
-    """Exposures to visits.
-    
-    Jump store HIRES exposures. However, we want to interpret them as visits since
-    that's how AstroQ interprets them. 
-    
-    - We identify templates by searching for (B1/B3 decker, iodine out). These are
-      labeled with a _t suffix.
-    
-    - We identify groups of successive exposures on the same target as groups. If the
-      group has at least 50% of the exposures required for the target, we count it as a
-      successful visit
-    
-    Convert raw JUMP frame rows to ``past.csv`` visit rows.
+def jump_query_to_past(data, request_csv_path, current_day=None):
+    """Convert raw JUMP frame rows to ``past.csv`` visit rows.
+
+    JUMP ``starname`` values are matched to ``request.csv`` ``unique_id`` via a
+    lowercase join (all rows, incl. inactive); unmatched names are kept as-is.
+    Template frames (B1/B3 decker, iodine out) get a ``_t`` suffix before
+    matching. Frames are grouped per target/night and counted as a visit when
+    ``len(frames) >= ceil(0.5 * n_exp)``.
+
+    When ``current_day`` is set (``YYYY-MM-DD`` from ``[global] current_day``),
+    only frames on nights strictly before that date are kept.
     """
     cols = ["unique_id", "target", "timestamp", "exposure_time"]
     if data.empty:
         return pd.DataFrame(columns=cols)
 
-    n_exp_by_uid = {}
-    if request_csv_path and os.path.isfile(request_csv_path):
-        req = pd.read_csv(request_csv_path)
-        if "unique_id" in req.columns and "n_exp" in req.columns:
-            n_exp_by_uid = (
-                req.set_index("unique_id")["n_exp"]
-                .astype(int)
-                .to_dict()
-            )
-        else:
-            logs.warning(
-                "request.csv missing unique_id/n_exp columns; assuming n_exp=1"
-            )
-    elif request_csv_path:
-        logs.warning(
-            "request.csv not found at %r; assuming n_exp=1 for all targets",
-            request_csv_path,
-        )
+    df = data.rename(columns={"starname": "target"}).copy()
+    df["jump_name"] = df["target"].astype(str)
+    is_template = (
+        df["decker"].astype(str).str.upper().isin(["B1", "B3"])
+        & (df["iodine_in"] == False)
+    )
+    df.loc[is_template, "jump_name"] += "_t"
 
-    df = data.copy()
-    if {"decker", "iodine_in"}.issubset(df.columns):
-        is_template = (
-            df["decker"].astype(str).str.upper().isin(["B1", "B3"])
-            & (df["iodine_in"] == False)
-        )
-        df.loc[is_template, "target"] = (
-            df.loc[is_template, "target"].astype(str) + "_t"
-        )
+    req = pd.read_csv(request_csv_path)
+    req["unique_id"] = req["unique_id"].astype(str)
+    n_exp_by_uid = req.groupby("unique_id")["n_exp"].max().astype(int).to_dict()
+    canon_by_lower = dict(zip(req["unique_id"].str.lower(), req["unique_id"]))
+    df["unique_id"] = df["jump_name"].map(
+        lambda n: canon_by_lower.get(n.lower(), n)
+    )
 
-    df["target"] = df["target"].astype(str)
-    df["unique_id"] = df["target"]
+    renames = {
+        jn: uid for jn, uid in zip(df["jump_name"], df["unique_id"]) if jn != uid
+    }
+    if renames:
+        print("JUMP rename (jump_name -> request unique_id):")
+        for jn, uid in sorted(renames.items()):
+            print(f"  {jn} -> {uid}")
+        n_lines = int((df["jump_name"] != df["unique_id"]).sum())
+        print(f"JUMP rename: {n_lines} frame line(s) where jump_name != unique_id")
+    else:
+        print("JUMP rename: no jump_name required renaming")
+
+    df["target"] = df["unique_id"]
     df["exposure_time"] = (
         pd.to_numeric(df["exposure_time"], errors="coerce").fillna(0).astype(int)
     )
@@ -508,21 +580,30 @@ def exposures_to_visits(data, request_csv_path=None):
     df = df.loc[df["_ts"].notna()].copy()
     if df.empty:
         return pd.DataFrame(columns=cols)
-
     df["_night"] = df["_ts"].dt.strftime("%Y-%m-%d")
-    rows = []
-    rejected_groups = []
-    for (uid, _night), grp in df.groupby(["unique_id", "_night"], sort=False):
-        n_exp = int(n_exp_by_uid.get(uid, 1))
+
+    if current_day:
+        n_before = len(df)
+        df = df.loc[df["_night"] < current_day].copy()
+        n_dropped = n_before - len(df)
+        if n_dropped:
+            print(
+                f"JUMP past filter: dropped {n_dropped} frame(s) on or after "
+                f"current_day={current_day}"
+            )
+        if df.empty:
+            return pd.DataFrame(columns=cols)
+
+    rows, rejected = [], []
+    for (uid, night), grp in df.groupby(["unique_id", "_night"], sort=False):
+        n_exp = n_exp_by_uid.get(uid, 1)
         min_frames = math.ceil(0.5 * n_exp)
-        grp = grp.sort_values("_ts")
-        n_frames = len(grp)
-        if n_frames < min_frames:
-            rejected_groups.append(
-                f"  {uid} {_night}: {n_frames}/{n_exp} frames (need {min_frames})"
+        if len(grp) < min_frames:
+            rejected.append(
+                f"  {uid} {night}: {len(grp)}/{n_exp} frames (need {min_frames})"
             )
             continue
-        first = grp.iloc[0]
+        first = grp.sort_values("_ts").iloc[0]
         rows.append(
             {
                 "unique_id": uid,
@@ -534,10 +615,10 @@ def exposures_to_visits(data, request_csv_path=None):
 
     summary = (
         f"{len(df)} raw frame(s) -> {len(rows)} accounted visit(s) "
-        f"({len(rejected_groups)} group(s) below 50% threshold)"
+        f"({len(rejected)} group(s) below 50% threshold)"
     )
-    if rejected_groups:
-        summary += ":\n" + "\n".join(rejected_groups)
+    if rejected:
+        summary += ":\n" + "\n".join(rejected)
     print(summary)
     return pd.DataFrame(rows, columns=cols)
 
@@ -547,6 +628,7 @@ def get_hires_past_history(
     semester_start_day=None,
     semester_end_day=None,
     request_csv_path=None,
+    current_day=None,
 ):
     """Pull HIRES past history from JUMP and write processed ``path_to_csv``.
 
@@ -571,6 +653,9 @@ def get_hires_past_history(
             ``[global] semester_end_day``; passed to JUMP as ``end_date``.
         request_csv_path (str, optional): ``request.csv`` path supplying
             ``unique_id`` / ``n_exp`` for visit-collapse thresholds.
+        current_day (str, optional): ``YYYY-MM-DD`` from config
+            ``[global] current_day``; frames on this night or later are
+            excluded from ``past.csv``.
 
     Raises:
         ValueError: if ``semester_start_day`` or ``semester_end_day`` is
@@ -634,11 +719,7 @@ def get_hires_past_history(
     print(f"Raw JUMP pull saved to {raw_path}")
 
     data = pd.read_csv(raw_path)
-    if "starname" in data.columns and "target" not in data.columns:
-        data = data.rename(columns={"starname": "target"})
-    elif "starname" in data.columns:
-        data = data.rename(columns={"starname": "target"})
 
-    visits = exposures_to_visits(data, request_csv_path)
+    visits = jump_query_to_past(data, request_csv_path, current_day=current_day)
     visits.to_csv(path_to_csv, index=False)
     print(f"Processed past history saved to {path_to_csv}")

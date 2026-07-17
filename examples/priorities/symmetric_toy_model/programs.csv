@@ -1,7 +1,7 @@
-program,hours,nights,priority
-Program0,75.0,8,1.0
-Program1,75.0,8,1.0
-Program2,75.0,8,1.0
-Program3,75.0,8,1.0
-Program4,75.0,8,1.0
+program,hours,priority
+Program0,75.0,1.0
+Program1,75.0,1.0
+Program2,75.0,1.0
+Program3,75.0,1.0
+Program4,75.0,1.0
 

@@ -7,11 +7,12 @@ import logging
 import warnings
 
 # Third-party imports
+from astropy.utils.exceptions import AstropyWarning
 from erfa import ErfaWarning
 from tables.exceptions import DataTypeWarning
 
-# Booleans persisted via h5py (e.g. run_weather_loss, gurobi_output,
-# run_bonus_round in splan.py) are stored as H5T_ENUM, which PyTables does not
+# Booleans persisted via h5py (e.g. show_gurobi_output in splan.py)
+# are stored as H5T_ENUM, which PyTables does not
 # recognize. PyTables scans root attributes on every pd.read_hdf() and emits a
 # DataTypeWarning for each unrecognized attribute. The data still round-trips
 # correctly via h5py; silence the cosmetic warning here. Installed before any
@@ -23,6 +24,23 @@ warnings.filterwarnings("ignore", category=DataTypeWarning)
 # SkyCoord.apply_space_motion without parallax. ERFA's pmsafe then warns
 # "distance overridden" once per target; coordinates are still correct.
 warnings.filterwarnings("ignore", category=ErfaWarning)
+
+# Alt/az transforms use IERS Earth-orientation tables. When a night falls outside
+# the tabulated (or predictive) range, Astropy falls back to the 50-yr mean polar
+# motion (~arcsec). That is fine for slot scheduling; silence the cosmetic warning.
+warnings.filterwarnings(
+    "ignore",
+    message=r".*polar motions for times.*IERS data is valid.*",
+    category=AstropyWarning,
+)
+
+# Prefer a fresh IERS table when online so near-future nights stay in-range.
+try:
+    from astropy.utils.iers import IERS_Auto
+
+    IERS_Auto.open()
+except Exception:
+    pass
 
 # Local imports
 from astroq import driver  # noqa: E402

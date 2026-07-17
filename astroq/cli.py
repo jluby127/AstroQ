@@ -84,7 +84,7 @@ def main():
     psr_archive = subpsr.add_parser(
         "archive",
         parents=[psr_parent],
-        description="Export static HTML copies of webapp admin and nightplan pages",
+        description="Export static HTML copies of webapp admin, nightplan, and program pages",
         prefix_chars="-",
     )
     psr_archive.add_argument(
@@ -219,8 +219,8 @@ def main():
         "--filler_programs",
         type=str,
         required=False,
-        default="2025B_E473",
-        help="The semester ID for the filler program. Ex. 2025B_E473.",
+        default=None,
+        help="Optional filler program code (e.g. 2025B_E473). Omit for no filler.",
     )
     psr_prep_hirescps.add_argument(
         "-band",
@@ -289,16 +289,6 @@ def main():
         required=True,
         help="Relative path of config file.",
     )
-    psr_plan_semester.add_argument(
-        "--boost",
-        nargs=2,
-        metavar=("UNIQUE_IDS", "FACTOR"),
-        default=None,
-        help=(
-            "Soft-bias targets onto current_day: comma-separated unique_ids, "
-            "then boost factor."
-        ),
-    )
     psr_plan_semester.set_defaults(func=astroq.driver.plan_semester)
 
     ## subcommand of astroq: plan-night -- run the night planner
@@ -316,41 +306,6 @@ def main():
         help="Relative path of config file.",
     )
     psr_plan_night.set_defaults(func=astroq.driver.plan_night)
-
-    ## subcommand of astroq: compare -- compare request set and schedule file
-    psr_compare = subpsr.add_parser(
-        "compare",
-        parents=[psr_parent],
-        description="Compare request set and schedule for consistency",
-        prefix_chars="-",
-    )
-    psr_compare.add_argument(
-        "-cf",
-        "--config_file",
-        type=str,
-        required=True,
-        help="Relative path of config file.",
-    )
-    psr_compare.add_argument(
-        "-sf",
-        "--schedule_file",
-        type=str,
-        required=True,
-        help="Relative path of schedule file.",
-    )
-    psr_compare.set_defaults(func=astroq.driver.requests_vs_schedule)
-
-    ## subcommand of astroq: simsemester -- simulate a semester with a given weather loss pattern.
-    # psr_simsemester = subpsr.add_parser('simsemester', parents=[psr_parent],
-    #                                 description='Compare request set and schedule for consistency',
-    #                                 prefix_chars='-'
-    #                                 )
-    # psr_simsemester.add_argument('-cf', '--config_file',
-    #                           type=str,
-    #                           required=True,
-    #                           help="Relative path of config file."
-    #                           )
-    # psr_simsemester.set_defaults(func=astroq.driver.make_simulated_history)
 
     # If no arguments are provided, print help message and exit
     if len(sys.argv) == 1:

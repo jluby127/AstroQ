@@ -53,8 +53,8 @@ def build_requests(df, queue, night_start, night_end, *, n_samples=120):
         {
             "unique_id": df.unique_id.to_numpy(dtype=object),
             "coord": coords,
-            "first_available": Time(first_jd, format="jd"),
-            "last_available": Time(last_jd, format="jd"),
+            "time_earliest_start": Time(first_jd, format="jd"),
+            "time_latest_finish": Time(last_jd, format="jd"),
             "t_visit": np.asarray(visit_min, dtype=float) * u.min,
             "n_intra_max": df.n_intra_max.to_numpy(dtype=int),
             "tau_intra": df.tau_intra.to_numpy(dtype=float) * u.hr,

@@ -32,10 +32,11 @@ class TestClass(unittest.TestCase):
             )
         )
 
-    def test02_round2_weather(self):
+    def test02_full_mode(self):
+        """Full pipeline mode on the symmetric toy model."""
         dr.plan_semester(
             argparse.Namespace(
-                config_file="examples/hello_world/config_hello_world_bonus_weather.ini",
+                config_file="examples/priorities/symmetric_toy_model/config_benchmark.ini",
             )
         )
 
@@ -109,16 +110,7 @@ class TestClass(unittest.TestCase):
             )
         )
 
-    def test08_requests_vs_schedule(self):
-        sch = "examples/hello_world/2018B/2018-08-05/band1/outputs/semester_plan.csv"
-        dr.requests_vs_schedule(
-            argparse.Namespace(
-                config_file="examples/hello_world/config_hello_world.ini",
-                schedule_file=sch,
-            )
-        )
-
-    def test09_hdf5_validation(self):
+    def test08_hdf5_validation(self):
         """NightPlanner schema v5: config_ini_text + TTP solution round-trip."""
         outputs_dir = "examples/hello_world/2018B/2018-08-05/band1/outputs"
         semester_planner_h5 = os.path.join(outputs_dir, "semester_planner.h5")
@@ -151,46 +143,42 @@ class TestClass(unittest.TestCase):
         self.assertIsInstance(solution.night_end, Time)
         self.assertFalse(solution.schedule.empty)
         self.assertIsInstance(solution.requests["coord"], SkyCoord)
-        self.assertIsInstance(solution.requests["first_available"], Time)
+        self.assertIsInstance(solution.requests["time_earliest_start"], Time)
 
     def test10_nightly_availability_windows(self):
-        """Access exposes first/last_available as Time arrays from slotmidpoints."""
+        """Night windows from is_observable_now first/last clear slot."""
         outputs_dir = "examples/hello_world/2018B/2018-08-05/band1/outputs"
         sp = splan.SemesterPlanner.from_hdf5(
             os.path.join(outputs_dir, "semester_planner.h5"),
         )
-        # build_access populates first_available, last_available,
-        # has_observable. Not done by from_hdf5; trigger explicitly so
-        # the test does not depend on h5 contents.
         access_record = sp.access_obj.build_access()
 
-        night_d = sp.all_dates_dict[sp.config.get("global", "current_day")]
-        uids = sp.requests_frame["unique_id"].iloc[:3]
+        night_d = sp.access_obj.current_night_index
+        uids = sp.requests_active["unique_id"].iloc[:3]
 
-        # Cross-check first/last_available against the long-form observability
-        # table for each observable uid tonight.
         req_index = sp.access_obj.request_frame.set_index("unique_id").index
         row_idx = req_index.get_indexer(uids)
-        first_available = sp.access_obj.first_available[row_idx, night_d]
-        last_available = sp.access_obj.last_available[row_idx, night_d]
-        has_obs = sp.access_obj.has_observable[row_idx, night_d]
+        now = access_record.is_observable_now[row_idx, night_d, :]
+        slotmid = sp.access_obj.slotmidpoints[night_d]
+        time_earliest_start = slotmid[now.argmax(1)]
+        time_latest_finish = slotmid[now.shape[1] - 1 - now[:, ::-1].argmax(1)]
 
-        self.assertEqual(len(first_available), 3)
-        self.assertIsInstance(first_available, Time)
-        self.assertIsInstance(last_available, Time)
+        self.assertEqual(len(time_earliest_start), 3)
+        self.assertIsInstance(time_earliest_start, Time)
+        self.assertIsInstance(time_latest_finish, Time)
 
-        obs = sp.access_obj.observability(access_record.is_observable)
+        obs = sp.access_obj.observability(access_record.is_observable_now)
         night = obs.loc[obs["d"] == night_d]
         for k, uid in enumerate(uids):
-            if not has_obs[k]:
-                continue
             slots = night.loc[night["unique_id"] == uid, "s"]
+            if slots.empty:
+                continue
             s_min, s_max = int(slots.min()), int(slots.max())
             self.assertEqual(
-                first_available[k], sp.access_obj.slotmidpoints[night_d, s_min]
+                time_earliest_start[k], sp.access_obj.slotmidpoints[night_d, s_min]
             )
             self.assertEqual(
-                last_available[k], sp.access_obj.slotmidpoints[night_d, s_max]
+                time_latest_finish[k], sp.access_obj.slotmidpoints[night_d, s_max]
             )
 
     def test11_get_nightly_times_missing_day(self):
@@ -295,7 +283,7 @@ class TestClass(unittest.TestCase):
                         f.write(resp.data)
 
     def test13_archive(self):
-        """Export admin and nightplan static HTML via astroq archive."""
+        """Export admin, nightplan, and program static HTML via astroq archive."""
         import tempfile
         from unittest.mock import patch
 
@@ -306,6 +294,7 @@ class TestClass(unittest.TestCase):
         archive_dir = os.path.join(workdir, "outputs", "webapp_archive")
         admin_path = os.path.join(archive_dir, "admin.html")
         night_path = os.path.join(archive_dir, "nightplan.html")
+        programs_dir = os.path.join(archive_dir, "programs")
 
         tmp = tempfile.mkdtemp(prefix="astroq_archive_")
         from pathlib import Path
@@ -315,11 +304,20 @@ class TestClass(unittest.TestCase):
 
         self.assertTrue(os.path.isfile(admin_path), f"missing {admin_path}")
         self.assertTrue(os.path.isfile(night_path), f"missing {night_path}")
+        self.assertTrue(os.path.isdir(programs_dir), f"missing {programs_dir}")
+        program_html = [
+            f for f in os.listdir(programs_dir) if f.endswith(".html")
+        ]
+        self.assertGreater(len(program_html), 0, "no program archive pages written")
 
         with open(admin_path, encoding="utf-8") as f:
             admin_html = f.read()
         with open(night_path, encoding="utf-8") as f:
             night_html = f.read()
+        with open(
+            os.path.join(programs_dir, program_html[0]), encoding="utf-8"
+        ) as f:
+            program_page = f.read()
 
         self.assertIn("Admin Dashboard", admin_html)
         self.assertIn("plotly-graph-div", admin_html)
@@ -329,7 +327,11 @@ class TestClass(unittest.TestCase):
         self.assertIn("plotly-graph-div", night_html)
         self.assertNotIn("download_nightplan", night_html)
 
-    def test14_exposures_to_visits(self):
+        self.assertIn("Semester Plan", program_page)
+        self.assertIn("plotly-graph-div", program_page)
+        self.assertNotIn('href="/2018B/2018-08-05/band1/', program_page)
+
+    def test14_jump_query_to_past(self):
         """Visit groups need >=50% of n_exp frames; one row per accepted visit."""
         import tempfile
 
@@ -337,7 +339,7 @@ class TestClass(unittest.TestCase):
 
         frames = pd.DataFrame(
             {
-                "target": ["T1", "T1", "T1", "T2", "T2", "T2"],
+                "starname": ["T1", "T1", "T1", "T2", "T2", "T2"],
                 "timestamp": [
                     "2026-03-02 14:15",
                     "2026-03-02 14:17",
@@ -347,6 +349,8 @@ class TestClass(unittest.TestCase):
                     "2026-04-05 07:15",
                 ],
                 "exposure_time": [95, 128, 169, 95, 16, 16],
+                "decker": ["C2"] * 6,
+                "iodine_in": [False] * 6,
             }
         )
         tmp = tempfile.mkdtemp(prefix="astroq_visits_")
@@ -354,7 +358,7 @@ class TestClass(unittest.TestCase):
         pd.DataFrame({"unique_id": ["T1", "T2"], "n_exp": [3, 3]}).to_csv(
             req_csv, index=False
         )
-        out = prep.exposures_to_visits(frames, request_csv_path=req_csv)
+        out = prep.jump_query_to_past(frames, req_csv)
         self.assertEqual(len(out), 2)
         t1 = out.loc[out["unique_id"] == "T1"].iloc[0]
         self.assertEqual(t1["timestamp"], "2026-03-02 14:15")
