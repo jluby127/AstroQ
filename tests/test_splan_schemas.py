@@ -21,6 +21,7 @@ from astroq.io import (
     PROGRAMS_SCHEMA,
     REQUEST_SCHEMA,
     read_csv,
+    validate_past_in_semester,
 )
 
 
@@ -151,6 +152,36 @@ class TestReadCsv(unittest.TestCase):
         df = read_csv(path, "allocation")
         self.assertIsInstance(df["start"].iloc[0], Time)
         self.assertIsInstance(df["stop"].iloc[0], Time)
+
+    def test_validate_past_in_semester_accepts_in_range(self):
+        past = pd.DataFrame(
+            {
+                "unique_id": ["R1"],
+                "target": ["R1"],
+                "timestamp": ["2026-02-15 12:00"],
+                "exposure_time": [100.0],
+            }
+        )
+        validate_past_in_semester(past, "2026-02-01", "2026-07-31")
+
+    def test_validate_past_in_semester_empty_ok(self):
+        validate_past_in_semester(
+            pd.DataFrame(columns=list(PAST_SCHEMA)),
+            "2026-02-01",
+            "2026-07-31",
+        )
+
+    def test_validate_past_in_semester_rejects_oos(self):
+        past = pd.DataFrame(
+            {
+                "unique_id": ["R1"],
+                "target": ["R1"],
+                "timestamp": ["2025-12-01 12:00"],
+                "exposure_time": [100.0],
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "outside semester date range"):
+            validate_past_in_semester(past, "2026-02-01", "2026-07-31")
 
 
 if __name__ == "__main__":

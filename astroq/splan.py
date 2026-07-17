@@ -50,6 +50,12 @@ REQUEST_PAST_COLS = (
 REQUEST_DERIVED_COLS = REQUEST_SLOT_COLS + REQUEST_PAST_COLS
 PROGRAM_DERIVED_COLS = ("awarded_hours", "awarded_slots", "past_slots")
 
+TIMELINE_VALUE_COLS = (
+    "unique_id",
+    "program_code",
+    "t_visit_slots",
+)
+
 
 
 _DEFAULT_GLOBAL_SHORTFALL_SLACK = 1.1
@@ -131,7 +137,7 @@ class SemesterPlanner:
 
         # Load input data
         self.requests = self._load_frame("request")
-        self.past = self._load_frame("past")
+        self.past = self._load_past()
         self.allocation = self._load_frame("allocation")
         self.custom = self._load_frame("custom")
         self.programs = self._load_frame("programs")
@@ -163,6 +169,16 @@ class SemesterPlanner:
             self.config.get("global", "workdir"), raw
         )
         return astroq.io.read_csv(path, kind)
+
+    def _load_past(self):
+        """Load past.csv and validate timestamps against the semester window."""
+        past = self._load_frame("past")
+        astroq.io.validate_past_in_semester(
+            past,
+            self.config.get("global", "semester_start_day"),
+            self.config.get("global", "semester_end_day"),
+        )
+        return past
 
     # ------------------------------------------------------------------
     # Properties (paths derived from config).
@@ -243,19 +259,82 @@ class SemesterPlanner:
             self.programs["hours"] * 60 / slot_size
         )
 
-        rfa = self.requests
-        past_n = self.past.groupby("r").size()
-        past_slots_by_r = (
-            rfa["r"].map(past_n).fillna(0).astype(int) * rfa["t_visit_slots"]
-        )
+        req_cols = ["r", "program_code", "t_visit_slots"]
         past_by_prog = (
-            pd.Series(past_slots_by_r, index=rfa.index)
-            .groupby(rfa["program_code"])
+            self.past.merge(self.requests[req_cols], on="r", how="inner")
+            .groupby("program_code")["t_visit_slots"]
             .sum()
         )
         self.programs["past_slots"] = (
             past_by_prog.reindex(self.programs.index).fillna(0).astype(int)
         )
+
+    def _timeline_past(self):
+        """One row per past.csv visit; indexed by night ``d``."""
+        req_cols = ["r", "program_code", "t_visit_slots"]
+        past = self.past.merge(self.requests[req_cols], on="r", how="inner")
+        past["unique_id"] = past["unique_id"].astype(str)
+        date_to_d = {
+            d: i for i, d in enumerate(self.access_obj.all_dates_array)
+        }
+        past["d"] = past["timestamp"].astype(str).str[:10].map(date_to_d)
+        return past.set_index("d")[list(TIMELINE_VALUE_COLS)]
+
+    def _timeline_future(self):
+        """One row per scheduled visit; indexed by night ``d``."""
+        req_cols = ["r", "program_code", "t_visit_slots"]
+        future = self.schedule.merge(
+            self.requests[req_cols],
+            left_on="unique_id",
+            right_on="r",
+            how="left",
+        )
+        future["unique_id"] = self.schedule["unique_id"].astype(str).values
+        future["d"] = future["d"].astype(int)
+        future["t_visit_slots"] = future["t_visit_slots"].fillna(1).astype(int)
+        return future.set_index("d")[list(TIMELINE_VALUE_COLS)]
+
+    def _invalidate_timeline(self):
+        self.__dict__.pop("timeline", None)
+
+    @cached_property
+    def timeline(self):
+        """Executed past visits plus scheduled future visits (one row per visit)."""
+        if self.schedule is None:
+            raise RuntimeError("call build_schedule() before accessing timeline")
+        return pd.concat([self._timeline_past(), self._timeline_future()])
+
+    def program_charged_hours(self):
+        """Per-program past / scheduled / projected hours from ``timeline``."""
+        slot_size = self.config.getfloat("semester", "slot_size")
+        slots_per_hour = 60 / slot_size
+        ps = self.timeline
+        prog_index = self.programs.index.astype(str)
+        if ps.empty:
+            hours = pd.DataFrame(
+                {"past": 0.0, "sched": 0.0, "proj": 0.0}, index=prog_index
+            )
+            return hours
+
+        today_idx = self.access_obj.current_night_index
+        past_slots = (
+            ps.loc[ps.index < today_idx]
+            .groupby("program_code")["t_visit_slots"]
+            .sum()
+        )
+        sched_slots = (
+            ps.loc[ps.index >= today_idx]
+            .groupby("program_code")["t_visit_slots"]
+            .sum()
+        )
+        hours = (
+            pd.DataFrame({"past": past_slots, "sched": sched_slots})
+            .astype(float)
+            / slots_per_hour
+        )
+        hours = hours.reindex(prog_index).fillna(0.0)
+        hours["proj"] = hours["past"] + hours["sched"]
+        return hours
 
     def _validate_program_coverage(self):
         """Every request program_code must appear in programs.csv."""
@@ -766,6 +845,7 @@ class SemesterPlanner:
             na_rep="",
         )
         self.schedule = sparse
+        self._invalidate_timeline()
 
     def to_string_summary(
         self,
@@ -857,11 +937,9 @@ class SemesterPlanner:
 
         slot_size = self.config.getfloat("semester", "slot_size")
         slots_per_hour = 60 / slot_size
-        sched = self.schedule
 
         awarded = self.programs["awarded_hours"]
-        past_slots_by_prog = self.programs["past_slots"]
-        past_by_prog = past_slots_by_prog.astype("float64") / slots_per_hour
+        charged = self.program_charged_hours()
 
         rf = self.requests_active.copy()
         rf["requested_h"] = (
@@ -869,25 +947,12 @@ class SemesterPlanner:
         ) / slots_per_hour
         requested_by_prog = rf.groupby("program_code")["requested_h"].sum()
 
-        sched_with_prog = sched.merge(
-            self.requests_active[["r", "program_code", "t_visit_slots"]],
-            left_on="unique_id",
-            right_on="r",
-            how="left",
-        )
-        sched_with_prog["scheduled_h"] = (
-            sched_with_prog["t_visit_slots"].fillna(1) / slots_per_hour
-        )
-        scheduled_h = sched_with_prog.groupby("program_code")["scheduled_h"].sum()
-
         table = (
             pd.DataFrame({"aw": awarded})
             .join(requested_by_prog.rename("req"), how="left")
-            .join(past_by_prog.rename("past"), how="left")
-            .join(scheduled_h.rename("sched"), how="left")
+            .join(charged[["past", "sched", "proj"]], how="left")
             .fillna(0.0)
         )
-        table["proj"] = table["past"] + table["sched"]
 
         aw_col = table["aw"]
         has_aw = aw_col > 0
