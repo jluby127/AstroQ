@@ -19,7 +19,6 @@ from gurobipy import GRB
 import astroq.access as ac
 import astroq.io
 import astroq.queue
-from astroq.io import PAST_COLS
 
 logs = logging.getLogger(__name__)
 
@@ -55,9 +54,9 @@ PROGRAM_LEDGER_COLS = (
     "sched_hours",
     "proj_hours",
     "requested_hours",
-    "fill_proj_pct",
-    "fill_min_pct",
-    "fill_max_pct",
+    "fill_proj",
+    "fill_min",
+    "fill_max",
 )
 
 TIMELINE_VALUE_COLS = (
@@ -352,11 +351,11 @@ class SemesterPlanner:
         )
         out["proj_hours"] = out["past_hours"] + out["sched_hours"]
         for col, attr in (
-            ("fill_proj_pct", "X"),
-            ("fill_min_pct", "LB"),
-            ("fill_max_pct", "UB"),
+            ("fill_proj", "X"),
+            ("fill_min", "LB"),
+            ("fill_max", "UB"),
         ):
-            out[col] = idx.map(pd.Series(self.model.getAttr(attr, self.F))) * 100.0
+            out[col] = idx.map(pd.Series(self.model.getAttr(attr, self.F)))
         return out
 
     def _validate_program_coverage(self):
@@ -968,11 +967,11 @@ class SemesterPlanner:
                 "requested_hours": "req",
                 "past_hours": "past",
                 "proj_hours": "proj",
-                "fill_proj_pct": "proj%",
-                "fill_min_pct": "miff%",
-                "fill_max_pct": "maff%",
             }
-        )[(*hour_cols, "proj%", "miff%", "maff%")]
+        )[(*hour_cols,)]
+        table["proj%"] = 100.0 * ledger["fill_proj"]
+        table["miff%"] = 100.0 * ledger["fill_min"]
+        table["maff%"] = 100.0 * ledger["fill_max"]
         table["past%"] = np.where(aw > 0, 100.0 * ledger["past_hours"] / aw, 0.0)
         table = table[[*hour_cols, *pct_cols]]
         table[["proj%", "miff%", "maff%"]] = table[["proj%", "miff%", "maff%"]].fillna(
@@ -1089,10 +1088,7 @@ class SemesterPlanner:
             access_record = f["access_record"][:].view(np.recarray)
 
         requests = pd.read_hdf(hdf5_path, key="requests")
-        try:
-            past = pd.read_hdf(hdf5_path, key="past")
-        except KeyError:
-            past = pd.DataFrame(columns=PAST_COLS)
+        past = pd.read_hdf(hdf5_path, key="past")
         try:
             schedule = pd.read_hdf(hdf5_path, key="schedule")
         except KeyError:
