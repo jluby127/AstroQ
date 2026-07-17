@@ -5,6 +5,7 @@ Module for executing AstroQ functions based on command line interface inputs.
 # Standard library imports
 import logging
 import os
+import time
 from datetime import datetime
 from configparser import ConfigParser
 
@@ -16,6 +17,7 @@ import plotly.io as pio
 # Local imports
 
 import astroq.benchmarking as bn
+import astroq.io
 import astroq.queue
 import astroq.queue.kpfcc.prep as kpfcc
 import astroq.queue.hirescps.prep as hirescps
@@ -28,6 +30,8 @@ import astroq.webapp.render as webrender
 
 log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)  # Lower level to capture more messages
+
+_REQUEST_CSV_TTL_SEC = 3600
 
 
 def bench(args):
@@ -136,15 +140,15 @@ def hirescps_prep(args):
             {
                 "program": awarded_programs,
                 "hours": list(hours_by_program.values()),
-                "nights": list(nights_by_program.values()),
             }
         )
-        # Manually add one row with for the Engineering program of bright backup stars. Arbitrarily give it 50 night of time. This is intentionally high so that this "program" is not effectively throttled.
+        # Manually add one row for the Engineering program of bright backup stars.
+        # High hours so this "program" is not effectively throttled.
         programmatics = pd.concat(
             [
                 programmatics,
                 pd.DataFrame(
-                    [{"program": args.filler_programs, "hours": 600.0, "nights": 50.0}]
+                    [{"program": args.filler_programs, "hours": 600.0}]
                 ),
             ],
             ignore_index=True,
@@ -176,9 +180,23 @@ def hirescps_prep(args):
             {
                 "program": awarded_programs,
                 "hours": list(hours_by_program.values()),
-                "nights": list(nights_by_program.values()),
             }
         )
+        if args.filler_programs:
+            programmatics = pd.concat(
+                [
+                    programmatics,
+                    pd.DataFrame(
+                        [
+                            {
+                                "program": args.filler_programs,
+                                "hours": 600.0,
+                            }
+                        ]
+                    ),
+                ],
+                ignore_index=True,
+            )
         programmatics.to_csv(os.path.join(savepath, "programs.csv"), index=False)
 
     allocation_frame["comment"] = [""] * len(allocation_frame)
@@ -205,16 +223,30 @@ def hirescps_prep(args):
         if fillers is not None:
             print(f"Adding filler program to awarded_programs: {fillers}")
             awarded_programs.append(fillers)
-        # Pull the request sheet
+        # Pull the request sheet (skip if request.csv is fresh enough)
         request_file = str(config.get("data", "request_file"))
-        requests_df, custom_df = hirescps.pull_requests(request_urls_path)
-        requests_df.to_csv(os.path.join(savepath, request_file), index=False)
+        request_path = os.path.join(savepath, request_file)
 
-        # CAPTURE CUSTOM INFORMATION AND PROCESS
-        # --------------------------------------------
-        # --------------------------------------------
-        custom_file = str(config.get("data", "custom_file"))
-        custom_df.to_csv(os.path.join(savepath, custom_file), index=False)
+        skip_pull = False
+        if os.path.isfile(request_path):
+            age_sec = time.time() - os.path.getmtime(request_path)
+            if age_sec < _REQUEST_CSV_TTL_SEC:
+                print(
+                    f"Using existing {request_file} "
+                    f"(age {int(age_sec)}s < {_REQUEST_CSV_TTL_SEC}s; "
+                    "skipping Google Sheet pull)"
+                )
+                skip_pull = True
+
+        if not skip_pull:
+            requests_df, custom_df = hirescps.pull_requests(request_urls_path)
+            requests_df.to_csv(request_path, index=False)
+
+            # CAPTURE CUSTOM INFORMATION AND PROCESS
+            # --------------------------------------------
+            # --------------------------------------------
+            custom_file = str(config.get("data", "custom_file"))
+            custom_df.to_csv(os.path.join(savepath, custom_file), index=False)
 
     else:
         print(f"User specified request source: {args.request_source}")
@@ -234,6 +266,7 @@ def hirescps_prep(args):
             semester_start_day=start_date,
             semester_end_day=end_date,
             request_csv_path=os.path.join(savepath, request_file),
+            current_day=current_date,
         )
 
     else:
@@ -298,15 +331,15 @@ def kpfcc_prep(args):
             {
                 "program": awarded_programs,
                 "hours": list(hours_by_program.values()),
-                "nights": list(nights_by_program.values()),
             }
         )
-        # Manually add one row with for the Engineering program of bright backup stars. Arbitrarily give it 50 night of time. This is intentionally high so that this "program" is not effectively throttled.
+        # Manually add one row for the Engineering program of bright backup stars.
+        # High hours so this "program" is not effectively throttled.
         programmatics = pd.concat(
             [
                 programmatics,
                 pd.DataFrame(
-                    [{"program": args.filler_programs, "hours": 600.0, "nights": 50.0}]
+                    [{"program": args.filler_programs, "hours": 600.0}]
                 ),
             ],
             ignore_index=True,
@@ -326,7 +359,6 @@ def kpfcc_prep(args):
             {
                 "program": awarded_programs,
                 "hours": list(hours_by_program.values()),
-                "nights": list(nights_by_program.values()),
             }
         )
         programmatics.to_csv(os.path.join(savepath, "programs.csv"), index=False)
@@ -461,10 +493,9 @@ def kpfcc_prep(args):
 def _validate_past_csv_columns(past_source):
     """Warn if ``past_source`` is missing the required past.csv columns.
 
-    Required schema: ``unique_id, target, timestamp, exposure_time``. The
-    ``junk`` column is optional.
+    Required schema is the single source of truth :data:`astroq.io.PAST_COLS`.
     """
-    expected_columns = {"unique_id", "target", "timestamp", "exposure_time"}
+    expected_columns = set(astroq.io.PAST_COLS)
     if not os.path.exists(past_source):
         logging.warning(f"Past history file '{past_source}' does not exist")
         return
@@ -509,28 +540,13 @@ def plan_semester(args):
     Args:
         args (argparse.Namespace): the command line arguments with flags:
             -cf (str): the path to the config file.
-            --boost (list[str], optional): [comma-separated unique_ids, factor]
-                soft-bias those targets onto current_day in the semester solve.
 
     Returns:
         None
     """
     cf = args.config_file
     print(f"plan_semester function: config_file is {cf}")
-    boost_arg = getattr(args, "boost", None)
-    boost = None
-    if boost_arg:
-        targets_part, factor_part = boost_arg[0], boost_arg[1]
-        factor = float(factor_part.strip())
-        uids = [u.strip() for u in targets_part.split(",") if u.strip()]
-        if not uids:
-            raise ValueError("--boost: no unique_id values in first argument")
-        boost = pd.DataFrame({"unique_id": uids, "boost": factor})
-        print(
-            f"Boost: {len(uids)} unique_id(s), factor={factor}: "
-            f"{', '.join(uids)}"
-        )
-    semester_planner = splan.SemesterPlanner(cf, boost=boost)
+    semester_planner = splan.SemesterPlanner(cf)
     semester_planner.run_model()
     return
 
@@ -687,7 +703,7 @@ def plot(args):
 
 def archive(args):
     """
-    Export static HTML copies of the webapp admin and nightplan pages.
+    Export static HTML copies of the webapp admin, nightplan, and program pages.
 
     Args:
         args (argparse.Namespace): the command line arguments with flags:
@@ -726,160 +742,26 @@ def archive(args):
             f.write(webrender.build_nightplan_html(loaded, band))
         log.info("Wrote %s", night_path)
     else:
-        log.info("No night_planner.h5 in %s; skipping nightplan.html", outputs_dir)
+        log.info(
+            "No loadable night planner in %s; skipping nightplan.html",
+            outputs_dir,
+        )
+
+    programs_dir = os.path.join(archive_dir, "programs")
+    os.makedirs(programs_dir, exist_ok=True)
+    for program_code in sorted(loaded.data_astroq[0]):
+        program_path = os.path.join(programs_dir, f"{program_code}.html")
+        with open(program_path, "w", encoding="utf-8") as f:
+            f.write(
+                webrender.build_program_html(
+                    loaded,
+                    semester,
+                    date,
+                    band,
+                    program_code,
+                    link_targets=False,
+                )
+            )
+        log.info("Wrote %s", program_path)
 
     return
-
-
-def requests_vs_schedule(args):
-    """
-    Compare the request.csv file to the schedule.csv file to ensure that the schedule is valid. This is a sanity check to ensure that the schedule is not violating any of the constraints.
-
-    Args:
-        args (argparse.Namespace): the command line arguments with flags:
-            -cf (str): the path to the config file.
-            -schedule_file (str): the path to the schedule file.
-
-    Returns:
-        None
-    """
-    cf = args.config_file
-    sf = args.schedule_file
-    print(f"requests_vs_schedule function: config_file is {cf}")
-    print(f"requests_vs_schedule function: schedule_file is {sf}")
-    # Create semester planner to get strategy data
-    semester_planner = splan.SemesterPlanner(cf)
-    semester_planner.run_model()
-    req = semester_planner.requests_frame
-    sch = pd.read_csv(sf)
-    sch = sch.sort_values(by=["d", "s"]).reset_index(
-        drop=True
-    )  # Re-order into the real schedule
-    # First, ensure no repeated day/slot pairs (does allow missing pairs)
-    no_duplicate_slot_err = (
-        "'No duplicate slot' condition violated: "
-        "At least one pair of rows corresponds to "
-        "the same day and slot."
-    )
-    assert sch.groupby(["d", "s"]).size().max() <= 1, no_duplicate_slot_err
-    for star in req.unique_id:
-        star_request = req.query(f"unique_id=='{star}'")
-        star_schedule = sch.query(
-            f"unique_id=='{star}'"
-        )  # Only the slots with the star listed
-
-        # A star might not be scheduled at all. This does not violate constraints, but should be noted.
-        if len(star_schedule) == 0:
-            print(f"{star} not scheduled")
-            continue
-        # 1) t_visit: No stars scheduled during another star's slot
-        t_visit = star_request.t_visit_slots.values[
-            0
-        ]  # Number of slots needed to complete observation
-        star_inds = star_schedule.index
-        day_slot = sch[["d", "s"]]
-        # Check the number of slots between consecutive obs. If they're on the same day, demand a minimum separation
-        if (
-            star_inds.max() == day_slot.index.max()
-        ):  # Special case: if this star includes the last obs in the whole schedule
-            star_inds = star_inds[
-                :-1
-            ]  # Exclude the very last observation to avoid index err. That obs can't be overlapped by a later target anyway
-        day_slot_diffs = (
-            day_slot.iloc[star_inds + 1].reset_index()
-            - day_slot.iloc[star_inds].reset_index()
-        )
-        if (
-            len(day_slot_diffs.query("d==0")) == 0
-        ):  # d==0 when next obs is on the same day. If the target is always the last obs of the night, pass
-            pass
-        else:
-            closest_slot_separation = day_slot_diffs.query("d==0").s.min()
-            t_visit_err = (
-                "t_visit violated: "
-                "Two stars are scheduled too close together: "
-                f"{star} requires {t_visit} slots but another "
-                f"star is scheduled after only {closest_slot_separation}."
-            )
-            assert closest_slot_separation >= t_visit, t_visit_err
-
-        # 2) n_inter_max: Total number of nights a target is scheduled in the semester is less than n_inter_max
-        n_inter_max = star_request["n_inter_max"].values[0]
-        n_inter_sch = len(set(star_schedule.d))  # All unique nights with scheduled obs
-        # Now make sure the number of visits is less than the limit
-        n_inter_max_err = (
-            "n_inter_max violated: "
-            f"{star} is scheduled too many times in the semester "
-            f"(scheduled: {n_inter_sch} obs; required: {n_inter_max} obs)"
-        )
-        assert n_inter_sch <= n_inter_max, n_inter_max_err
-
-        # 3) n_intra_min, n_intra_max: N obs per day is between n_intra_min and n_intra_max
-        # t_visit, the number of slots required to complete a single observation (aka visit)
-        t_visit = req[req.unique_id == star].t_visit_slots.values
-        # Upper/lower limits on N obs per day
-        n_intra_min, n_intra_max = star_request[["n_intra_min", "n_intra_max"]].values[
-            0
-        ]
-        # Scheduled min/max number of obs per day
-        n_intra_groupby = star_schedule.groupby(
-            ["d"]
-        ).size()  # The numerator gives the sum of all starting slots in which the target is observed in a day.
-        n_intra_min_sch, n_intra_max_sch = n_intra_groupby.min(), n_intra_groupby.max()
-        # Ensure the target is never scheduled too few/many times in one night
-        n_intra_min_err = (
-            "n_intra_min violated: "
-            f"{star} is scheduled too few times in one night "
-            f"(scheduled: {n_intra_min_sch} obs; required: {n_intra_min} obs)"
-        )
-        assert n_intra_min <= n_intra_min_sch, n_intra_min_err
-
-        n_intra_max_err = (
-            "n_intra_max violated: "
-            f"{star} is scheduled too many times in one night "
-            f"(scheduled: {n_intra_max_sch} obs; required: {n_intra_max} obs)"
-        )
-        assert n_intra_max_sch <= n_intra_max, n_intra_max_err
-
-        # 4) tau_inter: There must be at least tau_inter nights between successive nights during which a target is observed
-        tau_inter = star_request["tau_inter"].values[
-            0
-        ]  # min num of nights before another obs
-        if (
-            tau_inter > 0
-        ):  # only run this test if the intention is to schedule more than once
-            unique_days = np.sort(np.array(list(set(star_schedule.d))))
-            if (
-                len(unique_days) <= 1
-            ):  # If only 1 obs or 1 day, no risk of spacing obs too closely
-                pass
-            else:
-                min_day_gaps = np.min(unique_days[1:] - unique_days[:-1])
-                # Require that all gaps are greater than the min gap
-                tau_inter_err = (
-                    "tau_inter violated: "
-                    f"two obs of {star} are not spaced by enough days "
-                    f"(scheduled: {min_day_gaps} days; required: {tau_inter} days)"
-                )
-                assert min_day_gaps >= tau_inter, tau_inter_err
-
-        # 5) tau_intra: There must be at least tau_intra slots between successive observations of a target in a single night
-        slot_duration = semester_planner.config.getint(
-            "semester", "slot_size"
-        )  # Slot duration in minutes
-        slots_per_hour = 60 / slot_duration
-        tau_intra_slots = star_request["tau_intra_slots"].values[0]
-        min_slot_diffs = (
-            star_schedule.groupby("d").s.diff().min()
-        )  # Group by day, then find successive differences between slot numbers in the same day. Differences are not computed between the last slot of one night and the first slot of the next night (those values are NaN). The differences must all be AT LEAST tau_intra.
-        if (
-            n_intra_max <= 1
-        ):  # If only 1 obs per night, no risk of spacing obs too closely
-            pass
-        else:
-            tau_intra_err = (
-                "tau_intra_violated: "
-                f"two obs of {star} are not spaced by enough slots "
-                f"(scheduled: {min_slot_diffs} slots; required: {tau_intra_slots} slots)"
-            )
-            assert min_slot_diffs >= tau_intra_slots, tau_intra_err

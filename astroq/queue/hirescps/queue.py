@@ -28,9 +28,9 @@ class HIRESCPS(Queue):
         ("S", 90.0, 315.0),
     ]
     nSlots = 4  # TTP slew-slot granularity
-    readout_time = 45.0  # seconds; per-shot detector readout
+    readout_time = 30.0  # seconds; per-shot detector readout
     slew_overhead_mean = (
-        60.0  # seconds; mean per-visit slew + acquisition (splan-only estimate)
+        30.0  # seconds; mean per-visit slew + acquisition (splan-only estimate)
     )
 
     # Inaccessible (alt, az) boxes, degrees. (az_min, az_max, alt_min, alt_max).

@@ -182,7 +182,7 @@ Let's see which subcommands are available using ``astroq --help``:
     .. code-block:: bash
     
     
-        $ usage: astroq [-h] [-V] {bench,plot,kpfcc_prep,webapp,plan-semester,plan-night,compare} ...
+        $ usage: astroq [-h] [-V] {bench,plot,kpfcc_prep,webapp,plan-semester,plan-night} ...
 
             AstroQ: Optimized observation scheduling
 
@@ -191,7 +191,7 @@ Let's see which subcommands are available using ``astroq --help``:
             -V, --version         Print version number and exit.
 
             subcommands:
-            {bench,plot,prep,webapp,plan-semester,plan-night,compare}
+            {bench,plot,prep,webapp,plan-semester,plan-night}
                 
 
 The AstroQ command-line interface provides the following subcommands:
@@ -201,7 +201,6 @@ The AstroQ command-line interface provides the following subcommands:
 * ``webapp`` - Launch web app to view interactive plots for a given solution of AstroQ.
 * ``plan-semester`` - Solve for the optimal semester-long schedule, determining what stars to observe on what nights. This is the heart of AstroQ.
 * ``plan-night`` - Solve for the optimal slew path using the TTP package.
-* ``compare`` - Compare two AstroQ solutions.
 
 **Below are more detailed explanations of these commands and their outputs.**
 
@@ -244,21 +243,23 @@ Let's take a look at the outputs produced:
        e2, 5, 35, TOI-1670
        e2, 8, 41, TOI-1670
 
-- ``runReport.txt``: contains some basic statistics about the fullness of the schedule. See example (note, this schedule is not supposed to be a good one!):
+- The run report (printed to stdout after ``plan-semester``) contains basic statistics about the fullness of the schedule. See example (note, this schedule is not supposed to be a good one!):
     
     ::
 
-        Stats for Round1
+        Semester Planner Statistics
         ------------------------------------------------------
-        N slots in semester:26496
-        N available slots:2874
-        N starting slots scheduled: 183
-        N reserved slots: 26
-        N total slots scheduled: 209
-        N slots left empty: 2665
-        N slots requested (total): 807
-        Utilization (% of available slots): 7.272%
-        Utilization (% of requested slots): 25.898%
+        Total requests                          42
+        Total requests (active)                 38
+        Total allocated slots                 2874
+        Total slots requested                  850
+        Total slots requested (active)         807
+        Future allocated slots                2874
+        Future reserved slots                   26
+        Future fill factor                       7
+        Current day allocated slots             62
+        Current day reserved slots               4
+        Current day fill factor                 10
 
 - ``request_selected.csv``: contains a copy of the request.csv file but only for the targets that were selected to be observed.:
 
