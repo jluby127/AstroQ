@@ -1,8 +1,6 @@
 """Semester-scope Plotly figures."""
 
 from astroq.plot._common import (  # noqa: F401
-    cumulative_by_night,
-    daily_visits_by_night,
     gray,
     clear,
     labelsize,
@@ -28,47 +26,36 @@ from astroq.plot._common import (  # noqa: F401
     ac,
     griddata,
     TimeDelta,
-    _cof_pct_curve,
-    _cof_group_for_star,
-    _visit_denominator,
     _charged_hours_from_ps,
     _football_cache_dir,
-    _visit_counts_by_date,
     programs_ledger_for_plot,
     _render_datatable,
     _TEMPLATE_ENV,
     _Path,
 )
-from astroq.plot.context import PlotData, PlotSelection, RequestView
+from astroq.plot.context import MAP_NAMES, PlotData, PlotSelection  # noqa: F401
 
 def get_cof(plot_data, selection, use_time=False):
-    """
-    Produce a plotly figure showing the Cumulative Observability Function (COF) for a selection of stars
+    """Cumulative Observability Function (COF) for a selection of requests/programs.
 
     Args:
-        semester_planner (obj): a SemesterPlanner object from splan.py
-        all_stars (array): a array of StarPlotter objects
-        use_time (bool): if True, use the cumulative observe time percentage instead of the cumulative observe percentage
+        plot_data (PlotData): shared plot context from build_plot_data.
+        selection (PlotSelection): which requests/programs to include.
+        use_time (bool): normalize by awarded program hours instead of visit count.
 
     Returns:
-        fig (plotly figure): a plotly figure showing the COF for a selection of stars
+        plotly.graph_objects.Figure: the COF figure.
     """
-
-    all_stars = plot_data.views(selection)
-    semester_planner = plot_data.semester_planner
+    sel = plot_data.select(selection)
+    table = sel.table
     fig = go.Figure()
-    fig.update_layout(
-        plot_bgcolor=gray, paper_bgcolor=clear
-    )  # autosize=True,margin=dict(l=40, r=40, t=40, b=40),
+    fig.update_layout(plot_bgcolor=gray, paper_bgcolor=clear)
 
-    # Convert calendar dates to night indices (0, 1, 2, ...)
-    night_indices = np.arange(len(plot_data.semester_planner.access_obj.all_dates_array))
+    dates = plot_data.all_dates_array
+    n_nights = plot_data.n_nights
+    night_indices = np.arange(n_nights)
+    burn_line = np.round(np.linspace(0, 100, n_nights), 2)
 
-    burn_line = np.linspace(0, 100, len(plot_data.semester_planner.access_obj.all_dates_array))
-    burn_line = np.round(burn_line, 2)
-
-    # Add "Even Burn Rate" line as a shape so it's always visible and can't be toggled
-    # Use add_shape to create a line that spans the entire plot
     fig.add_shape(
         type="line",
         x0=night_indices[0],
@@ -76,57 +63,42 @@ def get_cof(plot_data, selection, use_time=False):
         x1=night_indices[-1],
         y1=burn_line[-1],
         line=dict(color="black", width=2, dash="dash"),
-        layer="below",  # Draw below traces so it doesn't obscure data
+        layer="below",
     )
-
-    # Add an invisible trace just for the legend entry (so users know what the line represents)
-    # This trace will be visible in legend but clicking it won't hide the actual line
     fig.add_trace(
         go.Scatter(
-            x=[None],  # No actual data points
+            x=[None],
             y=[None],
             mode="lines",
             line=dict(color="black", width=2, dash="dash"),
             name="Even Burn Rate",
             showlegend=True,
-            hoverinfo="skip",  # Don't show hover for this dummy trace
+            hoverinfo="skip",
         )
     )
-    lines = []
-    ps = plot_data.semester_planner.timeline
-    n_nights = len(plot_data.semester_planner.access_obj.all_dates_array)
-    is_programmatic = not getattr(all_stars[0], "allow_mapview", True)
 
-    if is_programmatic:
-        program_codes = {s.program for s in all_stars}
-        total_sub = ps[ps["program_code"].isin(program_codes)]
-    else:
-        uids = [str(s.unique_id) for s in all_stars]
-        total_sub = ps[ps["unique_id"].isin(uids)]
+    total_color = table["program_color"].iloc[0]
+    slots_per_hour = 60 / plot_data.slot_size
+    prog_hours = plot_data.programs.set_index("program")["hours"]
 
-    if use_time is False:
-        total_denom = sum(_visit_denominator(s) for s in all_stars)
-        daily = total_sub.groupby(total_sub.index).size().reindex(
-            range(n_nights), fill_value=0
-        )
-        cume_observe = daily.cumsum().to_numpy(dtype=float)
+    if not use_time:
+        total_denom = int(table["requested_visits"].sum())
+        total_cume = sel.cume_visits.sum(axis=1).to_numpy(dtype=float)
         if total_denom > 0:
-            cume_observe_pct = np.round(cume_observe / total_denom * 100, 2)
+            total_pct = np.round(total_cume / total_denom * 100, 2)
         else:
-            total_past = int(cume_observe[-1]) if len(cume_observe) else 0
-            cume_observe_pct = (
-                np.round(cume_observe / total_past * 100, 2)
+            total_past = int(total_cume[-1]) if len(total_cume) else 0
+            total_pct = (
+                np.round(total_cume / total_past * 100, 2)
                 if total_past > 0
                 else np.zeros(n_nights)
             )
-
-        # Add the Total trace first (so it appears below other traces)
         fig.add_trace(
             go.Scatter(
                 x=night_indices,
-                y=cume_observe_pct,
+                y=total_pct,
                 mode="lines",
-                line=dict(color=all_stars[0].program_color_rgb, width=2),
+                line=dict(color=total_color, width=2),
                 name="Total",
                 hovertemplate="Night: %{x}"
                 + "<br>Date: "
@@ -135,40 +107,27 @@ def get_cof(plot_data, selection, use_time=False):
                 + "<br># Visits Requested: "
                 + str(int(total_denom))
                 + "<br>",
-                customdata=plot_data.semester_planner.access_obj.all_dates_array,
+                customdata=dates,
             )
         )
     else:
-        # use_time=True: normalize by awarded program hours from programs.csv
-        programmatics_cof = pd.read_csv(
-            os.path.join(plot_data.semester_planner.config.get("global", "workdir"), "programs.csv")
-        )
-        programs_in_stars = {s.program for s in all_stars}
-        total_program_hours = programmatics_cof.loc[
-            programmatics_cof["program"].isin(programs_in_stars), "hours"
-        ].sum()
-        slot_size = plot_data.semester_planner.config.getfloat("semester", "slot_size")
-        slots_per_hour = 60 / slot_size
-        daily_slots = total_sub.groupby(total_sub.index)["t_visit_slots"].sum().reindex(
-            range(n_nights), fill_value=0
-        )
-        cume_hours = daily_slots.cumsum().to_numpy(dtype=float) / slots_per_hour
+        programs_in = set(table["program_code"])
+        total_program_hours = prog_hours[prog_hours.index.isin(programs_in)].sum()
+        cume_hours = sel.cume_slots.sum(axis=1).to_numpy(dtype=float) / slots_per_hour
         if total_program_hours > 0:
-            cume_time_pct = np.round(cume_hours / total_program_hours * 100, 2)
+            total_pct = np.round(cume_hours / total_program_hours * 100, 2)
         else:
-            cume_time_pct = np.zeros(n_nights)
-
-        # Build program label for hover: when multiple programs, show "All programs"; when one, show its name
-        if len(programs_in_stars) == 1:
-            total_trace_label = "<b>" + list(programs_in_stars)[0] + "</b> (Total)<br>"
+            total_pct = np.zeros(n_nights)
+        if len(programs_in) == 1:
+            total_trace_label = "<b>" + list(programs_in)[0] + "</b> (Total)<br>"
         else:
             total_trace_label = "<b>All programs (Total)</b><br>"
         fig.add_trace(
             go.Scatter(
                 x=night_indices,
-                y=cume_time_pct,
+                y=total_pct,
                 mode="lines",
-                line=dict(color=all_stars[0].program_color_rgb, width=2),
+                line=dict(color=total_color, width=2),
                 name="Total",
                 hovertemplate=total_trace_label
                 + "Night: %{x}"
@@ -178,74 +137,51 @@ def get_cof(plot_data, selection, use_time=False):
                 + "<br>Total program time: "
                 + f"{total_program_hours:.1f} hours<br>"
                 + "<extra></extra>",
-                customdata=plot_data.semester_planner.access_obj.all_dates_array,
+                customdata=dates,
             )
         )
 
-    programmatics_cof = None
-    if use_time:
-        programmatics_cof = pd.read_csv(
-            os.path.join(plot_data.semester_planner.config.get("global", "workdir"), "programs.csv")
-        )
-
-    # Then add individual star traces (so they appear above the Total trace)
-    for i in range(len(all_stars)):
-        group_col, group_val = _cof_group_for_star(all_stars[i])
+    def add_request_trace(uid):
+        row = table.loc[uid]
         if use_time:
-            prog_for_star = all_stars[i].program
-            total_prog_hours = programmatics_cof.loc[
-                programmatics_cof["program"] == prog_for_star, "hours"
-            ].sum()
-            y_vals = _cof_pct_curve(plot_data.semester_planner,
-                ps,
-                n_nights,
-                group_col=group_col,
-                group_val=group_val,
-                use_time=True,
-                denominator=total_prog_hours,
-            )
+            tp = prog_hours[prog_hours.index == row["program_code"]].sum()
+            cume_h = sel.cume_slots[uid].to_numpy(dtype=float) / slots_per_hour
+            y_vals = np.round(cume_h / tp * 100, 2) if tp > 0 else np.zeros(n_nights)
             hovertemplate = (
                 "<b>"
-                + str(prog_for_star)
+                + str(row["program_code"])
                 + "</b><br>Night: %{x}"
                 + "<br>Date: "
                 + "%{customdata}"
                 + "<br>Time charged (% of awarded hours): %{y}<br>Total program time: "
-                + f"{total_prog_hours:.1f} hours<br>"
+                + f"{tp:.1f} hours<br>"
                 + "<extra></extra>"
             )
         else:
-            y_vals = _cof_pct_curve(plot_data.semester_planner,
-                ps,
-                n_nights,
-                group_col=group_col,
-                group_val=group_val,
-                use_time=False,
-                denominator=_visit_denominator(all_stars[i]),
-            )
+            y_vals = sel.cume_visits_pct[uid].to_numpy()
             hovertemplate = (
                 "Night: %{x}"
                 + "<br>Date: "
                 + "%{customdata}"
                 + "<br>% Complete: %{y}"
                 + "<br># Visits Requested: "
-                + str(_visit_denominator(all_stars[i]))
+                + str(int(row["requested_visits"]))
                 + "<br>"
             )
-
         fig.add_trace(
             go.Scatter(
                 x=night_indices,
                 y=y_vals,
                 mode="lines",
-                line=dict(color=all_stars[i].star_color_rgb, width=2),
-                name=all_stars[i].target,
+                line=dict(color=row["star_color"], width=2),
+                name=row["target"],
                 hovertemplate=hovertemplate,
-                customdata=plot_data.semester_planner.access_obj.all_dates_array,
+                customdata=dates,
             )
         )
-        last_pct = float(np.round(y_vals[-1], 2)) if len(y_vals) else 0
-        lines.append(str(all_stars[i].target) + "," + str(last_pct))
+        return None
+
+    pd.Series(sel.ids).apply(add_request_trace)
 
     today_night_index = plot_data.semester_planner.access_obj.current_night_index
 
@@ -282,12 +218,6 @@ def get_cof(plot_data, selection, use_time=False):
             x_ticktext_dates.append(f"{month}<br>{day}")
         else:
             x_ticktext_dates.append("")
-
-    # Calculate legend height based on number of traces
-    num_traces = len(all_stars) + 2  # +2 for "Even Burn Rate" and "Total"
-    legend_height = min(
-        300, max(150, num_traces * 25)
-    )  # Between 150-300px, 25px per trace
 
     yaxis_title = (
         "Time charged (% of awarded hours)" if use_time else "Visit % Complete"
@@ -381,28 +311,25 @@ def get_cof(plot_data, selection, use_time=False):
 
 
 def get_birdseye(plot_data, selection):
-    """
-    Produce the plotly figure showing the day/slot matrix intersection for a selection of stars
+    """Day/slot forecast matrix for a selection of requests/programs.
 
     Args:
-        semester_planner (obj): a SemesterPlanner object from splan.py
-        availability (array): a 2D array of N_slots by N_nights, binary 1/0, it is the intersection of is_allocated and is_night
-        all_stars (array): a array of StarPlotter objects
+        plot_data (PlotData): shared plot context from build_plot_data.
+        selection (PlotSelection): which requests/programs to include.
 
     Returns:
-        fig (plotly figure): a plotly figure showing the day/slot matrix intersection for a selection of stars
+        plotly.graph_objects.Figure: the birdseye figure.
     """
-
-    all_stars = plot_data.views(selection)
+    sel = plot_data.select(selection)
+    table = sel.table
     availablity = plot_data.nulltime
-    semester_planner = plot_data.semester_planner
     fig = go.Figure()
-    # fig.update_layout(width=1200, height=800, plot_bgcolor=clear, paper_bgcolor=clear)
     fig.update_layout(plot_bgcolor=clear, paper_bgcolor=clear)
 
-    # when multiple StarPlotter obects are submitted or a programmatic StarPlotter object,
-    # show the grayed out slots from the intersection of is_allocated and is_night
-    if len(all_stars) > 1 or all_stars[0].allow_mapview == False:
+    # Multiple requests or a program aggregate: show the grayed-out unavailable
+    # slots. A single request: overlay its per-map availability cubes.
+    single_map = len(sel.ids) == 1 and bool(table["allow_mapview"].iloc[0])
+    if not single_map:
         fig.add_trace(
             go.Heatmap(
                 z=availablity,
@@ -415,85 +342,46 @@ def get_birdseye(plot_data, selection):
                 showlegend=False,
             )
         )
-    # when just one StarPlotter object is submitted, show the overlay of all maps
     else:
-        colors = sns.color_palette("deep", len(all_stars[0].maps_names) + 1)
-        rgb_strings = [
-            f"rgb({int(r * 255)}, {int(g * 255)}, {int(b * 255)})" for r, g, b in colors
-        ]
-        for m in range(len(all_stars[0].maps_names)):
-            # Skip the is_observable_now map
-            if all_stars[0].maps_names[m] == "is_observable_now":
+        maps = plot_data.maps_for(sel.ids[0])
+        for map_name in MAP_NAMES:
+            if map_name == "is_observable_now":
                 continue
-            map_name = all_stars[0].maps_names[m]
-            z_data = (
-                1 - all_stars[0].maps[map_name].astype(int).T
-            )  # Invert all other maps
-
             fig.add_trace(
                 go.Heatmap(
-                    z=z_data,
+                    z=1 - maps[map_name].astype(int).T,
                     colorscale=[[0, "rgba(0,0,0,0)"], [1, gray]],
                     zmin=0,
                     zmax=1,
                     opacity=1.0,
                     showscale=False,
-                    name=all_stars[0].maps_names[m],
+                    name=map_name,
                     showlegend=True,
                 )
             )
 
-    for i in range(len(all_stars)):
+    def add_starmap(uid):
+        row = table.loc[uid]
         fig.add_trace(
             go.Heatmap(
-                z=all_stars[i].starmap,
-                colorscale=[[0, "rgba(0,0,0,0)"], [1, all_stars[i].star_color_rgb]],
+                z=plot_data.starmap_for(uid, is_program=sel.is_program),
+                colorscale=[[0, "rgba(0,0,0,0)"], [1, row["star_color"]]],
                 zmin=0,
                 zmax=1,
                 opacity=1.0,
                 showscale=False,
-                name=all_stars[i].target,
+                name=row["target"],
                 hovertemplate="<b>"
-                + str(all_stars[i].target)
+                + str(row["target"])
                 + "</b><br><b>Date: %{x}</b><br><b>Slot: %{y}</b><br>Forecasted N_Obs: "
-                + str(all_stars[i].total_observations_requested)
+                + str(row["total_observations_requested"])
                 + "<extra></extra>",
                 showlegend=True,
             )
         )
+        return None
 
-        if all_stars[i].draw_lines:
-            # Add connecting line for points with value 1
-            points = np.argwhere(all_stars[i].starmap == 1)
-            sorted_indices = np.argsort(points[:, 1])  # sort by x (column index)
-            x_coords = points[sorted_indices, 1]
-            y_coords = points[sorted_indices, 0]
-            fig.add_trace(
-                go.Scatter(
-                    x=x_coords,
-                    y=y_coords,
-                    mode="lines+markers",
-                    line=dict(color=all_stars[i].star_color_rgb, width=2),
-                    marker=dict(size=6, color=all_stars[i].starcolor_rgb),
-                    name="Connected Points",
-                )
-            )
-
-    add_grid_lines = (
-        False  # this takes a long time to plot. Might not be necessary/worth it.
-    )
-    if add_grid_lines:
-        # Add vertical grid lines every slot (x)
-        for x in np.arange(0.5, all_stars[i].starmap.shape[1], 1):
-            fig.add_shape(
-                type="line",
-                x0=x,
-                x1=x,
-                y0=0,
-                y1=all_stars[i].starmap.shape[0] - 1,
-                line=dict(color="lightgray", width=1),
-                layer="below",
-            )
+    pd.Series(sel.ids).apply(add_starmap)
 
     # Add vertical dashed line denoting "today"
     today = plot_data.semester_planner.access_obj.current_night_index
@@ -539,16 +427,6 @@ def get_birdseye(plot_data, selection):
         hours = total_minutes // 60
         minutes = total_minutes % 60
         y_ticktext.append(f"{hours:02.0f}:{minutes:02.0f}")
-
-    # Calculate legend height based on number of traces
-    num_traces = len(all_stars) + (
-        1
-        if len(all_stars) > 1 or all_stars[0].allow_mapview == False
-        else len([m for m in all_stars[0].maps_names if m != "is_observable_now"])
-    )
-    legend_height = min(
-        300, max(150, num_traces * 25)
-    )  # Between 150-300px, 25px per trace
 
     # Add an invisible trace to force the secondary x-axis to appear
     # This trace must be associated with xaxis='x2' to make the secondary axis visible
@@ -635,82 +513,57 @@ def get_birdseye(plot_data, selection):
 
 
 def get_tau_inter_line(plot_data, selection, use_program_colors=False):
-    """
-    Produce a plotly figure showing requested vs on sky inter-night cadences, grouped by star name.
+    """Requested vs on-sky inter-night cadence, one marker series per target.
 
     Args:
-        semester_planner (obj): a SemesterPlanner object from splan.py
-        all_stars (array): a array of StarPlotter objects
-        use_program_colors (bool): If True, use program_color_rgb; if False, use star_color_rgb (default: False)
+        plot_data (PlotData): shared plot context from build_plot_data.
+        selection (PlotSelection): which requests/programs to include.
+        use_program_colors (bool): color by program instead of per-request.
 
     Returns:
-        fig (plotly figure): a plotly figure showing requested vs on sky inter-night cadences, grouped by star name.
+        plotly.graph_objects.Figure: requested vs on-sky cadence scatter.
     """
 
-    all_stars = plot_data.views(selection)
-    semester_planner = plot_data.semester_planner
-    request_tau_inter = []
-    onsky_tau_inter = []
-    targets = []
-    programs = []
-    colors = []
-    for starobj in all_stars:
-        onsky_diffs = list(np.diff(np.where(np.diff(starobj.cume_observe) > 0)[0]))
-        onsky_tau_inter.extend(onsky_diffs)
-        request_tau_inter.extend([starobj.tau_inter] * len(onsky_diffs))
-        targets.extend([starobj.target] * len(onsky_diffs))
-        programs.extend([starobj.program] * len(onsky_diffs))
-        # Choose color based on flag
-        if use_program_colors:
-            colors.extend([starobj.program_color_rgb] * len(onsky_diffs))
-        else:
-            colors.extend([starobj.star_color_rgb] * len(onsky_diffs))
+    sel = plot_data.select(selection)
+    table = sel.table
+    color_col = "program_color" if use_program_colors else "star_color"
 
-    all_request_tau_inters = np.array(request_tau_inter)
-    all_onsky_tau_inters = np.array(onsky_tau_inter)
-    all_targets = np.array(targets)
-    all_programs = np.array(programs)
-    all_colors = np.array(colors)
+    meta = table[["target", "program_code", "tau_inter", color_col]].rename(
+        columns={color_col: "color", "program_code": "program"}
+    )
+    order = {uid: i for i, uid in enumerate(sel.ids)}
+    points = (
+        plot_data.onsky_cadence[plot_data.onsky_cadence["unique_id"].isin(sel.ids)]
+        .merge(meta, left_on="unique_id", right_index=True, how="inner")
+        .assign(_order=lambda d: d["unique_id"].map(order))
+        .sort_values("_order", kind="mergesort")
+    )
 
     fig = go.Figure()
 
-    # Build map from program to point indices
-    program_to_indices = {}
-    for i, prog in enumerate(all_programs):
-        program_to_indices.setdefault(prog, []).append(i)
-
-    # Create one trace per star (grouped by target)
-    maxyvals = []
-    # Build map from target to point indices
-    target_to_indices = {}
-    for i, target in enumerate(all_targets):
-        target_to_indices.setdefault(target, []).append(i)
-
-    for target, indices in target_to_indices.items():
-        idx_array = np.array(indices)
-        x_vals = all_request_tau_inters[idx_array]
-        y_vals = all_onsky_tau_inters[idx_array]
-        text_vals = [f"{all_targets[i]} in {all_programs[i]}" for i in indices]
-        color_vals = all_colors[idx_array].tolist()  # Convert to list for Plotly
-        maxyvals.append(np.max(y_vals))
+    def add_target_trace(group):
         fig.add_trace(
             go.Scatter(
-                x=x_vals,
-                y=y_vals,
+                x=group["tau_inter"],
+                y=group["onsky_tau_inter"],
                 mode="markers",
-                name=target,  # Use target for legend
-                marker=dict(size=10, color=color_vals),
-                text=text_vals,
+                name=group.name,
+                marker=dict(size=10, color=group["color"].tolist()),
+                text=[
+                    f"{t} in {p}"
+                    for t, p in zip(group["target"], group["program"])
+                ],
                 hovertemplate="%{text}<br>X: %{x}<br>Y: %{y}<extra></extra>",
             )
         )
+        return None
+
+    if not points.empty:
+        points.groupby("target", sort=False).apply(add_target_trace)
 
     # Add 1-to-1 line
     min_val = 0
-    if maxyvals == []:
-        max_val = 0
-    else:
-        max_val = max(maxyvals)
+    max_val = int(points["onsky_tau_inter"].max()) if not points.empty else 0
     fig.add_trace(
         go.Scatter(
             x=[min_val, max_val],
@@ -763,101 +616,64 @@ def get_tau_inter_line(plot_data, selection, use_program_colors=False):
 
 
 def get_rawobs(plot_data, selection, use_program_colors=False):
-    """
-    Produce a plotly figure showing a scatter plot of observation counts for each star.
-    X-axis: total requested observations
-    Y-axis: sum of past and scheduled observations
-    Each point represents one StarPlotter object.
+    """Scatter of total requested vs completed (past + scheduled) observations.
 
     Args:
-        semester_planner (obj): a SemesterPlanner object from splan.py
-        all_stars (array): an array of StarPlotter objects
-        use_program_colors (bool): If True, use program_color_rgb; if False, use star_color_rgb (default: False)
+        plot_data (PlotData): shared plot context from build_plot_data.
+        selection (PlotSelection): which requests/programs to include.
+        use_program_colors (bool): color by program instead of per-request.
 
     Returns:
-        fig (plotly figure): a plotly figure showing observation counts as a scatter plot
+        plotly.graph_objects.Figure: one marker per request.
     """
 
-    all_stars = plot_data.views(selection)
-    semester_planner = plot_data.semester_planner
+    sel = plot_data.select(selection)
+    color_col = "program_color" if use_program_colors else "star_color"
     fig = go.Figure()
     fig.update_layout(plot_bgcolor=clear, paper_bgcolor=clear)
 
-    # Prepare data for each star
-    targets = []
-    total_requested = []
-    past_obs = []
-    future_obs = []
-    total_completed = []  # past + scheduled
-    pct_complete = []
-    star_colors = []
+    t = sel.table.assign(
+        total_completed=lambda d: d["past_visits"] + d["future_visits"]
+    )
+    t["pct_complete"] = np.where(
+        t["total_observations_requested"] > 0,
+        t["total_completed"] / t["total_observations_requested"] * 100,
+        0,
+    )
 
-    for star in all_stars:
-        targets.append(star.target)
-        total = star.total_observations_requested
-
-        # Sum past observations
-        past_total = (
-            sum(star.observations_past.values()) if star.observations_past else 0
-        )
-
-        # Sum future observations
-        future_total = (
-            sum(star.observations_future.values()) if star.observations_future else 0
-        )
-
-        total_completed_val = past_total + future_total
-
-        total_requested.append(total)
-        past_obs.append(past_total)
-        future_obs.append(future_total)
-        total_completed.append(total_completed_val)
-
-        # Choose color based on flag
-        if use_program_colors:
-            star_colors.append(star.program_color_rgb)
-        else:
-            star_colors.append(star.star_color_rgb)
-
-        # Calculate percentage complete
-        if total > 0:
-            pct_complete.append((total_completed_val / total) * 100)
-        else:
-            pct_complete.append(0)
-
-    # Create one trace per star so they can be toggled on/off in legend
-    for i, star in enumerate(all_stars):
+    def add_point(row):
         fig.add_trace(
             go.Scatter(
-                x=[total_requested[i]],
-                y=[total_completed[i]],
+                x=[row["total_observations_requested"]],
+                y=[row["total_completed"]],
                 mode="markers",
-                marker=dict(
-                    size=10,
-                    color=star_colors[i],  # Use each star's individual color
-                    opacity=0.7,
-                ),
-                name=targets[i],  # Target for legend (allows toggling)
-                text=[targets[i]],  # Target for hover
+                marker=dict(size=10, color=row[color_col], opacity=0.7),
+                name=row["target"],
+                text=[row["target"]],
                 hovertemplate="<b>%{text}</b><br>"
                 + "Total Requested: %{x}<br>"
                 + "Past: %{customdata[0]}<br>"
                 + "Scheduled: %{customdata[1]}<br>"
                 + "Total (Past + Scheduled): %{y}<br>"
                 + "% Complete: %{customdata[2]:.1f}%<extra></extra>",
-                customdata=[[past_obs[i], future_obs[i], pct_complete[i]]],
+                customdata=[
+                    [row["past_visits"], row["future_visits"], row["pct_complete"]]
+                ],
             )
         )
+        return None
+
+    t.apply(add_point, axis=1)
 
     # Add diagonal lines for reference (y = x for 100% complete, y = 0.5x for 50% complete)
     # For log scale, we need to use log values
     min_val = min(
-        min(total_requested) if total_requested else 1,
-        min(total_completed) if total_completed else 1,
+        int(t["total_observations_requested"].min()) if len(t) else 1,
+        int(t["total_completed"].min()) if len(t) else 1,
     )
     max_val = max(
-        max(total_requested) if total_requested else 1,
-        max(total_completed) if total_completed else 1,
+        int(t["total_observations_requested"].max()) if len(t) else 1,
+        int(t["total_completed"].max()) if len(t) else 1,
     )
     # Ensure min_val is at least 1 for log scale
     if min_val < 1:
@@ -944,39 +760,41 @@ def get_timebar(
     use_program_colors=False,
     prevent_negative=False,
 ):
-    """
-    Create a horizontal bar chart of the time used vs forecasted vs available
+    """Horizontal bar chart of requested vs past vs scheduled vs allocated hours.
 
-    Parameters:
-        semester_planner: the semester planner object
-        all_stars (list): array of StarPlotter objects
-        use_program_colors (bool): If True, use program_color_rgb; if False, use star_color_rgb (default: False)
-        prevent_negative (bool): If True, set Incomplete and Not used categories to zero if they are negative (default: True)
+    Args:
+        plot_data (PlotData): shared plot context from build_plot_data.
+        selection (PlotSelection): which requests/programs to include.
+        use_program_colors (bool): retained for API symmetry (bars use fixed colors).
+        prevent_negative (bool): clamp Incomplete/Unused categories at zero.
 
     Returns:
-        fig (plotly figure): a plotly figure showing the time used vs forecasted vs available as a horizontal bar chart
+        plotly.graph_objects.Figure: the time-budget bar chart.
     """
-    all_stars = plot_data.views(selection)
+    sel = plot_data.select(selection)
+    table = sel.table
     semester_planner = plot_data.semester_planner
     programmatics = plot_data.semester_planner.programs
 
     # Charged hours are the splan slot-based single source of truth.
     ps = plot_data.semester_planner.timeline
 
-    total_requested_hours = 0
-    programs_used = []
-    for starobj in all_stars:
-        total_requested_hours += starobj.total_requested_hours
-        programs_used.append(starobj.program)
+    total_requested_hours = float(table["total_requested_hours"].sum())
 
-    uids = [str(s.unique_id) for s in all_stars]
-    total_past_hours, total_future_hours = _charged_hours_from_ps(plot_data.semester_planner, ps, unique_ids=uids
-    )
+    if sel.is_program:
+        total_past_hours, total_future_hours = _charged_hours_from_ps(
+            semester_planner, ps, program_codes=sel.ids
+        )
+        programs_used_unique = sorted(set(sel.ids))
+    else:
+        total_past_hours, total_future_hours = _charged_hours_from_ps(
+            semester_planner, ps, unique_ids=sel.ids
+        )
+        programs_used_unique = sorted(set(table["program_code"]))
     total_incomplete_hours = (
         total_requested_hours - total_past_hours - total_future_hours
     )
 
-    programs_used_unique = sorted(set(programs_used))
     program_rows = programmatics.loc[
         programmatics.index.isin(programs_used_unique)
     ]
@@ -1166,104 +984,39 @@ def get_timebar_by_program(plot_data, selection=None, prevent_negative=False):
     Create a grid of horizontal bar charts showing time breakdown for each program individually
 
     Each program displays 5 bars: Unused, Incomplete, Future Scheduled, Past Completed, and Requested.
-    A dashed vertical line represents their total allocated time.
-    Programs are arranged in a grid with 3 columns.
-    All bars use the same scale for easy comparison across programs.
+    A dashed vertical line represents their total allocated time. Programs are
+    arranged in a 3-column grid, each subplot on its own x-scale.
 
-    Parameters:
-        semester_planner: the semester planner object
-        programs_dict (dict): dictionary mapping program codes to lists of StarPlotter objects (e.g., data_astroq[0])
-        prevent_negative (bool): If True, set Incomplete and Not used categories to zero if they are negative (default: False)
+    Args:
+        plot_data (PlotData): shared plot context from build_plot_data.
+        selection (PlotSelection): unused; every program is shown.
+        prevent_negative (bool): clamp Incomplete/Unused categories at zero.
 
     Returns:
-        fig (plotly figure): a plotly figure showing time breakdown per program as a grid of horizontal bar charts
+        plotly.graph_objects.Figure: grid of per-program time-budget bars.
     """
     semester_planner = plot_data.semester_planner
-    programs_dict = plot_data.program_dict
     ledger = programs_ledger_for_plot(plot_data.semester_planner)
+    prog_table = plot_data.program_table
 
-    all_programs_in_csv = set(ledger.index)
-    programs_with_requests = set(programs_dict.keys())
+    all_program_codes = sorted(set(ledger.index) | set(prog_table.index))
 
-    # Find programs in CSV that don't have any requests
-    programs_without_requests = all_programs_in_csv - programs_with_requests
-
-    # Combine all programs: those with requests and those without
-    all_program_codes = sorted(
-        list(programs_with_requests) + list(programs_without_requests)
+    # Per-program hour breakdown. Requested comes from the aggregated request
+    # table; past/scheduled/allocated from the ledger. Programs without requests
+    # fall out with requested=0 and unused=allocated via the same arithmetic.
+    df = pd.DataFrame(index=all_program_codes)
+    df["requested"] = (
+        prog_table["total_requested_hours"].reindex(all_program_codes).fillna(0.0)
     )
-
-    # Store data for each program
-    program_data = {}
-    max_x_value = 0  # Track maximum x value for consistent scaling
-
-    # Process programs with requests
-    for program_code in sorted(programs_with_requests):
-        program_stars = programs_dict[program_code]
-
-        total_requested_hours = sum(
-            starobj.total_requested_hours for starobj in program_stars
-        )
-        if program_code in ledger.index:
-            row = ledger.loc[program_code]
-            total_past_hours = float(row["past_hours"])
-            total_future_hours = float(row["sched_hours"])
-            total_allocated_hours = float(row["hours"])
-        else:
-            total_past_hours = 0.0
-            total_future_hours = 0.0
-            total_allocated_hours = 0.0
-        total_incomplete_hours = (
-            total_requested_hours - total_past_hours - total_future_hours
-        )
-
-        # Calculate unused hours
-        unused_hours = total_allocated_hours - total_future_hours - total_past_hours
-
-        # Apply negative value prevention if enabled
-        if prevent_negative:
-            total_incomplete_hours = max(0, total_incomplete_hours)
-            unused_hours = max(0, unused_hours)
-
-        program_data[program_code] = {
-            "unused": unused_hours,
-            "incomplete": total_incomplete_hours,
-            "future": total_future_hours,
-            "past": total_past_hours,
-            "requested": total_requested_hours,
-            "allocated": total_allocated_hours,
-        }
-
-        # Update max value for scaling
-        max_x_value = max(
-            max_x_value,
-            total_requested_hours,
-            total_allocated_hours,
-            unused_hours,
-            total_incomplete_hours,
-            total_future_hours,
-            total_past_hours,
-        )
-
-    # Process programs without requests (all bars = 0, but show allocated time)
-    for program_code in sorted(programs_without_requests):
-        if program_code in ledger.index:
-            total_allocated_hours = float(ledger.loc[program_code, "hours"])
-        else:
-            total_allocated_hours = 0.0
-
-        # All values are zero for programs with no requests
-        program_data[program_code] = {
-            "unused": total_allocated_hours,  # All allocated time is unused
-            "incomplete": 0,
-            "future": 0,
-            "past": 0,
-            "requested": 0,
-            "allocated": total_allocated_hours,
-        }
-
-        # Update max value for scaling
-        max_x_value = max(max_x_value, total_allocated_hours)
+    df["past"] = ledger["past_hours"].reindex(all_program_codes).fillna(0.0)
+    df["future"] = ledger["sched_hours"].reindex(all_program_codes).fillna(0.0)
+    df["allocated"] = ledger["hours"].reindex(all_program_codes).fillna(0.0)
+    df["incomplete"] = df["requested"] - df["past"] - df["future"]
+    df["unused"] = df["allocated"] - df["future"] - df["past"]
+    if prevent_negative:
+        df["incomplete"] = df["incomplete"].clip(lower=0)
+        df["unused"] = df["unused"].clip(lower=0)
+    program_data = df.to_dict("index")
 
     # Calculate grid dimensions: 3 columns, as many rows as needed
     num_programs = len(all_program_codes)
@@ -1464,32 +1217,25 @@ def get_football(plot_data, selection, use_program_colors=False):
     zone). The heatmap is computed on a coarse RA/Dec grid via a fresh
     `Access` instance and cached per semester to disk.
 
-    Parameters:
-        semester_planner: the semester planner object
-        all_stars (list): array of StarPlotter objects
-        use_program_colors (bool): If True, use program_color_rgb; if False, use star_color_rgb (default: False)
+    Args:
+        plot_data (PlotData): shared plot context from build_plot_data.
+        selection (PlotSelection): which requests/programs to include.
+        use_program_colors (bool): color by program instead of per-request.
 
     Returns:
-        fig (plotly figure): the assembled Mollweide sky map.
+        plotly.graph_objects.Figure: the assembled Mollweide sky map.
     """
 
-    all_stars = plot_data.views(selection)
-    semester_planner = plot_data.semester_planner
-    star_ras = [s.ra for s in all_stars]
-    star_decs = [s.dec for s in all_stars]
-    targets = [s.target for s in all_stars]
-    programs = [s.program for s in all_stars]
-    if use_program_colors:
-        colors = [s.program_color_rgb for s in all_stars]
-    else:
-        colors = [s.star_color_rgb for s in all_stars]
+    sel = plot_data.select(selection)
+    table = sel.table
+    color_col = "program_color" if use_program_colors else "star_color"
     program_frame = pd.DataFrame(
         {
-            "target": targets,
-            "program_code": programs,
-            "color": colors,
-            "ra": star_ras,
-            "dec": star_decs,
+            "target": table["target"].to_numpy(),
+            "program_code": table["program_code"].to_numpy(),
+            "color": table[color_col].to_numpy(),
+            "ra": table["ra"].to_numpy(),
+            "dec": table["dec"].to_numpy(),
         }
     )
 
@@ -1632,24 +1378,29 @@ def get_football(plot_data, selection, use_program_colors=False):
 
     if not program_frame.empty:
         marker = "star"
-        size = 20 if len(all_stars) == 1 else 10
-        grouped = program_frame.groupby("program_code")
-        for program, group in grouped:
-            group.reset_index(inplace=True, drop=True)
-            hover = [f"{name} in {program}" for name in group["target"]]
-            color = group["color"].tolist()
+        size = 20 if len(sel.ids) == 1 else 10
 
+        def add_program_trace(group):
+            program = group.name
             fig.add_trace(
                 go.Scattergeo(
                     lon=group["ra"] - 180,
                     lat=group["dec"],
                     mode="markers",
                     name=program,
-                    marker=dict(symbol=marker, size=size, color=color, opacity=1),
-                    text=hover,
+                    marker=dict(
+                        symbol=marker,
+                        size=size,
+                        color=group["color"].tolist(),
+                        opacity=1,
+                    ),
+                    text=[f"{name} in {program}" for name in group["target"]],
                     hovertemplate="%{text}<br>RA: %{lon:.2f}°, Dec: %{lat:.2f}°<extra></extra>",
                 )
             )
+            return None
+
+        program_frame.groupby("program_code").apply(add_program_trace)
 
     fig.update_layout(
         shapes=[
@@ -1730,28 +1481,16 @@ def _splan_weight_legend_label(weight):
 
 def _completion_by_request_frame(plot_data, selection):
     """Per-request semester completion % joined with request.csv ``splan_weight``."""
-    all_stars = plot_data.views(selection)
-    semester_planner = plot_data.semester_planner
-    req = plot_data.semester_planner.requests.set_index("unique_id")
-
-    rows = []
-    for star in all_stars:
-        pct = (
-            float(star.cume_observe_pct[-1])
-            if len(star.cume_observe_pct) > 0
-            else 0.0
-        )
-        req_row = req.loc[star.unique_id] if star.unique_id in req.index else None
-        rows.append(
-            {
-                "unique_id": star.unique_id,
-                "target": star.target,
-                "program": star.program,
-                "completion_pct": pct,
-                "splan_weight": _completion_splan_weight(req_row),
-            }
-        )
-    return pd.DataFrame(rows)
+    t = plot_data.select(selection).table
+    return pd.DataFrame(
+        {
+            "unique_id": list(t.index),
+            "target": t["target"].to_numpy(),
+            "program": t["program_code"].to_numpy(),
+            "completion_pct": t["completion_pct"].to_numpy(),
+            "splan_weight": t["splan_weight"].to_numpy(),
+        }
+    )
 
 
 def _weight_legend_label(weight):
@@ -1797,8 +1536,6 @@ def get_completion_histogram_by_weight(plot_data, selection):
     """
     Histogram of request completion rate (%), one curve per ``splan_weight``.
     """
-    all_stars = plot_data.views(selection)
-    semester_planner = plot_data.semester_planner
     df = _completion_by_request_frame(plot_data, selection)
     fig = go.Figure()
     weight_values = _sorted_weight_values(df["splan_weight"].unique())
@@ -1846,13 +1583,11 @@ def get_completion_vs_target_name(plot_data, selection):
     """
     Scatter of completion rate (%) vs target name, sorted alphabetically by target.
     """
-    all_stars = plot_data.views(selection)
-    semester_planner = plot_data.semester_planner
     df = _completion_by_request_frame(plot_data, selection)
     df = df.sort_values("target", kind="mergesort").reset_index(drop=True)
     target_order = df["target"].tolist()
 
-    program_colors = {star.program: star.program_color_rgb for star in all_stars}
+    program_colors = plot_data.program_colors
     fig = go.Figure()
     for program in sorted(df["program"].unique()):
         sub = df[df["program"] == program]
@@ -1898,24 +1633,15 @@ def get_completion_vs_target_name(plot_data, selection):
 
 
 def get_request_frame(plot_data, selection):
-    """
-    Get a filtered request frame containing only the stars in all_stars.
+    """Filtered request frame containing only the selected requests.
 
     Args:
-        semester_planner: the semester planner object
-        all_stars (list): array of StarPlotter objects
+        plot_data (PlotData): shared plot context from build_plot_data.
+        selection (PlotSelection): which requests/programs to include.
 
     Returns:
-        filtered_frame (pd.DataFrame): filtered request frame with only the specified stars
+        pd.DataFrame: request.csv rows for the selection (source order preserved).
     """
-    all_stars = plot_data.views(selection)
-    semester_planner = plot_data.semester_planner
-    # Extract targets from the StarPlotter objects
-    starids = [star.unique_id for star in all_stars]
-
-    # Filter the request frame to only include the specified stars
-    filtered_frame = plot_data.semester_planner.requests[
-        plot_data.semester_planner.requests["unique_id"].isin(starids)
-    ].copy()
-
-    return filtered_frame
+    sel = plot_data.select(selection)
+    requests = plot_data.semester_planner.requests
+    return requests[requests["unique_id"].astype(str).isin(sel.ids)].copy()
