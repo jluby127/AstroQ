@@ -56,9 +56,8 @@ class TestPlotSnapshots(unittest.TestCase):
         cls.sel_prog = cls.pd.select_all(aggregate_by_program=True)
 
     def test_semester_figures(self):
+        all_programs = sorted(self.pd.program_table.index)
         cases = [
-            ("cof_visits", pl.get_cof, self.sel_prog, {}),
-            ("cof_time", pl.get_cof, self.sel_prog, {"use_time": True}),
             ("birdseye", pl.get_birdseye, self.sel_prog, {}),
             ("football", pl.get_football, self.sel_all, {"use_program_colors": True}),
             ("tau_inter", pl.get_tau_inter_line, self.sel_all, {"use_program_colors": True}),
@@ -79,6 +78,14 @@ class TestPlotSnapshots(unittest.TestCase):
             ),
         ]
         with patch.object(pl, "_football_cache_dir", lambda sp: Path(self.tmp)):
+            _write_or_compare(
+                "cof_visits",
+                _digest(pl.get_cof(self.pd, programs=all_programs)),
+            )
+            _write_or_compare(
+                "cof_time",
+                _digest(pl.get_cof(self.pd, programs=all_programs, units="time")),
+            )
             for name, fn, sel, kwargs in cases:
                 fig = fn(self.pd, sel, **kwargs)
                 _write_or_compare(name, _digest(fig))

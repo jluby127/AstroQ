@@ -217,6 +217,7 @@ def build_admin_html(
     pd = loaded.plot_data
     sel_all = pd.select_all()
     sel_prog = pd.select_all(aggregate_by_program=True)
+    all_programs = sorted(pd.program_table.index)
 
     request_df = pl.get_request_frame(pd, sel_all)
     if link_targets:
@@ -226,8 +227,8 @@ def build_admin_html(
     else:
         request_table_html = pl.request_frame_to_html(request_df)
 
-    fig_cof1 = pl.get_cof(pd, sel_prog)
-    fig_cof2 = pl.get_cof(pd, sel_prog, use_time=True)
+    fig_cof1 = pl.get_cof(pd, programs=all_programs)
+    fig_cof2 = pl.get_cof(pd, programs=all_programs, units="time")
     fig_completion_hist = pl.get_completion_histogram_by_weight(pd, sel_all)
     fig_completion_scatter = pl.get_completion_vs_target_name(pd, sel_all)
     fig_birdseye = pl.get_birdseye(pd, sel_prog)
@@ -305,6 +306,8 @@ def build_program_html(
     if program_code not in pd.program_dict:
         raise KeyError(f"Program {program_code} not found")
 
+    program_requests = sorted(rv.unique_id for rv in pd.program_dict[program_code])
+
     sel = pd.select_program(program_code)
     request_df = pl.get_request_frame(pd, sel)
     if link_targets:
@@ -314,7 +317,7 @@ def build_program_html(
     else:
         request_table_html = pl.request_frame_to_html(request_df)
 
-    fig_cof = pl.get_cof(pd, sel)
+    fig_cof = pl.get_cof(pd, requests=program_requests)
     fig_completion_hist = pl.get_completion_histogram_by_weight(pd, sel)
     fig_birdseye = pl.get_birdseye(pd, sel)
     fig_tau_inter_line = pl.get_tau_inter_line(pd, sel)
@@ -364,7 +367,7 @@ def build_star_html(
             request_df = pl.get_request_frame(pd, sel)
             request_table_html = pl.request_frame_to_html(request_df)
 
-            fig_cof = pl.get_cof(pd, sel)
+            fig_cof = pl.get_cof(pd, requests=[star_view.unique_id])
             fig_birdseye = pl.get_birdseye(pd, sel)
             fig_tau_inter_line = pl.get_tau_inter_line(pd, sel)
             fig_football = pl.get_football(pd, sel)
