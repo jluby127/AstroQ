@@ -130,6 +130,50 @@ def _customs_from_requests_df(req_df):
 _SHEET_ID_RE = re.compile(r"/spreadsheets/d/([^/?#]+)")
 _GID_RE = re.compile(r"[?#&]gid=(\d+)")
 
+# Row-1 human labels (CPS template) → canonical column names when row-4 machine
+# headers are blank (common for the trailing ``comments`` column).
+_HUMAN_LABEL_TO_CANONICAL = {
+    "comments": "comments",
+}
+
+
+def _human_header_labels(raw_text: str) -> list[str]:
+    """Return stripped human labels from CPS template row 1."""
+    row = next(csv.reader(io.StringIO(raw_text)), [])
+    return [str(c).strip() for c in row]
+
+
+def _is_blank_sheet_header(name: str) -> bool:
+    text = str(name).strip()
+    return not text or text.startswith("Unnamed:")
+
+
+def _canonicalize_sheet_columns(
+    df: pd.DataFrame, human_labels: list[str]
+) -> pd.DataFrame:
+    """Resolve blank/Unnamed machine headers using row-1 human labels."""
+    cols = list(df.columns)
+    for i, col in enumerate(cols):
+        if not _is_blank_sheet_header(col):
+            continue
+        if i >= len(human_labels):
+            continue
+        canonical = _HUMAN_LABEL_TO_CANONICAL.get(human_labels[i].strip().lower())
+        if canonical:
+            cols[i] = canonical
+    df.columns = cols
+
+    for alias, canonical in (("Comments", "comments"), ("Observing Notes", "comments")):
+        if alias not in df.columns:
+            continue
+        if canonical not in df.columns:
+            df = df.rename(columns={alias: canonical})
+            continue
+        empty = df[canonical].isna() | (df[canonical].astype(str).str.strip() == "")
+        df.loc[empty, canonical] = df.loc[empty, alias]
+        df = df.drop(columns=[alias])
+    return df
+
 
 def _fetch_sheet_dataframe(url, skip_rows=3):
     """
@@ -190,9 +234,11 @@ def _fetch_sheet_dataframe(url, skip_rows=3):
             "not CSV. Verify sharing is set to 'Anyone with the link'."
         )
 
+    human_labels = _human_header_labels(text)
     df = pd.read_csv(io.StringIO(text), skiprows=skip_rows, dtype=str)
     df = df.dropna(how="all")
     df.columns = [str(c).strip() for c in df.columns]
+    df = _canonicalize_sheet_columns(df, human_labels)
     # Google Sheets still use legacy column name; normalize to canonical schema.
     if "starname" in df.columns and "target" not in df.columns:
         df = df.rename(columns={"starname": "target"})

@@ -75,9 +75,6 @@ class Selected:
     ids: list[str]
     is_program: bool
     table: pd.DataFrame
-    cume_visits: pd.DataFrame
-    cume_visits_pct: pd.DataFrame
-    cume_slots: pd.DataFrame
 
 
 @dataclass
@@ -101,12 +98,6 @@ class PlotData:
     programs: pd.DataFrame
     request_table: pd.DataFrame
     program_table: pd.DataFrame
-    cume_visits: pd.DataFrame
-    cume_visits_pct: pd.DataFrame
-    cume_slots: pd.DataFrame
-    cume_visits_program: pd.DataFrame
-    cume_visits_pct_program: pd.DataFrame
-    cume_slots_program: pd.DataFrame
     onsky_cadence: pd.DataFrame
     starmaps: dict[str, np.ndarray] = field(repr=False, default_factory=dict)
     program_starmaps: dict[str, np.ndarray] = field(repr=False, default_factory=dict)
@@ -157,18 +148,12 @@ class PlotData:
                 ids=ids,
                 is_program=True,
                 table=self.program_table.loc[ids],
-                cume_visits=self.cume_visits_program[ids],
-                cume_visits_pct=self.cume_visits_pct_program[ids],
-                cume_slots=self.cume_slots_program[ids],
             )
         ids = sorted(self._selected_uids(selection))
         return Selected(
             ids=ids,
             is_program=False,
             table=self.request_table.loc[ids],
-            cume_visits=self.cume_visits[ids],
-            cume_visits_pct=self.cume_visits_pct[ids],
-            cume_slots=self.cume_slots[ids],
         )
 
     def _selected_uids(self, selection: PlotSelection) -> set[str]:
@@ -212,20 +197,6 @@ def _cume_matrix(ps, n_nights, group_col, columns, metric):
         .fillna(0)
     )
     return wide.cumsum().astype(float)
-
-
-def _cof_pct(cume, denom):
-    """Cumulative % curve (COF): normalize by ``denom``, fall back to final value."""
-    def curve(col):
-        d = denom.get(col.name, 0)
-        if d > 0:
-            return (col / d * 100).round(2)
-        last = col.iloc[-1]
-        if last > 0:
-            return (col / last * 100).round(2)
-        return pd.Series(0.0, index=col.index)
-
-    return cume.apply(curve)
 
 
 def _completion_pct(last_cume, requested_visits):
@@ -441,9 +412,7 @@ def build_plot_data(semester_planner) -> PlotData:
         f"rgb({int(r * 255)}, {int(g * 255)}, {int(b * 255)})" for r, g, b in colors
     ]
 
-    # Per-request cumulative visits / slots (night x unique_id).
     cume_visits = _cume_matrix(ps, n_nights, "unique_id", uids, "visits")
-    cume_slots = _cume_matrix(ps, n_nights, "unique_id", uids, "slots")
 
     request_table = _build_request_table(
         semester_planner, cume_visits, program_colors, today_idx
@@ -456,20 +425,7 @@ def build_plot_data(semester_planner) -> PlotData:
     )
     star_colors = request_table["star_color"].to_dict()
 
-    requested_visits = request_table["requested_visits"]
-    cume_visits_pct = _cof_pct(cume_visits, requested_visits.to_dict())
-
     program_table = _build_program_table(request_table, program_colors)
-    program_list = program_table.index.tolist()
-    cume_visits_program = _cume_matrix(
-        ps, n_nights, "program_code", program_list, "visits"
-    )
-    cume_slots_program = _cume_matrix(
-        ps, n_nights, "program_code", program_list, "slots"
-    )
-    cume_visits_pct_program = _cof_pct(
-        cume_visits_program, program_table["requested_visits"].to_dict()
-    )
 
     starmaps, cube = _build_starmaps(
         forecast_df, request_table, uids, n_nights, n_slots
@@ -514,12 +470,6 @@ def build_plot_data(semester_planner) -> PlotData:
         programs=programs_df,
         request_table=request_table,
         program_table=program_table,
-        cume_visits=cume_visits,
-        cume_visits_pct=cume_visits_pct,
-        cume_slots=cume_slots,
-        cume_visits_program=cume_visits_program,
-        cume_visits_pct_program=cume_visits_pct_program,
-        cume_slots_program=cume_slots_program,
         onsky_cadence=onsky_cadence,
         starmaps=starmaps,
         program_starmaps=program_starmaps,

@@ -26,7 +26,8 @@ from astroq.plot.semester import (
     get_timebar,
     get_timebar_by_program,
 )
-from astroq.plot.night import get_ladder, get_script_plan
+from astroq.ttp.plot import get_ladder
+from astroq.plot.night import get_script_plan
 from astroq.plot.tables import (
     dataframe_to_html,
     nightplan_table_to_html,

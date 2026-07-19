@@ -608,7 +608,9 @@ def plot(args):
         request_df = pl.get_request_frame(plot_data, sel_all)
         request_table_html = pl.dataframe_to_html(request_df)
 
-        fig_cof = pl.get_cof(plot_data, sel_prog)
+        fig_cof = pl.get_cof(
+            plot_data, programs=sorted(plot_data.program_table.index)
+        )
         fig_birdseye = pl.get_birdseye(plot_data, sel_prog)
         fig_football = pl.get_football(
             plot_data, sel_all, use_program_colors=True

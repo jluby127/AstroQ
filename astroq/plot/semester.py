@@ -47,25 +47,118 @@ from astroq.plot._layout import (
 )
 from astroq.plot.context import MAP_NAMES
 
-def get_cof(plot_data, selection, use_time=False):
-    """Cumulative Observability Function (COF) for a selection of requests/programs.
+COF_UNITS = ("requests", "time")
+
+
+def get_cof(plot_data, requests=None, programs=None, units="requests"):
+    """Cumulative Observability Function (COF) for requests or programs.
 
     Args:
         plot_data (PlotData): shared plot context from build_plot_data.
-        selection (PlotSelection): which requests/programs to include.
-        use_time (bool): normalize by awarded program hours instead of visit count.
+        requests (list[str] | None): unique_ids to plot (one curve per request).
+        programs (list[str] | None): program codes to plot (one curve per program).
+        units (str): ``"requests"`` for visit % complete, ``"time"`` for % of
+            awarded program hours.
 
     Returns:
         plotly.graph_objects.Figure: the COF figure.
     """
-    sel = plot_data.select(selection)
-    table = sel.table
-    fig = go.Figure()
+    if (requests is None) == (programs is None):
+        raise ValueError("get_cof: pass exactly one of requests or programs")
+    if units not in COF_UNITS:
+        raise ValueError(f"get_cof: units must be one of {COF_UNITS}")
+
+    # --- Computation -------------------------------------------------------
+    if programs is not None:
+        entities = list(programs)
+        group_col = "program_code"
+        table = plot_data.program_table.loc[entities]
+    else:
+        entities = list(requests)
+        group_col = "unique_id"
+        table = plot_data.request_table.loc[entities]
 
     dates = plot_data.all_dates_array
     n_nights = plot_data.n_nights
     night_indices = np.arange(n_nights)
     burn_line = np.round(np.linspace(0, 100, n_nights), 2)
+
+    total_color = table["program_color"].iloc[0]
+    slots_per_hour = 60 / plot_data.slot_size
+    prog_hours = plot_data.programs.set_index("program")["hours"]
+
+    timeline = plot_data.timeline
+    timeline = timeline[timeline[group_col].isin(entities)].reset_index()
+    if units == "time":
+        daily = timeline.groupby(["d", group_col])["t_visit_slots"].sum()
+    else:
+        daily = timeline.groupby(["d", group_col]).size()
+
+    cume = (
+        daily.unstack(group_col)
+        .reindex(range(n_nights), fill_value=0)
+        .reindex(columns=entities, fill_value=0)
+        .fillna(0)
+        .cumsum()
+        .astype(float)
+    )
+
+    # Per-mode denominators and hover labels; the rest of the pipeline is shared.
+    if units == "time":
+        cume = cume / slots_per_hour
+        denom = table["program_code"].map(prog_hours).fillna(0.0)
+        programs_in = set(table["program_code"])
+        total_denom = prog_hours[prog_hours.index.isin(programs_in)].sum()
+        total_label = (
+            f"<b>{next(iter(programs_in))}</b> (Total)<br>"
+            if len(programs_in) == 1
+            else "<b>All programs (Total)</b><br>"
+        )
+        entity_labels = "<b>" + table["program_code"].astype(str) + "</b><br>"
+    else:
+        denom = table["requested_visits"].astype(float)
+        total_denom = float(denom.sum())
+        total_label = ""
+        entity_labels = pd.Series("", index=table.index)
+
+    fallback = units == "requests"  # normalize by final value when denom == 0
+
+    def pct(col, d):
+        if d > 0:
+            return (col / d * 100).round(2)
+        if fallback and len(col) and col.iloc[-1] > 0:
+            return (col / col.iloc[-1] * 100).round(2)
+        return pd.Series(0.0, index=col.index)
+
+    per_pct = cume.apply(lambda col: pct(col, denom[col.name]))
+    total_pct = pct(cume.sum(axis=1), total_denom)
+
+    def hover(label, num):
+        if units == "time":
+            return (
+                label + "Night: %{x}<br>Date: %{customdata}"
+                "<br>Time charged (% of awarded hours): %{y}"
+                f"<br>Total program time: {num:.1f} hours<br><extra></extra>"
+            )
+        return (
+            "Night: %{x}<br>Date: %{customdata}<br>% Complete: %{y}"
+            f"<br># Visits Requested: {int(num)}<br>"
+        )
+
+    lines = [(total_pct, total_color, "Total", hover(total_label, total_denom))]
+    for uid in entities:
+        lines.append(
+            (
+                per_pct[uid],
+                table.loc[uid, "star_color"],
+                table.loc[uid, "target"],
+                hover(entity_labels[uid], denom[uid]),
+            )
+        )
+
+    # --- Figure generation -------------------------------------------------
+    sp = plot_data.semester_planner
+    fig = go.Figure()
 
     fig.add_shape(
         type="line",
@@ -88,117 +181,25 @@ def get_cof(plot_data, selection, use_time=False):
         )
     )
 
-    total_color = table["program_color"].iloc[0]
-    slots_per_hour = 60 / plot_data.slot_size
-    prog_hours = plot_data.programs.set_index("program")["hours"]
-
-    if not use_time:
-        total_denom = int(table["requested_visits"].sum())
-        total_cume = sel.cume_visits.sum(axis=1).to_numpy(dtype=float)
-        if total_denom > 0:
-            total_pct = np.round(total_cume / total_denom * 100, 2)
-        else:
-            total_past = int(total_cume[-1]) if len(total_cume) else 0
-            total_pct = (
-                np.round(total_cume / total_past * 100, 2)
-                if total_past > 0
-                else np.zeros(n_nights)
-            )
+    for y, color, name, hovertemplate in lines:
         fig.add_trace(
             go.Scatter(
                 x=night_indices,
-                y=total_pct,
+                y=y,
                 mode="lines",
-                line=dict(color=total_color, width=2),
-                name="Total",
-                hovertemplate="Night: %{x}"
-                + "<br>Date: "
-                + "%{customdata}"
-                + "<br>% Complete: %{y}"
-                + "<br># Visits Requested: "
-                + str(int(total_denom))
-                + "<br>",
-                customdata=dates,
-            )
-        )
-    else:
-        programs_in = set(table["program_code"])
-        total_program_hours = prog_hours[prog_hours.index.isin(programs_in)].sum()
-        cume_hours = sel.cume_slots.sum(axis=1).to_numpy(dtype=float) / slots_per_hour
-        if total_program_hours > 0:
-            total_pct = np.round(cume_hours / total_program_hours * 100, 2)
-        else:
-            total_pct = np.zeros(n_nights)
-        if len(programs_in) == 1:
-            total_trace_label = "<b>" + list(programs_in)[0] + "</b> (Total)<br>"
-        else:
-            total_trace_label = "<b>All programs (Total)</b><br>"
-        fig.add_trace(
-            go.Scatter(
-                x=night_indices,
-                y=total_pct,
-                mode="lines",
-                line=dict(color=total_color, width=2),
-                name="Total",
-                hovertemplate=total_trace_label
-                + "Night: %{x}"
-                + "<br>Date: "
-                + "%{customdata}"
-                + "<br>Time charged (% of awarded hours): %{y}"
-                + "<br>Total program time: "
-                + f"{total_program_hours:.1f} hours<br>"
-                + "<extra></extra>",
-                customdata=dates,
-            )
-        )
-
-    def add_request_trace(uid):
-        row = table.loc[uid]
-        if use_time:
-            tp = prog_hours[prog_hours.index == row["program_code"]].sum()
-            cume_h = sel.cume_slots[uid].to_numpy(dtype=float) / slots_per_hour
-            y_vals = np.round(cume_h / tp * 100, 2) if tp > 0 else np.zeros(n_nights)
-            hovertemplate = (
-                "<b>"
-                + str(row["program_code"])
-                + "</b><br>Night: %{x}"
-                + "<br>Date: "
-                + "%{customdata}"
-                + "<br>Time charged (% of awarded hours): %{y}<br>Total program time: "
-                + f"{tp:.1f} hours<br>"
-                + "<extra></extra>"
-            )
-        else:
-            y_vals = sel.cume_visits_pct[uid].to_numpy()
-            hovertemplate = (
-                "Night: %{x}"
-                + "<br>Date: "
-                + "%{customdata}"
-                + "<br>% Complete: %{y}"
-                + "<br># Visits Requested: "
-                + str(int(row["requested_visits"]))
-                + "<br>"
-            )
-        fig.add_trace(
-            go.Scatter(
-                x=night_indices,
-                y=y_vals,
-                mode="lines",
-                line=dict(color=row["star_color"], width=2),
-                name=row["target"],
+                line=dict(color=color, width=2),
+                name=name,
                 hovertemplate=hovertemplate,
                 customdata=dates,
             )
         )
 
-    pd.Series(sel.ids).apply(add_request_trace)
-
-    sp = plot_data.semester_planner
     today_vrect(fig, sp.access_obj.current_night_index)
 
-    yaxis_title = (
-        "Time charged (% of awarded hours)" if use_time else "Visit % Complete"
-    )
+    yaxis_title = {
+        "time": "Time charged (% of awarded hours)",
+        "requests": "Visit % Complete",
+    }[units]
     fig.update_layout(
         **timeline_layout(
             sp,
@@ -211,7 +212,7 @@ def get_cof(plot_data, selection, use_time=False):
             ),
         )
     )
-    force_secondary_xaxis(fig, sp, 100)
+    force_secondary_xaxis(fig, 0, max(len(sp.access_obj.all_dates_array) - 1, 0), 100)
     hide_x2_legend_entries(fig)
 
     return fig
@@ -292,7 +293,7 @@ def get_birdseye(plot_data, selection):
     today_vrect(fig, sp.access_obj.current_night_index)
 
     yaxis, n_slots = birdseye_slot_yaxis(sp)
-    force_secondary_xaxis(fig, sp, n_slots + 1)
+    force_secondary_xaxis(fig, 0, max(len(sp.access_obj.all_dates_array) - 1, 0), n_slots + 1)
     fig.update_layout(
         **timeline_layout(
             sp,
