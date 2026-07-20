@@ -551,6 +551,85 @@ def plan_semester(args):
     return
 
 
+def find_max_completion_per_program(args):
+    """Estimate per-program max fill by running shortfall with each program alone.
+
+    For every program in ``programs.csv``, write a filtered ``request_{program}.csv``
+    next to the config, solve ``run_model_shortfall`` on that sheet alone, and
+    record the resulting fill factor ``F[p] = (past + scheduled) / awarded`` as
+    ``max_fillfactor`` (e.g. ``0.72`` for 72%).
+
+    Args:
+        args (argparse.Namespace): command line arguments with:
+            -cf (str): path to the config file.
+
+    Returns:
+        None
+    """
+    cf = args.config_file
+    cf_path = os.path.abspath(cf)
+    config_dir = os.path.dirname(cf_path)
+    print(f"find_max_completion_per_program: config_file is {cf_path}")
+
+    config = ConfigParser()
+    config.optionxform = str
+    config.read(cf_path)
+    workdir = config.get("global", "workdir")
+
+    def _resolve(key):
+        raw = config.get("data", key)
+        return raw if os.path.isabs(raw) else os.path.join(workdir, raw)
+
+    request_path = _resolve("request_file")
+    programs_path = _resolve("programs_file")
+
+    requests_all = astroq.io.read_csv(request_path, "request")
+    programs_df = pd.read_csv(programs_path)
+    if "program" not in programs_df.columns:
+        raise ValueError(f"{programs_path} missing required column 'program'")
+    if "max_fillfactor" not in programs_df.columns:
+        programs_df["max_fillfactor"] = np.nan
+
+    programs = programs_df["program"].astype(str).tolist()
+    print(f"Computing max_fillfactor for {len(programs)} program(s)")
+
+    for program in programs:
+        prog_requests = requests_all[
+            requests_all["program_code"].astype(str) == program
+        ].copy()
+        if prog_requests.empty:
+            print(f"  {program}: no rows in request.csv; skipping")
+            continue
+
+        request_out = os.path.join(config_dir, f"request_{program}.csv")
+        prog_requests.to_csv(request_out, index=False)
+        print(
+            f"  {program}: wrote {request_out} "
+            f"({len(prog_requests)} request row(s)); running shortfall..."
+        )
+
+        semester_planner = splan.SemesterPlanner(cf_path, requestsheet=request_out)
+        semester_planner.run_model_shortfall()
+
+        if program not in semester_planner.F:
+            print(
+                f"  {program}: no fill-factor variable "
+                f"(awarded_slots may be 0); skipping"
+            )
+            continue
+
+        fill = float(semester_planner.F[program].X)
+        fill = round(fill, 2)
+        programs_df.loc[
+            programs_df["program"].astype(str) == program, "max_fillfactor"
+        ] = fill
+        programs_df.to_csv(programs_path, index=False)
+        print(f"  {program}: max_fillfactor = {fill:.2f} (saved to {programs_path})")
+
+    print("find_max_completion_per_program: done")
+    return
+
+
 def plan_night(args):
     """
     Run the slew path optimization using the TTP package for a given night's selected targets.

@@ -117,7 +117,7 @@ class SemesterPlanner:
         cf (str): path to the ``config.ini`` file.
     """
 
-    def __init__(self, cf):
+    def __init__(self, cf, requestsheet=None):
         """See class docstring."""
 
         # Read config as text so we can persist it verbatim and recreate the
@@ -130,7 +130,11 @@ class SemesterPlanner:
         self.schedule = None
 
         # Load input data
-        self.requests = self._load_frame("request")
+        if requestsheet is None:
+            self.requests = self._load_frame("request")
+        else:
+            print("Using requestsheet from input file: ", requestsheet)
+            self.requests = astroq.io.read_csv(requestsheet, "request")
         self.past = self._load_frame("past")
         self.allocation = self._load_frame("allocation")
         self.custom = self._load_frame("custom")
@@ -504,9 +508,13 @@ class SemesterPlanner:
 
         F[p] tracks projected fill factor (past + scheduled) / awarded. Because
         sched_slots >= 0, F[p] is structurally floored at past_ff = past/awarded;
-        a ceiling below that floor would be infeasible, so we clamp UB up to
+        a ceiling below that floor would be infeasible, so we raise UB up to
         past_ff (which pins F=past_ff and forces sched=0 -- the graceful
         "no new scheduling for over-budget programs" behavior of the old throttle).
+
+        If a requested floor would sit above the ceiling, raise UB to the floor
+        (``UB = max(UB, LB)``) rather than lowering LB, so an already-achieved
+        fill is never forced onto an unachievable exact scalar.
 
         Args:
             min_fillfactor: optional floor override, scalar (all programs) or
@@ -545,7 +553,8 @@ class SemesterPlanner:
                 )
                 ub = past_ff
 
-            lb = min(lb, ub)
+            if lb > ub:
+                ub = lb
             self.F[p].LB = lb
             self.F[p].UB = ub
 
@@ -665,13 +674,52 @@ class SemesterPlanner:
         self.log_report("shortfall")
 
         # ===== balance =====
-        self._constraint_fillfactor(
-            min_fillfactor=pd.Series(self.model.getAttr("X", self.F))
-        )
-        self.model.setObjective(self.F.sum(), GRB.MAXIMIZE)
-        self.optimize_model("balance")
-        self.build_schedule()
-        self.log_report("balance")
+        # self._constraint_fillfactor(
+        #     min_fillfactor=pd.Series(self.model.getAttr("X", self.F))
+        # )
+        # self.model.setObjective(self.F.sum(), GRB.MAXIMIZE)
+        # self.optimize_model("balance")
+        # self.build_schedule()
+        # self.log_report("balance")
+        if "max_fillfactor" in self.programs.columns:
+            slack = self.config.getfloat(
+                "semester.fill-current-day",
+                "global_shortfall_slack",
+                fallback=_DEFAULT_GLOBAL_SHORTFALL_SLACK,
+            )
+            cap = objective_shortfall_min * 2.0#slack
+            logs.info(
+                "Constraint: weighted shortfall <= shortfall optimum * %g "
+                "(cap=%.3f from objective_shortfall_min=%.3f)",
+                slack,
+                cap,
+                objective_shortfall_min,
+            )
+            self.model.addConstr(
+                self._objective_weighted_theta() <= cap,
+                "fix_global_shortfall_upcoming_night",
+            )
+            # Programs at >=85% fill may drop up to 5pp so under-filled
+            # programs can rise; everyone else is floored at their shortfall fill.
+            # UB is at least the shortfall fill so we never force F onto an
+            # unachievable CSV max below the current solution.
+            f_shortfall = pd.Series(self.model.getAttr("X", self.F))
+            min_ff = f_shortfall.where(
+                f_shortfall < 0.85, (f_shortfall - 0.05).clip(lower=0.0)
+            )
+            csv_max = self.programs["max_fillfactor"].reindex(f_shortfall.index).astype(float)
+            max_ff_ub = pd.concat([csv_max, f_shortfall.astype(float)], axis=1).max(axis=1)
+            self._constraint_fillfactor(min_fillfactor=min_ff, max_fillfactor=max_ff_ub)
+            max_ff = self.programs["max_fillfactor"]
+            gap_to_max = gp.quicksum(
+                float(max_ff.at[p]) - self.F[p] for p in self.F
+            )
+            self.model.setObjective(gap_to_max, GRB.MINIMIZE)
+            self.optimize_model("balance")
+            self.build_schedule()
+            self.log_report("balance")
+        else:
+            logs.info("No max_fillfactor column in programs, skipping balance step, run find-max-completion first and retry.")
 
         # ===== prioritize =====
         hold_alpha = self.config.getfloat(
