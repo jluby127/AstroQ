@@ -24,6 +24,7 @@ from astroq.queue.hirescps.script_columns import (
     format_priority_token,
     format_section_header,
     format_vmag_token,
+    TARGET_NAME_WIDTH,
 )
 
 
@@ -292,7 +293,7 @@ def format_hires_row(
     )
 
     target_str = str(row["target"].iloc[0])
-    namestring = " " * (16 - len(target_str[:16])) + target_str[:16]
+    namestring = " " * (TARGET_NAME_WIDTH - len(target_str[:TARGET_NAME_WIDTH])) + target_str[:TARGET_NAME_WIDTH]
 
     # Handle missing columns with default values
     vmag_val = row.get("Vmag", [15.0])[0] if "Vmag" in row else 15.0
