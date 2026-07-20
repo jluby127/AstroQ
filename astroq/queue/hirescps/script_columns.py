@@ -6,6 +6,7 @@ import numpy as np
 
 logs = logging.getLogger(__name__)
 
+TARGET_NAME_WIDTH = 16
 VMAG_WIDTH = 9
 EXPOSURE_WIDTH = 9  # max 4 digits + "/" + 4 digits
 METER_WIDTH = 4

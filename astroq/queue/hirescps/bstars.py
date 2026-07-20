@@ -17,6 +17,7 @@ from astropy.time import Time
 import astropy.units as u
 
 from astroq.queue.hirescps.script_columns import (
+    TARGET_NAME_WIDTH,
     format_exposure_token,
     format_section_header,
     format_vmag_token,
@@ -27,7 +28,6 @@ logs = logging.getLogger(__name__)
 _BSTARS_FILE = Path(__file__).with_name("bstars.txt")
 _CACHE_FILENAME = "bstars_simbad.csv"
 _BSTARS_HEADER = format_section_header("B-Stars-Coordinates-Advanced")
-_BSTARS_NAME_WIDTH = 17
 _CACHE_COLS = [
     "name",
     "ra_deg",
@@ -240,12 +240,16 @@ def format_bstar_row(
     """Format one B-star line like a request row with ``XX`` instead of program."""
     ra_str, dec_str = _format_coord_strings(coord)
     display_name = _display_name(name)
-    name_str = " " * (_BSTARS_NAME_WIDTH - len(display_name[:_BSTARS_NAME_WIDTH])) + display_name[:_BSTARS_NAME_WIDTH]
+    name_str = (
+        " " * (TARGET_NAME_WIDTH - len(display_name[:TARGET_NAME_WIDTH]))
+        + display_name[:TARGET_NAME_WIDTH]
+    )
     line = (
-        f"{name_str} {ra_str} {dec_str} 2000 {_format_vmag_token(vmag)}"
+        f"{name_str} {ra_str} {dec_str} 2000 "
+        f"{_format_vmag_token(vmag)} "
         f"{_format_bstar_exposure()} 250k B5 1x  in p3 XX"
     )
-    line += f"  epoch={Time(current_day).jyear:.1f}"
+    line += f" epoch={Time(current_day).jyear:.1f}"
     if comment:
         line += f", {comment}"
     return line
