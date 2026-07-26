@@ -504,12 +504,25 @@ def pull_all_scheduled(start_date, end_date, output_path=None, timeout=60):
 
     Columns: ``Date, Time, Dark, TelNr, Instrument, Account, PI, Institution, ProjCode``.
     If ``output_path`` is given, also write the same DataFrame to CSV.
+
+    A failed query for one instrument (empty or malformed form response) is
+    logged and skipped so other instruments can still contribute rows.
     """
-    frames = [
-        _query_keck_schedule_form(inst, start_date, end_date, timeout=timeout)
-        for inst in KECK_SCHEDULE_INSTRUMENTS
-    ]
-    frames = [f for f in frames if not f.empty]
+    frames = []
+    for inst in KECK_SCHEDULE_INSTRUMENTS:
+        try:
+            frame = _query_keck_schedule_form(
+                inst, start_date, end_date, timeout=timeout
+            )
+        except RuntimeError as exc:
+            logs.warning(
+                "Keck schedule query for %s failed (%s); skipping.",
+                inst,
+                exc,
+            )
+            continue
+        if not frame.empty:
+            frames.append(frame)
     if not frames:
         df = pd.DataFrame()
     else:

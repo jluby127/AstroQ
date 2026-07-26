@@ -682,10 +682,8 @@ class SemesterPlanner:
         return gp.quicksum(
             (1.0 / splan_weight.loc[r])
             * self.Yrds[k]
-            * n
-            for k, n, r in zip(
+            for k, r in zip(
                 self.request_slots["rds"],
-                self.request_slots["t_visit_slots"],
                 self.request_slots["r"],
             )
         )
@@ -988,6 +986,53 @@ class SemesterPlanner:
             [stats_divider, table.to_string(), "", _PROGRAM_STATS_KEY, ""]
         ) + "\n"
 
+    def _trace_programs(self):
+        """Program codes listed in ``[semester] trace_programs`` (comma-separated)."""
+        if not self.config.has_option("semester", "trace_programs"):
+            return []
+        raw = self.config.get("semester", "trace_programs").strip()
+        if not raw:
+            return []
+        return [p.strip() for p in raw.split(",") if p.strip()]
+
+    def to_string_program_schedule(self, program_code):
+        """Per-request schedule summary for one program (scheduled targets only)."""
+        if self.schedule is None:
+            raise RuntimeError(
+                "call build_schedule() before to_string_program_schedule()"
+            )
+
+        sched = self.schedule.merge(
+            self.requests_active[
+                ["unique_id", "priority", "splan_weight", "program_code"]
+            ],
+            on="unique_id",
+            how="inner",
+        )
+        program_sched = sched[sched["program_code"] == program_code]
+        if program_sched.empty:
+            return f"No scheduled slots for {program_code}."
+
+        dates = self.access_obj.all_dates_array
+
+        def format_nights(day_indices):
+            return ", ".join(
+                sorted({dates[int(d)] for d in day_indices.unique()})
+            )
+
+        summary = (
+            program_sched.groupby(
+                ["unique_id", "target", "priority", "splan_weight"],
+                as_index=False,
+            )
+            .agg(
+                n_nights=("d", "nunique"),
+                **{"nights scheduled": ("d", format_nights)},
+            )
+            .sort_values("unique_id")
+        )
+        return summary.to_string(index=False)
+
     def log_report(self, step, **report_ctx):
         """Emit the run-report text to stdout (no log prefix on table lines)."""
         objective_shortfall_min = report_ctx.get("objective_shortfall_min")
@@ -1008,6 +1053,9 @@ class SemesterPlanner:
         print(self.to_string_summary().rstrip(), flush=True)
         print()
         print(self.to_string_programs().rstrip(), flush=True)
+        for prog in self._trace_programs():
+            logs.info("Program schedule trace (%s, %s):", prog, step)
+            print(self.to_string_program_schedule(prog).rstrip(), flush=True)
 
     def write_request_selected(self):
         """Write ``request_selected.csv`` -- the handoff to ``NightPlanner``."""
