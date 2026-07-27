@@ -266,7 +266,6 @@ def hirescps_prep(args):
             semester_start_day=start_date,
             semester_end_day=end_date,
             request_csv_path=os.path.join(savepath, request_file),
-            current_day=current_date,
         )
 
     else:
