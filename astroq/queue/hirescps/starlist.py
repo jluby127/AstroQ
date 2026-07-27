@@ -22,8 +22,26 @@ from astroq.queue.hirescps.script_columns import (
     format_meter_token,
     format_nexp_token,
     format_priority_token,
+    format_section_header,
     format_vmag_token,
+    TARGET_NAME_WIDTH,
 )
+
+
+def _row_comment(row) -> str:
+    for col in ("comments", "Observing Notes"):
+        if col in row:
+            val = row[col].iloc[0]
+            if val is not None and not pd.isnull(val) and str(val).strip():
+                return str(val).strip()
+    return ""
+
+
+def _semester_prefix(program_codes) -> str:
+    for code in program_codes:
+        if pd.notna(code) and str(code).strip():
+            return str(code).split("_", 1)[0]
+    return "2026A"
 
 
 def _offset_minutes_to_hhmm(night_start_time, offset_min) -> str:
@@ -109,9 +127,7 @@ def write_starlist(
             )
         )
 
-    lines.append("")
-    lines.append("X" * 45 + "EXTRAS" + "X" * 45)
-    lines.append("")
+    lines.append(format_section_header("EXTRAS"))
 
     for _, erow in extras_df.iterrows():
         uid = str(erow["unique_id"])
@@ -144,10 +160,10 @@ def write_starlist(
         )
         backup_df = backup_df.sort_values("_ra_float", kind="mergesort")
 
+        semester = _semester_prefix(backup_df["program_code"])
+
         def emit_block(header, sub_df):
-            lines.append("")
             lines.append(header)
-            lines.append("")
             for _, req_row in sub_df.iterrows():
                 uid = req_row["unique_id"]
                 n_done_raw = req_row.get("past_nights_observed", 0)
@@ -172,18 +188,15 @@ def write_starlist(
                     )
                 )
 
+        emit_block(format_section_header(f"{semester}-Requests-All"), backup_df)
         emit_block(
-            "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX 2026A - Requests - All XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-            backup_df,
-        )
-        emit_block(
-            "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX 2026A - Requests - V < 8 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+            format_section_header(f"{semester}-Requests-V<8"),
             backup_df[backup_df["_vmag_float"] < 8],
         )
 
         if evening_twilight_uids is not None:
             emit_block(
-                "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX 2026A - Evening Twilight XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+                format_section_header(f"{semester}-Evening-Twilight"),
                 backup_df[
                     (backup_df["_vmag_float"] < 8)
                     & backup_df["unique_id"].isin(evening_twilight_uids)
@@ -192,7 +205,7 @@ def write_starlist(
 
         if morning_twilight_uids is not None:
             emit_block(
-                "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX 2026A - Morning Twilight XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+                format_section_header(f"{semester}-Morning-Twilight"),
                 backup_df[
                     (backup_df["_vmag_float"] < 8)
                     & backup_df["unique_id"].isin(morning_twilight_uids)
@@ -239,9 +252,8 @@ def format_hires_row(
             the BACKUPS section, where targets are not tied to a specific time).
             ``obs_time`` / ``first_available`` / ``last_available`` may be passed
             as ``None`` in this mode.
-        obs_token (str | None): optional trailing token (e.g. ``"obs=3/10"``)
-            appended at the very end of the line. Used by the BACKUPS section to
-            show past-vs-requested observation counts.
+        obs_token (str | None): optional token (e.g. ``"obs=3/10"``) appended after
+            ``epoch=`` when present. Request ``comments`` follow ``obs=``.
 
     Returns:
         line (str): the properly formatted string to be included in the script file
@@ -281,7 +293,7 @@ def format_hires_row(
     )
 
     target_str = str(row["target"].iloc[0])
-    namestring = " " * (16 - len(target_str[:16])) + target_str[:16]
+    namestring = " " * (TARGET_NAME_WIDTH - len(target_str[:TARGET_NAME_WIDTH])) + target_str[:TARGET_NAME_WIDTH]
 
     # Handle missing columns with default values
     vmag_val = row.get("Vmag", [15.0])[0] if "Vmag" in row else 15.0
@@ -340,14 +352,11 @@ def format_hires_row(
     if epoch_token is not None:
         line += " " + epoch_token
 
-    # Handle missing Observing Notes column
-    observing_notes = (
-        row.get("Observing Notes", [""])[0] if "Observing Notes" in row else ""
-    )
-    if observing_notes and not pd.isnull(observing_notes):
-        line += " " + str(observing_notes)
-
     if obs_token is not None:
         line += " " + str(obs_token)
+
+    comment = _row_comment(row)
+    if comment:
+        line += " " + comment
 
     return line

@@ -6,6 +6,7 @@ import numpy as np
 
 logs = logging.getLogger(__name__)
 
+TARGET_NAME_WIDTH = 16
 VMAG_WIDTH = 9
 EXPOSURE_WIDTH = 9  # max 4 digits + "/" + 4 digits
 METER_WIDTH = 4
@@ -51,3 +52,15 @@ def format_cell_token(cell: str) -> str:
 
 def format_priority_token(priority: str) -> str:
     return str(priority).rjust(PRIORITY_WIDTH)
+
+
+SECTION_HEADER_WIDTH = 96
+
+
+def format_section_header(label: str, total_width: int = SECTION_HEADER_WIDTH) -> str:
+    """MAGIQ section divider: X-padding around ``__label__`` (label must have no spaces)."""
+    token = f"__{label}__"
+    pad = total_width - len(token)
+    left = pad // 2
+    right = pad - left
+    return "X" * left + token + "X" * right

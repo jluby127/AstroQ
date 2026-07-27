@@ -11,8 +11,8 @@ from astropy.utils.exceptions import AstropyWarning
 from erfa import ErfaWarning
 from tables.exceptions import DataTypeWarning
 
-# Booleans persisted via h5py (e.g. run_weather_loss, gurobi_output,
-# run_bonus_round in splan.py) are stored as H5T_ENUM, which PyTables does not
+# Booleans persisted via h5py (e.g. show_gurobi_output in splan.py)
+# are stored as H5T_ENUM, which PyTables does not
 # recognize. PyTables scans root attributes on every pd.read_hdf() and emits a
 # DataTypeWarning for each unrecognized attribute. The data still round-trips
 # correctly via h5py; silence the cosmetic warning here. Installed before any
