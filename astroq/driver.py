@@ -17,6 +17,7 @@ import plotly.io as pio
 # Local imports
 
 import astroq.benchmarking as bn
+import astroq.io
 import astroq.queue
 import astroq.queue.kpfcc.prep as kpfcc
 import astroq.queue.hirescps.prep as hirescps
@@ -139,15 +140,15 @@ def hirescps_prep(args):
             {
                 "program": awarded_programs,
                 "hours": list(hours_by_program.values()),
-                "nights": list(nights_by_program.values()),
             }
         )
-        # Manually add one row with for the Engineering program of bright backup stars. Arbitrarily give it 50 night of time. This is intentionally high so that this "program" is not effectively throttled.
+        # Manually add one row for the Engineering program of bright backup stars.
+        # High hours so this "program" is not effectively throttled.
         programmatics = pd.concat(
             [
                 programmatics,
                 pd.DataFrame(
-                    [{"program": args.filler_programs, "hours": 600.0, "nights": 50.0}]
+                    [{"program": args.filler_programs, "hours": 600.0}]
                 ),
             ],
             ignore_index=True,
@@ -179,9 +180,23 @@ def hirescps_prep(args):
             {
                 "program": awarded_programs,
                 "hours": list(hours_by_program.values()),
-                "nights": list(nights_by_program.values()),
             }
         )
+        if args.filler_programs:
+            programmatics = pd.concat(
+                [
+                    programmatics,
+                    pd.DataFrame(
+                        [
+                            {
+                                "program": args.filler_programs,
+                                "hours": 600.0,
+                            }
+                        ]
+                    ),
+                ],
+                ignore_index=True,
+            )
         programmatics.to_csv(os.path.join(savepath, "programs.csv"), index=False)
 
     allocation_frame["comment"] = [""] * len(allocation_frame)
@@ -251,7 +266,6 @@ def hirescps_prep(args):
             semester_start_day=start_date,
             semester_end_day=end_date,
             request_csv_path=os.path.join(savepath, request_file),
-            current_day=current_date,
         )
 
     else:
@@ -316,15 +330,15 @@ def kpfcc_prep(args):
             {
                 "program": awarded_programs,
                 "hours": list(hours_by_program.values()),
-                "nights": list(nights_by_program.values()),
             }
         )
-        # Manually add one row with for the Engineering program of bright backup stars. Arbitrarily give it 50 night of time. This is intentionally high so that this "program" is not effectively throttled.
+        # Manually add one row for the Engineering program of bright backup stars.
+        # High hours so this "program" is not effectively throttled.
         programmatics = pd.concat(
             [
                 programmatics,
                 pd.DataFrame(
-                    [{"program": args.filler_programs, "hours": 600.0, "nights": 50.0}]
+                    [{"program": args.filler_programs, "hours": 600.0}]
                 ),
             ],
             ignore_index=True,
@@ -344,7 +358,6 @@ def kpfcc_prep(args):
             {
                 "program": awarded_programs,
                 "hours": list(hours_by_program.values()),
-                "nights": list(nights_by_program.values()),
             }
         )
         programmatics.to_csv(os.path.join(savepath, "programs.csv"), index=False)
@@ -479,10 +492,9 @@ def kpfcc_prep(args):
 def _validate_past_csv_columns(past_source):
     """Warn if ``past_source`` is missing the required past.csv columns.
 
-    Required schema: ``unique_id, target, timestamp, exposure_time``. The
-    ``junk`` column is optional.
+    Required schema is the single source of truth :data:`astroq.io.PAST_COLS`.
     """
-    expected_columns = {"unique_id", "target", "timestamp", "exposure_time"}
+    expected_columns = set(astroq.io.PAST_COLS)
     if not os.path.exists(past_source):
         logging.warning(f"Past history file '{past_source}' does not exist")
         return
@@ -502,15 +514,21 @@ def kpfcc_webapp(args):
 
     Args:
         args (argparse.Namespace): the command line arguments with flags:
-            -uptree_path (str): the path to the uptree directory below which the folder structure is <semester_code>/<date>/<band>/.
+            -uptree_path (str, optional): uptree directory; URLs are
+                ``/{semester}/{date}/{band}/admin``, etc.
+            -run_path (str, optional): single run directory with ``outputs/``;
+                URLs are ``/admin``, ``/nightplan``, etc.
             -port (int): the port to bind the webapp to (default: 50001).
 
     Returns:
         None
     """
-    uptree_path = args.uptree_path
+    uptree_path = getattr(args, "uptree_path", None)
+    run_path = getattr(args, "run_path", None)
+    if uptree_path and run_path:
+        raise ValueError("Use only one of -up/--uptree_path and -rp/--run_path.")
     port = getattr(args, "port", 50001)
-    app.launch_app(uptree_path, port=port)
+    app.launch_app(uptree_path=uptree_path, run_path=run_path, port=port)
     return
 
 
@@ -521,28 +539,13 @@ def plan_semester(args):
     Args:
         args (argparse.Namespace): the command line arguments with flags:
             -cf (str): the path to the config file.
-            --boost (list[str], optional): [comma-separated unique_ids, factor]
-                soft-bias those targets onto current_day in the semester solve.
 
     Returns:
         None
     """
     cf = args.config_file
     print(f"plan_semester function: config_file is {cf}")
-    boost_arg = getattr(args, "boost", None)
-    boost = None
-    if boost_arg:
-        targets_part, factor_part = boost_arg[0], boost_arg[1]
-        factor = float(factor_part.strip())
-        uids = [u.strip() for u in targets_part.split(",") if u.strip()]
-        if not uids:
-            raise ValueError("--boost: no unique_id values in first argument")
-        boost = pd.DataFrame({"unique_id": uids, "boost": factor})
-        print(
-            f"Boost: {len(uids)} unique_id(s), factor={factor}: "
-            f"{', '.join(uids)}"
-        )
-    semester_planner = splan.SemesterPlanner(cf, boost=boost)
+    semester_planner = splan.SemesterPlanner(cf)
     semester_planner.run_model()
     return
 
@@ -584,6 +587,8 @@ def plot(args):
     config = ConfigParser()
     config.read(cf)
     semester_directory = config.get("global", "workdir")
+    plot_data = None
+    sel_all = None
 
     if os.path.exists(
         os.path.join(semester_directory, "outputs", "semester_planner.h5")
@@ -594,22 +599,23 @@ def plot(args):
         saveout = os.path.join(semester_planner.output_directory, "saved_plots")
         os.makedirs(saveout, exist_ok=True)
 
-        data_astroq = pl.process_stars(semester_planner)
-        all_stars_from_all_programs = np.concatenate(list(data_astroq[0].values()))
+        plot_data = pl.build_plot_data(semester_planner)
+        sel_all = plot_data.select_all()
+        sel_prog = plot_data.select_all(aggregate_by_program=True)
 
         # build the plots
-        request_df = pl.get_request_frame(semester_planner, all_stars_from_all_programs)
+        request_df = pl.get_request_frame(plot_data, sel_all)
         request_table_html = pl.dataframe_to_html(request_df)
 
-        fig_cof = pl.get_cof(semester_planner, list(data_astroq[1].values()))
-        fig_birdseye = pl.get_birdseye(
-            semester_planner, data_astroq[2], list(data_astroq[1].values())
+        fig_cof = pl.get_cof(
+            plot_data, programs=sorted(plot_data.program_table.index)
         )
+        fig_birdseye = pl.get_birdseye(plot_data, sel_prog)
         fig_football = pl.get_football(
-            semester_planner, all_stars_from_all_programs, use_program_colors=True
+            plot_data, sel_all, use_program_colors=True
         )
         fig_tau_inter_line = pl.get_tau_inter_line(
-            semester_planner, all_stars_from_all_programs, use_program_colors=True
+            plot_data, sel_all, use_program_colors=True
         )
 
         # write the html versions
@@ -654,9 +660,10 @@ def plot(args):
 
         # build the plots
         script_table_df = pl.get_script_plan(night_planner)
-        timebar_fig = pl.get_timebar(
-            semester_planner, all_stars_from_all_programs, use_program_colors=False
-        )
+        if plot_data is not None:
+            timebar_fig = pl.get_timebar(
+                plot_data, sel_all, use_program_colors=False
+            )
         ladder_fig = pl.get_ladder(data_ttp, night_start_time)
         slew_animation_fig = tplot.get_slew_animation_plotly(
             data_ttp,
@@ -670,7 +677,6 @@ def plot(args):
 
         # write the html versions
         script_table_html = pl.dataframe_to_html(script_table_df)
-        timebar_html = pio.to_html(timebar_fig, full_html=True, include_plotlyjs="cdn")
         ladder_html = pio.to_html(ladder_fig, full_html=True, include_plotlyjs="cdn")
         slew_path_html = pio.to_html(
             slew_path_fig, full_html=True, include_plotlyjs="cdn"
@@ -678,12 +684,17 @@ def plot(args):
         slew_animation_html = pio.to_html(
             slew_animation_fig, full_html=True, include_plotlyjs="cdn"
         )
+        if plot_data is not None:
+            timebar_html = pio.to_html(
+                timebar_fig, full_html=True, include_plotlyjs="cdn"
+            )
 
         # write out the html files
         with open(os.path.join(saveout, "script_table.html"), "w") as f:
             f.write(script_table_html)
-        with open(os.path.join(saveout, "timebar_plot.html"), "w") as f:
-            f.write(timebar_html)
+        if plot_data is not None:
+            with open(os.path.join(saveout, "timebar_plot.html"), "w") as f:
+                f.write(timebar_html)
         with open(os.path.join(saveout, "ladder_plot.html"), "w") as f:
             f.write(ladder_html)
         with open(os.path.join(saveout, "slew_animation_plot.html"), "w") as f:
@@ -745,7 +756,7 @@ def archive(args):
 
     programs_dir = os.path.join(archive_dir, "programs")
     os.makedirs(programs_dir, exist_ok=True)
-    for program_code in sorted(loaded.data_astroq[0]):
+    for program_code in sorted(loaded.plot_data.program_dict):
         program_path = os.path.join(programs_dir, f"{program_code}.html")
         with open(program_path, "w", encoding="utf-8") as f:
             f.write(

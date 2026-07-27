@@ -6,3 +6,6 @@
 !__init__.py
 !conftest.py
 !test_*.py
+!baseline/
+!baseline/plot/
+!baseline/plot/*.sha256

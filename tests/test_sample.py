@@ -32,10 +32,11 @@ class TestClass(unittest.TestCase):
             )
         )
 
-    def test02_round2_weather(self):
+    def test02_full_mode(self):
+        """Full pipeline mode on the symmetric toy model."""
         dr.plan_semester(
             argparse.Namespace(
-                config_file="examples/hello_world/config_hello_world_bonus_weather.ini",
+                config_file="examples/priorities/symmetric_toy_model/config_benchmark.ini",
             )
         )
 
@@ -152,8 +153,8 @@ class TestClass(unittest.TestCase):
         )
         access_record = sp.access_obj.build_access()
 
-        night_d = sp.all_dates_dict[sp.config.get("global", "current_day")]
-        uids = sp.requests_frame["unique_id"].iloc[:3]
+        night_d = sp.access_obj.current_night_index
+        uids = sp.requests_active["unique_id"].iloc[:3]
 
         req_index = sp.access_obj.request_frame.set_index("unique_id").index
         row_idx = req_index.get_indexer(uids)
@@ -214,7 +215,7 @@ class TestClass(unittest.TestCase):
         # the committed data/ directory and so the cache-miss branch executes.
         from pathlib import Path
         with patch.object(pl, "_football_cache_dir", lambda sp: Path(tmp)):
-            wa.uptree_path = "examples/hello_world"
+            wa._uptree_path = "examples/hello_world"
             client = wa.app.test_client()
 
             # (path, expected_codes, dump_name)
@@ -238,6 +239,42 @@ class TestClass(unittest.TestCase):
                 ("/2018B/1900-01-01/band1/admin", {404}, None),
             ]
             for path, expected_codes, dump_name in routes:
+                resp = client.get(path)
+                msg = f"{path} -> {resp.status_code}: {resp.data[:500]!r}"
+                self.assertIn(resp.status_code, expected_codes, msg=msg)
+                if dump_name is not None and resp.status_code == 200:
+                    with open(os.path.join(tmp, dump_name), "wb") as f:
+                        f.write(resp.data)
+
+        # Flat routes via -rp (single run directory)
+        workdir = "examples/hello_world/2018B/2018-08-05/band1"
+        with patch.object(pl, "_football_cache_dir", lambda sp: Path(tmp)):
+            wa._run_path = workdir
+            wa._uptree_path = None
+            client = wa.app.test_client()
+            flat_routes = [
+                ("/admin", {200, 404}, "flat_admin.html"),
+                ("/2018B/2018-08-05/band1/admin", {404}, None),
+            ]
+            for path, expected_codes, dump_name in flat_routes:
+                resp = client.get(path)
+                msg = f"{path} -> {resp.status_code}: {resp.data[:500]!r}"
+                self.assertIn(resp.status_code, expected_codes, msg=msg)
+                if dump_name is not None and resp.status_code == 200:
+                    with open(os.path.join(tmp, dump_name), "wb") as f:
+                        f.write(resp.data)
+
+        # Parent -rp: /{run_name}/admin
+        parent = "examples/hello_world/2018B/2018-08-05"
+        with patch.object(pl, "_football_cache_dir", lambda sp: Path(tmp)):
+            wa._run_path = parent
+            wa._uptree_path = None
+            client = wa.app.test_client()
+            parent_routes = [
+                ("/admin", {404}, None),
+                ("/band1/admin", {200, 404}, "parent_admin.html"),
+            ]
+            for path, expected_codes, dump_name in parent_routes:
                 resp = client.get(path)
                 msg = f"{path} -> {resp.status_code}: {resp.data[:500]!r}"
                 self.assertIn(resp.status_code, expected_codes, msg=msg)

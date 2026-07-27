@@ -12,11 +12,11 @@ from importlib.resources import files as _resource_files
 from typing import Any, Optional
 
 import jinja2
-import numpy as np
 import plotly.io as pio
 
 import astroq.nplan as nplan
 import astroq.plot as pl
+from astroq.plot.context import PlotData
 import astroq.ttp.plot as tplot
 from astroq.nplan import NightPlanner
 from astroq.splan import SemesterPlanner
@@ -37,7 +37,7 @@ class LoadedRun:
     """Planner data loaded from a run's outputs directory."""
 
     semester_planner: SemesterPlanner
-    data_astroq: tuple
+    plot_data: PlotData
     semester_planner_timestamp: Optional[str]
     night_planner: Optional[NightPlanner] = None
     data_ttp: Any = None
@@ -79,7 +79,7 @@ def load_planners_from_outputs(outputs_dir: str) -> LoadedRun:
         raise FileNotFoundError(f"semester_planner.h5 not found in {outputs_dir}")
 
     semester_planner = SemesterPlanner.from_hdf5(semester_planner_h5)
-    data_astroq = pl.process_stars(semester_planner)
+    plot_data = pl.build_plot_data(semester_planner)
     mtime = os.path.getmtime(semester_planner_h5)
     semester_planner_timestamp = datetime.fromtimestamp(mtime).strftime(
         "%Y-%m-%d %H:%M:%S"
@@ -103,7 +103,7 @@ def load_planners_from_outputs(outputs_dir: str) -> LoadedRun:
 
     return LoadedRun(
         semester_planner=semester_planner,
-        data_astroq=data_astroq,
+        plot_data=plot_data,
         semester_planner_timestamp=semester_planner_timestamp,
         night_planner=night_planner,
         data_ttp=data_ttp,
@@ -120,6 +120,91 @@ def load_planners_from_uptree(
     return load_planners_from_outputs(outputs_dir)
 
 
+def resolve_outputs_dir(run_path: str, run_name: str | None = None) -> str:
+    """Resolve a run directory to its ``outputs/`` path.
+
+    Accepts:
+    - ``run_path/outputs`` or ``run_path`` when it already contains
+      ``semester_planner.h5`` (single-run mode; use flat ``/admin`` URLs).
+    - ``run_path`` as a parent of multiple child runs, with ``run_name`` naming
+      the child folder that contains ``outputs/`` (use ``/{run_name}/admin``).
+    """
+    run_path = os.path.abspath(run_path)
+
+    def _outputs_with_h5(dir_path: str) -> str | None:
+        h5 = os.path.join(dir_path, "semester_planner.h5")
+        if os.path.isfile(h5):
+            return dir_path
+        return None
+
+    if run_name is not None:
+        for candidate in (
+            os.path.join(run_path, run_name, "outputs"),
+            os.path.join(run_path, run_name),
+        ):
+            resolved = _outputs_with_h5(candidate)
+            if resolved is not None:
+                return resolved
+        raise FileNotFoundError(
+            f"No semester_planner.h5 under {run_path!r}/{run_name!r} "
+            f"(tried child/outputs and child folder itself)."
+        )
+
+    resolved = _outputs_with_h5(os.path.join(run_path, "outputs"))
+    if resolved is not None:
+        return resolved
+    resolved = _outputs_with_h5(run_path)
+    if resolved is not None:
+        return resolved
+
+    children = list_child_runs(run_path)
+    if children:
+        example = children[0]
+        raise FileNotFoundError(
+            f"{run_path!r} contains multiple runs ({', '.join(children)}). "
+            f"Open /{{run_name}}/admin, e.g. /{example}/admin."
+        )
+    raise FileNotFoundError(
+        f"No outputs directory found at {os.path.join(run_path, 'outputs')!r} "
+        f"and no semester_planner.h5 in {run_path!r}. "
+        f"Pass a run folder, its outputs/ directory, or a parent of run folders."
+    )
+
+
+def list_child_runs(parent: str) -> list[str]:
+    """Child folder names under ``parent`` that contain ``outputs/semester_planner.h5``."""
+    parent = os.path.abspath(parent)
+    if not os.path.isdir(parent):
+        return []
+    runs = []
+    for name in sorted(os.listdir(parent)):
+        sub = os.path.join(parent, name)
+        if not os.path.isdir(sub):
+            continue
+        if os.path.isfile(os.path.join(sub, "outputs", "semester_planner.h5")):
+            runs.append(name)
+    return runs
+
+
+def is_parent_run_path(run_path: str) -> bool:
+    """True when ``run_path`` is a parent of child runs, not a single run root."""
+    run_path = os.path.abspath(run_path)
+    if os.path.isfile(os.path.join(run_path, "outputs", "semester_planner.h5")):
+        return False
+    if os.path.isfile(os.path.join(run_path, "semester_planner.h5")):
+        return False
+    return bool(list_child_runs(run_path))
+
+
+def route_context_from_planner(semester_planner: SemesterPlanner) -> tuple[str, str, str]:
+    """Derive semester/date/band URL parts from a loaded planner config."""
+    semester_code = semester_planner.config.get("global", "semester")
+    date = semester_planner.config.get("global", "current_day")
+    workdir = semester_planner.config.get("global", "workdir")
+    band = os.path.basename(os.path.normpath(workdir))
+    return semester_code, date, band
+
+
 def build_admin_html(
     loaded: LoadedRun,
     semester_code: str,
@@ -129,8 +214,12 @@ def build_admin_html(
     link_targets: bool = True,
 ) -> str:
     """Render the admin dashboard page."""
-    all_stars = np.concatenate(list(loaded.data_astroq[0].values()))
-    request_df = pl.get_request_frame(loaded.semester_planner, all_stars)
+    pd = loaded.plot_data
+    sel_all = pd.select_all()
+    sel_prog = pd.select_all(aggregate_by_program=True)
+    all_programs = sorted(pd.program_table.index)
+
+    request_df = pl.get_request_frame(pd, sel_all)
     if link_targets:
         request_table_html = pl.request_frame_to_html(
             request_df, semester_code, date, band
@@ -138,34 +227,24 @@ def build_admin_html(
     else:
         request_table_html = pl.request_frame_to_html(request_df)
 
-    fig_cof1 = pl.get_cof(loaded.semester_planner, list(loaded.data_astroq[1].values()))
-    fig_cof2 = pl.get_cof(
-        loaded.semester_planner, list(loaded.data_astroq[1].values()), use_time=True
-    )
-    fig_birdseye = pl.get_birdseye(
-        loaded.semester_planner, loaded.data_astroq[2], list(loaded.data_astroq[1].values())
-    )
-    fig_football = pl.get_football(
-        loaded.semester_planner, all_stars, use_program_colors=True
-    )
-    fig_tau_inter_line = pl.get_tau_inter_line(
-        loaded.semester_planner, all_stars, use_program_colors=True
-    )
-    fig_timebar = pl.get_timebar(
-        loaded.semester_planner, all_stars, use_program_colors=True
-    )
-    fig_timebar_by_program = pl.get_timebar_by_program(
-        loaded.semester_planner, loaded.data_astroq[0]
-    )
-    fig_rawobs = pl.get_rawobs(
-        loaded.semester_planner, all_stars, use_program_colors=True
-    )
+    fig_cof1 = pl.get_cof(pd, programs=all_programs)
+    fig_cof2 = pl.get_cof(pd, programs=all_programs, units="time")
+    fig_completion_hist = pl.get_completion_histogram_by_weight(pd, sel_all)
+    fig_completion_scatter = pl.get_completion_vs_target_name(pd, sel_all)
+    fig_birdseye = pl.get_birdseye(pd, sel_prog)
+    fig_football = pl.get_football(pd, sel_all, use_program_colors=True)
+    fig_tau_inter_line = pl.get_tau_inter_line(pd, sel_all, use_program_colors=True)
+    fig_timebar = pl.get_timebar(pd, sel_all, use_program_colors=True)
+    fig_timebar_by_program = pl.get_timebar_by_program(pd)
+    fig_rawobs = pl.get_rawobs(pd, sel_all, use_program_colors=True)
 
     figures_html = [
         _fig_to_html(fig_timebar),
         _fig_to_html(fig_timebar_by_program),
         _fig_to_html(fig_cof1),
         _fig_to_html(fig_cof2),
+        _fig_to_html(fig_completion_hist),
+        _fig_to_html(fig_completion_scatter),
         _fig_to_html(fig_birdseye),
         _fig_to_html(fig_rawobs),
         _fig_to_html(fig_tau_inter_line),
@@ -223,11 +302,14 @@ def build_program_html(
     link_targets: bool = True,
 ) -> str:
     """Render a program overview page."""
-    if program_code not in loaded.data_astroq[0]:
+    pd = loaded.plot_data
+    if program_code not in pd.program_dict:
         raise KeyError(f"Program {program_code} not found")
 
-    program_stars = loaded.data_astroq[0][program_code]
-    request_df = pl.get_request_frame(loaded.semester_planner, program_stars)
+    program_requests = sorted(rv.unique_id for rv in pd.program_dict[program_code])
+
+    sel = pd.select_program(program_code)
+    request_df = pl.get_request_frame(pd, sel)
     if link_targets:
         request_table_html = pl.request_frame_to_html(
             request_df, semester_code, date, band
@@ -235,20 +317,18 @@ def build_program_html(
     else:
         request_table_html = pl.request_frame_to_html(request_df)
 
-    fig_cof = pl.get_cof(loaded.semester_planner, program_stars)
-    fig_birdseye = pl.get_birdseye(
-        loaded.semester_planner, loaded.data_astroq[2], program_stars
-    )
-    fig_tau_inter_line = pl.get_tau_inter_line(loaded.semester_planner, program_stars)
-    fig_football = pl.get_football(loaded.semester_planner, program_stars)
-    fig_timebar = pl.get_timebar(
-        loaded.semester_planner, program_stars, use_program_colors=True
-    )
-    fig_rawobs = pl.get_rawobs(loaded.semester_planner, program_stars)
+    fig_cof = pl.get_cof(pd, requests=program_requests)
+    fig_completion_hist = pl.get_completion_histogram_by_weight(pd, sel)
+    fig_birdseye = pl.get_birdseye(pd, sel)
+    fig_tau_inter_line = pl.get_tau_inter_line(pd, sel)
+    fig_football = pl.get_football(pd, sel)
+    fig_timebar = pl.get_timebar(pd, sel, use_program_colors=True)
+    fig_rawobs = pl.get_rawobs(pd, sel)
 
     figures_html = [
         _fig_to_html(fig_timebar),
         _fig_to_html(fig_cof),
+        _fig_to_html(fig_completion_hist),
         _fig_to_html(fig_birdseye),
         _fig_to_html(fig_rawobs),
         _fig_to_html(fig_tau_inter_line),
@@ -269,34 +349,29 @@ def build_star_html(
     loaded: LoadedRun, target: str, program_code: Optional[str] = None
 ) -> str:
     """Render a single-target page."""
+    pd = loaded.plot_data
     compare_target = target.lower().replace(" ", "")
     programs_to_search = (
         [program_code]
-        if program_code and program_code in loaded.data_astroq[0]
-        else loaded.data_astroq[0].keys()
+        if program_code and program_code in pd.program_dict
+        else pd.program_dict.keys()
     )
 
     for program in programs_to_search:
-        for star_ind in range(len(loaded.data_astroq[0][program])):
-            star_obj = loaded.data_astroq[0][program][star_ind]
-            true_target = star_obj.target
+        for star_view in pd.program_dict[program]:
+            true_target = star_view.target
             if true_target.lower().replace(" ", "") != compare_target:
                 continue
 
-            request_df = pl.get_request_frame(loaded.semester_planner, [star_obj])
+            sel = pd.select_target(star_view.unique_id)
+            request_df = pl.get_request_frame(pd, sel)
             request_table_html = pl.request_frame_to_html(request_df)
 
-            fig_cof = pl.get_cof(
-                loaded.semester_planner, [loaded.data_astroq[0][program][star_ind]]
-            )
-            fig_birdseye = pl.get_birdseye(
-                loaded.semester_planner, loaded.data_astroq[2], [star_obj]
-            )
-            fig_tau_inter_line = pl.get_tau_inter_line(
-                loaded.semester_planner, [star_obj]
-            )
-            fig_football = pl.get_football(loaded.semester_planner, [star_obj])
-            fig_rawobs = pl.get_rawobs(loaded.semester_planner, [star_obj])
+            fig_cof = pl.get_cof(pd, requests=[star_view.unique_id])
+            fig_birdseye = pl.get_birdseye(pd, sel)
+            fig_tau_inter_line = pl.get_tau_inter_line(pd, sel)
+            fig_football = pl.get_football(pd, sel)
+            fig_rawobs = pl.get_rawobs(pd, sel)
 
             figures_html = [
                 _fig_to_html(fig_cof),
