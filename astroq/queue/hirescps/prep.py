@@ -476,13 +476,42 @@ def pull_all_scheduled(start_date, end_date, output_path=None, timeout=60):
     return df
 
 
+def koip_block_to_utc_iso(date, start_time, end_time):
+    """Build UTC ``allocation.csv`` timestamps from Keck KOIP schedule fields.
+
+    ``date`` is the HST civil observing-night label (``YYYY-MM-DD``).
+    ``start_time`` and ``end_time`` are UTC clock times (``HH:MM``).
+    Keck convention: the UTC calendar date is the civil date plus one day.
+    """
+    civil = pd.to_datetime(date.astype(str).str.strip())
+    utc_day = civil + pd.Timedelta(days=1)
+    start = pd.to_datetime(
+        utc_day.dt.strftime("%Y-%m-%d")
+        + " "
+        + start_time.astype(str).str.strip(),
+        utc=True,
+    )
+    stop = pd.to_datetime(
+        utc_day.dt.strftime("%Y-%m-%d")
+        + " "
+        + end_time.astype(str).str.strip(),
+        utc=True,
+    )
+    stop = stop.where(stop >= start, stop + pd.Timedelta(days=1))
+    return (
+        start.dt.strftime("%Y-%m-%dT%H:%M"),
+        stop.dt.strftime("%Y-%m-%dT%H:%M"),
+    )
+
+
 def crossmatch_allocation(scheduled_df, request_urls_path, semester, output_path=None):
     """Filter the all-scheduled Keck DataFrame to rows whose ProjCode appears in
     ``request_urls_<sem>.csv`` (column ``program_code``, e.g. ``2026A_C364``).
 
     Splits the schedule's ``Time`` cell (``"05:03 - 13:22 ( 75%)"``) into
-    ``StartTime`` / ``EndTime`` and emits the AstroQ allocation columns. If
-    ``output_path`` is given, also writes the result as CSV.
+    UTC ``StartTime`` / ``EndTime`` and emits AstroQ allocation columns from
+    HST civil ``Date`` plus one day. If ``output_path`` is given, also writes
+    the result as CSV.
     """
     req = pd.read_csv(request_urls_path)
     req["ProjCode"] = req["program_code"].str.removeprefix(f"{semester}_")
@@ -490,8 +519,9 @@ def crossmatch_allocation(scheduled_df, request_urls_path, semester, output_path
     matched[["StartTime", "EndTime"]] = matched["Time"].str.extract(
         r"(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})"
     )
-    matched["start"] = matched["Date"] + "T" + matched["StartTime"]
-    matched["stop"] = matched["Date"] + "T" + matched["EndTime"]
+    matched["start"], matched["stop"] = koip_block_to_utc_iso(
+        matched["Date"], matched["StartTime"], matched["EndTime"]
+    )
     matched["comment"] = ""
     cols = [
         "Date",
