@@ -212,7 +212,17 @@ class SemesterPlanner:
         )
 
         rs = rf["r"]
-        night = self.past["timestamp"].str[:10]
+        # past.csv timestamps are UTC; map each to the civil noon-start night label.
+        if self.past.empty:
+            night = pd.Series(dtype=object)
+        else:
+            night = self.past["timestamp"].map(
+                lambda ts: (
+                    ac.civil_night_label(Time(ts, scale="utc"), self.queue.observatory)
+                    if pd.notna(ts) and str(ts).strip()
+                    else ""
+                )
+            )
         g = self.past.assign(_night=night).groupby("r")
         agg = pd.DataFrame({
             "nights": g["_night"].nunique(),

@@ -92,7 +92,9 @@ def load_planners_from_outputs(outputs_dir: str) -> LoadedRun:
         night_planner = NightPlanner.from_hdf5(night_planner_h5)
         data_ttp = night_planner.solution
         night_start_time, _ = nplan.get_nightly_times_from_allocation(
-            night_planner.allocation_file, night_planner.current_day
+            night_planner.allocation_file,
+            night_planner.current_day,
+            access_obj=night_planner.semester_planner.access_obj,
         )
     except Exception as e:
         logs.warning(
