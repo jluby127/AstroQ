@@ -3272,7 +3272,9 @@ def get_script_plan(night_planner):
         from astropy.time import TimeDelta
 
         night_start_time, _ = get_nightly_times_from_allocation(
-            night_planner.allocation_file, night_planner.current_day
+            night_planner.allocation_file,
+            night_planner.current_day,
+            access_obj=night_planner.semester_planner.access_obj,
         )
 
         # Convert the time columns to HST timestamps
