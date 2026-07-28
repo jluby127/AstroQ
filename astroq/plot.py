@@ -2190,8 +2190,11 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
     cache_dir = _football_cache_dir(semester_planner)
     cache_dir.mkdir(parents=True, exist_ok=True)
     cache_grids_file = str(cache_dir / f"{semester}_sky_grids.npz")
-    cache_image_file = str(cache_dir / f"{semester}_sky_availability_image.txt")
     semester_length = semester_planner.semester_length
+    vmin = int(round(0.1 * semester_length))
+    cache_image_file = str(
+        cache_dir / f"{semester}_sky_availability_image_vmin{vmin}.txt"
+    )
 
     if os.path.exists(cache_grids_file):
         cached_data = np.load(cache_grids_file)
@@ -2250,7 +2253,7 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
             NIGHTS_grid,
             cmap="gray",
             shading="nearest",
-            vmin=70,
+            vmin=vmin,
             vmax=semester_length,
         )
         ax.axis("off")
@@ -2286,6 +2289,8 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
     # Invisible Contour trace whose sole purpose is to carry the colorbar.
     # plotly has no first-class colorbar-only object; opacity=0 keeps the
     # contour itself hidden while still rendering the legend strip.
+    # Color stretch matches the background PNG: vmin / vmax above.
+    contour_size = max(1, int(round((semester_length - vmin) / 10)))
     fig.add_trace(
         go.Contour(
             z=NIGHTS_grid,
@@ -2293,7 +2298,9 @@ def get_football(semester_planner, all_stars, use_program_colors=False):
             y=DEC_grid[:, 0],
             showscale=True,
             colorscale="gray",
-            contours=dict(start=70, end=semester_length, size=10),
+            zmin=vmin,
+            zmax=semester_length,
+            contours=dict(start=vmin, end=semester_length, size=contour_size),
             opacity=0,
             colorbar=dict(
                 title="Observable<br>Nights",
