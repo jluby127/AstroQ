@@ -25,7 +25,7 @@ class Magellan(Queue):
     ]
 
     access_constraints = (
-        "altaz", "future", "moon", "custom", "inter", "allocated", "clear",
+        "altaz", "future", "moon", "custom", "inter", "allocated", #"clear",
     )
 
     def __init__(self):
