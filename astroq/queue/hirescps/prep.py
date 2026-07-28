@@ -568,6 +568,29 @@ def crossmatch_allocation(scheduled_df, request_urls_path, semester, output_path
         .sort_values(["Date", "StartTime", "ProjCode"])
         .reset_index(drop=True)
     )
+
+    # 2026B_C362 (Yapeng Zhang): CPS queue is Aug 3 half-night only (PI confirm 2026-07-27).
+    # That half night is charged to 2026B_C275 (Heather Knutson).
+    if semester == "2026B":
+        _C362_DROP_DATES = ("2026-08-02", "2026-08-30")
+        drop = (matched["ProjCode"] == "C362") & matched["Date"].isin(_C362_DROP_DATES)
+        if drop.any():
+            logs.info(
+                "Dropping %d Keck C362 block(s) not in CPS queue: %s",
+                int(drop.sum()),
+                sorted(matched.loc[drop, "Date"].unique()),
+            )
+            matched = matched.loc[~drop].reset_index(drop=True)
+
+        recode = (matched["ProjCode"] == "C362") & (matched["Date"] == "2026-08-03")
+        if recode.any():
+            n = int(recode.sum())
+            logs.info(
+                "Recoding %d C362 Aug 3 half-night block(s) to C275 (2026B queue assignment)",
+                n,
+            )
+            matched.loc[recode, "ProjCode"] = "C275"
+
     if output_path is not None:
         matched.to_csv(output_path, index=False)
     return matched

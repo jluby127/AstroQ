@@ -197,6 +197,19 @@ def hirescps_prep(args):
                 ],
                 ignore_index=True,
             )
+        if need_request_urls and request_urls_path:
+            ru_progs = pd.read_csv(request_urls_path)["program_code"].dropna().unique()
+            missing = [p for p in ru_progs if p not in set(programmatics["program"])]
+            if missing:
+                programmatics = pd.concat(
+                    [
+                        programmatics,
+                        pd.DataFrame(
+                            {"program": missing, "hours": [0.0] * len(missing)}
+                        ),
+                    ],
+                    ignore_index=True,
+                )
         programmatics.to_csv(os.path.join(savepath, "programs.csv"), index=False)
 
     allocation_frame["comment"] = [""] * len(allocation_frame)
