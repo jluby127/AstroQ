@@ -21,6 +21,15 @@ astroq/data/*
 !astroq/data/template_OB_annotated.json
 !astroq/data/KPF_Empirical_ETC_Feb2026_fits.h5
 
+# Local/generated artifacts (do not commit)
+/data/
+examples/**/outputs/
+examples/**/prepped/
+examples/bench/outputsTTPstatistics.txt
+examples/bench/outputsrunReport.txt
+examples/bench/request.csv
+examples/hello_world/programs.csv
+
 # ----------------------------------------------------------------------------
 # Byte-compiled / optimized / DLL files
 # ----------------------------------------------------------------------------
