@@ -21,6 +21,7 @@ import astroq.io
 import astroq.queue
 import astroq.queue.kpfcc.prep as kpfcc
 import astroq.queue.hirescps.prep as hirescps
+from astroq.queue.prep_common import write_programs_csv
 import astroq.nplan as nplan
 import astroq.plot as pl
 import astroq.splan as splan
@@ -153,7 +154,7 @@ def hirescps_prep(args):
             ],
             ignore_index=True,
         )
-        programmatics.to_csv(os.path.join(savepath, "programs.csv"), index=False)
+        write_programs_csv(programmatics, savepath)
     else:
         if not allo_source:
             sched_path = os.path.join(savepath, "allocation_hires_all_scheduled.csv")
@@ -197,7 +198,7 @@ def hirescps_prep(args):
                 ],
                 ignore_index=True,
             )
-        programmatics.to_csv(os.path.join(savepath, "programs.csv"), index=False)
+        write_programs_csv(programmatics, savepath)
 
     allocation_frame["comment"] = [""] * len(allocation_frame)
     # Update allocation times for tonight if this is a full-band
@@ -344,7 +345,7 @@ def kpfcc_prep(args):
             ],
             ignore_index=True,
         )
-        programmatics.to_csv(os.path.join(savepath, "programs.csv"), index=False)
+        write_programs_csv(programmatics, savepath)
     else:
         print(
             f"Using allocation information from Keck Observatory Instrument Plan (KOIP) file: {allo_source}"
@@ -361,7 +362,7 @@ def kpfcc_prep(args):
                 "hours": list(hours_by_program.values()),
             }
         )
-        programmatics.to_csv(os.path.join(savepath, "programs.csv"), index=False)
+        write_programs_csv(programmatics, savepath)
     # else:
     #     print(f'Using allocation information from file: {allo_source}')
     #     # Validate that the file has the correct columns
@@ -551,21 +552,13 @@ def plan_semester(args):
     return
 
 
-def _save_max_fillfactor(programs_df, programs_path, program, value):
-    """Write one program's ``max_fillfactor`` to ``programs.csv``."""
-    programs_df.loc[
-        programs_df["program"].astype(str) == program, "max_fillfactor"
-    ] = round(float(value), 2)
-    programs_df.to_csv(programs_path, index=False)
-
-
 def find_max_completion_per_program(args):
     """Estimate per-program max fill by running shortfall with each program alone.
 
-    For every program in ``programs.csv``, write a filtered ``request_{program}.csv``
-    next to the config, solve ``run_model_shortfall`` on that sheet alone, and
-    record the resulting fill factor ``F[p] = (past + scheduled) / awarded`` as
-    ``max_fillfactor`` (e.g. ``0.72`` for 72%).
+    For every program in ``programs.csv``, solve the shortfall model against only
+    that program's requests (filtered in memory) and record the resulting fill
+    factor ``F[p] = (past + scheduled) / awarded`` as ``max_fillfactor`` (e.g.
+    ``0.72`` for 72%). ``programs.csv`` is rewritten once at the end.
 
     Programs with no request rows, no observable slots, or no fill-factor variable
     (e.g. ``awarded_slots == 0``) get ``max_fillfactor = 0.0``.
@@ -579,7 +572,6 @@ def find_max_completion_per_program(args):
     """
     cf = args.config_file
     cf_path = os.path.abspath(cf)
-    config_dir = os.path.dirname(cf_path)
     print(f"find_max_completion_per_program: config_file is {cf_path}")
 
     config = ConfigParser()
@@ -604,49 +596,46 @@ def find_max_completion_per_program(args):
     programs = programs_df["program"].astype(str).tolist()
     print(f"Computing max_fillfactor for {len(programs)} program(s)")
 
+    fill_by_program = {}
+
+    def record(program, value, reason=None):
+        fill_by_program[program] = value
+        suffix = f" ({reason})" if reason else ""
+        print(f"  {program}: max_fillfactor = {value:.2f}{suffix}", flush=True)
+
     for program in programs:
         prog_requests = requests_all[
             requests_all["program_code"].astype(str) == program
-        ].copy()
+        ]
         if prog_requests.empty:
-            print(f"  {program}: no rows in request.csv; max_fillfactor = 0.00")
-            _save_max_fillfactor(programs_df, programs_path, program, 0.0)
+            record(program, 0.0, "no requests")
             continue
 
-        request_out = os.path.join(config_dir, f"request_{program}.csv")
-        prog_requests.to_csv(request_out, index=False)
-        print(
-            f"  {program}: wrote {request_out} "
-            f"({len(prog_requests)} request row(s)); running shortfall..."
-        )
-
         semester_planner = splan.SemesterPlanner(
-            cf_path, requestsheet=request_out, defer_model=True
+            cf_path, requests=prog_requests, defer_model=True
         )
         if semester_planner.request_slots.empty:
-            print(
-                f"  {program}: no observable slots; max_fillfactor = 0.00 "
-                f"(saved to {programs_path})"
-            )
-            _save_max_fillfactor(programs_df, programs_path, program, 0.0)
+            record(program, 0.0, "no observable slots")
             continue
 
         semester_planner.build_model()
-        semester_planner.run_model_shortfall()
+        semester_planner.solve_shortfall()
 
         if program not in semester_planner.F:
-            print(
-                f"  {program}: no fill-factor variable "
-                f"(awarded_slots may be 0); max_fillfactor = 0.00"
-            )
-            _save_max_fillfactor(programs_df, programs_path, program, 0.0)
+            record(program, 0.0, "no awarded time")
             continue
 
-        fill = float(semester_planner.F[program].X)
-        _save_max_fillfactor(programs_df, programs_path, program, fill)
-        print(f"  {program}: max_fillfactor = {fill:.2f} (saved to {programs_path})")
+        record(program, float(semester_planner.F[program].X))
 
-    print("find_max_completion_per_program: done")
+    mapped = programs_df["program"].astype(str).map(fill_by_program)
+    programs_df["max_fillfactor"] = mapped.fillna(
+        programs_df["max_fillfactor"]
+    ).round(2)
+    programs_df.to_csv(programs_path, index=False)
+    print(
+        f"Wrote max_fillfactor for {len(fill_by_program)} program(s) "
+        f"to {programs_path}"
+    )
     return
 
 
