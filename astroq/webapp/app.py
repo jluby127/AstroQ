@@ -237,7 +237,7 @@ def run_parent_dynamic_page(run_name, page):
     semester_code, date, band = webrender.route_context_from_planner(
         loaded_run.semester_planner
     )
-    if page in loaded_run.data_astroq[0]:
+    if page in loaded_run.plot_data.program_dict:
         try:
             return webrender.build_program_html(
                 loaded_run, semester_code, date, band, page
@@ -316,7 +316,7 @@ def run_path_dynamic_page(page):
     semester_code, date, band = webrender.route_context_from_planner(
         loaded_run.semester_planner
     )
-    if page in loaded_run.data_astroq[0]:
+    if page in loaded_run.plot_data.program_dict:
         try:
             return webrender.build_program_html(
                 loaded_run, semester_code, date, band, page
@@ -374,7 +374,7 @@ def dynamic_page(semester_code, date, band, page):
             return webrender.build_nightplan_html(loaded_run, band)
         except ValueError as e:
             return f"Error: {e}", 404
-    if page in loaded_run.data_astroq[0]:
+    if page in loaded_run.plot_data.program_dict:
         try:
             return webrender.build_program_html(
                 loaded_run, semester_code, date, band, page

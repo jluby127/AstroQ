@@ -67,20 +67,20 @@ all: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/plan-night-complete)
 $(DATE_DIR)/%/plan-night-complete: $(DATE_DIR)/%/plan-night-run
 	@set -euo pipefail; \
 	echo "Band $(notdir $(@D)) workflow complete — archiving webapp..."; \
-	cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq archive -cf config.ini 2>&1 | tee -a astroq.log; \
+	cd $(@D) && $(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq archive -cf config.ini 2>&1 | tee -a astroq.log; \
 	touch $@
 
 $(DATE_DIR)/%/plan-night-run: $(DATE_DIR)/%/plan-semester-run
 	@set -euo pipefail; \
 	echo "Running plan-night for band $(notdir $(@D))..."; \
-	cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq plan-night -cf config.ini 2>&1 | tee -a astroq.log; \
+	cd $(@D) && $(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq plan-night -cf config.ini 2>&1 | tee -a astroq.log; \
 	touch $@
 
 $(DATE_DIR)/%/plan-semester-run: $(DATE_DIR)/%/prep-run
 	@set -euo pipefail; \
 	echo "Running plan-semester for band $(notdir $(@D))..."; \
 	$(if $(strip $(BOOST_UIDS)),echo "   Boost: $(BOOST_UIDS) (factor $(BOOST_FACTOR))";,) \
-	cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq plan-semester -cf config.ini $(BOOST_ARGS) 2>&1 | tee -a astroq.log; \
+	cd $(@D) && $(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq plan-semester -cf config.ini $(BOOST_ARGS) 2>&1 | tee -a astroq.log; \
 	touch $@
 
 $(DATE_DIR)/%/prep-run: $(DATE_DIR)/%/config.ini
@@ -93,10 +93,10 @@ $(DATE_DIR)/%/prep-run: $(DATE_DIR)/%/config.ini
 	IS_FULL_BAND=$$(echo $(notdir $(@D)) | grep -q '^full-' && echo "true" || echo "false"); \
 	if [ "$$IS_FULL_BAND" = "true" ]; then \
 		echo "Prep full-band $$BAND_NUM (queue=$$QUEUE)..."; \
-		cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -fillers $(FILLER_PROGRAM) -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
+		cd $(@D) && $(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -fillers $(FILLER_PROGRAM) -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
 	else \
 		echo "Prep band $$BAND_NUM (queue=$$QUEUE)..."; \
-		cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -fillers $(FILLER_PROGRAM) -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
+		cd $(@D) && $(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -fillers $(FILLER_PROGRAM) -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
 	fi; \
 	touch $@
 
@@ -146,7 +146,7 @@ combine_logs:
 
 check_night_plans:
 	@set -euo pipefail; \
-	$(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) python -m astroq.scripts.check_night_plans -s $(SEMESTER) -d $(DATE) $(DATE_DIR)
+	$(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) python -m astroq.scripts.check_night_plans -s $(SEMESTER) -d $(DATE) $(DATE_DIR)
 
 webapp:
 	@chmod +x $(WORKDIR)/launch_webapp.sh
@@ -166,6 +166,7 @@ status:
 	@echo "Conda env:    $(CONDA_ENV)"
 	@echo "Request URLs: $(REQUEST_URLS_CSV)"
 	@echo "WORKDIR:      $(WORKDIR)"
+	@echo "REPO_ROOT:    $(REPO_ROOT)"
 	@echo "DATE_DIR:     $(DATE_DIR)"
 
 complete: all webapp

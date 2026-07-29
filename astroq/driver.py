@@ -198,6 +198,19 @@ def hirescps_prep(args):
                 ],
                 ignore_index=True,
             )
+        if need_request_urls and request_urls_path:
+            ru_progs = pd.read_csv(request_urls_path)["program_code"].dropna().unique()
+            missing = [p for p in ru_progs if p not in set(programmatics["program"])]
+            if missing:
+                programmatics = pd.concat(
+                    [
+                        programmatics,
+                        pd.DataFrame(
+                            {"program": missing, "hours": [0.0] * len(missing)}
+                        ),
+                    ],
+                    ignore_index=True,
+                )
         write_programs_csv(programmatics, savepath)
 
     allocation_frame["comment"] = [""] * len(allocation_frame)
@@ -267,7 +280,6 @@ def hirescps_prep(args):
             semester_start_day=start_date,
             semester_end_day=end_date,
             request_csv_path=os.path.join(savepath, request_file),
-            current_day=current_date,
         )
 
     else:
@@ -676,6 +688,8 @@ def plot(args):
     config = ConfigParser()
     config.read(cf)
     semester_directory = config.get("global", "workdir")
+    plot_data = None
+    sel_all = None
 
     if os.path.exists(
         os.path.join(semester_directory, "outputs", "semester_planner.h5")
@@ -686,22 +700,23 @@ def plot(args):
         saveout = os.path.join(semester_planner.output_directory, "saved_plots")
         os.makedirs(saveout, exist_ok=True)
 
-        data_astroq = pl.process_stars(semester_planner)
-        all_stars_from_all_programs = np.concatenate(list(data_astroq[0].values()))
+        plot_data = pl.build_plot_data(semester_planner)
+        sel_all = plot_data.select_all()
+        sel_prog = plot_data.select_all(aggregate_by_program=True)
 
         # build the plots
-        request_df = pl.get_request_frame(semester_planner, all_stars_from_all_programs)
+        request_df = pl.get_request_frame(plot_data, sel_all)
         request_table_html = pl.dataframe_to_html(request_df)
 
-        fig_cof = pl.get_cof(semester_planner, list(data_astroq[1].values()))
-        fig_birdseye = pl.get_birdseye(
-            semester_planner, data_astroq[2], list(data_astroq[1].values())
+        fig_cof = pl.get_cof(
+            plot_data, programs=sorted(plot_data.program_table.index)
         )
+        fig_birdseye = pl.get_birdseye(plot_data, sel_prog)
         fig_football = pl.get_football(
-            semester_planner, all_stars_from_all_programs, use_program_colors=True
+            plot_data, sel_all, use_program_colors=True
         )
         fig_tau_inter_line = pl.get_tau_inter_line(
-            semester_planner, all_stars_from_all_programs, use_program_colors=True
+            plot_data, sel_all, use_program_colors=True
         )
 
         # write the html versions
@@ -748,9 +763,10 @@ def plot(args):
 
         # build the plots
         script_table_df = pl.get_script_plan(night_planner)
-        timebar_fig = pl.get_timebar(
-            semester_planner, all_stars_from_all_programs, use_program_colors=False
-        )
+        if plot_data is not None:
+            timebar_fig = pl.get_timebar(
+                plot_data, sel_all, use_program_colors=False
+            )
         ladder_fig = pl.get_ladder(data_ttp, night_start_time)
         slew_animation_fig = tplot.get_slew_animation_plotly(
             data_ttp,
@@ -764,7 +780,6 @@ def plot(args):
 
         # write the html versions
         script_table_html = pl.dataframe_to_html(script_table_df)
-        timebar_html = pio.to_html(timebar_fig, full_html=True, include_plotlyjs="cdn")
         ladder_html = pio.to_html(ladder_fig, full_html=True, include_plotlyjs="cdn")
         slew_path_html = pio.to_html(
             slew_path_fig, full_html=True, include_plotlyjs="cdn"
@@ -772,12 +787,17 @@ def plot(args):
         slew_animation_html = pio.to_html(
             slew_animation_fig, full_html=True, include_plotlyjs="cdn"
         )
+        if plot_data is not None:
+            timebar_html = pio.to_html(
+                timebar_fig, full_html=True, include_plotlyjs="cdn"
+            )
 
         # write out the html files
         with open(os.path.join(saveout, "script_table.html"), "w") as f:
             f.write(script_table_html)
-        with open(os.path.join(saveout, "timebar_plot.html"), "w") as f:
-            f.write(timebar_html)
+        if plot_data is not None:
+            with open(os.path.join(saveout, "timebar_plot.html"), "w") as f:
+                f.write(timebar_html)
         with open(os.path.join(saveout, "ladder_plot.html"), "w") as f:
             f.write(ladder_html)
         with open(os.path.join(saveout, "slew_animation_plot.html"), "w") as f:
@@ -839,7 +859,7 @@ def archive(args):
 
     programs_dir = os.path.join(archive_dir, "programs")
     os.makedirs(programs_dir, exist_ok=True)
-    for program_code in sorted(loaded.data_astroq[0]):
+    for program_code in sorted(loaded.plot_data.program_dict):
         program_path = os.path.join(programs_dir, f"{program_code}.html")
         with open(program_path, "w", encoding="utf-8") as f:
             f.write(
