@@ -115,9 +115,15 @@ class SemesterPlanner:
 
     Args:
         cf (str): path to the ``config.ini`` file.
+        requests (pandas.DataFrame, optional): pre-validated request rows to use
+            instead of reading ``request_file``. Callers that solve a subset
+            (e.g. one program at a time) pass a filtered frame so no temporary
+            CSV is needed.
+        defer_model (bool): skip :meth:`build_model` so the caller can inspect
+            ``request_slots`` first.
     """
 
-    def __init__(self, cf, requestsheet=None, *, defer_model=False):
+    def __init__(self, cf, requests=None, *, defer_model=False):
         """See class docstring."""
 
         # Read config as text so we can persist it verbatim and recreate the
@@ -129,12 +135,12 @@ class SemesterPlanner:
         self.queue = astroq.queue.from_config(self.config)
         self.schedule = None
 
-        # Load input data
-        if requestsheet is None:
+        # Load input data. _add_request_columns mutates self.requests in place,
+        # so copy a caller-supplied frame to leave theirs untouched.
+        if requests is None:
             self.requests = self._load_frame("request")
         else:
-            print("Using requestsheet from input file: ", requestsheet)
-            self.requests = astroq.io.read_csv(requestsheet, "request")
+            self.requests = requests.copy()
         self.past = self._load_frame("past")
         self.allocation = self._load_frame("allocation")
         self.custom = self._load_frame("custom")
@@ -664,11 +670,15 @@ class SemesterPlanner:
         getattr(self, _MODE_PIPELINES[mode])()
         logs.info("Scheduling complete, clear skies!")
 
-    def run_model_shortfall(self):
-        """Shortfall-only pipeline: minimize weighted theta, write outputs."""
+    def solve_shortfall(self):
+        """Minimize weighted theta. Writes nothing and emits no run report."""
         self._constraint_fillfactor(max_fillfactor=1.0)
         self.model.setObjective(self._objective_weighted_theta(), GRB.MINIMIZE)
         self.optimize_model("shortfall")
+
+    def run_model_shortfall(self):
+        """Shortfall-only pipeline: minimize weighted theta, write outputs."""
+        self.solve_shortfall()
         self.build_schedule()
         self.log_report("shortfall")
         self.write_request_selected()
