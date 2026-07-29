@@ -130,6 +130,50 @@ def _customs_from_requests_df(req_df):
 _SHEET_ID_RE = re.compile(r"/spreadsheets/d/([^/?#]+)")
 _GID_RE = re.compile(r"[?#&]gid=(\d+)")
 
+# Row-1 human labels (CPS template) → canonical column names when row-4 machine
+# headers are blank (common for the trailing ``comments`` column).
+_HUMAN_LABEL_TO_CANONICAL = {
+    "comments": "comments",
+}
+
+
+def _human_header_labels(raw_text: str) -> list[str]:
+    """Return stripped human labels from CPS template row 1."""
+    row = next(csv.reader(io.StringIO(raw_text)), [])
+    return [str(c).strip() for c in row]
+
+
+def _is_blank_sheet_header(name: str) -> bool:
+    text = str(name).strip()
+    return not text or text.startswith("Unnamed:")
+
+
+def _canonicalize_sheet_columns(
+    df: pd.DataFrame, human_labels: list[str]
+) -> pd.DataFrame:
+    """Resolve blank/Unnamed machine headers using row-1 human labels."""
+    cols = list(df.columns)
+    for i, col in enumerate(cols):
+        if not _is_blank_sheet_header(col):
+            continue
+        if i >= len(human_labels):
+            continue
+        canonical = _HUMAN_LABEL_TO_CANONICAL.get(human_labels[i].strip().lower())
+        if canonical:
+            cols[i] = canonical
+    df.columns = cols
+
+    for alias, canonical in (("Comments", "comments"), ("Observing Notes", "comments")):
+        if alias not in df.columns:
+            continue
+        if canonical not in df.columns:
+            df = df.rename(columns={alias: canonical})
+            continue
+        empty = df[canonical].isna() | (df[canonical].astype(str).str.strip() == "")
+        df.loc[empty, canonical] = df.loc[empty, alias]
+        df = df.drop(columns=[alias])
+    return df
+
 
 def _fetch_sheet_dataframe(url, skip_rows=3):
     """
@@ -190,9 +234,11 @@ def _fetch_sheet_dataframe(url, skip_rows=3):
             "not CSV. Verify sharing is set to 'Anyone with the link'."
         )
 
+    human_labels = _human_header_labels(text)
     df = pd.read_csv(io.StringIO(text), skiprows=skip_rows, dtype=str)
     df = df.dropna(how="all")
     df.columns = [str(c).strip() for c in df.columns]
+    df = _canonicalize_sheet_columns(df, human_labels)
     # Google Sheets still use legacy column name; normalize to canonical schema.
     if "starname" in df.columns and "target" not in df.columns:
         df = df.rename(columns={"starname": "target"})
@@ -458,12 +504,25 @@ def pull_all_scheduled(start_date, end_date, output_path=None, timeout=60):
 
     Columns: ``Date, Time, Dark, TelNr, Instrument, Account, PI, Institution, ProjCode``.
     If ``output_path`` is given, also write the same DataFrame to CSV.
+
+    A failed query for one instrument (empty or malformed form response) is
+    logged and skipped so other instruments can still contribute rows.
     """
-    frames = [
-        _query_keck_schedule_form(inst, start_date, end_date, timeout=timeout)
-        for inst in KECK_SCHEDULE_INSTRUMENTS
-    ]
-    frames = [f for f in frames if not f.empty]
+    frames = []
+    for inst in KECK_SCHEDULE_INSTRUMENTS:
+        try:
+            frame = _query_keck_schedule_form(
+                inst, start_date, end_date, timeout=timeout
+            )
+        except RuntimeError as exc:
+            logs.warning(
+                "Keck schedule query for %s failed (%s); skipping.",
+                inst,
+                exc,
+            )
+            continue
+        if not frame.empty:
+            frames.append(frame)
     if not frames:
         df = pd.DataFrame()
     else:
@@ -539,6 +598,29 @@ def crossmatch_allocation(scheduled_df, request_urls_path, semester, output_path
         .sort_values(["Date", "StartTime", "ProjCode"])
         .reset_index(drop=True)
     )
+
+    # 2026B_C362 (Yapeng Zhang): CPS queue is Aug 3 half-night only (PI confirm 2026-07-27).
+    # That half night is charged to 2026B_C275 (Heather Knutson).
+    if semester == "2026B":
+        _C362_DROP_DATES = ("2026-08-02", "2026-08-30")
+        drop = (matched["ProjCode"] == "C362") & matched["Date"].isin(_C362_DROP_DATES)
+        if drop.any():
+            logs.info(
+                "Dropping %d Keck C362 block(s) not in CPS queue: %s",
+                int(drop.sum()),
+                sorted(matched.loc[drop, "Date"].unique()),
+            )
+            matched = matched.loc[~drop].reset_index(drop=True)
+
+        recode = (matched["ProjCode"] == "C362") & (matched["Date"] == "2026-08-03")
+        if recode.any():
+            n = int(recode.sum())
+            logs.info(
+                "Recoding %d C362 Aug 3 half-night block(s) to C275 (2026B queue assignment)",
+                n,
+            )
+            matched.loc[recode, "ProjCode"] = "C275"
+
     if output_path is not None:
         matched.to_csv(output_path, index=False)
     return matched
@@ -558,7 +640,7 @@ JUMP_HIRES_PAST_EXPLORER_ID = 285
 JUMP_PAST_QUERY_TMP_FILENAME = "past_jump-query-tmp.csv"
 
 
-def jump_query_to_past(data, request_csv_path, current_day=None):
+def jump_query_to_past(data, request_csv_path, semester_start_day=None):
     """Convert raw JUMP frame rows to ``past.csv`` visit rows.
 
     JUMP ``starname`` values are matched to ``request.csv`` ``unique_id`` via a
@@ -567,8 +649,9 @@ def jump_query_to_past(data, request_csv_path, current_day=None):
     matching. Frames are grouped per target/night and counted as a visit when
     ``len(frames) >= ceil(0.5 * n_exp)``.
 
-    When ``current_day`` is set (``YYYY-MM-DD`` from ``[global] current_day``),
-    only frames on nights strictly before that date are kept.
+    When ``semester_start_day`` is set (``YYYY-MM-DD`` from config
+    ``[global] semester_start_day``), frames on nights before that date are
+    dropped. Frames on ``current_day`` and later in-semester nights are kept.
     """
     cols = ["unique_id", "target", "timestamp", "exposure_time"]
     if data.empty:
@@ -612,14 +695,14 @@ def jump_query_to_past(data, request_csv_path, current_day=None):
         return pd.DataFrame(columns=cols)
     df["_night"] = df["_ts"].dt.strftime("%Y-%m-%d")
 
-    if current_day:
+    if semester_start_day:
         n_before = len(df)
-        df = df.loc[df["_night"] < current_day].copy()
+        df = df.loc[df["_night"] >= semester_start_day].copy()
         n_dropped = n_before - len(df)
         if n_dropped:
             print(
-                f"JUMP past filter: dropped {n_dropped} frame(s) on or after "
-                f"current_day={current_day}"
+                f"JUMP past filter: dropped {n_dropped} frame(s) before "
+                f"semester_start_day={semester_start_day}"
             )
         if df.empty:
             return pd.DataFrame(columns=cols)
@@ -658,7 +741,6 @@ def get_hires_past_history(
     semester_start_day=None,
     semester_end_day=None,
     request_csv_path=None,
-    current_day=None,
 ):
     """Pull HIRES past history from JUMP and write processed ``path_to_csv``.
 
@@ -683,9 +765,6 @@ def get_hires_past_history(
             ``[global] semester_end_day``; passed to JUMP as ``end_date``.
         request_csv_path (str, optional): ``request.csv`` path supplying
             ``unique_id`` / ``n_exp`` for visit-collapse thresholds.
-        current_day (str, optional): ``YYYY-MM-DD`` from config
-            ``[global] current_day``; frames on this night or later are
-            excluded from ``past.csv``.
 
     Raises:
         ValueError: if ``semester_start_day`` or ``semester_end_day`` is
@@ -750,6 +829,8 @@ def get_hires_past_history(
 
     data = pd.read_csv(raw_path)
 
-    visits = jump_query_to_past(data, request_csv_path, current_day=current_day)
+    visits = jump_query_to_past(
+        data, request_csv_path, semester_start_day=semester_start_day
+    )
     visits.to_csv(path_to_csv, index=False)
     print(f"Processed past history saved to {path_to_csv}")

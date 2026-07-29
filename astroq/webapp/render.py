@@ -12,11 +12,11 @@ from importlib.resources import files as _resource_files
 from typing import Any, Optional
 
 import jinja2
-import numpy as np
 import plotly.io as pio
 
 import astroq.nplan as nplan
 import astroq.plot as pl
+from astroq.plot.context import PlotData
 import astroq.ttp.plot as tplot
 from astroq.nplan import NightPlanner
 from astroq.splan import SemesterPlanner
@@ -37,7 +37,7 @@ class LoadedRun:
     """Planner data loaded from a run's outputs directory."""
 
     semester_planner: SemesterPlanner
-    data_astroq: tuple
+    plot_data: PlotData
     semester_planner_timestamp: Optional[str]
     night_planner: Optional[NightPlanner] = None
     data_ttp: Any = None
@@ -79,7 +79,7 @@ def load_planners_from_outputs(outputs_dir: str) -> LoadedRun:
         raise FileNotFoundError(f"semester_planner.h5 not found in {outputs_dir}")
 
     semester_planner = SemesterPlanner.from_hdf5(semester_planner_h5)
-    data_astroq = pl.process_stars(semester_planner)
+    plot_data = pl.build_plot_data(semester_planner)
     mtime = os.path.getmtime(semester_planner_h5)
     semester_planner_timestamp = datetime.fromtimestamp(mtime).strftime(
         "%Y-%m-%d %H:%M:%S"
@@ -105,7 +105,7 @@ def load_planners_from_outputs(outputs_dir: str) -> LoadedRun:
 
     return LoadedRun(
         semester_planner=semester_planner,
-        data_astroq=data_astroq,
+        plot_data=plot_data,
         semester_planner_timestamp=semester_planner_timestamp,
         night_planner=night_planner,
         data_ttp=data_ttp,
@@ -216,8 +216,12 @@ def build_admin_html(
     link_targets: bool = True,
 ) -> str:
     """Render the admin dashboard page."""
-    all_stars = np.concatenate(list(loaded.data_astroq[0].values()))
-    request_df = pl.get_request_frame(loaded.semester_planner, all_stars)
+    pd = loaded.plot_data
+    sel_all = pd.select_all()
+    sel_prog = pd.select_all(aggregate_by_program=True)
+    all_programs = sorted(pd.program_table.index)
+
+    request_df = pl.get_request_frame(pd, sel_all)
     if link_targets:
         request_table_html = pl.request_frame_to_html(
             request_df, semester_code, date, band
@@ -225,34 +229,16 @@ def build_admin_html(
     else:
         request_table_html = pl.request_frame_to_html(request_df)
 
-    fig_cof1 = pl.get_cof(loaded.semester_planner, list(loaded.data_astroq[1].values()))
-    fig_cof2 = pl.get_cof(
-        loaded.semester_planner, list(loaded.data_astroq[1].values()), use_time=True
-    )
-    fig_completion_hist = pl.get_completion_histogram_by_weight(
-        loaded.semester_planner, all_stars
-    )
-    fig_completion_scatter = pl.get_completion_vs_target_name(
-        loaded.semester_planner, all_stars
-    )
-    fig_birdseye = pl.get_birdseye(
-        loaded.semester_planner, loaded.data_astroq[2], list(loaded.data_astroq[1].values())
-    )
-    fig_football = pl.get_football(
-        loaded.semester_planner, all_stars, use_program_colors=True
-    )
-    fig_tau_inter_line = pl.get_tau_inter_line(
-        loaded.semester_planner, all_stars, use_program_colors=True
-    )
-    fig_timebar = pl.get_timebar(
-        loaded.semester_planner, all_stars, use_program_colors=True
-    )
-    fig_timebar_by_program = pl.get_timebar_by_program(
-        loaded.semester_planner, loaded.data_astroq[0]
-    )
-    fig_rawobs = pl.get_rawobs(
-        loaded.semester_planner, all_stars, use_program_colors=True
-    )
+    fig_cof1 = pl.get_cof(pd, programs=all_programs)
+    fig_cof2 = pl.get_cof(pd, programs=all_programs, units="time")
+    fig_completion_hist = pl.get_completion_histogram_by_weight(pd, sel_all)
+    fig_completion_scatter = pl.get_completion_vs_target_name(pd, sel_all)
+    fig_birdseye = pl.get_birdseye(pd, sel_prog)
+    fig_football = pl.get_football(pd, sel_all, use_program_colors=True)
+    fig_tau_inter_line = pl.get_tau_inter_line(pd, sel_all, use_program_colors=True)
+    fig_timebar = pl.get_timebar(pd, sel_all, use_program_colors=True)
+    fig_timebar_by_program = pl.get_timebar_by_program(pd)
+    fig_rawobs = pl.get_rawobs(pd, sel_all, use_program_colors=True)
 
     figures_html = [
         _fig_to_html(fig_timebar),
@@ -318,11 +304,14 @@ def build_program_html(
     link_targets: bool = True,
 ) -> str:
     """Render a program overview page."""
-    if program_code not in loaded.data_astroq[0]:
+    pd = loaded.plot_data
+    if program_code not in pd.program_dict:
         raise KeyError(f"Program {program_code} not found")
 
-    program_stars = loaded.data_astroq[0][program_code]
-    request_df = pl.get_request_frame(loaded.semester_planner, program_stars)
+    program_requests = sorted(rv.unique_id for rv in pd.program_dict[program_code])
+
+    sel = pd.select_program(program_code)
+    request_df = pl.get_request_frame(pd, sel)
     if link_targets:
         request_table_html = pl.request_frame_to_html(
             request_df, semester_code, date, band
@@ -330,19 +319,13 @@ def build_program_html(
     else:
         request_table_html = pl.request_frame_to_html(request_df)
 
-    fig_cof = pl.get_cof(loaded.semester_planner, program_stars)
-    fig_completion_hist = pl.get_completion_histogram_by_weight(
-        loaded.semester_planner, program_stars
-    )
-    fig_birdseye = pl.get_birdseye(
-        loaded.semester_planner, loaded.data_astroq[2], program_stars
-    )
-    fig_tau_inter_line = pl.get_tau_inter_line(loaded.semester_planner, program_stars)
-    fig_football = pl.get_football(loaded.semester_planner, program_stars)
-    fig_timebar = pl.get_timebar(
-        loaded.semester_planner, program_stars, use_program_colors=True
-    )
-    fig_rawobs = pl.get_rawobs(loaded.semester_planner, program_stars)
+    fig_cof = pl.get_cof(pd, requests=program_requests)
+    fig_completion_hist = pl.get_completion_histogram_by_weight(pd, sel)
+    fig_birdseye = pl.get_birdseye(pd, sel)
+    fig_tau_inter_line = pl.get_tau_inter_line(pd, sel)
+    fig_football = pl.get_football(pd, sel)
+    fig_timebar = pl.get_timebar(pd, sel, use_program_colors=True)
+    fig_rawobs = pl.get_rawobs(pd, sel)
 
     figures_html = [
         _fig_to_html(fig_timebar),
@@ -368,34 +351,29 @@ def build_star_html(
     loaded: LoadedRun, target: str, program_code: Optional[str] = None
 ) -> str:
     """Render a single-target page."""
+    pd = loaded.plot_data
     compare_target = target.lower().replace(" ", "")
     programs_to_search = (
         [program_code]
-        if program_code and program_code in loaded.data_astroq[0]
-        else loaded.data_astroq[0].keys()
+        if program_code and program_code in pd.program_dict
+        else pd.program_dict.keys()
     )
 
     for program in programs_to_search:
-        for star_ind in range(len(loaded.data_astroq[0][program])):
-            star_obj = loaded.data_astroq[0][program][star_ind]
-            true_target = star_obj.target
+        for star_view in pd.program_dict[program]:
+            true_target = star_view.target
             if true_target.lower().replace(" ", "") != compare_target:
                 continue
 
-            request_df = pl.get_request_frame(loaded.semester_planner, [star_obj])
+            sel = pd.select_target(star_view.unique_id)
+            request_df = pl.get_request_frame(pd, sel)
             request_table_html = pl.request_frame_to_html(request_df)
 
-            fig_cof = pl.get_cof(
-                loaded.semester_planner, [loaded.data_astroq[0][program][star_ind]]
-            )
-            fig_birdseye = pl.get_birdseye(
-                loaded.semester_planner, loaded.data_astroq[2], [star_obj]
-            )
-            fig_tau_inter_line = pl.get_tau_inter_line(
-                loaded.semester_planner, [star_obj]
-            )
-            fig_football = pl.get_football(loaded.semester_planner, [star_obj])
-            fig_rawobs = pl.get_rawobs(loaded.semester_planner, [star_obj])
+            fig_cof = pl.get_cof(pd, requests=[star_view.unique_id])
+            fig_birdseye = pl.get_birdseye(pd, sel)
+            fig_tau_inter_line = pl.get_tau_inter_line(pd, sel)
+            fig_football = pl.get_football(pd, sel)
+            fig_rawobs = pl.get_rawobs(pd, sel)
 
             figures_html = [
                 _fig_to_html(fig_cof),

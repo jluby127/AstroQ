@@ -17,7 +17,9 @@ from astropy.time import Time
 import astropy.units as u
 
 from astroq.queue.hirescps.script_columns import (
+    TARGET_NAME_WIDTH,
     format_exposure_token,
+    format_section_header,
     format_vmag_token,
 )
 
@@ -25,10 +27,7 @@ logs = logging.getLogger(__name__)
 
 _BSTARS_FILE = Path(__file__).with_name("bstars.txt")
 _CACHE_FILENAME = "bstars_simbad.csv"
-_HEADER = (
-    "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX B Stars - Coordinates Advanced "
-    "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-)
+_BSTARS_HEADER = format_section_header("B-Stars-Coordinates-Advanced")
 _CACHE_COLS = [
     "name",
     "ra_deg",
@@ -241,12 +240,16 @@ def format_bstar_row(
     """Format one B-star line like a request row with ``XX`` instead of program."""
     ra_str, dec_str = _format_coord_strings(coord)
     display_name = _display_name(name)
-    name_str = " " * (16 - len(display_name[:16])) + display_name[:16]
+    name_str = (
+        " " * (TARGET_NAME_WIDTH - len(display_name[:TARGET_NAME_WIDTH]))
+        + display_name[:TARGET_NAME_WIDTH]
+    )
     line = (
-        f"{name_str} {ra_str} {dec_str} 2000 {_format_vmag_token(vmag)}"
+        f"{name_str} {ra_str} {dec_str} 2000 "
+        f"{_format_vmag_token(vmag)} "
         f"{_format_bstar_exposure()} 250k B5 1x  in p3 XX"
     )
-    line += f"  epoch={Time(current_day).jyear:.1f}"
+    line += f" epoch={Time(current_day).jyear:.1f}"
     if comment:
         line += f", {comment}"
     return line
@@ -264,7 +267,7 @@ def build_bstars_section(
     resolve = query_fn or _resolve_bstars
     table = resolve(names_df, cache_dir)
 
-    lines = ["", _HEADER, ""]
+    lines = [_BSTARS_HEADER]
     for _, row in table.iterrows():
         if not np.isfinite(row.get("ra_deg", np.nan)):
             continue

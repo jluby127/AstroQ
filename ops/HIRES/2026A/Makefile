@@ -51,6 +51,10 @@ else
   BOOST_ARGS =
 endif
 
+# Optional per-program schedule trace after each plan-semester solve stage
+# Example: make DATE=2026-07-21 BAND=band1 TRACE_PROGRAMS=2026A_N006
+TRACE_PROGRAMS ?=
+
 # Cross-platform sed in-place flag (Darwin uses -i '')
 UNAME_S := $(shell uname)
 SED_I_FLAG :=
@@ -83,14 +87,14 @@ all: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/plan-night-complete)
 $(DATE_DIR)/%/plan-night-complete: $(DATE_DIR)/%/plan-night-run
 	@set -euo pipefail; \
 	echo "Band $(notdir $(@D)) workflow complete — archiving webapp..."; \
-	cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq archive -cf config.ini 2>&1 | tee -a astroq.log; \
+	cd $(@D) && $(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq archive -cf config.ini 2>&1 | tee -a astroq.log; \
 	touch $@
 
 # Run plan-night command
 $(DATE_DIR)/%/plan-night-run: $(DATE_DIR)/%/plan-semester-run
 	@set -euo pipefail; \
 	echo "Running plan-night for band $(notdir $(@D))..."; \
-	cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq plan-night -cf config.ini 2>&1 | tee -a astroq.log; \
+	cd $(@D) && $(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq plan-night -cf config.ini 2>&1 | tee -a astroq.log; \
 	touch $@
 
 # Run plan-semester command (unified for all bands)
@@ -98,7 +102,7 @@ $(DATE_DIR)/%/plan-semester-run: $(DATE_DIR)/%/prep-run
 	@set -euo pipefail; \
 	echo "Running plan-semester for band $(notdir $(@D))..."; \
 	$(if $(strip $(BOOST_UIDS)),echo "   Boost: $(BOOST_UIDS) (factor $(BOOST_FACTOR))";,) \
-	cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq plan-semester -cf config.ini $(BOOST_ARGS) 2>&1 | tee -a astroq.log; \
+	cd $(@D) && $(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq plan-semester -cf config.ini $(BOOST_ARGS) 2>&1 | tee -a astroq.log; \
 	touch $@
 
 # Unified prep command for all bands (queue read from config.ini; the queue
@@ -113,10 +117,10 @@ $(DATE_DIR)/%/prep-run: $(DATE_DIR)/%/config.ini
 	IS_FULL_BAND=$$(echo $(notdir $(@D)) | grep -q '^full-' && echo "true" || echo "false"); \
 	if [ "$$IS_FULL_BAND" = "true" ]; then \
 		echo "Prep full-band $$BAND_NUM (queue=$$QUEUE)..."; \
-		cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
+		cd $(@D) && $(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
 	else \
 		echo "Prep band $$BAND_NUM (queue=$$QUEUE)..."; \
-		cd $(@D) && $(LOAD_ENV) && PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
+		cd $(@D) && $(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
 	fi; \
 	touch $@
 
@@ -130,6 +134,9 @@ $(DATE_DIR)/%/config.ini: create_dirs
 	@sed -i $(SED_I_FLAG) "s|END_DATE_PLACEHOLDER|$(END_DATE)|g" $@
 	@sed -i $(SED_I_FLAG) "s|SEMESTER_PLACEHOLDER|$(SEMESTER)|g" $@
 	@sed -i $(SED_I_FLAG) "s|WORKDIR_PLACEHOLDER|$(@D)|g" $@
+	@if [ -n "$(strip $(TRACE_PROGRAMS))" ]; then \
+		sed -i $(SED_I_FLAG) "s|^trace_programs =.*|trace_programs = $(TRACE_PROGRAMS)|" $@; \
+	fi
 	@echo "✅ Config file created and updated for band $(notdir $(@D))"
 
 # Validate date format
@@ -224,6 +231,11 @@ ifneq ($(strip $(BOOST_UIDS)),)
 	@echo "  Boost UIDs: $(BOOST_UIDS) (factor $(BOOST_FACTOR))"
 else
 	@echo "  Boost: (disabled)"
+endif
+ifneq ($(strip $(TRACE_PROGRAMS)),)
+	@echo "  Trace programs: $(TRACE_PROGRAMS)"
+else
+	@echo "  Trace programs: (disabled)"
 endif
 	@echo "  Conda env:    $(CONDA_ENV)"
 	@echo "  Allocation file (-as): $(ALLOCATION_FILE)"
