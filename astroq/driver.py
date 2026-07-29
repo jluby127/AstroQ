@@ -21,6 +21,7 @@ import astroq.io
 import astroq.queue
 import astroq.queue.kpfcc.prep as kpfcc
 import astroq.queue.hirescps.prep as hirescps
+from astroq.queue.prep_common import write_programs_csv
 import astroq.nplan as nplan
 import astroq.plot as pl
 import astroq.splan as splan
@@ -153,7 +154,7 @@ def hirescps_prep(args):
             ],
             ignore_index=True,
         )
-        programmatics.to_csv(os.path.join(savepath, "programs.csv"), index=False)
+        write_programs_csv(programmatics, savepath)
     else:
         if not allo_source:
             sched_path = os.path.join(savepath, "allocation_hires_all_scheduled.csv")
@@ -210,7 +211,7 @@ def hirescps_prep(args):
                     ],
                     ignore_index=True,
                 )
-        programmatics.to_csv(os.path.join(savepath, "programs.csv"), index=False)
+        write_programs_csv(programmatics, savepath)
 
     allocation_frame["comment"] = [""] * len(allocation_frame)
     # Update allocation times for tonight if this is a full-band
@@ -356,7 +357,7 @@ def kpfcc_prep(args):
             ],
             ignore_index=True,
         )
-        programmatics.to_csv(os.path.join(savepath, "programs.csv"), index=False)
+        write_programs_csv(programmatics, savepath)
     else:
         print(
             f"Using allocation information from Keck Observatory Instrument Plan (KOIP) file: {allo_source}"
@@ -373,7 +374,7 @@ def kpfcc_prep(args):
                 "hours": list(hours_by_program.values()),
             }
         )
-        programmatics.to_csv(os.path.join(savepath, "programs.csv"), index=False)
+        write_programs_csv(programmatics, savepath)
     # else:
     #     print(f'Using allocation information from file: {allo_source}')
     #     # Validate that the file has the correct columns
