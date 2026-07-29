@@ -551,6 +551,14 @@ def plan_semester(args):
     return
 
 
+def _save_max_fillfactor(programs_df, programs_path, program, value):
+    """Write one program's ``max_fillfactor`` to ``programs.csv``."""
+    programs_df.loc[
+        programs_df["program"].astype(str) == program, "max_fillfactor"
+    ] = round(float(value), 2)
+    programs_df.to_csv(programs_path, index=False)
+
+
 def find_max_completion_per_program(args):
     """Estimate per-program max fill by running shortfall with each program alone.
 
@@ -558,6 +566,9 @@ def find_max_completion_per_program(args):
     next to the config, solve ``run_model_shortfall`` on that sheet alone, and
     record the resulting fill factor ``F[p] = (past + scheduled) / awarded`` as
     ``max_fillfactor`` (e.g. ``0.72`` for 72%).
+
+    Programs with no request rows, no observable slots, or no fill-factor variable
+    (e.g. ``awarded_slots == 0``) get ``max_fillfactor = 0.0``.
 
     Args:
         args (argparse.Namespace): command line arguments with:
@@ -598,7 +609,8 @@ def find_max_completion_per_program(args):
             requests_all["program_code"].astype(str) == program
         ].copy()
         if prog_requests.empty:
-            print(f"  {program}: no rows in request.csv; skipping")
+            print(f"  {program}: no rows in request.csv; max_fillfactor = 0.00")
+            _save_max_fillfactor(programs_df, programs_path, program, 0.0)
             continue
 
         request_out = os.path.join(config_dir, f"request_{program}.csv")
@@ -608,22 +620,30 @@ def find_max_completion_per_program(args):
             f"({len(prog_requests)} request row(s)); running shortfall..."
         )
 
-        semester_planner = splan.SemesterPlanner(cf_path, requestsheet=request_out)
+        semester_planner = splan.SemesterPlanner(
+            cf_path, requestsheet=request_out, defer_model=True
+        )
+        if semester_planner.request_slots.empty:
+            print(
+                f"  {program}: no observable slots; max_fillfactor = 0.00 "
+                f"(saved to {programs_path})"
+            )
+            _save_max_fillfactor(programs_df, programs_path, program, 0.0)
+            continue
+
+        semester_planner.build_model()
         semester_planner.run_model_shortfall()
 
         if program not in semester_planner.F:
             print(
                 f"  {program}: no fill-factor variable "
-                f"(awarded_slots may be 0); skipping"
+                f"(awarded_slots may be 0); max_fillfactor = 0.00"
             )
+            _save_max_fillfactor(programs_df, programs_path, program, 0.0)
             continue
 
         fill = float(semester_planner.F[program].X)
-        fill = round(fill, 2)
-        programs_df.loc[
-            programs_df["program"].astype(str) == program, "max_fillfactor"
-        ] = fill
-        programs_df.to_csv(programs_path, index=False)
+        _save_max_fillfactor(programs_df, programs_path, program, fill)
         print(f"  {program}: max_fillfactor = {fill:.2f} (saved to {programs_path})")
 
     print("find_max_completion_per_program: done")

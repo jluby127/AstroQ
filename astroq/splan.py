@@ -117,7 +117,7 @@ class SemesterPlanner:
         cf (str): path to the ``config.ini`` file.
     """
 
-    def __init__(self, cf, requestsheet=None):
+    def __init__(self, cf, requestsheet=None, *, defer_model=False):
         """See class docstring."""
 
         # Read config as text so we can persist it verbatim and recreate the
@@ -157,7 +157,8 @@ class SemesterPlanner:
         )
         request_slots["rds"] = request_slots[["r", "d", "s"]].apply(tuple, axis=1)
         self.request_slots = request_slots
-        self.build_model()
+        if not defer_model:
+            self.build_model()
 
     def _load_frame(self, kind):
         """Load a validated CSV frame. ``kind`` maps to ``{kind}_file`` in config."""
