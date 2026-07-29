@@ -36,7 +36,9 @@ np.random.seed(24)
 # Global layout constants (legacy names from dynamic.py)
 gray = "rgb(210,210,210)"
 clear = "rgba(255,255,255,1)"
-labelsize = 38
+labelsize = 15
+# Axis titles / ticks for COF, birdseye, cadence, rawobs, and completion figures.
+labelsize_large = 28
 hours_per_night = 12.0
 
 

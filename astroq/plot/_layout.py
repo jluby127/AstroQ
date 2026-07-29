@@ -6,7 +6,7 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.io as pio
 
-from astroq.plot._common import clear, labelsize
+from astroq.plot._common import clear, labelsize, labelsize_large
 
 FIG_WIDTH = 1400
 TIMELINE_HEIGHT = 1000
@@ -31,7 +31,7 @@ _HORIZONTAL_LEGEND = dict(
     bgcolor="rgba(255,255,255,0.7)",
     bordercolor="black",
     borderwidth=1,
-    font=dict(size=labelsize - 18),
+    font=dict(size=labelsize -0),
     itemsizing="constant",
     itemwidth=30,
     groupclick="toggleitem",
@@ -84,8 +84,8 @@ def semester_night_ticks(semester_planner, step=23):
 def semester_night_xaxis(semester_planner, tickvals, ticktext, *, zeroline=False):
     """Primary bottom x-axis: night index in semester."""
     axis = dict(
-        title_font=dict(size=labelsize),
-        tickfont=dict(size=labelsize - 4),
+        title_font=dict(size=labelsize_large),
+        tickfont=dict(size=labelsize_large - 4),
         tickvals=tickvals,
         ticktext=ticktext,
         tickmode="array",
@@ -109,7 +109,7 @@ def semester_date_xaxis2(semester_planner, tickvals, ticktext_dates):
         showgrid=False,
         side="top",
         overlaying="x",
-        tickfont=dict(size=labelsize - 6),
+        tickfont=dict(size=labelsize_large - 6),
         showticklabels=True,
         range=[0, semester_planner.semester_length - 1],
     )
@@ -140,6 +140,7 @@ def timeline_layout(
         "template": "astroq_semester",
         "plot_bgcolor": clear,
         "paper_bgcolor": clear,
+        "font": dict(size=labelsize_large),
         "xaxis_title": xaxis_title,
         "yaxis_title": yaxis_title,
         "showlegend": True,
@@ -249,12 +250,16 @@ def birdseye_slot_yaxis(semester_planner):
         total_minutes = slot * slot_size
         y_ticktext.append(f"{total_minutes // 60:02.0f}:{total_minutes % 60:02.0f}")
     yaxis = dict(
-        title_font=dict(size=labelsize),
-        tickfont=dict(size=labelsize - 4),
+        title=dict(
+            font=dict(size=labelsize_large),
+            standoff=16,
+        ),
+        tickfont=dict(size=labelsize_large - 4),
         tickvals=y_tickvals,
         ticktext=y_ticktext,
         tickmode="array",
         showgrid=False,
+        automargin=True,
     )
     return yaxis, n_slots
 
@@ -263,8 +268,8 @@ def log_axis_cadence():
     """Log axis preset for tau_inter cadence scatter (0.5–180 days)."""
     return dict(
         type="log",
-        title_font=dict(size=labelsize),
-        tickfont=dict(size=labelsize - 4),
+        title_font=dict(size=labelsize_large),
+        tickfont=dict(size=labelsize_large - 4),
         showgrid=True,
         gridcolor="lightgray",
         gridwidth=0.5,
@@ -279,8 +284,8 @@ def log_axis_counts():
     """Log axis preset for rawobs observation-count scatter."""
     return dict(
         type="log",
-        title_font=dict(size=labelsize),
-        tickfont=dict(size=labelsize - 4),
+        title_font=dict(size=labelsize_large),
+        tickfont=dict(size=labelsize_large - 4),
         showgrid=True,
         gridcolor="lightgray",
         minor=dict(showgrid=False, ticks=""),
@@ -296,6 +301,7 @@ def log_scatter_layout(*, xaxis_title, yaxis_title, xaxis, yaxis, **overrides):
         "template": "astroq_semester",
         "plot_bgcolor": clear,
         "paper_bgcolor": clear,
+        "font": dict(size=labelsize_large),
         "xaxis_title": xaxis_title,
         "yaxis_title": yaxis_title,
         "xaxis": xaxis,
@@ -590,15 +596,33 @@ def add_timebar_subplot_guides(
     )
 
 
+def timebar_grid_title():
+    """Compact HTML title for the per-program timebar grid."""
+    return (
+        "<b>Time Breakdown by Program</b><br>"
+        "<span style='font-size:14px'>"
+        "Each panel: Requested → Past → Future → Incomplete → Unused "
+        "(top to bottom). Dashed line = allocated; panels use independent scales."
+        "</span>"
+    )
+
+
 def timebar_grid_layout(title_text, num_rows, **overrides):
     """Layout preset for the per-program timebar grid."""
     layout = {
-        "title_text": title_text,
+        "title": dict(
+            text=title_text,
+            font=dict(size=18),
+            x=0.5,
+            xanchor="center",
+            y=0.98,
+            yanchor="top",
+        ),
         "template": "astroq_semester",
         "showlegend": False,
         "height": max(600, num_rows * 250),
         "width": FIG_WIDTH,
-        "margin": dict(t=150, b=50, l=50, r=50),
+        "margin": dict(t=90, b=50, l=50, r=50),
     }
     layout.update(overrides)
     return layout
@@ -611,6 +635,7 @@ def completion_layout(**overrides):
         "template": "astroq_semester",
         "plot_bgcolor": clear,
         "paper_bgcolor": clear,
+        "font": dict(size=labelsize_large),
     }
     layout.update(overrides)
     return layout

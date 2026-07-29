@@ -20,6 +20,7 @@ from astroq.plot._common import (
     gray,
     hours_per_night,
     labelsize,
+    labelsize_large,
     programs_ledger_for_plot,
 )
 from astroq.plot._layout import (
@@ -39,6 +40,7 @@ from astroq.plot._layout import (
     timebar_category_labels,
     timebar_clip_hours,
     timebar_grid_layout,
+    timebar_grid_title,
     timebar_layout,
     timebar_single_title,
     timebar_text_labels,
@@ -48,6 +50,14 @@ from astroq.plot._layout import (
 from astroq.plot.context import MAP_NAMES
 
 COF_UNITS = ("requests", "time")
+
+
+def _legend_target_name(name, max_len=12):
+    """Shorten a target name for plot legends."""
+    text = "" if name is None else str(name)
+    if len(text) <= max_len:
+        return text
+    return text[:max_len]
 
 
 def get_cof(plot_data, requests=None, programs=None, units="requests"):
@@ -205,11 +215,12 @@ def get_cof(plot_data, requests=None, programs=None, units="requests"):
             sp,
             yaxis_title=yaxis_title,
             yaxis=dict(
-                title_font=dict(size=labelsize),
-                tickfont=dict(size=labelsize - 4),
+                title_font=dict(size=labelsize_large),
+                tickfont=dict(size=labelsize_large - 4),
                 showgrid=False,
                 zeroline=False,
             ),
+            plot_bgcolor=gray,
         )
     )
     force_secondary_xaxis(fig, 0, max(len(sp.access_obj.all_dates_array) - 1, 0), 100)
@@ -293,12 +304,18 @@ def get_birdseye(plot_data, selection):
     today_vrect(fig, sp.access_obj.current_night_index)
 
     yaxis, n_slots = birdseye_slot_yaxis(sp)
+    yaxis["title"] = dict(
+        text="Slot in Night",
+        font=dict(size=labelsize_large),
+        standoff=16,
+    )
     force_secondary_xaxis(fig, 0, max(len(sp.access_obj.all_dates_array) - 1, 0), n_slots + 1)
     fig.update_layout(
         **timeline_layout(
             sp,
-            yaxis_title="Slot in Night",
+            yaxis_title="",
             yaxis=yaxis,
+            margin=dict(b=200, t=100, l=140),
         )
     )
     return fig
@@ -339,7 +356,7 @@ def get_tau_inter_line(plot_data, selection, use_program_colors=False):
                 x=group["tau_inter"],
                 y=group["onsky_tau_inter"],
                 mode="markers",
-                name=group.name,
+                name=_legend_target_name(group.name),
                 marker=dict(size=10, color=group["color"].tolist()),
                 text=[
                     f"{t} in {p}"
@@ -372,6 +389,7 @@ def get_tau_inter_line(plot_data, selection, use_program_colors=False):
             yaxis_title="On Sky Inter-Night Cadence",
             xaxis=log_axis_cadence(),
             yaxis=log_axis_cadence(),
+            legend=dict(font=dict(size=labelsize)),
         )
     )
     return fig
@@ -409,7 +427,7 @@ def get_rawobs(plot_data, selection, use_program_colors=False):
                 y=[row["total_completed"]],
                 mode="markers",
                 marker=dict(size=10, color=row[color_col], opacity=0.7),
-                name=row["target"],
+                name=_legend_target_name(row["target"]),
                 text=[row["target"]],
                 hovertemplate="<b>%{text}</b><br>"
                 + "Total Requested: %{x}<br>"
@@ -426,23 +444,23 @@ def get_rawobs(plot_data, selection, use_program_colors=False):
     t.apply(add_point, axis=1)
 
     # Add diagonal lines for reference (y = x for 100% complete, y = 0.5x for 50% complete)
-    # For log scale, we need to use log values
     min_val = min(
-        int(t["total_observations_requested"].min()) if len(t) else 1,
-        int(t["total_completed"].min()) if len(t) else 1,
+        float(t["total_observations_requested"].min()) if len(t) else 1.0,
+        float(t["total_completed"].min()) if len(t) else 1.0,
     )
     max_val = max(
-        int(t["total_observations_requested"].max()) if len(t) else 1,
-        int(t["total_completed"].max()) if len(t) else 1,
+        float(t["total_observations_requested"].max()) if len(t) else 1.0,
+        float(t["total_completed"].max()) if len(t) else 1.0,
     )
-    # Ensure min_val is at least 1 for log scale
-    min_val = max(min_val, 1)
+    # Ensure min_val is at least 1 for log scale; cap axes at 10% above data max.
+    min_val = max(min_val, 1.0)
+    axis_max = max(max_val * 1.1, min_val * 1.1)
 
     # Add 100% complete reference line (y = x) - solid black line
     fig.add_trace(
         go.Scatter(
-            x=[min_val, max_val],
-            y=[min_val, max_val],
+            x=[min_val, axis_max],
+            y=[min_val, axis_max],
             mode="lines",
             line=dict(color="black", width=1, dash="solid"),
             name="100% Complete",
@@ -454,8 +472,8 @@ def get_rawobs(plot_data, selection, use_program_colors=False):
     # Add 50% complete reference line (y = 0.5x)
     fig.add_trace(
         go.Scatter(
-            x=[min_val, max_val],
-            y=[min_val * 0.5, max_val * 0.5],
+            x=[min_val, axis_max],
+            y=[min_val * 0.5, axis_max * 0.5],
             mode="lines",
             line=dict(color="gray", width=1, dash="dash"),
             name="50% Complete",
@@ -472,18 +490,26 @@ def get_rawobs(plot_data, selection, use_program_colors=False):
         yref="paper",
         text="solid = 1:1<br>dashed = 1:2",
         showarrow=False,
-        font=dict(size=labelsize - 8, color="black"),
+        font=dict(size=labelsize_large - 8, color="black"),
         align="center",
     )
+
+    log_lo = np.log10(min_val)
+    log_hi = np.log10(axis_max)
+    xaxis = log_axis_counts()
+    yaxis = log_axis_counts()
+    xaxis["range"] = [log_lo, log_hi]
+    yaxis["range"] = [log_lo, log_hi]
 
     fig.update_layout(
         **log_scatter_layout(
             xaxis_title="Total Requested Observations",
             yaxis_title="Total Observations (Past + Scheduled)",
-            xaxis=log_axis_counts(),
-            yaxis=log_axis_counts(),
+            xaxis=xaxis,
+            yaxis=yaxis,
             showlegend=True,
             margin=dict(b=100, t=50),
+            legend=dict(font=dict(size=labelsize)),
         )
     )
 
@@ -742,14 +768,7 @@ def get_timebar_by_program(plot_data, selection=None, prevent_negative=False):  
 
     fig.update_layout(
         **timebar_grid_layout(
-            (
-                "<b>Time Breakdown by Program</b><br>"
-                "Each program shows 5 bars (top to bottom): Requested (green), "
-                "Past Completed (blue), Future Scheduled (purple), Incomplete (orange), "
-                "Unused (red)<br>"
-                "Dashed vertical line represents total allocated time. "
-                "Note each grid is on its own scaling."
-            ),
+            timebar_grid_title(),
             num_rows,
         )
     )
@@ -810,8 +829,11 @@ def get_football(plot_data, selection, use_program_colors=False):
     cache_dir = _football_cache_dir(plot_data.semester_planner)
     cache_dir.mkdir(parents=True, exist_ok=True)
     cache_grids_file = str(cache_dir / f"{semester}_sky_grids.npz")
-    cache_image_file = str(cache_dir / f"{semester}_sky_availability_image.txt")
     semester_length = plot_data.semester_planner.semester_length
+    vmin = int(round(0.1 * semester_length))
+    cache_image_file = str(
+        cache_dir / f"{semester}_sky_availability_image_vmin{vmin}.txt"
+    )
 
     if os.path.exists(cache_grids_file):
         cached_data = np.load(cache_grids_file)
@@ -872,7 +894,7 @@ def get_football(plot_data, selection, use_program_colors=False):
             NIGHTS_grid,
             cmap="gray",
             shading="nearest",
-            vmin=70,
+            vmin=vmin,
             vmax=semester_length,
         )
         ax.axis("off")
@@ -908,6 +930,7 @@ def get_football(plot_data, selection, use_program_colors=False):
     # Invisible Contour trace whose sole purpose is to carry the colorbar.
     # plotly has no first-class colorbar-only object; opacity=0 keeps the
     # contour itself hidden while still rendering the legend strip.
+    contour_size = max(1, int(round((semester_length - vmin) / 10)))
     fig.add_trace(
         go.Contour(
             z=NIGHTS_grid,
@@ -915,7 +938,9 @@ def get_football(plot_data, selection, use_program_colors=False):
             y=DEC_grid[:, 0],
             showscale=True,
             colorscale="gray",
-            contours=dict(start=70, end=semester_length, size=10),
+            zmin=vmin,
+            zmax=semester_length,
+            contours=dict(start=vmin, end=semester_length, size=contour_size),
             opacity=0,
             colorbar=dict(
                 title="Observable<br>Nights",
@@ -1118,63 +1143,18 @@ def get_completion_histogram_by_weight(plot_data, selection):
         **completion_layout(
             height=600,
             title="Completion Rate by splan_weight",
-            xaxis_title="Completion Rate (%)",
-            yaxis_title="Number of Requests",
             barmode="stack",
-            xaxis=dict(categoryorder="array", categoryarray=_COMPLETION_BIN_LABELS),
-            legend=dict(title="splan_weight"),
-        )
-    )
-    return fig
-
-
-def get_completion_vs_target_name(plot_data, selection):
-    """
-    Scatter of completion rate (%) vs target name, sorted alphabetically by target.
-    """
-    df = _completion_by_request_frame(plot_data, selection)
-    df = df.sort_values("target", kind="mergesort").reset_index(drop=True)
-    target_order = df["target"].tolist()
-
-    program_colors = plot_data.program_colors
-    fig = go.Figure()
-    for program in sorted(df["program"].unique()):
-        sub = df[df["program"] == program]
-        fig.add_trace(
-            go.Scatter(
-                x=sub["target"],
-                y=sub["completion_pct"],
-                mode="markers",
-                name=program,
-                marker=dict(size=8, color=program_colors.get(program, "steelblue")),
-                customdata=np.stack(
-                    [
-                        sub["program"].to_numpy(),
-                        sub["splan_weight"].map(_splan_weight_legend_label).to_numpy(),
-                    ],
-                    axis=-1,
-                ),
-                hovertemplate=(
-                    "<b>%{x}</b><br>Program: %{customdata[0]}<br>"
-                    "Completion: %{y:.1f}%<br>%{customdata[1]}<extra></extra>"
-                ),
-            )
-        )
-
-    fig.update_layout(
-        **completion_layout(
-            height=700,
-            title="Completion Rate by Target",
-            xaxis_title="Target",
-            yaxis_title="Completion Rate (%)",
             xaxis=dict(
+                title=dict(text="Completion Rate (%)", font=dict(size=labelsize_large)),
+                tickfont=dict(size=labelsize),
                 categoryorder="array",
-                categoryarray=target_order,
-                tickangle=-45,
+                categoryarray=_COMPLETION_BIN_LABELS,
             ),
-            yaxis=dict(range=[0, 100]),
-            margin=dict(b=150),
-            showlegend=True,
+            yaxis=dict(
+                title=dict(text="Number of Requests", font=dict(size=labelsize_large)),
+                tickfont=dict(size=labelsize_large - 4),
+            ),
+            legend=dict(title="splan_weight"),
         )
     )
     return fig

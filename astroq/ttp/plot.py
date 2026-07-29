@@ -443,67 +443,57 @@ def get_ladder(data, tonight_start_time):  # pylint: disable=too-many-locals,too
 
     add_off_canvas_legend_rects(fig, _LADDER_LEGEND_ITEMS)
 
-    new_already_processed = []
-    ifixer = 0
+    # One y-row per visit (multi-shot targets appear once per visit). Draw
+    # access / visit / slew on that row only — do not group by unique_id.
     required_visit_bars = []
     for i in range(len(order_data)):
         if order_data["_row_kind"].iloc[i] != "target":
             continue
-        if order_data["unique_id"][i] not in new_already_processed:
-            indices = [
-                k
-                for k in range(len(order_data))
-                if order_data["unique_id"][k] == order_data["unique_id"][i]
-            ]
-            for j, idx in enumerate(indices):
-                if j == 0:
-                    fig.add_shape(
-                        type="rect",
-                        x0=order_data["Earliest Start"][idx],
-                        x1=order_data["Latest Finish"][idx],
-                        y0=i + ifixer - 0.5,
-                        y1=i + ifixer + 0.5,
-                        fillcolor=_ACCESS_FILL_COLOR,
-                        line=dict(color=_ACCESS_LINE_COLOR, width=_ACCESS_LINE_WIDTH),
-                        showlegend=False,
+        y0, y1 = i - 0.5, i + 0.5
+        fig.add_shape(
+            type="rect",
+            x0=order_data["Earliest Start"].iloc[i],
+            x1=order_data["Latest Finish"].iloc[i],
+            y0=y0,
+            y1=y1,
+            fillcolor=_ACCESS_FILL_COLOR,
+            line=dict(color=_ACCESS_LINE_COLOR, width=_ACCESS_LINE_WIDTH),
+            showlegend=False,
+        )
+        start_exp = float(order_data["Start Exposure"].iloc[i])
+        visit_len = float(order_data["Visit Length (min)"].iloc[i])
+        is_scheduled = bool(order_data["is_scheduled"].iloc[i])
+        if is_scheduled and start_exp >= 0 and not np.isnan(start_exp):
+            fig.add_shape(
+                type="rect",
+                x0=start_exp,
+                x1=start_exp + visit_len,
+                y0=y0,
+                y1=y1,
+                fillcolor=_VISIT_COLOR,
+                line=dict(width=0),
+            )
+        elif not is_scheduled and visit_len > 0:
+            earliest = float(order_data["Earliest Start"].iloc[i])
+            if not np.isnan(earliest):
+                required_visit_bars.append(
+                    (
+                        order_data["_ladder_y"].iloc[i],
+                        earliest,
+                        visit_len,
                     )
-                start_exp = float(order_data["Start Exposure"][idx])
-                visit_len = float(order_data["Visit Length (min)"][idx])
-                is_scheduled = bool(order_data["is_scheduled"].iloc[idx])
-                if is_scheduled and start_exp > 0:
-                    fig.add_shape(
-                        type="rect",
-                        x0=start_exp,
-                        x1=start_exp + visit_len,
-                        y0=i + ifixer - 0.5,
-                        y1=i + ifixer + 0.5,
-                        fillcolor=_VISIT_COLOR,
-                        line=dict(width=0),
-                    )
-                elif not is_scheduled and visit_len > 0:
-                    earliest = float(order_data["Earliest Start"][idx])
-                    if not np.isnan(earliest):
-                        required_visit_bars.append(
-                            (
-                                order_data["_ladder_y"].iloc[idx],
-                                earliest,
-                                visit_len,
-                            )
-                        )
-                slew = float(order_data["Slew to Next (min)"][idx])
-                if is_scheduled and slew > 0:
-                    fig.add_shape(
-                        type="rect",
-                        x0=order_data["Stop Exposure"][idx],
-                        x1=order_data["Stop Exposure"][idx] + slew,
-                        y0=i + ifixer - 0.5,
-                        y1=i + ifixer + 0.5,
-                        fillcolor=_SLEW_COLOR,
-                        line=dict(width=0),
-                    )
-            new_already_processed.append(order_data["unique_id"][i])
-        else:
-            ifixer -= 1
+                )
+        slew = float(order_data["Slew to Next (min)"].iloc[i])
+        if is_scheduled and slew > 0 and not np.isnan(slew):
+            fig.add_shape(
+                type="rect",
+                x0=order_data["Stop Exposure"].iloc[i],
+                x1=order_data["Stop Exposure"].iloc[i] + slew,
+                y0=y0,
+                y1=y1,
+                fillcolor=_SLEW_COLOR,
+                line=dict(width=0),
+            )
 
     for bar_idx, (target, x0, visit_len) in enumerate(required_visit_bars):
         _add_ladder_required_visit_bar(

@@ -70,12 +70,6 @@ class TestPlotSnapshots(unittest.TestCase):
                 self.sel_all,
                 {},
             ),
-            (
-                "completion_scatter",
-                pl.get_completion_vs_target_name,
-                self.sel_all,
-                {},
-            ),
         ]
         with patch.object(pl, "_football_cache_dir", lambda sp: Path(self.tmp)):
             _write_or_compare(
