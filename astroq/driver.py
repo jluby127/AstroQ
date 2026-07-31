@@ -447,6 +447,8 @@ def kpfcc_prep(args):
         request_df = request_df.copy()
         request_df["original_exptime"] = request_df["exptime"]
         request_df["exptime"] = new_exptimes
+        logging.info("adding dummy splan_weight column to request.csv")
+        request_df["splan_weight"] = [1.0] * len(request_df)
         request_df.to_csv(os.path.join(savepath, request_file), index=False)
         # CAPTURE CUSTOM INFORMATION AND PROCESS
         # --------------------------------------------

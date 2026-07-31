@@ -11,6 +11,7 @@ DATE_DIR = $(SEMESTER_DIR)/$(DATE)
 
 # Directory containing this Makefile (stable even if make is run from elsewhere)
 MAKEFILE_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
+REPO_ROOT := $(abspath $(MAKEFILE_DIR)../../..)
 # Shared config template lives in ops/KPF/common/
 CONFIG_TEMPLATE ?= $(MAKEFILE_DIR)../common/config_template.ini
 
@@ -182,8 +183,8 @@ combine_logs:
 
 # Check night plans
 check_night_plans:
-	@echo "🔍 Running check_night_plans.py..."
-	@cd $(shell dirname $(firstword $(MAKEFILE_LIST))) && conda run -n $(CONDA_ENV) python check_night_plans.py -s $(SEMESTER) -d $(DATE) $(HOLDERS_DIR)
+	@echo "🔍 Running check_night_plans..."
+	@PYTHONPATH=$(REPO_ROOT) conda run --no-capture-output -n $(CONDA_ENV) python -m astroq.scripts.check_night_plans -s $(SEMESTER) -d $(DATE) $(HOLDERS_DIR)
 	@echo "✅ Night plans check complete!"
 
 # Launch webapp
