@@ -130,9 +130,15 @@ class SemesterPlanner:
 
     Args:
         cf (str): path to the ``config.ini`` file.
+        requests (pandas.DataFrame, optional): pre-validated request rows to use
+            instead of reading ``request_file``. Callers that solve a subset
+            (e.g. one program at a time) pass a filtered frame so no temporary
+            CSV is needed.
+        defer_model (bool): skip :meth:`build_model` so the caller can inspect
+            ``request_slots`` first.
     """
 
-    def __init__(self, cf):
+    def __init__(self, cf, requests=None, *, defer_model=False):
         """See class docstring."""
 
         # Read config as text so we can persist it verbatim and recreate the
@@ -144,9 +150,13 @@ class SemesterPlanner:
         self.queue = astroq.queue.from_config(self.config)
         self.schedule = None
 
-        # Load input data
-        self.requests = self._load_frame("request")
-        self.past = self._load_past()
+        # Load input data. _add_request_columns mutates self.requests in place,
+        # so copy a caller-supplied frame to leave theirs untouched.
+        if requests is None:
+            self.requests = self._load_frame("request")
+        else:
+            self.requests = requests.copy()
+        self.past = self._load_frame("past")
         self.allocation = self._load_frame("allocation")
         self.custom = self._load_frame("custom")
         self.programs = self._load_frame("programs")
@@ -168,7 +178,8 @@ class SemesterPlanner:
         )
         request_slots["rds"] = request_slots[["r", "d", "s"]].apply(tuple, axis=1)
         self.request_slots = request_slots
-        self.build_model()
+        if not defer_model:
+            self.build_model()
 
     def _load_frame(self, kind):
         """Load a validated CSV frame. ``kind`` maps to ``{kind}_file`` in config."""
@@ -242,7 +253,17 @@ class SemesterPlanner:
         )
 
         rs = rf["r"]
-        night = self.past["timestamp"].str[:10]
+        # past.csv timestamps are UTC; map each to the civil noon-start night label.
+        if self.past.empty:
+            night = pd.Series(dtype=object)
+        else:
+            night = self.past["timestamp"].map(
+                lambda ts: (
+                    ac.civil_night_label(Time(ts, scale="utc"), self.queue.observatory)
+                    if pd.notna(ts) and str(ts).strip()
+                    else ""
+                )
+            )
         g = self.past.assign(_night=night).groupby("r")
         agg = pd.DataFrame({
             "nights": g["_night"].nunique(),
@@ -606,9 +627,13 @@ class SemesterPlanner:
 
         F[p] tracks projected fill factor (past + scheduled) / awarded. Because
         sched_slots >= 0, F[p] is structurally floored at past_ff = past/awarded;
-        a ceiling below that floor would be infeasible, so we clamp UB up to
+        a ceiling below that floor would be infeasible, so we raise UB up to
         past_ff (which pins F=past_ff and forces sched=0 -- the graceful
         "no new scheduling for over-budget programs" behavior of the old throttle).
+
+        If a requested floor would sit above the ceiling, raise UB to the floor
+        (``UB = max(UB, LB)``) rather than lowering LB, so an already-achieved
+        fill is never forced onto an unachievable exact scalar.
 
         Args:
             min_fillfactor: optional floor override, scalar (all programs) or
@@ -647,7 +672,8 @@ class SemesterPlanner:
                 )
                 ub = past_ff
 
-            lb = min(lb, ub)
+            if lb > ub:
+                ub = lb
             self.F[p].LB = lb
             self.F[p].UB = ub
 
@@ -744,11 +770,15 @@ class SemesterPlanner:
         getattr(self, _MODE_PIPELINES[mode])()
         logs.info("Scheduling complete, clear skies!")
 
-    def run_model_shortfall(self):
-        """Shortfall-only pipeline: minimize weighted theta, write outputs."""
+    def solve_shortfall(self):
+        """Minimize weighted theta. Writes nothing and emits no run report."""
         self._constraint_fillfactor(max_fillfactor=1.0)
         self.model.setObjective(self._objective_weighted_theta(), GRB.MINIMIZE)
         self.optimize_model("shortfall")
+
+    def run_model_shortfall(self):
+        """Shortfall-only pipeline: minimize weighted theta, write outputs."""
+        self.solve_shortfall()
         self.build_schedule()
         self.log_report("shortfall")
         self.write_request_selected()
@@ -765,13 +795,52 @@ class SemesterPlanner:
         self.log_report("shortfall")
 
         # ===== balance =====
-        self._constraint_fillfactor(
-            min_fillfactor=pd.Series(self.model.getAttr("X", self.F))
-        )
-        self.model.setObjective(self.F.sum(), GRB.MAXIMIZE)
-        self.optimize_model("balance")
-        self.build_schedule()
-        self.log_report("balance")
+        # self._constraint_fillfactor(
+        #     min_fillfactor=pd.Series(self.model.getAttr("X", self.F))
+        # )
+        # self.model.setObjective(self.F.sum(), GRB.MAXIMIZE)
+        # self.optimize_model("balance")
+        # self.build_schedule()
+        # self.log_report("balance")
+        if "max_fillfactor" in self.programs.columns:
+            slack = self.config.getfloat(
+                "semester.fill-current-day",
+                "global_shortfall_slack",
+                fallback=_DEFAULT_GLOBAL_SHORTFALL_SLACK,
+            )
+            cap = objective_shortfall_min * 2.0#slack
+            logs.info(
+                "Constraint: weighted shortfall <= shortfall optimum * %g "
+                "(cap=%.3f from objective_shortfall_min=%.3f)",
+                slack,
+                cap,
+                objective_shortfall_min,
+            )
+            self.model.addConstr(
+                self._objective_weighted_theta() <= cap,
+                "fix_global_shortfall_upcoming_night",
+            )
+            # Programs at >=85% fill may drop up to 5pp so under-filled
+            # programs can rise; everyone else is floored at their shortfall fill.
+            # UB is at least the shortfall fill so we never force F onto an
+            # unachievable CSV max below the current solution.
+            f_shortfall = pd.Series(self.model.getAttr("X", self.F))
+            min_ff = f_shortfall.where(
+                f_shortfall < 0.85, (f_shortfall - 0.05).clip(lower=0.0)
+            )
+            csv_max = self.programs["max_fillfactor"].reindex(f_shortfall.index).astype(float)
+            max_ff_ub = pd.concat([csv_max, f_shortfall.astype(float)], axis=1).max(axis=1)
+            self._constraint_fillfactor(min_fillfactor=min_ff, max_fillfactor=max_ff_ub)
+            max_ff = self.programs["max_fillfactor"]
+            gap_to_max = gp.quicksum(
+                float(max_ff.at[p]) - self.F[p] for p in self.F
+            )
+            self.model.setObjective(gap_to_max, GRB.MINIMIZE)
+            self.optimize_model("balance")
+            self.build_schedule()
+            self.log_report("balance")
+        else:
+            logs.info("No max_fillfactor column in programs, skipping balance step, run find-max-completion first and retry.")
 
         # ===== prioritize =====
         hold_alpha = self.config.getfloat(

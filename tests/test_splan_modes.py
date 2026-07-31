@@ -136,5 +136,50 @@ class TestRunModelDispatch(unittest.TestCase):
         )
 
 
+class TestShortfallPipeline(unittest.TestCase):
+    """``solve_shortfall`` is the side-effect-free core of the shortfall run."""
+
+    def test_solve_shortfall_writes_nothing(self):
+        sp = _planner_with_config("[semester]\n")
+        sp.model = MagicMock()
+        with patch.object(sp, "_constraint_fillfactor"), patch.object(
+            sp, "_objective_weighted_theta", return_value=0
+        ), patch.object(sp, "optimize_model") as optimize, patch.object(
+            sp, "build_schedule"
+        ) as build_schedule, patch.object(
+            sp, "log_report"
+        ) as log_report, patch.object(
+            sp, "write_request_selected"
+        ) as write_selected, patch.object(
+            sp, "to_hdf5"
+        ) as to_hdf5:
+            sp.solve_shortfall()
+
+            optimize.assert_called_once_with("shortfall")
+            build_schedule.assert_not_called()
+            log_report.assert_not_called()
+            write_selected.assert_not_called()
+            to_hdf5.assert_not_called()
+
+    def test_run_model_shortfall_delegates_then_writes(self):
+        sp = _planner_with_config("[semester]\n")
+        with patch.object(sp, "solve_shortfall") as solve, patch.object(
+            sp, "build_schedule"
+        ) as build_schedule, patch.object(
+            sp, "log_report"
+        ) as log_report, patch.object(
+            sp, "write_request_selected"
+        ) as write_selected, patch.object(
+            sp, "to_hdf5"
+        ) as to_hdf5:
+            sp.run_model_shortfall()
+
+            solve.assert_called_once_with()
+            build_schedule.assert_called_once_with()
+            log_report.assert_called_once_with("shortfall")
+            write_selected.assert_called_once_with()
+            to_hdf5.assert_called_once_with()
+
+
 if __name__ == "__main__":
     unittest.main()

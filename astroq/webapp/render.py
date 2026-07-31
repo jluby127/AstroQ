@@ -92,7 +92,9 @@ def load_planners_from_outputs(outputs_dir: str) -> LoadedRun:
         night_planner = NightPlanner.from_hdf5(night_planner_h5)
         data_ttp = night_planner.solution
         night_start_time, _ = nplan.get_nightly_times_from_allocation(
-            night_planner.allocation_file, night_planner.current_day
+            night_planner.allocation_file,
+            night_planner.current_day,
+            access_obj=night_planner.semester_planner.access_obj,
         )
     except Exception as e:
         logs.warning(
@@ -230,7 +232,6 @@ def build_admin_html(
     fig_cof1 = pl.get_cof(pd, programs=all_programs)
     fig_cof2 = pl.get_cof(pd, programs=all_programs, units="time")
     fig_completion_hist = pl.get_completion_histogram_by_weight(pd, sel_all)
-    fig_completion_scatter = pl.get_completion_vs_target_name(pd, sel_all)
     fig_birdseye = pl.get_birdseye(pd, sel_prog)
     fig_football = pl.get_football(pd, sel_all, use_program_colors=True)
     fig_tau_inter_line = pl.get_tau_inter_line(pd, sel_all, use_program_colors=True)
@@ -244,7 +245,6 @@ def build_admin_html(
         _fig_to_html(fig_cof1),
         _fig_to_html(fig_cof2),
         _fig_to_html(fig_completion_hist),
-        _fig_to_html(fig_completion_scatter),
         _fig_to_html(fig_birdseye),
         _fig_to_html(fig_rawobs),
         _fig_to_html(fig_tau_inter_line),

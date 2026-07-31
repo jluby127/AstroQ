@@ -183,6 +183,34 @@ def format_custom_csv(OBs):
     return custom_frame
 
 
+def koip_block_to_utc_iso(date, start_time, end_time):
+    """Build UTC ``allocation.csv`` timestamps from Keck KOIP schedule fields.
+
+    ``date`` is the HST civil observing-night label (``YYYY-MM-DD``).
+    ``start_time`` and ``end_time`` are UTC clock times (``HH:MM``).
+    Keck convention: the UTC calendar date is the civil date plus one day.
+    """
+    civil = pd.to_datetime(date.astype(str).str.strip())
+    utc_day = civil + pd.Timedelta(days=1)
+    start = pd.to_datetime(
+        utc_day.dt.strftime("%Y-%m-%d")
+        + " "
+        + start_time.astype(str).str.strip(),
+        utc=True,
+    )
+    stop = pd.to_datetime(
+        utc_day.dt.strftime("%Y-%m-%d")
+        + " "
+        + end_time.astype(str).str.strip(),
+        utc=True,
+    )
+    stop = stop.where(stop >= start, stop + pd.Timedelta(days=1))
+    return (
+        start.dt.strftime("%Y-%m-%dT%H:%M"),
+        stop.dt.strftime("%Y-%m-%dT%H:%M"),
+    )
+
+
 def pull_allocation_info(start_date, numdays, instrument, conversion_ratio=12.0):
     """
     Pull the allocation information directly from the Keck Observatory's operations schedule via the API.
@@ -209,11 +237,8 @@ def pull_allocation_info(start_date, numdays, instrument, conversion_ratio=12.0)
         data_json = json.loads(data.text)
         df = pd.DataFrame(data_json)
         awarded_programs = df["ProjCode"].unique()
-        df["start"] = pd.to_datetime(df["Date"] + " " + df["StartTime"]).dt.strftime(
-            "%Y-%m-%dT%H:%M"
-        )
-        df["stop"] = pd.to_datetime(df["Date"] + " " + df["EndTime"]).dt.strftime(
-            "%Y-%m-%dT%H:%M"
+        df["start"], df["stop"] = koip_block_to_utc_iso(
+            df["Date"], df["StartTime"], df["EndTime"]
         )
 
         allocation_frame = df[
@@ -259,9 +284,11 @@ def format_keck_allocation_info(allocation_file):
 
     Supported CSV shapes:
 
-    1. **KOIP export**: columns ``Date``, ``StartTime``, ``EndTime``, ``ProjCode``, ``FractionOfNight``.
-    2. **Keck schedule export** (HIRES): columns ``Date``, ``Time`` (e.g. ``07:49 - 13:21 ( 50%)``), ``ProjCode``.
-    3. **AstroQ allocation**: columns ``start``, ``stop`` (ISO ``YYYY-MM-DDTHH:MM``). If ``ProjCode`` is
+    1. **KOIP export**: columns ``Date`` (HST civil observing night), ``StartTime`` / ``EndTime``
+       (UTC clock times), ``ProjCode``, ``FractionOfNight``.
+    2. **Keck schedule export** (HIRES): columns ``Date``, ``Time`` (e.g. ``07:49 - 13:21 ( 50%)``),
+       ``ProjCode`` — ``Time`` is split into UTC ``StartTime`` / ``EndTime`` then converted like (1).
+    3. **AstroQ allocation**: columns ``start``, ``stop`` (UTC ISO ``YYYY-MM-DDTHH:MM``). If ``ProjCode`` is
        present, program hours/nights are aggregated; otherwise returned program dicts are empty.
 
     Args:
@@ -278,101 +305,46 @@ def format_keck_allocation_info(allocation_file):
     if "StartTime" not in allocation.columns and "Time" in allocation.columns:
         allocation = expand_keck_ops_schedule_time_column(allocation)
 
-    # Convert start and stop times to datetime for hour calculation
-    allocation["start"] = pd.to_datetime(
-        allocation["Date"] + " " + allocation["StartTime"]
-    ).dt.strftime("%Y-%m-%dT%H:%M")
-    allocation["stop"] = pd.to_datetime(
-        allocation["Date"] + " " + allocation["EndTime"]
-    ).dt.strftime("%Y-%m-%dT%H:%M")
-
     cols = set(allocation.columns)
-
-    # (3) Already AstroQ-style start/stop
-    if "start" in cols and "stop" in cols:
-        allocation_frame = allocation[["start", "stop"]].copy()
-        start_times = pd.to_datetime(allocation["start"])
-        stop_times = pd.to_datetime(allocation["stop"])
-        allocation = allocation.copy()
-        allocation["hours"] = (stop_times - start_times).dt.total_seconds() / 3600.0
-        if "ProjCode" in cols:
-            hours_by_program = (
-                allocation.groupby("ProjCode")["hours"].sum().round(3).to_dict()
-            )
-            if "FractionOfNight" in cols:
-                nights_by_program = (
-                    allocation.groupby("ProjCode")["FractionOfNight"]
-                    .sum()
-                    .round(3)
-                    .to_dict()
-                )
-            else:
-                nights_by_program = {
-                    k: round(v / 12.0, 3) for k, v in hours_by_program.items()
-                }
-        else:
-            hours_by_program = {}
-            nights_by_program = {}
-        return allocation_frame, hours_by_program, nights_by_program
-
-    # (1) KOIP: separate Date / StartTime / EndTime
     if {"Date", "StartTime", "EndTime"}.issubset(cols):
-        allocation["start"] = pd.to_datetime(
-            allocation["Date"].astype(str).str.strip()
-            + " "
-            + allocation["StartTime"].astype(str).str.strip()
-        ).dt.strftime("%Y-%m-%dT%H:%M")
-        allocation["stop"] = pd.to_datetime(
-            allocation["Date"].astype(str).str.strip()
-            + " "
-            + allocation["EndTime"].astype(str).str.strip()
-        ).dt.strftime("%Y-%m-%dT%H:%M")
-        start_times = pd.to_datetime(allocation["start"])
-        stop_times = pd.to_datetime(allocation["stop"])
-        allocation["hours"] = (stop_times - start_times).dt.total_seconds() / 3600.0
-        allocation_frame = allocation[["start", "stop"]].copy()
-        hours_by_program = (
-            allocation.groupby("ProjCode")["hours"].sum().round(3).to_dict()
+        allocation["start"], allocation["stop"] = koip_block_to_utc_iso(
+            allocation["Date"], allocation["StartTime"], allocation["EndTime"]
         )
-        nights_by_program = (
-            allocation.groupby("ProjCode")["FractionOfNight"].sum().round(3).to_dict()
+    elif "start" in cols and "stop" in cols:
+        pass
+    else:
+        raise ValueError(
+            "Unrecognized allocation CSV format. Expected either "
+            "(Date, StartTime, EndTime, ProjCode, FractionOfNight), or "
+            "(Date, Time, ProjCode) with Time like '07:49 - 13:21 ( 50%)', or "
+            "(start, stop) ISO columns."
         )
-        return allocation_frame, hours_by_program, nights_by_program
 
-    # (2) Keck schedule: Date + single Time cell + ProjCode
-    if {"Date", "Time", "ProjCode"}.issubset(cols):
-        triples = [_parse_keck_schedule_time_cell(x) for x in allocation["Time"]]
-        allocation = allocation.copy()
-        allocation["StartTime"] = [t[0] for t in triples]
-        allocation["EndTime"] = [t[1] for t in triples]
-        allocation["FractionOfNight"] = [
-            (t[2] if t[2] is not None else 0.5) for t in triples
-        ]
-        allocation["start"] = pd.to_datetime(
-            allocation["Date"].astype(str).str.strip() + " " + allocation["StartTime"]
-        ).dt.strftime("%Y-%m-%dT%H:%M")
-        allocation["stop"] = pd.to_datetime(
-            allocation["Date"].astype(str).str.strip() + " " + allocation["EndTime"]
-        ).dt.strftime("%Y-%m-%dT%H:%M")
-        start_times = pd.to_datetime(allocation["start"])
-        stop_times = pd.to_datetime(allocation["stop"])
-        allocation["hours"] = (stop_times - start_times).dt.total_seconds() / 3600.0
-        allocation_frame = allocation[["start", "stop"]].copy()
+    allocation_frame = allocation[["start", "stop"]].copy()
+    start_times = pd.to_datetime(allocation["start"], utc=True)
+    stop_times = pd.to_datetime(allocation["stop"], utc=True)
+    allocation = allocation.copy()
+    allocation["hours"] = (stop_times - start_times).dt.total_seconds() / 3600.0
+    if "ProjCode" in cols:
         allocation["ProjCode"] = allocation["ProjCode"].astype(str).str.strip()
         hours_by_program = (
             allocation.groupby("ProjCode")["hours"].sum().round(3).to_dict()
         )
-        nights_by_program = (
-            allocation.groupby("ProjCode")["FractionOfNight"].sum().round(3).to_dict()
-        )
-        return allocation_frame, hours_by_program, nights_by_program
-
-    raise ValueError(
-        "Unrecognized allocation CSV format. Expected either "
-        "(Date, StartTime, EndTime, ProjCode, FractionOfNight), or "
-        "(Date, Time, ProjCode) with Time like '07:49 - 13:21 ( 50%)', or "
-        "(start, stop) ISO columns."
-    )
+        if "FractionOfNight" in cols:
+            nights_by_program = (
+                allocation.groupby("ProjCode")["FractionOfNight"]
+                .sum()
+                .round(3)
+                .to_dict()
+            )
+        else:
+            nights_by_program = {
+                k: round(v / 12.0, 3) for k, v in hours_by_program.items()
+            }
+    else:
+        hours_by_program = {}
+        nights_by_program = {}
+    return allocation_frame, hours_by_program, nights_by_program
 
 
 def expand_keck_ops_schedule_time_column(df):

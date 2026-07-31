@@ -4,10 +4,15 @@ Module for computing per-target, per-(night, slot) accessibility maps.
 See ``Access.SUPPORTED_CONSTRAINTS`` and the ``compute_<name>`` methods for the
 authoritative list of constraints actually applied. The ``Access`` instance is
 stored on ``SemesterPlanner`` and reused for plotting.
+
+Night index ``d`` is a civil date label whose slots run from local noon on that
+date to local noon on the following day (observatory timezone). Config
+``current_day`` is that civil night-start label.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time as dt_time
+from zoneinfo import ZoneInfo
 
 import astropy as apy
 import astropy.units as u
@@ -20,10 +25,13 @@ logs = logging.getLogger(__name__)
 
 
 def build_date_dictionary(semester_start_date, semester_length):
-    """Single source of truth for the semester date grid.
+    """Civil night-start labels for the semester (local-noon anchors).
+
+    Each ``YYYY-MM-DD`` is the civil date of local noon that opens night ``d``.
+    Slots for that night run until local noon the next day.
 
     Args:
-        semester_start_date (str): ``'YYYY-MM-DD'`` ISO date of night 0.
+        semester_start_date (str): ``'YYYY-MM-DD'`` civil night-start of night 0.
         semester_length (int): number of nights in the semester.
 
     """
@@ -33,6 +41,49 @@ def build_date_dictionary(semester_start_date, semester_length):
     ]
     all_dates_dict = {d: i for i, d in enumerate(all_dates_array)}
     return all_dates_array, all_dates_dict
+
+
+def _observatory_tz(observatory):
+    """Return a tzinfo for ``observatory.timezone`` (str, ZoneInfo, or pytz)."""
+    tz = getattr(observatory, "timezone", None)
+    if tz is None:
+        return ZoneInfo("UTC")
+    if isinstance(tz, str):
+        return ZoneInfo(tz)
+    return tz
+
+
+def local_noon_time(date_str, observatory):
+    """Absolute ``Time`` of civil local noon on ``date_str`` at the observatory."""
+    tz = _observatory_tz(observatory)
+    naive = datetime.strptime(date_str, "%Y-%m-%d").replace(
+        hour=12, minute=0, second=0, microsecond=0
+    )
+    if hasattr(tz, "localize"):
+        local = tz.localize(naive)
+    else:
+        local = naive.replace(tzinfo=tz)
+    return Time(local)
+
+
+def civil_night_label(t, observatory):
+    """Civil noon-start label for the observing night containing UTC ``Time`` ``t``.
+
+    Local times before noon belong to the previous civil date's night.
+    """
+    from datetime import timezone as tz_utc
+
+    tz = _observatory_tz(observatory)
+    t = Time(t)
+    dt_utc = t.utc.to_datetime()
+    if dt_utc.tzinfo is None:
+        dt_utc = dt_utc.replace(tzinfo=tz_utc.utc)
+    local = dt_utc.astimezone(tz)
+    if local.timetz().replace(tzinfo=None) < dt_time(12, 0):
+        night_date = local.date() - timedelta(days=1)
+    else:
+        night_date = local.date()
+    return night_date.strftime("%Y-%m-%d")
 
 
 class Access:
@@ -50,15 +101,17 @@ class Access:
             ``t_visit_slots`` (int >= 1) drives the multi-slot exposure
             dilation in :meth:`build_access`; if absent, defaults to 1
             per target (no dilation).
-        semester_start_date (str): ``'YYYY-MM-DD'`` ISO date of night 0 (UTC).
+        semester_start_date (str): ``'YYYY-MM-DD'`` civil night-start label of
+            night 0 (local noon on this date opens night 0).
         semester_length (int): number of nights in the semester.
         slot_size (int): slot length in minutes; must divide 1440 evenly.
 
     Keyword Args:
-        current_day (str, optional): today's ``'YYYY-MM-DD'`` for the
-            ``compute_future`` mask. Defaults to ``semester_start_date``.
+        current_day (str, optional): civil night-start label ``'YYYY-MM-DD'``
+            for the ``compute_future`` mask (local noon that opens tonight).
+            Defaults to ``semester_start_date``.
         allocation (pandas.DataFrame, optional): allocation blocks with
-            ``start``/``stop`` as ``astropy.time.Time`` (see
+            ``start``/``stop`` as UTC ``astropy.time.Time`` (see
             ``astroq.io.ALLOCATION_SCHEMA``). ``None`` treats every slot
             as allocated.
         custom (pandas.DataFrame, optional): PI windows with ``unique_id``
@@ -116,7 +169,6 @@ class Access:
             current_day if current_day is not None else semester_start_date
         )
 
-        self.start_date = Time(self.semester_start_date, format="iso", scale="utc")
         self.all_dates_array, self.all_dates_dict = build_date_dictionary(
             self.semester_start_date, self.semester_length
         )
@@ -152,8 +204,16 @@ class Access:
         )
         self.targets = apl.FixedTarget(name=self.request_frame.unique_id, coord=coords)
 
-        # Time grid for one night, first night of the semester
-        self.daily_start = Time(self.start_date, location=self.observatory.location)
+        # Night d: local noon on civil label → next local noon (midnight ~ center).
+        night_start_jds = [
+            local_noon_time(d, self.observatory).jd for d in self.all_dates_array
+        ]
+        self.night_starts = Time(
+            night_start_jds,
+            format="jd",
+            location=self.observatory.location,
+        )
+        self.daily_start = self.night_starts[0]
         self.daily_end = self.daily_start + TimeDelta(1.0, format="jd")
         self.timegrid = Time(
             np.arange(self.daily_start.jd, self.daily_end.jd, self.slot_size_time.jd),
@@ -162,19 +222,30 @@ class Access:
         )
         self.timegrid = self.timegrid[np.argsort(self.timegrid.sidereal_time("mean"))]
 
-        # Slot midpoint for all nights in semester 2D array (slots, nights)
-        self.slotmidpoints_oneday = (
-            self.daily_start + (np.arange(self.nslots) + 0.5) * self.slot_size * u.min
-        )
-        days = np.arange(self.nnights) * u.day
+        slot_offsets = (np.arange(self.nslots) + 0.5) * self.slot_size * u.min
+        self.slotmidpoints_oneday = self.daily_start + slot_offsets
         self.slotmidpoints = (
-            self.slotmidpoints_oneday[np.newaxis, :] + days[:, np.newaxis]
+            self.night_starts.reshape(-1, 1) + slot_offsets.reshape(1, -1)
         )
 
     @property
     def current_night_index(self) -> int:
-        """Night index ``d`` for ``self.current_day``."""
+        """Night index ``d`` for civil night-start label ``self.current_day``."""
         return self.all_dates_dict[self.current_day]
+
+    def night_window(self, day_label):
+        """Absolute ``(start, end)`` Times for the civil night labeled ``day_label``.
+
+        ``end`` is exclusive (local noon of the following civil date, or
+        ``start + 1 day`` for the last semester night).
+        """
+        d = self.all_dates_dict[day_label]
+        start = self.night_starts[d]
+        if d + 1 < self.nnights:
+            end = self.night_starts[d + 1]
+        else:
+            end = start + TimeDelta(1.0, format="jd")
+        return start, end
 
     # ------------------------------------------------------------------
     # Adapter for the planner pipeline. Wires SemesterPlanner attributes
@@ -296,8 +367,8 @@ class Access:
     def compute_inter(self):
         """Block ``tau_inter`` nights after each target's last observation.
 
-        Reads ``past_date_last_observed`` off ``self.request_frame`` (a
-        ``YYYY-MM-DD`` UT-date string, ``""`` if the target has no past
+        Reads ``past_date_last_observed`` off ``self.request_frame`` (a civil
+        noon-start ``YYYY-MM-DD`` label, ``""`` if the target has no past
         observations). Falls back to all-True if the column is absent (e.g.
         standalone-Access use case).
         """

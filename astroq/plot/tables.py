@@ -220,7 +220,7 @@ NIGHTPLAN_COLUMNS = [
 ]
 NIGHTPLAN_COLUMN_TOOLTIPS = {
     "Earliest Start": "Earliest allowed start time (HH:MM). Use > < >= <= with HH:MM to filter.",
-    "Start Exposure": "Scheduled start time (HH:MM). Use > < >= <= with HH:MM to filter.",
+    "Start Exposure": "Scheduled start time (HH:MM). Sorted from local noon→next noon. Use > < >= <= with HH:MM to filter.",
     "Latest Finish": "Latest allowed finish time (HH:MM). Use > < >= <= with HH:MM to filter.",
     "unique_id": "Keck OB database unique ID",
     "target": "Name of the target",

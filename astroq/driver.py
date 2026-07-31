@@ -564,6 +564,93 @@ def plan_semester(args):
     return
 
 
+def find_max_completion_per_program(args):
+    """Estimate per-program max fill by running shortfall with each program alone.
+
+    For every program in ``programs.csv``, solve the shortfall model against only
+    that program's requests (filtered in memory) and record the resulting fill
+    factor ``F[p] = (past + scheduled) / awarded`` as ``max_fillfactor`` (e.g.
+    ``0.72`` for 72%). ``programs.csv`` is rewritten once at the end.
+
+    Programs with no request rows, no observable slots, or no fill-factor variable
+    (e.g. ``awarded_slots == 0``) get ``max_fillfactor = 0.0``.
+
+    Args:
+        args (argparse.Namespace): command line arguments with:
+            -cf (str): path to the config file.
+
+    Returns:
+        None
+    """
+    cf = args.config_file
+    cf_path = os.path.abspath(cf)
+    print(f"find_max_completion_per_program: config_file is {cf_path}")
+
+    config = ConfigParser()
+    config.optionxform = str
+    config.read(cf_path)
+    workdir = config.get("global", "workdir")
+
+    def _resolve(key):
+        raw = config.get("data", key)
+        return raw if os.path.isabs(raw) else os.path.join(workdir, raw)
+
+    request_path = _resolve("request_file")
+    programs_path = _resolve("programs_file")
+
+    requests_all = astroq.io.read_csv(request_path, "request")
+    programs_df = pd.read_csv(programs_path)
+    if "program" not in programs_df.columns:
+        raise ValueError(f"{programs_path} missing required column 'program'")
+    if "max_fillfactor" not in programs_df.columns:
+        programs_df["max_fillfactor"] = np.nan
+
+    programs = programs_df["program"].astype(str).tolist()
+    print(f"Computing max_fillfactor for {len(programs)} program(s)")
+
+    fill_by_program = {}
+
+    def record(program, value, reason=None):
+        fill_by_program[program] = value
+        suffix = f" ({reason})" if reason else ""
+        print(f"  {program}: max_fillfactor = {value:.2f}{suffix}", flush=True)
+
+    for program in programs:
+        prog_requests = requests_all[
+            requests_all["program_code"].astype(str) == program
+        ]
+        if prog_requests.empty:
+            record(program, 0.0, "no requests")
+            continue
+
+        semester_planner = splan.SemesterPlanner(
+            cf_path, requests=prog_requests, defer_model=True
+        )
+        if semester_planner.request_slots.empty:
+            record(program, 0.0, "no observable slots")
+            continue
+
+        semester_planner.build_model()
+        semester_planner.solve_shortfall()
+
+        if program not in semester_planner.F:
+            record(program, 0.0, "no awarded time")
+            continue
+
+        record(program, float(semester_planner.F[program].X))
+
+    mapped = programs_df["program"].astype(str).map(fill_by_program)
+    programs_df["max_fillfactor"] = mapped.fillna(
+        programs_df["max_fillfactor"]
+    ).round(2)
+    programs_df.to_csv(programs_path, index=False)
+    print(
+        f"Wrote max_fillfactor for {len(fill_by_program)} program(s) "
+        f"to {programs_path}"
+    )
+    return
+
+
 def plan_night(args):
     """
     Run the slew path optimization using the TTP package for a given night's selected targets.
@@ -669,7 +756,9 @@ def plot(args):
         from astroq.nplan import get_nightly_times_from_allocation
 
         night_start_time, _ = get_nightly_times_from_allocation(
-            night_planner.allocation_file, night_planner.current_day
+            night_planner.allocation_file,
+            night_planner.current_day,
+            access_obj=night_planner.semester_planner.access_obj,
         )
 
         # build the plots
