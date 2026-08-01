@@ -1,0 +1,15 @@
+# LaTeX build products. Note the repository root .gitignore already covers
+# *.log, which includes main.log.
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.out
+*.synctex.gz
+*.toc
+*.lof
+*.lot
+*.run.xml
+*.bcf
+*.pdf

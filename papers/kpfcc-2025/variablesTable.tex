@@ -1,0 +1,61 @@
+\begin{table*}[h]
+  \centering
+  \caption{Dictionary of Variables}
+  \label{variableDict}
+  \begin{tabular}{cl}
+    \hline
+    Notation & \multicolumn{1}{c}{Description} \\
+    \hline
+    \hline
+
+    \hfill \\ 
+    \multicolumn{2}{l}{\textbf{Indices:}} \\
+    $r$ & a request  \\
+    $s$ & a slot  \\
+    $d$ & a night \\
+    \hfill \\ 
+    
+    \multicolumn{2}{l}{\textbf{Grid Sizes:}} \\
+    $N_r$ & Number of requests  \\
+    $N_d$ & Number of nights in semester \\
+    $N_s$ & Number of slots in a night  \\
+    \hfill \\ 
+
+    \multicolumn{2}{l}{\textbf{Sets:}} \\
+    $\Rcal$ & Set of all requests \\
+    $\Dcal$ & Set of all days \\
+    $\Scal$ & Set of all slots \\ 
+    $\mathcal{A}_r$ & $\{(d,s) \in \Dcal \times \Scal \mid \text{request $r$ is accessible in day-slot pair $(d,s)$} \}$ \\
+    $\Acal$ & $\{(r, d,s) \in \Rcal \times \Dcal \times \Scal \mid \text{request $r$ is accessible in slot $s$ of day $d$} \}$ \\
+    $\Rcal_{d,s}$ & $\{r \in \Rcal \mid \text{request $r$ is accessible in slot $s$ of day $d$} \}$ \\
+    $\Scal_{r, d}$ & $\{s \in \Scal \mid \text{request $r$ is accessible in slot $s$ on day $d$} \}$ \\
+    $\Dcal_{r}$ & $\{d \in \Dcal  \mid \text{request $r$ is accessible in at least one slot on day $d$} \}$  \\   
+    $\Tcal$ & $\bigl\{ \displaystyle\bigcup_{r \in R} A_r \,\big|\, \text{day-slot pair $(d,s)$ has at least one request accessible} \bigr\}$ \\
+    $\Rcal_{\multivisit}$ & $\{r \in \Rcal \mid \text{request $r$ requires more than 1 visit per night} \}$   \\
+    $\Rcal_{\singlevisit}$ & $\{r \in \Rcal \mid \text{request $r$ requires exactly 1 visit per night} \}$     \\
+
+    \hfill \\ 
+    
+    \multicolumn{2}{l}{\textbf{Observational Strategy:}} \\
+    \isr{n}{intra, max, r} & Desired (maximum) number of visits per night for request $r$  \\
+    \isr{n}{intra, min, r} & Accepted (minimum) number of visits per night for request $r$  \\
+    \isr{\tau}{intra, r} & Minimum intra-night cadence for request $r$ \\   
+    \isr{n}{inter, r} & Maximum number of desired visits for request $r$  \\
+    \isr{\tau}{inter, r} & Minimum inter-night cadence for request $r$ \\
+    \isr{t}{visit, r} & The number of slots required to complete a visit for request $r$  \\ 
+    $P_r$ & The number of past nights where request $r$ was observed \\
+    \hfill \\ 
+
+    \multicolumn{2}{l}{\textbf{Matrix Variables:}} \\
+    $Y_{r,d,s}$ & Matrix of scheduled visits  \\
+    $W_{r,d}$ & Matrix of on-sky visits, only for $r \in \Rcal_{\multivisit}$  \\
+
+    $\Theta_r$ & Matrix of shortfall \\
+    \hfill \\ 
+    
+    \multicolumn{2}{l}{\textbf{Constants:}} \\
+    $\tau_{\slot}$ & the time represented by one slot, in minutes \\
+
+    \hline
+  \end{tabular}
+\end{table*}

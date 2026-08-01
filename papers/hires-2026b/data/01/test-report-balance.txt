@@ -1,0 +1,42 @@
+Semester Planner Statistics
+------------------------------------------------------
+Total requests                               534
+Total requests (active)                      529
+Total requests (active, future slots > 0)    512
+Total allocated slots                       4573
+Total slots requested                       6706
+Total slots requested (active)              5940
+Future allocated slots                      4573
+Future reserved slots                       4554
+Future fill factor                           100
+Current day allocated slots                  278
+Current day reserved slots                   278
+Current day fill factor                      100
+
+------------------- Program Statistics -------------------
+               aw   req past  proj mif%  maf% past% proj% maff% fsf%
+program                                                             
+2026B_C275   33.2  42.1  0.0  33.1   0%  100%    0%  100%  100%   0%
+2026B_C362    0.0   0.0  0.0   0.0   0%    0%    0%    0%    0%    -
+2026B_D466    9.5  11.1  0.0   9.5   0%  100%    0%  100%  100%   0%
+2026B_E475  600.0   0.0  0.0   0.0   0%  100%    0%    0%    0%   0%
+2026B_H402   10.7  14.4  0.0  10.7   0%  100%    0%  100%  100%   0%
+2026B_N040    5.4   7.0  0.0   5.4   0%  100%    0%  100%  100%   0%
+2026B_N062   14.1  18.9  0.0  14.1   0%  100%    0%  100%  100%   0%
+2026B_N144   25.5  30.7  0.0  25.4   0%  100%    0%  100%  100%   0%
+2026B_U252   19.7  22.6  0.0  19.6   0%  100%    0%  100%  100%   0%
+2026B_U258   24.0  36.5  0.0  23.9   0%  100%    0%  100%  100%   0%
+2026B_Y063   10.3  14.8  0.0  10.2   0%  100%    0%  100%  100%   0%
+
+** Key
+aw     - awarded time (hr)
+req    - requested time (hr)
+past   - past executed time (hr)
+proj   - projected time (past + scheduled future, hr)
+mif%   - minimum fill (% of award); constrained lower bound active this round
+maf%   - maximum fill (% of award); throttle ceiling active this round
+past%  - past executed time (% of award)
+proj%  - projected fill (% of award); should satisfy mif% <= proj% <= maf%
+maff%  - maximum feasible fill (% of award) with the telescope to itself;
+         computed by `astroq compute-max-fill`, "-" if not yet computed
+fsf%   - fill shortfall, maff% - proj%; the balance step minimizes the largest

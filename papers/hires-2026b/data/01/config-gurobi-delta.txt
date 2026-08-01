@@ -1,0 +1,26 @@
+Gurobi and stage settings, baseline (29 blocks) vs test (27 blocks).
+Generated from each run's config.ini, which the Makefile rewrites from
+ops/HIRES/common/config_template.ini on every invocation.
+
+--- baseline/config.ini
++++ test/config.ini
+@@ -24,8 +24,8 @@
+ # off at 30s left 2026B at a 23% gap with programs far below their max feasible
+ # fill, while 300s reached the MIPGap in 89s with every program at its ceiling.
+ # TimeLimit is a backstop; the MIPGap above normally ends the solve first.
+-TimeLimit = 900
+-NoRelHeurTime = 300
++TimeLimit = 300
++NoRelHeurTime = 120
+ OutputFlag = 1
+ Presolve = 2
+ MIPFocus = 1
+@@ -35,6 +35,8 @@
+ global_shortfall_slack = 1.1
+ 
+ [semester.balance.gurobi]
++TimeLimit = 600
++OutputFlag = 1
+ MIPFocus = 1
+ 
+ [semester.prioritize]
