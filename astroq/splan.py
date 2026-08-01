@@ -85,6 +85,12 @@ _MODE_PIPELINES = {
     "shortfall,balance,prioritize,fill-empty,fill-current-day": (
         "run_model_shortfall_balance_prioritize_fillempty_fillcurrentday"
     ),
+    # Same pipeline with the balance stage removed. Everything else, including
+    # the weighted-shortfall cap, is held fixed so that comparing the two modes
+    # isolates the contribution of balance.
+    "shortfall,prioritize,fill-empty,fill-current-day": (
+        "run_model_shortfall_prioritize_fillempty_fillcurrentday"
+    ),
 }
 _ALLOWED_MODES = list(_MODE_PIPELINES)
 
@@ -838,8 +844,22 @@ class SemesterPlanner:
 
     def run_model_shortfall_balance_prioritize_fillempty_fillcurrentday(self):
         """Full pipeline: shortfall through fill-current-day."""
+        self._run_pipeline(balance=True)
+
+    def run_model_shortfall_prioritize_fillempty_fillcurrentday(self):
+        """Full pipeline with the balance stage removed.
+
+        Control arm for weather experiments: every other stage, constraint, and
+        solver setting matches the five-stage pipeline, so a difference between
+        the two modes is attributable to balance alone.
+        """
+        self._run_pipeline(balance=False)
+
+    def _run_pipeline(self, balance):
+        """Shortfall through fill-current-day, optionally skipping balance."""
         # Checked up front so a stale programs.csv fails in seconds rather than
-        # after the shortfall solve.
+        # after the shortfall solve. Needed for reporting fsf% even when the
+        # balance stage itself is skipped.
         maff = self._max_feasible_fill()
 
         # ===== shortfall =====
@@ -851,11 +871,8 @@ class SemesterPlanner:
         self.build_schedule()
         self.log_report("shortfall")
 
-        # ===== balance =====
-        # Equalize how far each program sits below the fill it could reach if it
-        # had the telescope to itself: minimize the worst fill shortfall
-        # fsf[p] = max_feasible_fill[p] - F[p]. Unlike raising a common floor,
-        # this is not held hostage by programs that simply cannot be filled.
+        # The cap is applied whether or not balance runs, so that the control
+        # arm is held to the same shortfall tolerance as the balanced one.
         slack = self.config.getfloat(
             "semester.balance",
             "global_shortfall_slack",
@@ -873,31 +890,42 @@ class SemesterPlanner:
             self._objective_weighted_theta() <= cap,
             "balance_shortfall_cap",
         )
-        # Only the csv min_fill floors apply: on a full telescope, raising the
-        # worst program means lowering another, so flooring F at the shortfall
-        # solution here would make this step a no-op. The result is locked in by
-        # the prioritize step below.
-        self._constraint_fillfactor(max_fill=1.0)
-        logs.info("Objective: Minimize the worst per-program fill shortfall.")
-        self.fsf_max = self.model.addVar(lb=0.0, name="fsf_max")
-        for p in self.F:
-            self.model.addConstr(
-                self.fsf_max >= float(maff.at[p]) - self.F[p],
-                f"fsf_{p}",
+
+        # ===== balance =====
+        # Equalize how far each program sits below the fill it could reach if it
+        # had the telescope to itself: minimize the worst fill shortfall
+        # fsf[p] = max_feasible_fill[p] - F[p]. Unlike raising a common floor,
+        # this is not held hostage by programs that simply cannot be filled.
+        if balance:
+            # Only the csv min_fill floors apply: on a full telescope, raising
+            # the worst program means lowering another, so flooring F at the
+            # shortfall solution here would make this step a no-op. The result
+            # is locked in by the prioritize step below.
+            self._constraint_fillfactor(max_fill=1.0)
+            logs.info("Objective: Minimize the worst per-program fill shortfall.")
+            self.fsf_max = self.model.addVar(lb=0.0, name="fsf_max")
+            for p in self.F:
+                self.model.addConstr(
+                    self.fsf_max >= float(maff.at[p]) - self.F[p],
+                    f"fsf_{p}",
+                )
+            self.model.setObjective(self.fsf_max, GRB.MINIMIZE)
+            self.optimize_model("balance")
+            fsf_before = (maff - f_shortfall).clip(lower=0.0)
+            fsf_after = (
+                maff - pd.Series(self.model.getAttr("X", self.F))
+            ).clip(lower=0.0)
+            logs.info(
+                "balance: worst fill shortfall %.3f (%s) -> %.3f (%s)",
+                fsf_before.max(),
+                fsf_before.idxmax(),
+                fsf_after.max(),
+                fsf_after.idxmax(),
             )
-        self.model.setObjective(self.fsf_max, GRB.MINIMIZE)
-        self.optimize_model("balance")
-        fsf_before = (maff - f_shortfall).clip(lower=0.0)
-        fsf_after = (maff - pd.Series(self.model.getAttr("X", self.F))).clip(lower=0.0)
-        logs.info(
-            "balance: worst fill shortfall %.3f (%s) -> %.3f (%s)",
-            fsf_before.max(),
-            fsf_before.idxmax(),
-            fsf_after.max(),
-            fsf_after.idxmax(),
-        )
-        self.build_schedule()
-        self.log_report("balance")
+            self.build_schedule()
+            self.log_report("balance")
+        else:
+            logs.info("Skipping balance stage (mode omits it).")
 
         # ===== prioritize =====
         hold_alpha = self.config.getfloat(

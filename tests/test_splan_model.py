@@ -133,6 +133,9 @@ class TestRunModelDispatch(unittest.TestCase):
                 "shortfall,balance,prioritize,fill-empty,fill-current-day": (
                     "run_model_shortfall_balance_prioritize_fillempty_fillcurrentday"
                 ),
+                "shortfall,prioritize,fill-empty,fill-current-day": (
+                    "run_model_shortfall_prioritize_fillempty_fillcurrentday"
+                ),
             },
         )
         self.assertEqual(
@@ -140,6 +143,7 @@ class TestRunModelDispatch(unittest.TestCase):
             [
                 "shortfall",
                 "shortfall,balance,prioritize,fill-empty,fill-current-day",
+                "shortfall,prioritize,fill-empty,fill-current-day",
             ],
         )
 
@@ -167,6 +171,18 @@ class TestRunModelDispatch(unittest.TestCase):
                 sp.run_model()
                 full.assert_called_once()
                 shortfall.assert_not_called()
+
+    def test_no_balance_mode(self):
+        sp = _planner_with_config(f"[semester]\nmode = {_ALLOWED_MODES[2]}\n")
+        with patch.object(sp, "_run_pipeline") as pipeline:
+            sp.run_model()
+            pipeline.assert_called_once_with(balance=False)
+
+    def test_full_pipeline_mode_enables_balance(self):
+        sp = _planner_with_config(f"[semester]\nmode = {_ALLOWED_MODES[1]}\n")
+        with patch.object(sp, "_run_pipeline") as pipeline:
+            sp.run_model()
+            pipeline.assert_called_once_with(balance=True)
 
     def test_unknown_mode_raises(self):
         sp = _planner_with_config("[semester]\nmode = bonus\n")
