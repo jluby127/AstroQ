@@ -478,7 +478,7 @@ def add_timebar_guide_lines(
             marker=dict(size=20, opacity=0),
             hovertemplate=(
                 f"<b>Maximum Schedulable Time</b><br>{max_schedulable_hours:.2f} hours<br>"
-                "Sum of awarded hours times per-program max_fillfactor "
+                "Sum of awarded hours times per-program max_fill "
                 "(default 1.25). Algorithmically, you are forbidden from "
                 "getting more time than this.<extra></extra>"
             ),
@@ -499,7 +499,7 @@ def add_timebar_subplot_guides(
     allocated,
     max_schedulable,
     category_names,
-    max_fillfactor=1.25,
+    max_fill=1.25,
     weather_loss_factor=TIMEBAR_WEATHER_LOSS_FACTOR,
 ):
     """Reference lines and hover scatters for one timebar-by-program subplot."""
@@ -585,7 +585,7 @@ def add_timebar_subplot_guides(
             hovertemplate=(
                 f"<b>{program_code} Maximum Schedulable</b><br>"
                 f"{max_schedulable:.2f} hours<br>"
-                f"Awarded hours times max_fillfactor ({max_fillfactor:.2f})"
+                f"Awarded hours times max_fill ({max_fill:.2f})"
                 "<extra></extra>"
             ),
             hoverlabel=dict(bgcolor="gray", font_color="white"),

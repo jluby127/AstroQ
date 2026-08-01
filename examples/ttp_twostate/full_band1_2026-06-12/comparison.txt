@@ -1,0 +1,12 @@
+TTP single- vs two-state comparison
+  request_csv : request_selected.csv (58 targets)
+  night       : 2026-06-12T05:54:00.000 -> 2026-06-12T14:48:00.000 (534 min)
+  time limit  : 600s   MIPGap target: 0.005
+
+model           sched  phys slew  mod slew      gap  solve s
+------------------------------------------------------------
+single-state    58/58     41.56m    46.13m    1.38%    600.0
+two-state       58/58     47.67m    51.95m    1.77%    600.0
+
+Gurobi logs: gurobi_single_state.log, gurobi_two_state.log
+'phys slew' re-evaluates each order under the encoder wrap model (the fair, common metric).

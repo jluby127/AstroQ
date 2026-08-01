@@ -61,6 +61,14 @@ See [README.md](README.md) and [docs/getting_started.rst](docs/getting_started.r
 - Night TTP windows: `Access.build_windows` sets `first_available` / `last_available` as `(ntargets, nnights)` `Time` arrays (slot midpoints) plus a `has_observable` mask. Called at the end of `Access.build_access`; consumed by `NightPlanner.run_ttp` via row-index slicing. No synthetic gap rows.
 - Engine switch: `[night] engine = ilp | ttp` in `config.ini` (default `ilp`). `astroq.driver.plan_night` branches on it; both paths write the same `outputs/{ttp_prepared.csv, ObserveOrder_<date>.txt, script_<date>_nominal.txt, TTPstatistics.txt, night_planner.h5}`.
 
+## Tests
+
+- One test module per production module; filename mirrors the module path (e.g. `tests/test_access.py` for `astroq/access.py`).
+- Default to adding a row to an existing `@pytest.mark.parametrize` table, not a new test method.
+- Add a new test method only when it can fail for a reason no existing test covers.
+- Do not test log output, mock call order, or private helper wiring.
+- Do test data contracts, boundary/clamping logic, time/date conversion, and invariants of the solved plan.
+
 ## References
 
 Background papers — `WebFetch` these on demand when constraint formulation, variable names, or solver behavior matter. Don't paste paper text into this rule.

@@ -1,0 +1,13 @@
+[MASTER]
+max-line-length=100
+
+[MESSAGES CONTROL]
+disable=
+    R1735,   # Plotly layout dicts — stylistic noise in figure builders
+    C0103,   # gray/clear/labelsize legacy constants; RA_grid in football
+    R0902,   # PlotData is intentionally a wide context dataclass
+    C0302,   # semester.py module length; split deferred to follow-up PR
+
+[DESIGN]
+max-args=22
+max-locals=40

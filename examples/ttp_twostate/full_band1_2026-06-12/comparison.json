@@ -1,0 +1,40 @@
+{
+  "request_csv": "request_selected.csv",
+  "night_start": "2026-06-12T05:54:00.000",
+  "night_end": "2026-06-12T14:48:00.000",
+  "night_minutes": 534.0,
+  "time_limit_s": 600,
+  "mip_gap_target": 0.005,
+  "results": [
+    {
+      "label": "single-state",
+      "n_states": 1,
+      "scheduled": 58,
+      "n_requested": 58,
+      "modeled_slew_min": 46.13,
+      "physical_slew_min": 41.56,
+      "gurobi_status": 9,
+      "mip_gap": 0.01375,
+      "solve_runtime_s": 600.0,
+      "objective": 563.083,
+      "objective_bound": 570.823,
+      "outdir": "out_single",
+      "log_file": "gurobi_single_state.log"
+    },
+    {
+      "label": "two-state",
+      "n_states": 2,
+      "scheduled": 58,
+      "n_requested": 58,
+      "modeled_slew_min": 51.95,
+      "physical_slew_min": 47.67,
+      "gurobi_status": 9,
+      "mip_gap": 0.01769,
+      "solve_runtime_s": 600.0,
+      "objective": 562.112,
+      "objective_bound": 572.058,
+      "outdir": "out_two",
+      "log_file": "gurobi_two_state.log"
+    }
+  ]
+}

@@ -564,16 +564,22 @@ def plan_semester(args):
     return
 
 
-def find_max_completion_per_program(args):
+def compute_max_fill(args):
     """Estimate per-program max fill by running shortfall with each program alone.
 
     For every program in ``programs.csv``, solve the shortfall model against only
     that program's requests (filtered in memory) and record the resulting fill
-    factor ``F[p] = (past + scheduled) / awarded`` as ``max_fillfactor`` (e.g.
+    factor ``F[p] = (past + scheduled) / awarded`` as ``max_feasible_fill`` (e.g.
     ``0.72`` for 72%). ``programs.csv`` is rewritten once at the end.
 
+    This is the fill achieved by the *shortfall-optimal* solo solution, not a
+    proven maximum: the solo solve minimizes weighted cadence shortfall with the
+    fill ceiling pinned at 1.0 and reports whatever fill that implies. It is the
+    balance stage's target, so a program can occasionally land above it.
+
     Programs with no request rows, no observable slots, or no fill-factor variable
-    (e.g. ``awarded_slots == 0``) get ``max_fillfactor = 0.0``.
+    (e.g. ``awarded_slots == 0``) get ``max_feasible_fill = 0.0``, which is
+    distinct from the empty (NaN) "not computed yet" state written by prep.
 
     Args:
         args (argparse.Namespace): command line arguments with:
@@ -584,7 +590,7 @@ def find_max_completion_per_program(args):
     """
     cf = args.config_file
     cf_path = os.path.abspath(cf)
-    print(f"find_max_completion_per_program: config_file is {cf_path}")
+    print(f"compute_max_fill: config_file is {cf_path}")
 
     config = ConfigParser()
     config.optionxform = str
@@ -602,18 +608,18 @@ def find_max_completion_per_program(args):
     programs_df = pd.read_csv(programs_path)
     if "program" not in programs_df.columns:
         raise ValueError(f"{programs_path} missing required column 'program'")
-    if "max_fillfactor" not in programs_df.columns:
-        programs_df["max_fillfactor"] = np.nan
+    if "max_feasible_fill" not in programs_df.columns:
+        programs_df["max_feasible_fill"] = np.nan
 
     programs = programs_df["program"].astype(str).tolist()
-    print(f"Computing max_fillfactor for {len(programs)} program(s)")
+    print(f"Computing max_feasible_fill for {len(programs)} program(s)")
 
     fill_by_program = {}
 
     def record(program, value, reason=None):
         fill_by_program[program] = value
         suffix = f" ({reason})" if reason else ""
-        print(f"  {program}: max_fillfactor = {value:.2f}{suffix}", flush=True)
+        print(f"  {program}: max_feasible_fill = {value:.2f}{suffix}", flush=True)
 
     for program in programs:
         prog_requests = requests_all[
@@ -640,12 +646,12 @@ def find_max_completion_per_program(args):
         record(program, float(semester_planner.F[program].X))
 
     mapped = programs_df["program"].astype(str).map(fill_by_program)
-    programs_df["max_fillfactor"] = mapped.fillna(
-        programs_df["max_fillfactor"]
+    programs_df["max_feasible_fill"] = mapped.fillna(
+        programs_df["max_feasible_fill"]
     ).round(2)
     programs_df.to_csv(programs_path, index=False)
     print(
-        f"Wrote max_fillfactor for {len(fill_by_program)} program(s) "
+        f"Wrote max_feasible_fill for {len(fill_by_program)} program(s) "
         f"to {programs_path}"
     )
     return

@@ -69,6 +69,16 @@ TIMELINE_VALUE_COLS = (
 
 _DEFAULT_GLOBAL_SHORTFALL_SLACK = 1.1
 
+_GRB_STATUS_NAMES = {
+    GRB.OPTIMAL: "optimal",
+    GRB.TIME_LIMIT: "time limit",
+    GRB.INTERRUPTED: "interrupted",
+    GRB.SUBOPTIMAL: "suboptimal",
+    GRB.NODE_LIMIT: "node limit",
+    GRB.SOLUTION_LIMIT: "solution limit",
+    GRB.USER_OBJ_LIMIT: "objective limit",
+}
+
 # Pipelines keyed by ``[semester] mode`` (mode is required in config; no default).
 _MODE_PIPELINES = {
     "shortfall": "run_model_shortfall",
@@ -84,10 +94,13 @@ aw     - awarded time (hr)
 req    - requested time (hr)
 past   - past executed time (hr)
 proj   - projected time (past + scheduled future, hr)
-miff%  - minimum fill factor (% of award); constrained lower bound active this round
-maff%  - maximum fill factor (% of award); throttle ceiling active this round
+mif%   - minimum fill (% of award); constrained lower bound active this round
+maf%   - maximum fill (% of award); throttle ceiling active this round
 past%  - past executed time (% of award)
-proj%  - projected fill (% of award); should satisfy miff% <= proj% <= maff%
+proj%  - projected fill (% of award); should satisfy mif% <= proj% <= maf%
+maff%  - maximum feasible fill (% of award) with the telescope to itself;
+         computed by `astroq compute-max-fill`, "-" if not yet computed
+fsf%   - fill shortfall, maff% - proj%; the balance step minimizes the largest
 ----------------------------------------------------------------"""
 
 
@@ -286,10 +299,12 @@ class SemesterPlanner:
         ``past_slots`` counts ALL request rows (active + inactive), matching
         throttle semantics. Requires ``t_visit_slots`` on ``self.requests``.
         """
-        if "min_fillfactor" not in self.programs.columns:
-            self.programs["min_fillfactor"] = 0.0
-        if "max_fillfactor" not in self.programs.columns:
-            self.programs["max_fillfactor"] = 1.25
+        if "min_fill" not in self.programs.columns:
+            self.programs["min_fill"] = astroq.io.DEFAULT_MIN_FILL
+        if "max_fill" not in self.programs.columns:
+            self.programs["max_fill"] = astroq.io.DEFAULT_MAX_FILL
+        if "max_feasible_fill" not in self.programs.columns:
+            self.programs["max_feasible_fill"] = np.nan
 
         self.programs["awarded_hours"] = self.programs["hours"]
         self.programs["awarded_slots"] = (
@@ -378,6 +393,22 @@ class SemesterPlanner:
         ):
             out[col] = idx.map(pd.Series(self.model.getAttr(attr, self.F)))
         return out
+
+    def _max_feasible_fill(self):
+        """``max_feasible_fill`` for every awarded program, or raise if unset.
+
+        NaN means ``compute-max-fill`` has not been run for that program (0.0
+        means it was evaluated and cannot be filled), so a stale or partially
+        computed ``programs.csv`` is caught per program.
+        """
+        maff = self.programs["max_feasible_fill"].reindex(self.program_keys)
+        uncomputed = sorted(maff.index[maff.isna()])
+        if uncomputed:
+            raise ValueError(
+                f"max_feasible_fill not computed for program(s) {uncomputed}; "
+                "run `astroq compute-max-fill -cf <config>` first"
+            )
+        return maff
 
     def _validate_program_coverage(self):
         """Every request program_code must appear in programs.csv."""
@@ -622,7 +653,7 @@ class SemesterPlanner:
             )
         self._constraint_fillfactor()
 
-    def _constraint_fillfactor(self, *, min_fillfactor=None, max_fillfactor=None):
+    def _constraint_fillfactor(self, *, min_fill=None, max_fill=None):
         """Set F[p] lower/upper bounds from self.programs, with optional overrides.
 
         F[p] tracks projected fill factor (past + scheduled) / awarded. Because
@@ -636,9 +667,9 @@ class SemesterPlanner:
         fill is never forced onto an unachievable exact scalar.
 
         Args:
-            min_fillfactor: optional floor override, scalar (all programs) or
+            min_fill: optional floor override, scalar (all programs) or
                 pd.Series keyed by program. Applied as lb = max(csv_min, override).
-            max_fillfactor: optional ceiling override, scalar or pd.Series.
+            max_fill: optional ceiling override, scalar or pd.Series.
                 Replaces csv_max for this call (ub = override).
 
         Bounds not overridden reset to their csv values on every call, so a
@@ -653,19 +684,19 @@ class SemesterPlanner:
         past = self.programs["past_slots"]
 
         for p in self.F:
-            lb = float(self.programs.at[p, "min_fillfactor"])
-            ub = float(self.programs.at[p, "max_fillfactor"])
+            lb = float(self.programs.at[p, "min_fill"])
+            ub = float(self.programs.at[p, "max_fill"])
 
-            if min_fillfactor is not None:
-                lb = max(lb, _at(min_fillfactor, p))
-            if max_fillfactor is not None:
-                ub = _at(max_fillfactor, p)
+            if min_fill is not None:
+                lb = max(lb, _at(min_fill, p))
+            if max_fill is not None:
+                ub = _at(max_fill, p)
 
             past_ff = float(past[p]) / float(awarded[p])
             if past_ff > ub:
                 logs.warning(
                     "Program %s over ceiling from past alone "
-                    "(past_ff=%.3f > max_fillfactor=%.3f); pinning F, sched=0.",
+                    "(past_ff=%.3f > max_fill=%.3f); pinning F, sched=0.",
                     p,
                     past_ff,
                     ub,
@@ -760,6 +791,27 @@ class SemesterPlanner:
                 f"{step} solve infeasible (status={self.model.Status})"
             )
 
+        # Steps run with OutputFlag=0 by default, so record enough to tell a
+        # proven optimum from a time-limited incumbent.
+        status = _GRB_STATUS_NAMES.get(self.model.Status, str(self.model.Status))
+        if self.model.SolCount:
+            logs.info(
+                "%s solve: %s, objective=%.4g, bound=%.4g, gap=%.1f%%, %.0fs",
+                step,
+                status,
+                self.model.ObjVal,
+                self.model.ObjBound,
+                100 * self.model.MIPGap,
+                self.model.Runtime,
+            )
+        else:
+            logs.info(
+                "%s solve: %s, no solution found, %.0fs",
+                step,
+                status,
+                self.model.Runtime,
+            )
+
     def run_model(self):
         """Dispatch to the semester scheduling pipeline named in ``[semester] mode``."""
         mode = self.config.get("semester", "mode").strip().lower()
@@ -772,7 +824,7 @@ class SemesterPlanner:
 
     def solve_shortfall(self):
         """Minimize weighted theta. Writes nothing and emits no run report."""
-        self._constraint_fillfactor(max_fillfactor=1.0)
+        self._constraint_fillfactor(max_fill=1.0)
         self.model.setObjective(self._objective_weighted_theta(), GRB.MINIMIZE)
         self.optimize_model("shortfall")
 
@@ -786,61 +838,66 @@ class SemesterPlanner:
 
     def run_model_shortfall_balance_prioritize_fillempty_fillcurrentday(self):
         """Full pipeline: shortfall through fill-current-day."""
+        # Checked up front so a stale programs.csv fails in seconds rather than
+        # after the shortfall solve.
+        maff = self._max_feasible_fill()
+
         # ===== shortfall =====
-        self._constraint_fillfactor(max_fillfactor=1.0)
+        self._constraint_fillfactor(max_fill=1.0)
         self.model.setObjective(self._objective_weighted_theta(), GRB.MINIMIZE)
         self.optimize_model("shortfall")
         objective_shortfall_min = self.model.ObjVal
+        f_shortfall = pd.Series(self.model.getAttr("X", self.F))
         self.build_schedule()
         self.log_report("shortfall")
 
         # ===== balance =====
-        # self._constraint_fillfactor(
-        #     min_fillfactor=pd.Series(self.model.getAttr("X", self.F))
-        # )
-        # self.model.setObjective(self.F.sum(), GRB.MAXIMIZE)
-        # self.optimize_model("balance")
-        # self.build_schedule()
-        # self.log_report("balance")
-        if "max_fillfactor" in self.programs.columns:
-            slack = self.config.getfloat(
-                "semester.fill-current-day",
-                "global_shortfall_slack",
-                fallback=_DEFAULT_GLOBAL_SHORTFALL_SLACK,
-            )
-            cap = objective_shortfall_min * 2.0#slack
-            logs.info(
-                "Constraint: weighted shortfall <= shortfall optimum * %g "
-                "(cap=%.3f from objective_shortfall_min=%.3f)",
-                slack,
-                cap,
-                objective_shortfall_min,
-            )
+        # Equalize how far each program sits below the fill it could reach if it
+        # had the telescope to itself: minimize the worst fill shortfall
+        # fsf[p] = max_feasible_fill[p] - F[p]. Unlike raising a common floor,
+        # this is not held hostage by programs that simply cannot be filled.
+        slack = self.config.getfloat(
+            "semester.balance",
+            "global_shortfall_slack",
+            fallback=_DEFAULT_GLOBAL_SHORTFALL_SLACK,
+        )
+        cap = objective_shortfall_min * slack
+        logs.info(
+            "Constraint: weighted shortfall <= shortfall optimum * %g "
+            "(cap=%.3f from objective_shortfall_min=%.3f)",
+            slack,
+            cap,
+            objective_shortfall_min,
+        )
+        self.model.addConstr(
+            self._objective_weighted_theta() <= cap,
+            "balance_shortfall_cap",
+        )
+        # Only the csv min_fill floors apply: on a full telescope, raising the
+        # worst program means lowering another, so flooring F at the shortfall
+        # solution here would make this step a no-op. The result is locked in by
+        # the prioritize step below.
+        self._constraint_fillfactor(max_fill=1.0)
+        logs.info("Objective: Minimize the worst per-program fill shortfall.")
+        self.fsf_max = self.model.addVar(lb=0.0, name="fsf_max")
+        for p in self.F:
             self.model.addConstr(
-                self._objective_weighted_theta() <= cap,
-                "fix_global_shortfall_upcoming_night",
+                self.fsf_max >= float(maff.at[p]) - self.F[p],
+                f"fsf_{p}",
             )
-            # Programs at >=85% fill may drop up to 5pp so under-filled
-            # programs can rise; everyone else is floored at their shortfall fill.
-            # UB is at least the shortfall fill so we never force F onto an
-            # unachievable CSV max below the current solution.
-            f_shortfall = pd.Series(self.model.getAttr("X", self.F))
-            min_ff = f_shortfall.where(
-                f_shortfall < 0.85, (f_shortfall - 0.05).clip(lower=0.0)
-            )
-            csv_max = self.programs["max_fillfactor"].reindex(f_shortfall.index).astype(float)
-            max_ff_ub = pd.concat([csv_max, f_shortfall.astype(float)], axis=1).max(axis=1)
-            self._constraint_fillfactor(min_fillfactor=min_ff, max_fillfactor=max_ff_ub)
-            max_ff = self.programs["max_fillfactor"]
-            gap_to_max = gp.quicksum(
-                float(max_ff.at[p]) - self.F[p] for p in self.F
-            )
-            self.model.setObjective(gap_to_max, GRB.MINIMIZE)
-            self.optimize_model("balance")
-            self.build_schedule()
-            self.log_report("balance")
-        else:
-            logs.info("No max_fillfactor column in programs, skipping balance step, run find-max-completion first and retry.")
+        self.model.setObjective(self.fsf_max, GRB.MINIMIZE)
+        self.optimize_model("balance")
+        fsf_before = (maff - f_shortfall).clip(lower=0.0)
+        fsf_after = (maff - pd.Series(self.model.getAttr("X", self.F))).clip(lower=0.0)
+        logs.info(
+            "balance: worst fill shortfall %.3f (%s) -> %.3f (%s)",
+            fsf_before.max(),
+            fsf_before.idxmax(),
+            fsf_after.max(),
+            fsf_after.idxmax(),
+        )
+        self.build_schedule()
+        self.log_report("balance")
 
         # ===== prioritize =====
         hold_alpha = self.config.getfloat(
@@ -850,7 +907,7 @@ class SemesterPlanner:
         )
         hold_scale = 1.0 - hold_alpha
         self._constraint_fillfactor(
-            min_fillfactor=pd.Series(self.model.getAttr("X", self.F)) * hold_scale,
+            min_fill=pd.Series(self.model.getAttr("X", self.F)) * hold_scale,
         )
         self.model.setObjective(self._objective_prioritize_intra(), GRB.MAXIMIZE)
         self.optimize_model("prioritize")
@@ -1026,7 +1083,7 @@ class SemesterPlanner:
             raise RuntimeError("call build_schedule() before to_string_programs()")
 
         hour_cols = ("aw", "req", "past", "proj")
-        pct_cols = ("miff%", "maff%", "past%", "proj%")
+        pct_cols = ("mif%", "maf%", "past%", "proj%", "maff%", "fsf%")
         ledger = self.programs_ledger.sort_index()
         aw = ledger["awarded_hours"]
         table = ledger.rename(
@@ -1038,17 +1095,21 @@ class SemesterPlanner:
             }
         )[list(hour_cols)]
         table["proj%"] = 100.0 * ledger["fill_proj"]
-        table["miff%"] = 100.0 * ledger["fill_min"]
-        table["maff%"] = 100.0 * ledger["fill_max"]
+        table["mif%"] = 100.0 * ledger["fill_min"]
+        table["maf%"] = 100.0 * ledger["fill_max"]
+        table["maff%"] = 100.0 * ledger["max_feasible_fill"]
         table["past%"] = np.where(aw > 0, 100.0 * ledger["past_hours"] / aw, 0.0)
+        table["fsf%"] = (table["maff%"] - table["proj%"]).clip(lower=0.0)
         table = table[list(hour_cols) + list(pct_cols)]
-        table[["proj%", "miff%", "maff%"]] = table[["proj%", "miff%", "maff%"]].fillna(
-            0.0
-        )
+        # F-derived bounds are absent for zero-award programs.
+        table[["proj%", "mif%", "maf%"]] = table[["proj%", "mif%", "maf%"]].fillna(0.0)
         for col in hour_cols:
             table[col] = table[col].map("{:.1f}".format)
         for col in pct_cols:
-            table[col] = table[col].map(lambda x: f"{int(round(x))}%")
+            # maff%/fsf% stay NaN until compute-max-fill has run.
+            table[col] = table[col].map(
+                lambda x: "-" if pd.isna(x) else f"{int(round(x))}%"
+            )
 
         stats_divider = "-" * 19 + " Program Statistics " + "-" * 19
         return "\n".join(

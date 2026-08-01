@@ -291,24 +291,25 @@ def main():
     )
     psr_plan_semester.set_defaults(func=astroq.driver.plan_semester)
 
-    ## subcommand of astroq: find-max-completion -- per-program exclusive shortfall fill
-    psr_find_max = subpsr.add_parser(
-        "find-max-completion",
+    ## subcommand of astroq: compute-max-fill -- per-program exclusive shortfall fill
+    psr_compute_max_fill = subpsr.add_parser(
+        "compute-max-fill",
         parents=[psr_parent],
         description=(
             "For each program, run shortfall with only that program's requests "
-            "and write the resulting fill factor into programs.csv max_fillfactor."
+            "and write the resulting fill factor into programs.csv "
+            "max_feasible_fill."
         ),
         prefix_chars="-",
     )
-    psr_find_max.add_argument(
+    psr_compute_max_fill.add_argument(
         "-cf",
         "--config_file",
         type=str,
         required=True,
         help="Relative path of config file.",
     )
-    psr_find_max.set_defaults(func=astroq.driver.find_max_completion_per_program)
+    psr_compute_max_fill.set_defaults(func=astroq.driver.compute_max_fill)
 
     ## subcommand of astroq: plan-night -- run the night planner
     psr_plan_night = subpsr.add_parser(

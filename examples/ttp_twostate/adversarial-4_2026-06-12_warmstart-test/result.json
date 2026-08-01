@@ -1,0 +1,178 @@
+{
+  "time_limit_s": 600,
+  "mip_gap_target": 0.005,
+  "results": [
+    {
+      "label": "two-state plain",
+      "n_states": 2,
+      "mode": "plain",
+      "scheduled": 49,
+      "n_requested": 58,
+      "modeled_slew_min": 40.59,
+      "physical_slew_min": 32.96,
+      "mip_gap": 7.9,
+      "objective": 476.219,
+      "objective_bound": 513.841,
+      "nodes": 5908,
+      "solve_runtime_s": 600.0,
+      "log_file": "gurobi_two_plain.log",
+      "stages": null
+    },
+    {
+      "label": "two-state batched-hint",
+      "n_states": 2,
+      "mode": "hint",
+      "scheduled": 49,
+      "n_requested": 58,
+      "modeled_slew_min": 41.45,
+      "physical_slew_min": 37.06,
+      "mip_gap": 7.78,
+      "objective": 476.184,
+      "objective_bound": 513.251,
+      "nodes": 3817,
+      "solve_runtime_s": 240.0,
+      "log_file": "gurobi_two_hint.log",
+      "stages": [
+        {
+          "label": "batch-1/4",
+          "n_scheduled": 12,
+          "gap": 1.43,
+          "bound": 119.83,
+          "wall_s": 90.0
+        },
+        {
+          "label": "batch-2/4",
+          "n_scheduled": 26,
+          "gap": 9.08,
+          "bound": 277.2,
+          "wall_s": 90.0
+        },
+        {
+          "label": "batch-3/4",
+          "n_scheduled": 40,
+          "gap": 7.63,
+          "bound": 415.21,
+          "wall_s": 90.0
+        },
+        {
+          "label": "batch-4/4",
+          "n_scheduled": 48,
+          "gap": 10.41,
+          "bound": 513.55,
+          "wall_s": 90.0
+        },
+        {
+          "label": "polish",
+          "n_scheduled": 49,
+          "gap": 7.78,
+          "bound": 513.25,
+          "wall_s": 240.0
+        }
+      ]
+    },
+    {
+      "label": "two-state batched-fix",
+      "n_states": 2,
+      "mode": "fix",
+      "scheduled": 49,
+      "n_requested": 58,
+      "modeled_slew_min": 33.05,
+      "physical_slew_min": 29.81,
+      "mip_gap": 7.19,
+      "objective": 478.372,
+      "objective_bound": 512.785,
+      "nodes": 2405,
+      "solve_runtime_s": 240.0,
+      "log_file": "gurobi_two_fix.log",
+      "stages": [
+        {
+          "label": "batch-1/4",
+          "n_scheduled": 12,
+          "gap": 1.41,
+          "bound": 119.81,
+          "wall_s": 90.0
+        },
+        {
+          "label": "batch-2/4",
+          "n_scheduled": 26,
+          "gap": 7.61,
+          "bound": 274.21,
+          "wall_s": 90.0
+        },
+        {
+          "label": "batch-3/4",
+          "n_scheduled": 40,
+          "gap": 0.39,
+          "bound": 392.09,
+          "wall_s": 8.4
+        },
+        {
+          "label": "batch-4/4",
+          "n_scheduled": 49,
+          "gap": 0.91,
+          "bound": 482.32,
+          "wall_s": 90.0
+        },
+        {
+          "label": "polish",
+          "n_scheduled": 49,
+          "gap": 7.19,
+          "bound": 512.78,
+          "wall_s": 240.0
+        }
+      ]
+    },
+    {
+      "label": "single-state batched-hint",
+      "n_states": 1,
+      "mode": "hint",
+      "scheduled": 48,
+      "n_requested": 58,
+      "modeled_slew_min": 47.49,
+      "physical_slew_min": 39.98,
+      "mip_gap": 8.66,
+      "objective": 464.17,
+      "objective_bound": 504.379,
+      "nodes": 6478,
+      "solve_runtime_s": 240.0,
+      "log_file": "gurobi_single_hint.log",
+      "stages": [
+        {
+          "label": "batch-1/4",
+          "n_scheduled": 12,
+          "gap": 0.49,
+          "bound": 94.59,
+          "wall_s": 12.0
+        },
+        {
+          "label": "batch-2/4",
+          "n_scheduled": 26,
+          "gap": 17.87,
+          "bound": 270.86,
+          "wall_s": 90.0
+        },
+        {
+          "label": "batch-3/4",
+          "n_scheduled": 40,
+          "gap": 12.44,
+          "bound": 408.98,
+          "wall_s": 90.0
+        },
+        {
+          "label": "batch-4/4",
+          "n_scheduled": 50,
+          "gap": 8.93,
+          "bound": 504.6,
+          "wall_s": 90.0
+        },
+        {
+          "label": "polish",
+          "n_scheduled": 50,
+          "gap": 8.66,
+          "bound": 504.38,
+          "wall_s": 240.0
+        }
+      ]
+    }
+  ]
+}

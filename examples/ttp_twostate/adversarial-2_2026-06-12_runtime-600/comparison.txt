@@ -1,0 +1,12 @@
+Staggered adversarial TTP comparison (real observability, rise/set staggered)
+  request_csv : request_selected.csv (58 targets; 14 early-setting)
+  night       : 2026-06-12T05:54:00.000 -> 2026-06-12T14:48:00.000 (534 min)
+  time limit  : 600s   MIPGap target: 0.005
+
+model           sched set grab  phys slew  mod slew  az235x      gap  solve s
+-----------------------------------------------------------------------------
+single-state    49/58    7/14      35.77m    41.29m       5    5.91%    600.1
+two-state       49/58   12/14      28.18m    36.64m       4    7.58%    600.1
+
+Gurobi logs: gurobi_single_state.log, gurobi_two_state.log
+'set grab' = early-setting targets scheduled; 'phys slew' re-evaluates each order under the encoder wrap model; 'az235x' counts az-235 straddling transitions.

@@ -98,11 +98,19 @@ $(DATE_DIR)/%/plan-night-run: $(DATE_DIR)/%/plan-semester-run
 	touch $@
 
 # Run plan-semester command (unified for all bands)
-$(DATE_DIR)/%/plan-semester-run: $(DATE_DIR)/%/prep-run
+$(DATE_DIR)/%/plan-semester-run: $(DATE_DIR)/%/compute-max-fill-run
 	@set -euo pipefail; \
 	echo "Running plan-semester for band $(notdir $(@D))..."; \
 	$(if $(strip $(BOOST_UIDS)),echo "   Boost: $(BOOST_UIDS) (factor $(BOOST_FACTOR))";,) \
 	cd $(@D) && $(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq plan-semester -cf config.ini $(BOOST_ARGS) 2>&1 | tee -a astroq.log; \
+	touch $@
+
+# Per-program solo fill ceilings written to programs.csv as max_feasible_fill;
+# the balance step of plan-semester requires them.
+$(DATE_DIR)/%/compute-max-fill-run: $(DATE_DIR)/%/prep-run
+	@set -euo pipefail; \
+	echo "Running compute-max-fill for band $(notdir $(@D))..."; \
+	cd $(@D) && $(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq compute-max-fill -cf config.ini 2>&1 | tee -a astroq.log; \
 	touch $@
 
 # Unified prep command for all bands (queue read from config.ini; the queue
@@ -248,9 +256,10 @@ complete: all
 	@echo "🌐 Launching webapp..."
 	@$(MAKE) webapp
 
-.PHONY: all create_dirs clean status webapp complete combine_logs check_night_plans prep plan-semester plan-night
+.PHONY: all create_dirs clean status webapp complete combine_logs check_night_plans prep compute-max-fill plan-semester plan-night
 
 # Run only selected pipeline stages (respects DATE, BANDS, BOOST_*).
 prep: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/prep-run)
+compute-max-fill: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/compute-max-fill-run)
 plan-semester: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/plan-semester-run)
 plan-night: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/plan-night-run)

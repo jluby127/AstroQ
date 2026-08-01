@@ -1,0 +1,12 @@
+Adversarial south<->NW TTP comparison (forces az 235 crossings)
+  request_csv : request_selected.csv (58 targets)
+  night       : 2026-06-12T05:54:00.000 -> 2026-06-12T14:48:00.000 (534 min)
+  time limit  : 600s   MIPGap target: 0.005
+
+model           sched  phys slew  mod slew  az235x      gap  solve s
+--------------------------------------------------------------------
+single-state    52/58      8.60m    12.78m       1    0.40%    274.5
+two-state       50/58     20.40m    27.49m       1    7.07%    600.1
+
+Gurobi logs: gurobi_single_state.log, gurobi_two_state.log
+'phys slew' re-evaluates each order under the encoder wrap model; 'az235x' counts scheduled transitions straddling sky az 235.
