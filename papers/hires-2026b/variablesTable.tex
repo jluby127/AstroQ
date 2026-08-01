@@ -29,6 +29,7 @@
     $\Scal$ & Set of all slots \\
     $\Pcal$ & Set of all programs \\
     $\Rcal_p$ & $\{r \in \Rcal \mid \text{request $r$ belongs to program $p$} \}$ \\
+    $\Tcal_{\rm alloc}$ & $\{(d,s) \in \Dcal \times \Scal \mid \text{slot $s$ of day $d$ is allocated to the queue} \}$ \\
     \hfill \\
 
     \multicolumn{2}{l}{\textbf{Observational Strategy:}} \\
@@ -48,13 +49,24 @@
     \hfill \\
 
     \multicolumn{2}{l}{\textbf{Program Balance:}} \\
-    $A_p$ & Time awarded to program $p$, in hours \\
+    $A_p$ & Time awarded to program $p$, in slots \\
+    \isr{A}{past,p} & Time already executed by program $p$, in slots \\
     $\Fp$ & Fill factor of program $p$: projected time as a fraction of $A_p$ \\
     $\minfill$ & Operator floor on $\Fp$ \\
     $\maxfill$ & Operator ceiling (throttle) on $\Fp$ \\
     $\maff$ & Maximum feasible fill: the $\Fp$ program $p$ attains with the telescope to itself \\
     $\fsf$ & Fill shortfall of program $p$, $\maff - \Fp$ \\
     $\fsfmax$ & The largest fill shortfall over all programs, minimized by the balance stage \\
+    \hfill \\
+
+    \multicolumn{2}{l}{\textbf{Staged Optimization:}} \\
+    $Z$ & Time-weighted global shortfall, $\sum_r \Theta_r \isr{t}{visit,r}$ \\
+    $\Zstar$ & The stage-1 optimum of $Z$ \\
+    $\alpha$ & Slack multiplier; later stages require $Z \le \alpha \Zstar$ \\
+    $\alpha_{\rm hold}$ & Fraction by which stage 3 relaxes the fill floor inherited from stage 2 \\
+    $w_r$ & Intra-program priority weight of request $r$; smaller is higher priority \\
+    $d_0$ & Index of the upcoming night \\
+    $X^{(k)}$ & The value of quantity $X$ in the solution to stage $k$ \\
     \hfill \\
 
     \multicolumn{2}{l}{\textbf{Constants:}} \\

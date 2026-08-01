@@ -141,6 +141,24 @@ finishing optimization that shortfall left undone. The full config delta is in
 
 **This is the main threat to the finding and the first thing to fix.**
 
+There is now direct evidence for it. The `fill-current-day` stage logs the
+weighted shortfall objective before and after the tie-breaking stages:
+
+| | stage-1 objective | cap (1.1x) | after all five stages |
+|---|---:|---:|---:|
+| baseline | 1001 | 1101.1 | 1001 |
+| test | 1074 | 1181.4 | **1063** |
+
+In the baseline the objective did not move: the later stages worked entirely
+within the set of stage-1 optima. In the test the objective *fell* by 1.0%,
+which is only possible because the stage-1 incumbent was not optimal, its 2.3%
+gap leaving exactly this much room. So the later stages demonstrably performed
+optimization that stage 1 should have done, which is the confound made
+visible rather than inferred.
+
+A useful side result: the `global_shortfall_slack` cap did not bind in either
+run, so the 10% degradation the pipeline is licensed to accept was never spent.
+
 ## A prerequisite correction
 
 None of this was interpretable until a prep bug was fixed. The U258 Nov 16 for

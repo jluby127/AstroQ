@@ -13,3 +13,4 @@
 2026-07-31 21:29:48 - astroq.splan - INFO - prioritize solve: time limit, objective=887, bound=1030, gap=16.1%, 60s
 2026-07-31 21:29:58 - astroq.splan - INFO - fill-empty solve: optimal, objective=0, bound=0, gap=0.0%, 9s
 2026-07-31 21:30:07 - astroq.splan - INFO - fill-current-day solve: optimal, objective=278, bound=278, gap=0.0%, 7s
+2026-07-31 21:30:08 - astroq.splan - INFO - fill-current-day: shortfall objective=1074.000 cap=1181.400 post-step shortfall objective=1063.000

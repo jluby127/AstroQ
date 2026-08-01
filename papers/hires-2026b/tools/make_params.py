@@ -14,6 +14,7 @@ Key namespaces follow the prior paper's ns12-/ns6-/ns3- convention:
     drop2-  the 27-block allocation with two donated U258 nights removed
 """
 
+import configparser
 import csv
 import datetime
 import os
@@ -149,11 +150,37 @@ def collect():
         p[f"{prefix}-balance-gap"] = gap
         p[f"{prefix}-balance-seconds"] = secs
 
+        # How much the four tie-breaking stages actually degraded the stage-1
+        # objective, versus how much the slack would have permitted.
+        m = re.search(
+            r"shortfall objective=([\d.]+) cap=([\d.]+) "
+            r"post-step shortfall objective=([\d.]+)",
+            read(solves),
+        )
+        start, allowed, final = (float(x) for x in m.groups())
+        p[f"{prefix}-shortfall-cap"] = f"{allowed:.1f}"
+        p[f"{prefix}-shortfall-final"] = f"{final:.0f}"
+        p[f"{prefix}-shortfall-drift"] = f"{100 * (final - start) / start:+.1f}"
+
         before, before_prog, after, after_prog = worst_fsf(solves)
         p[f"{prefix}-worst-fsf-before"] = before
         p[f"{prefix}-worst-fsf-before-prog"] = before_prog.replace("2026B_", "")
         p[f"{prefix}-worst-fsf-after"] = after
         p[f"{prefix}-worst-fsf-after-prog"] = after_prog.replace("2026B_", "")
+
+    # Pipeline constants describing the method rather than a result. Read from
+    # the recorded config so the paper cannot drift from what was actually run.
+    cfg = configparser.ConfigParser()
+    cfg.read(os.path.join(DATA, "test-config.ini"))
+    p["pipeline-stages"] = len(cfg.get("semester", "mode").split(","))
+    p["pipeline-slack"] = cfg.get("semester.balance", "global_shortfall_slack")
+    p["pipeline-slack-pct"] = f"{100 * (float(p['pipeline-slack']) - 1):.0f}"
+    p["pipeline-hold-alpha"] = cfg.get("semester.prioritize", "hold_fill_alpha")
+    p["pipeline-mipgap"] = cfg.get("semester.default.gurobi", "MIPGap")
+    p["pipeline-slot-minutes"] = cfg.get("semester", "slot_size")
+
+    caps = {float(r["max_fill"]) for r in programs("test-programs.csv").values()}
+    p["pipeline-maxfill-late"] = f"{max(caps):.2f}"
 
     nights, hours = u258_donated("baseline-keck-blocks.csv")
     p["base-u258-donated-nights"] = nights
