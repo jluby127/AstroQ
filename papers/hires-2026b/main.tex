@@ -85,7 +85,22 @@ scheduler moves from simulation onto a real oversubscribed queue.
 \label{sec:queue}
 
 \red{To be drafted.} Programs, awards, request volume, and the allocation as
-delivered by Keck.
+delivered by Keck. Table~\ref{tab:semester} summarizes the queue as planned on
+the first night of the semester, and Figure~\ref{fig:football} shows where its
+targets lie.
+
+\begin{figure*}
+  \centering
+  \includegraphics[width=\textwidth]{plots/football.pdf}
+  \caption{Requests in the 2026B HIRES queue, colored by program, over a
+  grayscale map of the number of nights in the semester on which each part of
+  the sky is observable from Maunakea. Programs are broadly dispersed in right
+  ascension, so most compete for the same well-placed sky rather than for
+  particular nights. \red{Caption to be finalized.}}
+  \label{fig:football}
+\end{figure*}
+
+\input{table_semester}
 
 \section{The Five-Stage Optimization}
 \label{sec:stages}
@@ -422,6 +437,32 @@ stage left a worst-case \fsf of \param{drop2-worst-fsf-before}
 \param{base-worst-fsf-after}, which suggests a floor set by packing friction
 rather than by balance quality. Caveats are recorded in
 \texttt{notes/01-fsf-floor-and-u258-mismatch.md}.
+
+Figure~\ref{fig:cof} shows the mismatch directly. Every program but U258 climbs
+steadily from the first night and finishes at or above its award. U258 is flat
+at zero until December, when its targets first become observable, and then
+rises only as far as \param{base-u258-maff} of its award. The nights it holds
+before December are not idle; they are absorbed by the programs whose curves
+run above the even-burn line through the autumn.
+
+\begin{figure*}
+  \centering
+  \includegraphics[width=\textwidth]{plots/cof_hours.pdf}
+  \caption{Cumulative time charged to each program, as a percentage of its
+  award, for the plan constructed on the first night of the semester. The
+  dashed line marks an even burn rate. U258 (pink) cannot begin until December
+  and reaches only \param{base-u258-maff} of its award; the programs that
+  finish above 100\% are absorbing the time it cannot use.
+  \red{Caption to be finalized.}}
+  \label{fig:cof}
+\end{figure*}
+
+Table~\ref{tab:programs} gives the corresponding per-program numbers. H402 and
+Y063 end above their awards, which is possible only because stages 3 through 5
+raise the fill ceiling to \param{pipeline-maxfill-late}. Under the ceiling of
+unity that governs stages 1 and 2, that time would have gone unscheduled.
+
+\input{table_programs}
 
 \section{Discussion}
 \label{sec:discussion}
