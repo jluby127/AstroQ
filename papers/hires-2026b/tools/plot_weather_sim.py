@@ -119,6 +119,79 @@ def plot_programs(ref, lost):
     return frames, programs
 
 
+# The projected and realized completion rates live on very different scales:
+# projected hovers near unity all semester while realized climbs from zero. On
+# shared axes the arm difference in the projected curves is invisible, so they
+# get separate figures.
+COMPLETION_KINDS = {
+    "projected": dict(
+        column=lambda d: d.fill,
+        stem="weather_completion_programs",
+        ylabel="Projected completion",
+        title="Per-program projected completion rate, the quantity fill "
+              "shortfall is measured against",
+    ),
+    "realized": dict(
+        column=lambda d: d.past_hr / d.awarded_hr,
+        stem="weather_realized_programs",
+        ylabel="Realized completion",
+        title="Per-program realized completion rate, counting only time "
+              "actually banked",
+    ),
+}
+
+
+def plot_completion(kind, ref, lost, frames, programs):
+    """Per-program completion rate, one panel per program."""
+    spec = COMPLETION_KINDS[kind]
+    awards = frames["balance"].groupby("program").awarded_hr.first()
+
+    ncols = 3
+    nrows = -(-len(programs) // ncols)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(9.5, 2.1 * nrows),
+                             sharex=True, sharey=True)
+    flat = axes.ravel()
+
+    low = min(spec["column"](frames[name]).min() for name in ARMS)
+
+    for ax, program in zip(flat, programs):
+        for night in lost:
+            ax.axvspan(night - 0.5, night + 0.5, color="0.88", zorder=0,
+                       label="Night lost" if night == lost[0] else None)
+        ax.axhline(1.0, color="0.4", linewidth=0.8, linestyle=":", zorder=1)
+        for name, style in ARMS.items():
+            d = frames[name]
+            d = d[d.program == program].set_index("night_index")
+            ax.plot(d.index, spec["column"](d), color=style["color"],
+                    linewidth=1.5, marker=style["marker"], markersize=3,
+                    label=style["label"], zorder=3)
+        ax.set_title(f"{program.replace('2026B_', '')} "
+                     f"({awards[program]:.0f} hr)", fontsize=9)
+        ax.grid(alpha=0.3, linewidth=0.5)
+        ax.margins(x=0.01)
+        ax.set_ylim(low - 0.04, 1.12)
+
+    for ax in flat[len(programs):]:
+        ax.set_visible(False)
+
+    flat[0].legend(fontsize=7, loc="lower left", framealpha=0.95)
+    for ax in axes[-1]:
+        if ax.get_visible():
+            month_ticks(ax, ref.date, fmt="%b")
+            ax.set_xlabel("Allocated night", fontsize=8)
+            ax.tick_params(axis="x", labelsize=8)
+    for row in axes:
+        row[0].set_ylabel(spec["ylabel"], fontsize=8)
+
+    fig.suptitle(f"{spec['title']} (seed {SEED}, {len(lost)} of {len(ref)} "
+                 f"nights lost)", fontsize=10)
+    fig.tight_layout(rect=(0, 0, 1, 0.97))
+    out = os.path.join(PLOTS, f"{spec['stem']}.pdf")
+    fig.savefig(out)
+    fig.savefig(out.replace(".pdf", ".png"), dpi=150)
+    print(f"wrote {out}")
+
+
 def main():
     arms = {name: load(name) for name in ARMS}
     ref = arms["balance"]
@@ -164,6 +237,8 @@ def main():
               f"final {b.iloc[-1]:.3f} vs {n.iloc[-1]:.3f}")
 
     frames, programs = plot_programs(ref, lost)
+    for kind in COMPLETION_KINDS:
+        plot_completion(kind, ref, lost, frames, programs)
 
     print("\nper program, mean fill shortfall over the semester and final fill")
     print(f"  {'program':8} {'mean fsf bal':>13} {'nobal':>8} "
