@@ -18,6 +18,8 @@ looks like a balancing problem turns out to be an allocation problem.
 | # | Title | Status |
 |---|-------|--------|
 | 01 | [Fill shortfall has a floor, and U258's seasonal mismatch was the only way past it](01-fsf-floor-and-u258-mismatch.md) | recorded |
+| 02 | [Rolling weather simulation and fsf under capacity loss](02-weather-rolling-simulation.md) | recorded (toy); 2026B pending |
+| 03 | [Balance redistributes shortfall across the queue; it does not create time](03-weather-paired-control.md) | recorded (one seed, paired control) |
 
 ## Conventions
 

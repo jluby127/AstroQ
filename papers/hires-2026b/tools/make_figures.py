@@ -1,13 +1,15 @@
 """Export paper figures from a solved semester planner.
 
-Produces the two semester-level figures used in the paper, as vector PDFs:
+Produces the three semester-level figures used in the paper, as vector PDFs:
 
     plots/cof_hours.pdf   cumulative time charged, per program, as a
                           percentage of each program's awarded hours
     plots/football.pdf    all-sky map of requests over the observability
                           background
+    plots/birdseye.pdf    night-by-slot map of the semester plan, colored by
+                          program
 
-Both are rendered from the plan as it stood on the first night of the
+All three are rendered from the plan as it stood on the first night of the
 semester, so they show the queue as it was intended before any weather or
 execution losses.
 
@@ -24,6 +26,7 @@ import argparse
 import os
 import sys
 
+import numpy as np
 import plotly.io as pio
 
 import astroq.plot as pl
@@ -41,6 +44,22 @@ PLOTS = os.path.join(PAPER, "plots")
 # but the aspect ratio and font scaling follow from them.
 COF_SIZE = dict(width=1400, height=900)
 FOOTBALL_SIZE = dict(width=1400, height=800)
+BIRDSEYE_SIZE = dict(width=1400, height=900)
+
+
+def crop_to_night(fig, plot_data, pad=3):
+    """Trim the birdseye y-axis to the slots that are ever allocated.
+
+    The slot axis covers a full 24 hr day, but only the observing night is ever
+    allocated, so the uncropped figure is mostly empty margin.
+    """
+    # nulltime is (n_slots, n_nights) and is 1 where the slot is unallocated.
+    allocated = np.nonzero((plot_data.nulltime == 0).any(axis=1))[0]
+    if allocated.size == 0:
+        return
+    lo = max(int(allocated.min()) - pad, 0)
+    hi = min(int(allocated.max()) + pad, plot_data.n_slots - 1)
+    fig.update_yaxes(range=[lo, hi], autorange=False)
 
 
 def main():
@@ -69,6 +88,17 @@ def main():
     fig = pl.get_football(plot_data, plot_data.select_all(), use_program_colors=True)
     out = os.path.join(PLOTS, "football.pdf")
     fig.write_image(out, engine="kaleido", **FOOTBALL_SIZE)
+    print(f"wrote {out}")
+
+    # Aggregating by program collapses the per-request starmaps into one trace
+    # per program, so the mosaic is colored the same way as the other two.
+    fig = pl.get_birdseye(plot_data, plot_data.select_all(aggregate_by_program=True))
+    crop_to_night(fig, plot_data)
+    # The webapp's "Today" marker is meaningless in print: the plan shown is by
+    # construction the one built on the first night.
+    fig.update_layout(shapes=[], annotations=[])
+    out = os.path.join(PLOTS, "birdseye.pdf")
+    fig.write_image(out, engine="kaleido", **BIRDSEYE_SIZE)
     print(f"wrote {out}")
 
 

@@ -43,9 +43,9 @@ both arms lost an identical set of nights. Verified in the analysis:
 - **One realization.** This draw lost 5 of 29 allocated nights (17%), below the
   25% target, so it was a mild weather year. Conclusions about the endpoint
   need more seeds.
-- **Balance did not always converge.** Its stage hit the 300 s limit on at
-  least one night with a 62% gap. This biases against balance, so the measured
-  advantage is a lower bound.
+- **Balance usually did not converge.** Its gap exceeded 1% on 8 of the 29
+  nights, reaching 62% on one, against the 300 s limit. This biases against
+  balance, so the measured advantage is a lower bound.
 - The shortfall stage converged on 29/29 nights in both arms (max gap 0.3%), so
   the confound recorded in finding 01 is absent here.
 - Only allocated nights are stepped; nights with no allocation cannot change

@@ -20,9 +20,13 @@ import datetime
 import os
 import re
 
+import pandas as pd
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 PAPER = os.path.dirname(HERE)
 DATA = os.path.join(PAPER, "data", "01")
+DATA02 = os.path.join(PAPER, "data", "02")
+DATA03 = os.path.join(PAPER, "data", "03")
 
 # Programs that are bookkeeping rather than science: the filler backstop and a
 # program with no requests in the CPS queue. Excluded from subscription totals.
@@ -188,6 +192,138 @@ def collect():
 
     p["drop2-dropped-hours"] = f"{float(p['base-capacity']) - float(p['drop2-capacity']):.2f}"
     p["drop2-dropped-nights"] = p["base-nblocks"] - p["drop2-nblocks"]
+
+    p.update(collect_weather())
+    p.update(collect_paired())
+    return p
+
+
+def collect_paired():
+    """Metrics from the paired balance/no-balance weather run (data/03/)."""
+    p = {}
+    # The filler backstop's award is nominal rather than allocated time, so it
+    # is not a program whose shortfall means anything.
+    exclude = {"2026B_E475"}
+    arms = {}
+    for arm in ("balance", "nobalance"):
+        path = os.path.join(DATA03, f"metrics-seed1-{arm}.csv")
+        if not os.path.exists(path):
+            return p
+        d = pd.read_csv(path)
+        arms[arm] = d[(d["awarded_hr"] > 0) & (~d["program"].isin(exclude))]
+
+    p["pair-seed"] = "1"
+    p["pair-weather-p"] = "25"
+    ref = arms["balance"]
+    nights = ref.groupby("night_index")["clear"].first()
+    p["pair-nights"] = len(nights)
+    p["pair-lost"] = int((~nights).sum())
+    p["pair-lost-frac"] = f"{100 * (~nights).mean():.0f}"
+
+    last = ref["night_index"].max()
+    for arm, d in arms.items():
+        tag = "bal" if arm == "balance" else "nobal"
+        worst = d.groupby("night_index")["fsf"].max()
+        frozen = d.groupby("night_index")["fsf_frozen"].max()
+        p[f"pair-fsf-mean-{tag}"] = f"{worst.mean():.3f}"
+        p[f"pair-fsf-peak-{tag}"] = f"{worst.max():.3f}"
+        p[f"pair-fsf-final-{tag}"] = f"{worst.iloc[-1]:.3f}"
+        p[f"pair-frozen-peak-{tag}"] = f"{frozen.max():.3f}"
+        p[f"pair-frozen-final-{tag}"] = f"{frozen.iloc[-1]:.3f}"
+
+        final = d[d["night_index"] == last]
+        p[f"pair-hours-{tag}"] = f"{final['proj_hr'].sum():.1f}"
+
+        # Per-program floor of projected completion: the worst point of the
+        # weather, which is where the arms differ most.
+        by_program = d.groupby("program")["fill"]
+        for code in ("C275", "U258"):
+            p[f"pair-{code.lower()}-dip-{tag}"] = (
+                f"{by_program.min()[f'2026B_{code}']:.2f}"
+            )
+
+        gap = d.groupby("night_index")["shortfall_gap"].first()
+        optimal = d.groupby("night_index")["shortfall_optimal"].first()
+        p[f"pair-shortfall-converged-{tag}"] = int(optimal.sum())
+        p[f"pair-shortfall-gap-max-{tag}"] = f"{100 * gap.max():.1f}"
+
+        if arm == "balance":
+            bgap = d.groupby("night_index")["balance_gap"].first()
+            p["pair-balance-gap-max"] = f"{100 * bgap.max():.0f}"
+            p["pair-balance-loose"] = int((bgap > 0.01).sum())
+            p["pair-balance-timelimit"] = "300"
+
+    p["pair-awarded"] = f"{ref[ref['night_index'] == last]['awarded_hr'].sum():.1f}"
+
+    # The night on which the arms first separate durably, and the split of the
+    # queue into programs balance squeezes and programs it protects.
+    worst = {arm: d.groupby("night_index")["fsf"].max() for arm, d in arms.items()}
+    dates = ref.groupby("night_index")["date"].first()
+    apart = (worst["nobalance"] - worst["balance"]).abs() > 0.005
+    # An isolated night crosses the threshold well before the arms really
+    # separate, so require the start of a run of consecutive nights.
+    idx = list(apart.index)
+    runs = [
+        i
+        for n, i in enumerate(idx[:-1])
+        if apart[i] and apart[idx[n + 1]] and not (n and apart[idx[n - 1]])
+    ]
+    p["pair-split-date"] = dates[runs[0]]
+    p["pair-blip-date"] = dates[apart[apart].index.min()]
+
+    dip = {arm: d.groupby("program")["fill"].min() for arm, d in arms.items()}
+    delta = dip["balance"] - dip["nobalance"]
+    squeezed = delta < -0.005
+    p["pair-squeezed"] = int(squeezed.sum())
+    p["pair-protected"] = int((delta > 0.005).sum())
+    p["pair-squeezed-lo"] = f"{dip['balance'][squeezed].min():.2f}"
+    p["pair-squeezed-hi"] = f"{dip['balance'][squeezed].max():.2f}"
+
+    # How concentrated the unbalanced shortfall is: programs that carry
+    # essentially none of it without balance but pick some up with it.
+    means = {arm: d.groupby("program")["fsf"].mean() for arm, d in arms.items()}
+    spared = means["nobalance"] < 0.005
+    p["pair-spared-nobal"] = int(spared.sum())
+    p["pair-nprograms"] = len(means["nobalance"])
+    p["pair-spared-mean-bal"] = f"{means['balance'][spared].mean():.3f}"
+    return p
+
+
+def collect_weather():
+    """Metrics from the rolling weather simulation (data/02/)."""
+    p = {}
+    p["wx-weather-p"] = "0.25"
+
+    toy_path = os.path.join(DATA02, "toy-combined-metrics.csv")
+    if os.path.exists(toy_path):
+        toy = pd.read_csv(toy_path)
+        p["wx-toy-seeds"] = len(toy)
+        p["wx-toy-nights"] = int(toy["n_nights"].iloc[0])
+        p["wx-toy-replans-mean"] = f"{toy['n_replans'].mean():.0f}"
+        p["wx-toy-fill-spread-mean"] = f"{toy['fill_realized_spread'].mean():.3f}"
+        p["wx-toy-fill-spread-max"] = f"{toy['fill_realized_spread'].max():.3f}"
+        p["wx-toy-fill-realized-mean"] = f"{toy['fill_realized_mean'].mean():.3f}"
+        p["wx-toy-weather-frac-mean"] = f"{100 * toy['weather_fraction'].mean():.0f}"
+        p["wx-toy-balance-gap-p90-max"] = f"{toy['balance_gap_p90'].max():.1f}"
+        p["wx-toy-fsf-start-max"] = f"{toy['fsf_start_max'].max():.3f}"
+
+    hires_path = os.path.join(DATA02, "hires-combined-metrics.csv")
+    if os.path.exists(hires_path):
+        hires = pd.read_csv(hires_path)
+        row = hires.iloc[0]
+        p["wx-hires-seed"] = int(row["seed"])
+        p["wx-hires-nights"] = int(row["n_nights"])
+        p["wx-hires-replans"] = int(row["n_replans"])
+        p["wx-hires-weather-frac"] = f"{100 * row['weather_fraction']:.0f}"
+        p["wx-hires-fill-spread"] = f"{row['fill_realized_spread']:.3f}"
+        p["wx-hires-fill-realized-mean"] = f"{row['fill_realized_mean']:.3f}"
+        p["wx-hires-fsf-start-max"] = f"{row['fsf_start_max']:.3f}"
+        p["wx-hires-balance-gap-p90"] = f"{row['balance_gap_p90']:.1f}"
+        p["wx-hires-shortfall-gap-p90"] = f"{row['shortfall_gap_p90']:.1f}"
+
+    p["wx-shortfall-timelimit"] = "900"
+    p["wx-shortfall-norel"] = "300"
+    p["wx-balance-timelimit"] = "600"
 
     return p
 

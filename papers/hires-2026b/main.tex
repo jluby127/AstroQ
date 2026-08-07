@@ -438,21 +438,30 @@ stage left a worst-case \fsf of \param{drop2-worst-fsf-before}
 rather than by balance quality. Caveats are recorded in
 \texttt{notes/01-fsf-floor-and-u258-mismatch.md}.
 
-Figure~\ref{fig:cof} shows the mismatch directly. Every program but U258 climbs
-steadily from the first night and finishes at or above its award. U258 is flat
-at zero until December, when its targets first become observable, and then
-rises only as far as \param{base-u258-maff} of its award. The nights it holds
-before December are not idle; they are absorbed by the programs whose curves
-run above the even-burn line through the autumn.
+Figure~\ref{fig:cof} shows the mismatch directly, from two directions. The
+upper panel lays the plan out night by night: U258 appears only in the December
+blocks, and the allocated nights before then are filled by other programs. The
+lower panel accumulates the same plan as time charged against each award. Every
+program but U258 climbs steadily from the first night and finishes at or above
+its award. U258 is flat at zero until December, when its targets first become
+observable, and then rises only as far as \param{base-u258-maff} of its award.
+The nights it holds before December are not idle; they are absorbed by the
+programs whose curves run above the even-burn line through the autumn.
 
 \begin{figure*}
   \centering
-  \includegraphics[width=\textwidth]{plots/cof_hours.pdf}
-  \caption{Cumulative time charged to each program, as a percentage of its
-  award, for the plan constructed on the first night of the semester. The
-  dashed line marks an even burn rate. U258 (pink) cannot begin until December
-  and reaches only \param{base-u258-maff} of its award; the programs that
-  finish above 100\% are absorbing the time it cannot use.
+  % Two stacked full-width panels overflow the page, so both are inset enough
+  % to leave room for the shared caption.
+  \includegraphics[width=0.88\textwidth]{plots/birdseye.pdf}\\[1ex]
+  \includegraphics[width=0.88\textwidth]{plots/cof_hours.pdf}
+  \caption{The plan constructed on the first night of the semester, viewed two
+  ways. \emph{Upper:} each allocated night as a column of scheduling slots,
+  colored by the program occupying it. Unallocated nights are blank, which is
+  why the semester reads as isolated stripes. \emph{Lower:} cumulative time
+  charged to each program as a percentage of its award, with the dashed line
+  marking an even burn rate. U258 (pink) appears in neither panel until
+  December and reaches only \param{base-u258-maff} of its award; the programs
+  that finish above 100\% are absorbing the time it cannot use.
   \red{Caption to be finalized.}}
   \label{fig:cof}
 \end{figure*}
@@ -463,6 +472,175 @@ raise the fill ceiling to \param{pipeline-maxfill-late}. Under the ceiling of
 unity that governs stages 1 and 2, that time would have gone unscheduled.
 
 \input{table_programs}
+
+\section{Balance Under Weather}
+\label{sec:weather}
+
+The queue described so far is never short of time: on a full allocation with no
+losses, the only source of shortfall is the seasonal mismatch of
+\S\ref{sec:balance:mismatch}. That makes it a poor test of the balance stage,
+whose purpose is to decide who absorbs a shortage. Weather supplies the
+shortage. This section reports a simulation of the semester as it would actually
+be operated, night by night, with nights removed at random.
+
+\subsection{Design}
+\label{sec:weather:design}
+
+We step through the \param{pair-nights} allocated nights of the semester in
+order. On each night the semester plan is rebuilt from scratch, exactly as
+\S\ref{sec:stages} describes and exactly as operations does it, using only the
+information available that day. A Bernoulli draw with
+$p = \param{pair-weather-p}\%$ then decides whether the night is wholly lost. If
+it is clear, every visit the plan assigned to that night is appended to the
+record of past observations and carried into the next night's replan; if it is
+lost, nothing is banked. Losing a night is thus not modeled as a penalty term
+but as the absence of data, which is what the scheduler actually sees.
+
+Two properties of the design matter for interpreting the result.
+
+\emph{The arms are paired.} The simulation is run twice on the same weather
+realization: once with the full five-stage pipeline, and once with a four-stage
+pipeline identical in every respect except that stage 2 is omitted. The
+weighted-shortfall cap of Equation~\ref{eq:shortfall-cap} is applied in both, so the
+control is held to the same tolerance on $Z$ as the balanced arm, and balance is
+the only difference between them. The weather draw depends only on the seed and
+the list of allocated nights, never on the arm, so both arms lose an identical
+set of nights. Without such a control the experiment would be uninterpretable:
+every program's fill falls when nights disappear, with or without balance.
+
+\emph{Maximum feasible fill is recomputed nightly.} \maff is re-derived before
+each replan, from the remaining allocation and the observations banked so far,
+which is what \texttt{compute-max-fill} does in production. This has a
+consequence worth stating plainly: as weather removes nights, \maff falls too,
+so \fsf measures the gap to what a program could still achieve rather than to
+what it was once promised. We therefore also record \fsf against \maff frozen at
+its first-night value, which measures how far a program has fallen below what
+looked achievable when the semester opened. The two readings answer different
+questions and are reported separately.
+
+\subsection{The shortage is real but the endpoint is not changed}
+\label{sec:weather:result}
+
+The realization reported here lost \param{pair-lost} of \param{pair-nights}
+allocated nights, or \param{pair-lost-frac}\%. The shortfall stage proved
+optimality on all \param{pair-shortfall-converged-bal} nights in both arms, with
+a largest gap of \param{pair-shortfall-gap-max-bal}\%, so the non-convergence
+that complicates \S\ref{sec:balance} is absent here.
+
+Figure~\ref{fig:wxfsf} tracks the largest \fsf over all programs. Both arms sit
+at zero through the first half of the semester, apart from one isolated night
+(\param{pair-blip-date}), because until then enough time remains that no program
+need give anything up. From \param{pair-split-date} they separate durably: the
+unbalanced arm reaches \param{pair-fsf-peak-nobal} while balance holds the worst
+program to \param{pair-fsf-peak-bal}. Averaged over the semester the worst \fsf
+is \param{pair-fsf-mean-bal} with balance against \param{pair-fsf-mean-nobal}
+without it.
+
+The arms then converge, finishing at \param{pair-fsf-final-bal} and
+\param{pair-fsf-final-nobal}. Measured against the frozen first-night \maff the
+endpoints are \param{pair-frozen-final-bal} and
+\param{pair-frozen-final-nobal}, and the two arms deliver the same total time to
+within 0.1 hr (\param{pair-hours-bal} against
+\param{pair-hours-nobal} of \param{pair-awarded} awarded). Balance changes who
+is short during the semester without changing how much time the queue delivers
+or, in this realization, where the worst-off program ends up.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=\columnwidth]{plots/weather_fsf.pdf}
+  \caption{Largest fill shortfall over all programs, with and without the
+  balance stage, on a single weather realization. Shaded columns mark nights
+  lost. \emph{Upper:} measured against \maff recomputed each night, the
+  quantity stage 2 minimizes. \emph{Lower:} measured against \maff frozen at
+  its first-night value. The horizontal axis is ordered by allocated night
+  rather than by date, so the step between late October and early December
+  spans five weeks in which the queue held no allocation.}
+  \label{fig:wxfsf}
+\end{figure}
+
+\subsection{What balance actually redistributes}
+\label{sec:weather:programs}
+
+The envelope of Figure~\ref{fig:wxfsf} conceals the more informative result.
+Broken out per program in Figure~\ref{fig:wxfsfprog}, the unbalanced arm turns
+out to concentrate essentially all of the shortfall on two programs, C275 and
+U258, while \param{pair-spared-nobal} of the \param{pair-nprograms} carry none
+of it at all. Balance spreads the same shortage across the whole queue: the
+programs that were spared entirely pick up a mean \fsf of
+\param{pair-spared-mean-bal}, and the two that were carrying the shortage come
+down.
+
+Figure~\ref{fig:wxcomp} shows the same trade in units of completion. At the
+worst of the weather, balance holds C275 at \param{pair-c275-dip-bal} of its
+award where the unbalanced arm drops it to \param{pair-c275-dip-nobal}, and
+U258 at \param{pair-u258-dip-bal} against \param{pair-u258-dip-nobal}. It pays
+for this by pulling \param{pair-squeezed} programs that would otherwise sit at
+or near their full award down to
+\param{pair-squeezed-lo}--\param{pair-squeezed-hi}. The queue divides cleanly by
+the sign of the change, \param{pair-protected} programs protected against
+\param{pair-squeezed} squeezed, which is the signature of a max-min objective
+and is not produced by any other stage of the pipeline.
+
+Figure~\ref{fig:wxreal} shows realized rather than projected completion, and it
+is included to make a negative point: the two arms track each other almost
+exactly. What is actually banked is governed by which nights the weather took,
+not by how the queue was balanced. Balance operates on the forecast, deciding
+who is asked to give up time; it cannot create time.
+
+\begin{figure*}
+  \centering
+  \includegraphics[width=\textwidth]{plots/weather_fsf_programs.pdf}
+  \caption{Fill shortfall per program, measured against \maff recomputed
+  nightly, for the same paired realization as Figure~\ref{fig:wxfsf}. Without
+  balance the shortage falls almost entirely on C275 and U258 while
+  \param{pair-spared-nobal} programs carry none; with balance it is spread
+  across the queue at roughly 0.04--0.05. Shaded columns mark
+  nights lost to weather.}
+  \label{fig:wxfsfprog}
+\end{figure*}
+
+\begin{figure*}
+  \centering
+  \includegraphics[width=\textwidth]{plots/weather_completion_programs.pdf}
+  \caption{Projected completion rate per program, the quantity \fsf is measured
+  against. Balance lifts the programs being squeezed and lowers those that
+  would otherwise finish at their full award; the sign of the difference splits
+  the queue in two.}
+  \label{fig:wxcomp}
+\end{figure*}
+
+\begin{figure*}
+  \centering
+  \includegraphics[width=\textwidth]{plots/weather_realized_programs.pdf}
+  \caption{Realized completion rate per program, counting only time actually
+  banked. The two arms are nearly identical: accumulation is set by which
+  nights the weather took. U258 remains at zero until December regardless of
+  arm. Curves end slightly below the projections of
+  Figure~\ref{fig:wxcomp} because the last allocated night was itself lost.}
+  \label{fig:wxreal}
+\end{figure*}
+
+\subsection{Limitations}
+\label{sec:weather:limits}
+
+This is one weather realization, and it lost \param{pair-lost-frac}\% of nights
+against a \param{pair-weather-p}\% target, so it was a mild year in which the
+queue had room to recover in January. A single draw cannot distinguish
+``balance does not change the endpoint'' from ``this year was too easy to tell,''
+and the convergence of the two arms in Figure~\ref{fig:wxfsf} should be read in
+that light. The result that does not depend on the draw is the redistribution of
+Figure~\ref{fig:wxfsfprog}, which is a property of the objective rather than of
+the weather.
+
+Two further caveats. The balance stage often failed to converge within its
+\param{pair-balance-timelimit}\,s limit, leaving a gap above 1\% on
+\param{pair-balance-loose} of the \param{pair-nights} nights and as much as
+\param{pair-balance-gap-max}\% on one of them. This biases against balance, so
+the advantage reported above is a lower bound on what the objective would
+deliver if solved to optimality. And what counts as observed on a clear night is the semester plan's
+assignment for that night rather than an executed night plan, so losses within
+an otherwise clear night are not modeled. Details are recorded in
+\texttt{notes/03-weather-paired-control.md}.
 
 \section{Discussion}
 \label{sec:discussion}
