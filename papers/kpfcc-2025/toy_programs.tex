@@ -1,0 +1,36 @@
+\begin{table*}[t]
+  \centering
+  \caption{Description of Toy Programs}
+  \label{tab:toy-strategies}
+  \begin{tabular}{@{}lrrrrrrrrrr@{}}
+    \toprule
+    Prog. & $N_r$ & $n_{\mathrm{inter,r}}$ & $\tau_{\mathrm{inter,r}}$ & $n_{\mathrm{intra,r}}$ & $t_{\mathrm{visit}}$ & Total time & \multicolumn{4}{c}{Completion fraction (\%)} \\
+    \cmidrule(lr){8-11}
+    & & & (days) & max/min & (slots) & (slots) & Test~\ref{test:2018B} & Test~\ref{test:2018B-random} & Test~\ref{test:quarter}&Test~\ref{test:weather}  \\
+    \midrule
+    1 & 24 & 40 & 1  & 1/1     & 1  & 960  & \param{NS12only-prog1_complete} & \param{Random-prog1_complete} $\pm$ \param{Random-prog1_deviation} & \param{EveryNight-prog1_complete} $\pm$ \param{EveryNight-prog1_deviation} & \param{Weather-prog1_complete} $\pm$ \param{Weather-prog1_deviation}  \\
+    2 & 24 & 20 & 3  & 1/1     & 2  & 960  & \param{NS12only-prog2_complete} & \param{Random-prog2_complete} $\pm$ \param{Random-prog2_deviation} & \param{EveryNight-prog2_complete} $\pm$ \param{EveryNight-prog2_deviation} & \param{Weather-prog2_complete} $\pm$ \param{Weather-prog2_deviation}  \\
+    3 & 24 & 10 &10  & 1/1     & 4  & 960  & \param{NS12only-prog3_complete} & \param{Random-prog3_complete} $\pm$ \param{Random-prog3_deviation} & \param{EveryNight-prog3_complete} $\pm$ \param{EveryNight-prog3_deviation} & \param{Weather-prog3_complete} $\pm$ \param{Weather-prog3_deviation}  \\
+    4 & 24 & 8  & 1  & 5/3 & 1  & 960  & \param{NS12only-prog4_complete} & \param{Random-prog4_complete} $\pm$ \param{Random-prog4_deviation} & \param{EveryNight-prog4_complete} $\pm$ \param{EveryNight-prog4_deviation} & \param{Weather-prog4_complete} $\pm$ \param{Weather-prog4_deviation} \\
+    5 & 24 & 40 & 1  & 1/1     & 1 & 960  & \param{NS12only-prog5_complete} & \param{Random-prog5_complete} $\pm$ \param{Random-prog5_deviation} & \param{EveryNight-prog5_complete} $\pm$ \param{EveryNight-prog5_deviation} & \param{Weather-prog5_complete} $\pm$ \param{Weather-prog5_deviation}  \\
+    6 & 80 & 1  & 1  & 1/1     & 12  & 960   & \param{NS12only-prog6_complete} & \param{Random-prog6_complete} $\pm$ \param{Random-prog6_deviation} & \param{EveryNight-prog6_complete} $\pm$ \param{EveryNight-prog6_deviation} & \param{Weather-prog6_complete} $\pm$ \param{Weather-prog6_deviation}  \\
+    \midrule
+    Sum & 200 & & & & & 5760 & & & & \\
+    \hline
+    Avg Completion &     & & & & &      
+    & \param{all_NS_avg_completion} 
+    & \param{all_Random_avg_completion} $\pm$ \param{all_Random_avg_deviation} 
+    & \param{all_EveryNight_avg_completion} $\pm$ \param{all_EveryNight_avg_deviation}
+    & \param{all_Weather_avg_completion} $\pm$ \param{all_Weather_avg_deviation}  \\
+    \hline
+    Avg Incumbent &     & & & & &      
+    & \param{ns12-best_incobj} 
+    & \param{all_rand_avg_bestincobj} $\pm$ \param{all_rand_dev_bestincobj}
+    & \param{all_every_avg_bestincobj} $\pm$ \param{all_every_dev_bestincobj}
+    & \param{all_weath_avg_bestincobj} $\pm$ \param{all_weath_dev_bestincobj} \\
+    \bottomrule
+  \end{tabular}
+  \noindent\parbox{\textwidth}{\footnotesize{$^a$\isr{\tau}{slot} = 5~min.}}
+  \noindent\parbox{\textwidth}{\footnotesize{$^b$For Program 4, $\tau_{\mathrm{intra,r}} = 12$ slots or 1 hour}}
+  \noindent\parbox{\textwidth}{\footnotesize{$^c$Test~\ref{test:2018B}---Real Keck 2018B allocation (\S\ref{sec:2018B}), Test~\ref{test:2018B-random}---Random permutation of Keck 2018B allocation (\S\ref{sec:inst_allocation}), Test~\ref{test:quarter}---all quarter night allocations (\S\ref{sec:inst_allocation_everynight}), Test~\ref{test:weather}---simulated weather losses (\S\ref{sec:weather-loss}}) .}
+\end{table*}

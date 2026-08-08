@@ -1,0 +1,30 @@
+Batched warm-start test (full_band1 2026-06-12)
+  night      : 2026-06-12T05:54:00.000 -> 2026-06-12T14:48:00.000
+  time limit : 600s   MIPGap target: 0.005
+  baseline (600s prior run): single-state phys 41.56m gap 1.38%; two-state phys 47.67m gap 1.77%
+
+run                         sched     phys      mod     gap    bound    nodes  solve s
+--------------------------------------------------------------------------------------
+two-state plain             58/58   45.48    48.97   1.66%   571.96     1023    600.0
+two-state batched-hint      58/58   47.64    54.87   1.87%   572.11      600    240.0
+two-state batched-fix       58/58   49.06    57.73   2.03%   572.13      570    240.0
+single-state batched-hint   58/58   43.91    47.36   1.08%   568.98     2226    240.0
+
+stages [two-state batched-hint]:
+    batch-1/4    sched=18  gap=0.75% bound=176.73 wall=90.0s
+    batch-2/4    sched=38  gap=2.47% bound=375.71 wall=90.0s
+    batch-3/4    sched=49  gap=2.4% bound=484.86 wall=90.0s
+    batch-4/4    sched=58  gap=2.19% bound=572.7 wall=90.0s
+    polish       sched=58  gap=1.87% bound=572.11 wall=240.0s
+stages [two-state batched-fix]:
+    batch-1/4    sched=18  gap=0.75% bound=176.73 wall=90.0s
+    batch-2/4    sched=38  gap=3.31% bound=372.13 wall=90.0s
+    batch-3/4    sched=49  gap=0.07% bound=466.87 wall=0.7s
+    batch-4/4    sched=57  gap=0.02% bound=543.99 wall=0.1s
+    polish       sched=58  gap=2.03% bound=572.13 wall=240.0s
+stages [single-state batched-hint]:
+    batch-1/4    sched=20  gap=1.08% bound=174.94 wall=90.0s
+    batch-2/4    sched=40  gap=2.28% bound=374.96 wall=90.0s
+    batch-3/4    sched=51  gap=2.42% bound=484.08 wall=90.0s
+    batch-4/4    sched=60  gap=1.87% bound=572.31 wall=90.0s
+    polish       sched=60  gap=1.08% bound=568.98 wall=240.0s

@@ -136,6 +136,9 @@ AstroQ requires six files to run. All example file paths are relative the astroq
     - ``program`` - the program code.
     - ``hours`` - the hours of awarded time to the program.
     - ``nights`` - the number of nights awarded to the program.
+    - ``min_fill`` - lower bound on the program's fill factor (default 0.0).
+    - ``max_fill`` - upper bound on the program's fill factor (default 1.25). A program can never be scheduled more than ``hours * max_fill``.
+    - ``max_feasible_fill`` - the fill factor the program would reach if it had the telescope to itself. Written by ``astroq compute-max-fill``; leave empty if it has not been computed. Note that empty and ``0.0`` mean different things: empty is "not computed yet", while ``0.0`` means the program was evaluated and cannot be filled at all.
 
    Example ``examples/hello_world/2018B/2018-08-05/band1/programs.csv``:
 
@@ -199,6 +202,7 @@ The AstroQ command-line interface provides the following subcommands:
 * ``bench`` - Runs the benchmark test. Here you can compare your computer's performance with the AstroQ benchmark from our paper, Lubin et al. 2025.
 * ``prep`` - Compile and prepare all necessary files. For the KPFCC program, there is an additional subcommand ``kpfcc``. Note that if you are building a queue for a different facility, you will have to build your own subcommand.
 * ``webapp`` - Launch web app to view interactive plots for a given solution of AstroQ.
+* ``compute-max-fill`` - For each program, solve the semester with only that program's requests and record the fill factor it reaches in ``programs.csv`` as ``max_feasible_fill``. Run this after ``prep`` and before ``plan-semester``: the balance step of the multi-stage optimization minimizes the largest gap between a program's fill and this ceiling, and it will refuse to run if any awarded program is missing the value.
 * ``plan-semester`` - Solve for the optimal semester-long schedule, determining what stars to observe on what nights. This is the heart of AstroQ.
 * ``plan-night`` - Solve for the optimal slew path using the TTP package.
 

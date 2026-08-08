@@ -1,0 +1,77 @@
+\begin{table*}[h]
+  \centering
+  \caption{Dictionary of Variables}
+  \label{variableDict}
+  \begin{tabular}{cl}
+    \hline
+    Notation & \multicolumn{1}{c}{Description} \\
+    \hline
+    \hline
+
+    \hfill \\
+    \multicolumn{2}{l}{\textbf{Indices:}} \\
+    $r$ & a request  \\
+    $s$ & a slot  \\
+    $d$ & a night \\
+    $p$ & a program \\
+    \hfill \\
+
+    \multicolumn{2}{l}{\textbf{Grid Sizes:}} \\
+    $N_r$ & Number of requests  \\
+    $N_d$ & Number of nights in semester \\
+    $N_s$ & Number of slots in a night  \\
+    $N_p$ & Number of programs \\
+    \hfill \\
+
+    \multicolumn{2}{l}{\textbf{Sets:}} \\
+    $\Rcal$ & Set of all requests \\
+    $\Dcal$ & Set of all days \\
+    $\Scal$ & Set of all slots \\
+    $\Pcal$ & Set of all programs \\
+    $\Rcal_p$ & $\{r \in \Rcal \mid \text{request $r$ belongs to program $p$} \}$ \\
+    $\Tcal_{\rm alloc}$ & $\{(d,s) \in \Dcal \times \Scal \mid \text{slot $s$ of day $d$ is allocated to the queue} \}$ \\
+    \hfill \\
+
+    \multicolumn{2}{l}{\textbf{Observational Strategy:}} \\
+    \isr{n}{intra, max, r} & Desired (maximum) number of visits per night for request $r$  \\
+    \isr{n}{intra, min, r} & Accepted (minimum) number of visits per night for request $r$  \\
+    \isr{\tau}{intra, r} & Minimum intra-night cadence for request $r$ \\
+    \isr{n}{inter, r} & Maximum number of desired visits for request $r$  \\
+    \isr{\tau}{inter, r} & Minimum inter-night cadence for request $r$ \\
+    \isr{t}{visit, r} & The number of slots required to complete a visit for request $r$  \\
+    $P_r$ & The number of past nights where request $r$ was observed \\
+    \hfill \\
+
+    \multicolumn{2}{l}{\textbf{Matrix Variables:}} \\
+    $Y_{r,d,s}$ & Matrix of scheduled visits  \\
+    $W_{r,d}$ & Matrix of on-sky visits, only for $r \in \Rcal_{\multivisit}$  \\
+    $\Theta_r$ & Matrix of shortfall \\
+    \hfill \\
+
+    \multicolumn{2}{l}{\textbf{Program Balance:}} \\
+    $A_p$ & Time awarded to program $p$, in slots \\
+    \isr{A}{past,p} & Time already executed by program $p$, in slots \\
+    $\Fp$ & Fill factor of program $p$: projected time as a fraction of $A_p$ \\
+    $\minfill$ & Operator floor on $\Fp$ \\
+    $\maxfill$ & Operator ceiling (throttle) on $\Fp$ \\
+    $\maff$ & Maximum feasible fill: the $\Fp$ program $p$ attains with the telescope to itself \\
+    $\fsf$ & Fill shortfall of program $p$, $\maff - \Fp$ \\
+    $\fsfmax$ & The largest fill shortfall over all programs, minimized by the balance stage \\
+    \hfill \\
+
+    \multicolumn{2}{l}{\textbf{Staged Optimization:}} \\
+    $Z$ & Time-weighted global shortfall, $\sum_r \Theta_r \isr{t}{visit,r}$ \\
+    $\Zstar$ & The stage-1 optimum of $Z$ \\
+    $\alpha$ & Slack multiplier; later stages require $Z \le \alpha \Zstar$ \\
+    $\alpha_{\rm hold}$ & Fraction by which stage 3 relaxes the fill floor inherited from stage 2 \\
+    $w_r$ & Intra-program priority weight of request $r$; smaller is higher priority \\
+    $d_0$ & Index of the upcoming night \\
+    $X^{(k)}$ & The value of quantity $X$ in the solution to stage $k$ \\
+    \hfill \\
+
+    \multicolumn{2}{l}{\textbf{Constants:}} \\
+    $\tau_{\slot}$ & the time represented by one slot, in minutes \\
+
+    \hline
+  \end{tabular}
+\end{table*}

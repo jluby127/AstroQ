@@ -1,0 +1,56 @@
+
+% A useful aspect of the new framework is the the sizes of $Y$ and $W$ are continually shrinking as the semester progresses. Once we capture metadata on each request's past observation history out of an independent database, the computed model is only concerned with optimizing scheduling of the available time in the future. Each time the model is run to produce a script for the next night, the value for $N_d$ is recomputed as the number of days remaining in the semester, and therefore $N_s$ is also appropriately updated. This makes the entire algorithm run faster as the semester progresses. The added speed allows for easily running many forecasts if needed.
+
+
+
+
+
+\subsection{Request Accessibility}
+\label{ObservationalConstraints}
+
+The most effective way to place constraints on each slot for each request is through a unique ``map". A map is a one-dimensional array of length N$_s$ where each element is binary. Where a given request's map specifies slot $s$ as 1, that request is allowed to be scheduled in slot $s$, and where 0, that request is forbidden from being scheduled in slot $s$. Each map is in truth an intersection of multiple ``sub-maps", which each describe an observability constraint. 
+
+We generate these sub-maps to forbid slots for various reasons:
+\begin{itemize}
+    \item The Allocation Map describes which slots are forbidden because the observatory has not scheduled the queue to be on-sky at those times. 
+    \item The Twilight Map describes which slots are forbidden due to occurring at times in the day where the sky is too bright for observations. 
+    \item The Access Map describes which slots are forbidden due to the target's elevation being too low in the sky for the telescope to observe at that time. This map is unique to each target and encodes its seasonal rise/set pattern.
+    \item The Custom Map describes which slots are forbidden for any number of other reasons, as stated directly by the PI. This map offers PIs precise control over when each of their requests can be scheduled. Examples of use cases for custom maps include setting a more restrictive lower airmass limit, hitting noteworthy phase(s) of a planet's orbit, obtaining simultaneous observations with another observatory, and more. We note that a custom map does not guarantee an observation will be made in the allowed times. It only guarantees that an observation will never be made outside of the allowed times. Overly restrictive custom maps may result in fewer than desired observations for the request or even no observations at all. 
+\end{itemize}
+
+\noindent In total, we take the intersection of these to create one, all-encompassing map, $I_r$, applied to each request $r$:
+
+\begin{equation}
+    I_r = \mathrm{Allocation} \,\,\, \cap  \,\,\, \mathrm{Twilight} \,\,\, \cap  \,\,\, \mathrm{Access}_r \,\,\, \cap  \,\,\, \mathrm{Custom}_r
+\end{equation}
+
+
+
+
+% note to self: erik wants to break this up into a few plots 
+\begin{figure*}[t!]
+\centering\includegraphics[width=0.95\textwidth]{plots/SampleMaps.png}
+    \caption{A simplified schematic demonstrating how the various maps restrict the allowed space for a given target. While all targets share restrictions on day/twilight and allocated nights, each target has unique restrictions on accessibility. Each target may also be further restricted by the PI through a custom map.}
+    \label{sampleMaps}
+\end{figure*}
+
+
+
+
+
+
+The total number of slots needed is
+%
+\begin{equation}
+E_r = 
+\frac{\isr{n}{intra, r} 
+\left(\isr{n}{e,r} \isr{\tau}{exp} + 
+(\isr{n}{e,r}-1)\isr{\tau}{over,read} + 
+\isr{\tau}{over,slew} \right) }
+{\isr{\tau}{slot}}.
+\label{eqn:slotsNeeded}
+\end{equation}
+%
+We round $E_r$ to the nearest integer and enforce a minimum value of one. If the model selects a request $r$ for observation in slot $s$ we forbid any other request from being scheduled between slots $s$ and $s + E_r - 1$ via: 
+
+\noindent Note that this treats multi-visit requests as a single concatenated event, ignoring \isr{\tau}{intra}. This time is spread throughout the night at a later step.

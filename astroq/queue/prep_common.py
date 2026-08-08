@@ -11,6 +11,8 @@ import os
 
 import numpy as np
 
+import astroq.io
+
 # Intra-night strategy columns and the value to use when the source is blank
 # or the legacy early-HIRES-CPS webform emitted the literal string ``"None"``.
 _INTRA_DEFAULTS = (
@@ -19,13 +21,30 @@ _INTRA_DEFAULTS = (
     ("tau_intra", 0),
 )
 
+PROGRAMS_COLS = ("program", "hours", "min_fill", "max_fill", "max_feasible_fill")
+
 
 def write_programs_csv(programs_df, savepath):
-    """Write ``programs.csv`` sorted by program with hours rounded to 0.01."""
+    """Write ``programs.csv`` sorted by program with hours rounded to 0.01.
+
+    Emits the full column set so operators can hand-edit the fill bounds:
+    ``min_fill`` and ``max_fill`` default to the :mod:`astroq.io` values, and
+    ``max_feasible_fill`` is left empty (NaN) for ``astroq compute-max-fill``
+    to populate.
+    """
     out = programs_df.copy()
     if "hours" in out.columns:
         out["hours"] = out["hours"].round(2)
+    for col, default in (
+        ("min_fill", astroq.io.DEFAULT_MIN_FILL),
+        ("max_fill", astroq.io.DEFAULT_MAX_FILL),
+        ("max_feasible_fill", np.nan),
+    ):
+        if col not in out.columns:
+            out[col] = default
     out = out.sort_values("program", kind="mergesort").reset_index(drop=True)
+    extra = [c for c in out.columns if c not in PROGRAMS_COLS]
+    out = out[list(PROGRAMS_COLS) + extra]
     out.to_csv(os.path.join(savepath, "programs.csv"), index=False)
     return out
 

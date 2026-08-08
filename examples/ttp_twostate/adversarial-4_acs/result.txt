@@ -1,0 +1,10 @@
+ACS vs MILP (adversarial-4, 58 targets)
+  night      : 2026-06-12T05:54:00.000 -> 2026-06-12T14:48:00.000
+  MILP limit : 120s   ACS: 10x30.0s (parallel)   MIPGap: 0.005
+
+run                                         sched     phys      mod     gap      obj    bound    nodes  solve s
+-------------------------------------------------------------------------------------------------------------
+two plain                                   48/58   37.10    40.42  10.48%   465.74   514.55     3398    120.0
+two acs_seed (acs 32s, seed obj 476.8)      49/58   26.84    36.58   7.49%   477.81   513.61     2839    120.0
+two acs_only                                49/58   27.18    37.26     nan   476.77     nan        0      0.0
+single acs_only                             49/58   32.78    37.27     nan   476.57     nan        0      0.0

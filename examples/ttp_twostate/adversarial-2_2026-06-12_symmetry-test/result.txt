@@ -1,0 +1,13 @@
+Two-state symmetry experiment (Yi continuous + Symmetry=2)
+  time limit       : 600s
+  vars (pre-solve) : 22748 integer / 22911 continuous (old model had Yi binary; presolved integer count is in the log)
+  scheduled        : 49/58
+  modeled slew min : 36.64
+  physical slew min: 28.18
+  gurobi status    : 9
+  mip gap          : 7.55%   (baseline 600s: 7.58%)
+  objective        : 477.786
+  objective bound  : 513.857   (baseline: 513.98)
+  nodes explored   : 46220   (baseline: 32204)
+  solve runtime s  : 600.0
+  log              : gurobi_two_state_symmetry.log

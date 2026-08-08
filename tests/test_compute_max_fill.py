@@ -1,4 +1,4 @@
-"""Tests for find-max-completion driver edge cases."""
+"""Tests for compute-max-fill driver edge cases."""
 
 import glob
 import os
@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
-from astroq.driver import find_max_completion_per_program
+from astroq.driver import compute_max_fill
 
 
 def _requests(program_codes):
@@ -24,11 +24,11 @@ def _requests(program_codes):
     )
 
 
-class FindMaxCompletionCase(unittest.TestCase):
+class ComputeMaxFillCase(unittest.TestCase):
     """Builds a run dir with one config, programs.csv and request.csv."""
 
     def build_run_dir(self, programs, requests):
-        self.tmp = tempfile.mkdtemp(prefix="astroq_find_max_")
+        self.tmp = tempfile.mkdtemp(prefix="astroq_max_fill_")
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self.workdir = os.path.join(self.tmp, "run")
         os.makedirs(self.workdir)
@@ -47,7 +47,7 @@ class FindMaxCompletionCase(unittest.TestCase):
         return requests
 
     def run_driver(self):
-        find_max_completion_per_program(Namespace(config_file=self.config_path))
+        compute_max_fill(Namespace(config_file=self.config_path))
         return pd.read_csv(self.programs_path)
 
     def stub_planner(self, mock_planner_cls, *, request_slots, fill=None, program=None):
@@ -63,7 +63,7 @@ class FindMaxCompletionCase(unittest.TestCase):
         return planner
 
 
-class TestFindMaxCompletion(FindMaxCompletionCase):
+class TestComputeMaxFill(ComputeMaxFillCase):
     @patch("astroq.driver.splan.SemesterPlanner")
     @patch("astroq.driver.astroq.io.read_csv")
     def test_no_request_rows_sets_zero(self, mock_read_csv, mock_planner_cls):
@@ -74,7 +74,7 @@ class TestFindMaxCompletion(FindMaxCompletionCase):
 
         programs = self.run_driver()
 
-        self.assertEqual(programs.loc[0, "max_fillfactor"], 0.0)
+        self.assertEqual(programs.loc[0, "max_feasible_fill"], 0.0)
         mock_planner_cls.assert_not_called()
 
     @patch("astroq.driver.splan.SemesterPlanner")
@@ -88,7 +88,7 @@ class TestFindMaxCompletion(FindMaxCompletionCase):
 
         programs = self.run_driver()
 
-        self.assertEqual(programs.loc[0, "max_fillfactor"], 0.0)
+        self.assertEqual(programs.loc[0, "max_feasible_fill"], 0.0)
         mock_planner_cls.assert_called_once()
         planner.build_model.assert_not_called()
         planner.solve_shortfall.assert_not_called()
@@ -106,7 +106,7 @@ class TestFindMaxCompletion(FindMaxCompletionCase):
 
         programs = self.run_driver()
 
-        self.assertEqual(programs.loc[0, "max_fillfactor"], 0.0)
+        self.assertEqual(programs.loc[0, "max_feasible_fill"], 0.0)
         planner.build_model.assert_called_once()
         planner.solve_shortfall.assert_called_once()
 
@@ -126,7 +126,7 @@ class TestFindMaxCompletion(FindMaxCompletionCase):
 
         programs = self.run_driver()
 
-        self.assertEqual(programs.loc[0, "max_fillfactor"], 0.85)
+        self.assertEqual(programs.loc[0, "max_feasible_fill"], 0.85)
         planner.build_model.assert_called_once()
         planner.solve_shortfall.assert_called_once()
         planner.run_model_shortfall.assert_not_called()
@@ -176,7 +176,7 @@ class TestFindMaxCompletion(FindMaxCompletionCase):
         programs = self.run_driver()
 
         self.assertEqual(
-            dict(zip(programs["program"], programs["max_fillfactor"])),
+            dict(zip(programs["program"], programs["max_feasible_fill"])),
             {"P1": 0.0, "P2": 0.5, "P3": 0.0},
         )
         written = {

@@ -574,10 +574,12 @@ def crossmatch_allocation(scheduled_df, request_urls_path, semester, output_path
     """
     scheduled_df = scheduled_df.copy()
 
-    # 2026B_U258 (Ryan Foley): Nov 16 half-night swapped for Dec 28 full night.
+    # 2026B_U258 (Ryan Foley): Nov 16 half-night swapped for the Dec 28 first half.
     # Out: 2026-11-16 04:32-10:07 (50%) HIRESr hires1 Ryan Foley UCSC U258
-    # In:  Keck MOSFIRE slot 2026-12-28 04:43-16:04 (100%) mosfire6 Hennawi U238
+    # In:  first half of the Keck MOSFIRE slot 2026-12-28 04:43-16:04 (100%)
+    #      mosfire6 Hennawi U238, split at the 10:23 midpoint
     #      → credited as HIRESr hires1 Ryan Foley UCSC U258 for CPS.
+    # Half for half: the swap must leave the CPS total allocation unchanged.
     if semester == "2026B":
         drop_nov16 = (scheduled_df["Date"] == "2026-11-16") & (
             scheduled_df["ProjCode"].str.strip(",") == "U258"
@@ -596,7 +598,7 @@ def crossmatch_allocation(scheduled_df, request_urls_path, semester, output_path
                 [
                     {
                         "Date": "2026-12-28",
-                        "Time": "04:43 - 16:04 (100%)",
+                        "Time": "04:43 - 10:23 (50%)",
                         "Dark": "37",
                         "TelNr": "1",
                         "Instrument": "HIRESr",
@@ -609,7 +611,7 @@ def crossmatch_allocation(scheduled_df, request_urls_path, semester, output_path
             )
             scheduled_df = pd.concat([scheduled_df, injected], ignore_index=True)
             logs.info(
-                "Injected U258 Dec 28 full-night row (MOSFIRE U238 slot → HIRES CPS)"
+                "Injected U258 Dec 28 first-half row (MOSFIRE U238 slot → HIRES CPS)"
             )
 
     req = pd.read_csv(request_urls_path)

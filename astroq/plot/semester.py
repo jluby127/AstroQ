@@ -13,6 +13,7 @@ from plotly.subplots import make_subplots
 from scipy.interpolate import griddata
 
 import astroq.access as ac
+import astroq.io
 
 from astroq.plot._common import (
     _charged_hours_from_ps,
@@ -563,7 +564,7 @@ def get_timebar(
     total_allocated_hours = program_rows["hours"].sum()
     total_allocated_nights = total_allocated_hours / hours_per_night
     max_schedulable_hours = (
-        program_rows["hours"] * program_rows["max_fillfactor"]
+        program_rows["hours"] * program_rows["max_fill"]
     ).sum()
 
     # Calculate unused hours
@@ -732,9 +733,9 @@ def get_timebar_by_program(plot_data, selection=None, prevent_negative=False):  
             xref, yref = f"x{idx + 1}", f"y{idx + 1}"
 
         if program_code in ledger.index:
-            max_ff = float(ledger.loc[program_code, "max_fillfactor"])
+            max_ff = float(ledger.loc[program_code, "max_fill"])
         else:
-            max_ff = 1.25
+            max_ff = astroq.io.DEFAULT_MAX_FILL
         max_schedulable = allocated * max_ff
 
         add_timebar_subplot_guides(
@@ -747,7 +748,7 @@ def get_timebar_by_program(plot_data, selection=None, prevent_negative=False):  
             allocated=allocated,
             max_schedulable=max_schedulable,
             category_names=category_names,
-            max_fillfactor=max_ff,
+            max_fill=max_ff,
         )
 
         weather_loss_value = allocated * (1 - TIMEBAR_WEATHER_LOSS_FACTOR)

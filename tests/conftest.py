@@ -1,6 +1,6 @@
 """Pytest fixtures shared by the tests.
 
-The tests in :mod:`tests.test_sample` reference example inputs (configs,
+The tests in :mod:`tests.test_integration` reference example inputs (configs,
 request/allocation/past CSVs) by their literal in-repo paths under
 ``examples/hello_world/`` and ``examples/bench/``. AstroQ writes its outputs
 into ``[global] workdir`` from each config, which points back into

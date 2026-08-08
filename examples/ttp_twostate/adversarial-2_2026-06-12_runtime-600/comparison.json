@@ -1,0 +1,46 @@
+{
+  "request_csv": "request_selected.csv",
+  "night_start": "2026-06-12T05:54:00.000",
+  "night_end": "2026-06-12T14:48:00.000",
+  "night_minutes": 534.0,
+  "time_limit_s": 600,
+  "mip_gap_target": 0.005,
+  "results": [
+    {
+      "label": "single-state",
+      "n_states": 1,
+      "scheduled": 49,
+      "n_requested": 58,
+      "early_set_grabbed": 7,
+      "early_set_total": 14,
+      "modeled_slew_min": 41.29,
+      "physical_slew_min": 35.77,
+      "az235_crossings": 5,
+      "gurobi_status": 9,
+      "mip_gap": 0.05914,
+      "solve_runtime_s": 600.1,
+      "objective": 476.055,
+      "objective_bound": 504.208,
+      "outdir": "out_single",
+      "log_file": "gurobi_single_state.log"
+    },
+    {
+      "label": "two-state",
+      "n_states": 2,
+      "scheduled": 49,
+      "n_requested": 58,
+      "early_set_grabbed": 12,
+      "early_set_total": 14,
+      "modeled_slew_min": 36.64,
+      "physical_slew_min": 28.18,
+      "az235_crossings": 4,
+      "gurobi_status": 9,
+      "mip_gap": 0.07575,
+      "solve_runtime_s": 600.1,
+      "objective": 477.786,
+      "objective_bound": 513.979,
+      "outdir": "out_two",
+      "log_file": "gurobi_two_state.log"
+    }
+  ]
+}

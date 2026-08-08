@@ -1,0 +1,16 @@
+2026-07-31 20:47:45 - astroq.splan - INFO - shortfall solve: optimal, objective=270, bound=270, gap=0.0%, 1s
+2026-07-31 20:47:59 - astroq.splan - INFO - shortfall solve: optimal, objective=49, bound=49, gap=0.0%, 6s
+2026-07-31 20:48:19 - astroq.splan - INFO - shortfall solve: optimal, objective=98, bound=98, gap=0.0%, 9s
+2026-07-31 20:48:29 - astroq.splan - INFO - shortfall solve: optimal, objective=31, bound=31, gap=0.0%, 4s
+2026-07-31 20:48:38 - astroq.splan - INFO - shortfall solve: optimal, objective=109, bound=109, gap=0.0%, 2s
+2026-07-31 20:48:44 - astroq.splan - INFO - shortfall solve: optimal, objective=155, bound=155, gap=0.0%, 1s
+2026-07-31 20:48:53 - astroq.splan - INFO - shortfall solve: optimal, objective=87, bound=87, gap=0.0%, 5s
+2026-07-31 20:48:56 - astroq.splan - INFO - shortfall solve: optimal, objective=66, bound=66, gap=0.0%, 1s
+2026-07-31 20:49:02 - astroq.splan - INFO - shortfall solve: optimal, objective=136, bound=136, gap=0.0%, 3s
+2026-07-31 20:54:59 - astroq.splan - INFO - shortfall solve: optimal, objective=1001, bound=1001, gap=0.0%, 326s
+2026-07-31 20:56:00 - astroq.splan - INFO - balance solve: time limit, objective=0.004915, bound=0.001866, gap=62.0%, 60s
+2026-07-31 20:56:00 - astroq.splan - INFO - balance: worst fill shortfall 0.005 (2026B_C275) -> 0.005 (2026B_C275)
+2026-07-31 20:57:13 - astroq.splan - INFO - prioritize solve: time limit, objective=912.7, bound=1078, gap=18.1%, 60s
+2026-07-31 20:58:15 - astroq.splan - INFO - fill-empty solve: time limit, objective=210, bound=0, gap=100.0%, 60s
+2026-07-31 20:58:24 - astroq.splan - INFO - fill-current-day solve: optimal, objective=278, bound=278, gap=0.0%, 8s
+2026-07-31 20:58:25 - astroq.splan - INFO - fill-current-day: shortfall objective=1001.000 cap=1101.100 post-step shortfall objective=1001.000

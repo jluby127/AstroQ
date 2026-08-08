@@ -38,8 +38,12 @@ CUSTOM_SCHEMA = {"unique_id": str, "target": str, "start": Time, "stop": Time}
 
 PROGRAMS_SCHEMA = {"program": str, "hours": float}
 
-DEFAULT_MIN_FILLFACTOR = 0.0
-DEFAULT_MAX_FILLFACTOR = 1.25
+DEFAULT_MIN_FILL = 0.0
+DEFAULT_MAX_FILL = 1.25
+
+# NaN in max_feasible_fill means "not computed yet" (run `astroq compute-max-fill`);
+# 0.0 means computed and genuinely unfillable. No default is ever substituted.
+PROGRAMS_FILL_COLS = ("min_fill", "max_fill", "max_feasible_fill")
 
 REQUEST_COLS = list(REQUEST_SCHEMA)
 PAST_COLS = list(PAST_SCHEMA)
@@ -77,22 +81,24 @@ def read_csv(path, type):
 
     elif type == "programs":
         df = _load_frame(path, PROGRAMS_SCHEMA, "programs.csv", key="program")
-        if "min_fillfactor" not in df.columns:
-            df["min_fillfactor"] = DEFAULT_MIN_FILLFACTOR
+        for col, default in (
+            ("min_fill", DEFAULT_MIN_FILL),
+            ("max_fill", DEFAULT_MAX_FILL),
+        ):
+            if col not in df.columns:
+                df[col] = default
+            else:
+                df[col] = (
+                    pd.to_numeric(df[col], errors="coerce")
+                    .fillna(default)
+                    .astype(float)
+                )
+        if "max_feasible_fill" not in df.columns:
+            df["max_feasible_fill"] = float("nan")
         else:
-            df["min_fillfactor"] = (
-                pd.to_numeric(df["min_fillfactor"], errors="coerce")
-                .fillna(DEFAULT_MIN_FILLFACTOR)
-                .astype(float)
-            )
-        if "max_fillfactor" not in df.columns:
-            df["max_fillfactor"] = DEFAULT_MAX_FILLFACTOR
-        else:
-            df["max_fillfactor"] = (
-                pd.to_numeric(df["max_fillfactor"], errors="coerce")
-                .fillna(DEFAULT_MAX_FILLFACTOR)
-                .astype(float)
-            )
+            df["max_feasible_fill"] = pd.to_numeric(
+                df["max_feasible_fill"], errors="coerce"
+            ).astype(float)
         df = df.set_index("program")
 
     elif type == "allocation":
