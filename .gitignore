@@ -25,6 +25,27 @@ astroq/data/*
 /data/
 examples/**/outputs/
 examples/**/prepped/
+examples/**/cache/
+examples/**/out_*/
+examples/**/runs/
+examples/**/stages/
+examples/**/script_test_output/
+examples/**/comparison.json
+examples/**/comparison.txt
+examples/**/result.json
+examples/**/result.txt
+examples/**/request_selected.csv
+examples/**/run.json
+examples/**/schedule.csv
+examples/**/ladder.html
+examples/**/slew_animation.html
+examples/**/slew_animation.gif
+examples/**/slew_path.html
+examples/**/gurobi_*.log
+# ttp_twostate experiments: keep *.py scripts only
+examples/ttp_twostate/**
+!examples/ttp_twostate/**/
+!examples/ttp_twostate/**/*.py
 examples/bench/outputsTTPstatistics.txt
 examples/bench/outputsrunReport.txt
 examples/bench/request.csv
