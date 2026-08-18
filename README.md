@@ -9,12 +9,15 @@ This package contains the code for solving two related problems:
 
 For information on the installation and use of the ``AstroQ`` code, please visit the [documentation page](https://astroq.readthedocs.io).
 
-# More Info
+# References
 More information on the KPF-CC program and the algorithm can be found in these places:
-- The original autoscheduler paper: https://ui.adsabs.harvard.edu/abs/2024AJ....167..122H/abstract
-- The original TTP paper (please cite this if you obtain observations through KPF-CC):  https://ui.adsabs.harvard.edu/abs/2024AJ....167...33H/abstract
-- The updated autoscheduler paper (describes this new algorithm, please cite this if you obtain observations through KPF-CC):
-- A FAQ page: https://docs.google.com/document/d/1-TfR6lNEtHO3muw_2Sc7l9Klveb3yovMUu28Jeq21t0/edit?usp=sharing
+
+- [Lubin et al. (2026)](https://ui.adsabs.harvard.edu/abs/2026AJ....171...85L/abstract) (semester scheduler)
+- [Handley et al. (2024)](https://ui.adsabs.harvard.edu/abs/2024AJ....167...33H/abstract) (traveling telescope problem)
+
+## KPF-CC
+ 
+- A FAQ [page](https://docs.google.com/document/d/1-TfR6lNEtHO3muw_2Sc7l9Klveb3yovMUu28Jeq21t0/edit?usp=sharing):
 
 # Notes on HIRES implementation
 
