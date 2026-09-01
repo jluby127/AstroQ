@@ -642,10 +642,11 @@ def compute_max_fill(args):
 
     for program in programs:
         prog_requests = requests_all[
-            requests_all["program_code"].astype(str) == program
+            (requests_all["program_code"].astype(str) == program)
+            & (~requests_all["inactive"])
         ]
         if prog_requests.empty:
-            record(program, 0.0, "no requests")
+            record(program, 0.0, "no active requests")
             continue
 
         semester_planner = splan.SemesterPlanner(

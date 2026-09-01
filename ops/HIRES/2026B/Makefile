@@ -1,6 +1,6 @@
 # HIRES 2026B production Makefile. Run from repo root, e.g.:
 #   conda activate astroq
-#   make -C ops/HIRES/2026B DATE=2026-08-01 BANDS=full-band1
+#   make -C ops/HIRES/2026B DATE=2026-09-02 BAND=full-band1 MODE=recomm VMAG_MAX=8.0 plan-night
 #
 # One-time per machine (sets CC_OUTPUT_PATH in the astroq env):
 #   conda env config vars set CC_OUTPUT_PATH=/Users/petigura/code/AstroQ-hires26a
@@ -28,6 +28,8 @@ START_DATE ?= 2026-08-01
 END_DATE ?= 2027-01-31
 BANDS ?= band1 full-band1
 FILLER_PROGRAM ?= 2026B_E475
+# Bright-star cut: mark targets with Vmag > VMAG_MAX inactive after prep (unset = no cut).
+VMAG_MAX ?=
 MODE ?= normal
 ifeq ($(MODE),recomm)
   REQUEST_URLS_CSV ?= $(MAKEFILE_DIR)request_urls_recomm.csv
@@ -81,11 +83,23 @@ $(DATE_DIR)/%/plan-semester-run: $(DATE_DIR)/%/compute-max-fill-run
 
 # Per-program solo fill ceilings written to programs.csv as max_feasible_fill;
 # the balance step of plan-semester requires them.
-$(DATE_DIR)/%/compute-max-fill-run: $(DATE_DIR)/%/prep-run
+$(DATE_DIR)/%/compute-max-fill-run: $(DATE_DIR)/%/filter-vmag-run
 	@set -euo pipefail; \
 	echo "Running compute-max-fill for band $(notdir $(@D))..."; \
 	cd $(@D) && $(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq compute-max-fill -cf config.ini 2>&1 | tee -a astroq.log; \
 	touch $@
+
+ifneq ($(strip $(VMAG_MAX)),)
+$(DATE_DIR)/%/filter-vmag-run: $(DATE_DIR)/%/prep-run
+	@set -euo pipefail; \
+	echo "Applying Vmag cut: keeping V <= $(VMAG_MAX)..."; \
+	cd $(@D) && $(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) python -m astroq.scripts.filter_request_vmag -cf config.ini --vmag-max $(VMAG_MAX) 2>&1 | tee -a astroq.log; \
+	echo "$(VMAG_MAX)" > $(@D)/.vmag_max; \
+	touch $@
+else
+$(DATE_DIR)/%/filter-vmag-run: $(DATE_DIR)/%/prep-run
+	@touch $@
+endif
 
 $(DATE_DIR)/%/prep-run: $(DATE_DIR)/%/config.ini
 	@set -euo pipefail; \
@@ -168,6 +182,7 @@ status:
 	@echo "Bands:        $(BANDS)"
 	@echo "Mode:         $(MODE)"
 	@echo "Filler:       $(FILLER_PROGRAM)"
+	@echo "Vmag cut:     $(if $(strip $(VMAG_MAX)),V <= $(VMAG_MAX),off)"
 	@echo "Conda env:    $(CONDA_ENV)"
 	@echo "Request URLs: $(REQUEST_URLS_CSV)"
 	@echo "WORKDIR:      $(WORKDIR)"
