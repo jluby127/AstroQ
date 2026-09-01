@@ -23,6 +23,7 @@ from astropy.coordinates import SkyCoord
 import astropy.units as u
 
 from astroq.queue.prep_common import standardize_request_strategy
+from astroq.queue.hirescps import jump as jump_client
 
 logs = logging.getLogger(__name__)
 
@@ -38,6 +39,7 @@ REQUEST_COLS_CORE = [
     "program_code",
     "target",
     "unique_id",
+    "jump_name",
     "ra",
     "dec",
     "exptime",
@@ -84,7 +86,9 @@ _DEFAULT_SPLAN_WEIGHT_NO_PRIORITIES = 2
 _UNKNOWN_PRIORITY_SPLAN_WEIGHT = 3
 
 # Full Google Sheet ``requests`` tab (CPS template): … priority, start, stop, comments.
+# ``jump_name`` is optional on sheets (defaults to ``unique_id`` at load time).
 REQUEST_COLS_READ = REQUEST_COLS_CORE + ["start", "stop", "comments"]
+_REQUEST_COLS_READ_REQUIRED = set(REQUEST_COLS_READ) - {"jump_name"}
 
 # Column definitions for custom dataframe (built from start/stop on requests)
 CUSTOM_COLS = ["unique_id", "target", "start", "stop"]
@@ -175,71 +179,26 @@ def _canonicalize_sheet_columns(
     return df
 
 
-def _fetch_sheet_dataframe(url, skip_rows=3):
-    """
-    Fetch one tab of a HIRES-CPS Google Sheet as a DataFrame.
+def backfill_jump_name(requests_df):
+    """Ensure ``jump_name`` is populated (defaults to ``unique_id``)."""
+    if requests_df is None or requests_df.empty:
+        return requests_df
+    df = requests_df.copy()
+    if "jump_name" not in df.columns:
+        df["jump_name"] = df["unique_id"].astype(str)
+        return df
+    empty = df["jump_name"].isna() | (df["jump_name"].astype(str).str.strip() == "")
+    df.loc[empty, "jump_name"] = df.loc[empty, "unique_id"].astype(str)
+    return df
 
-    Given the address-bar URL of the relevant tab (must include both the
-    workbook ID and the per-tab ``gid``, e.g.
-    ``https://docs.google.com/spreadsheets/d/<SHEET_ID>/edit?gid=<GID>#gid=<GID>``),
-    download via Google's public ``export?format=csv&gid=<GID>`` endpoint --
-    the same as File > Download > CSV in the UI -- and parse using the fixed
-    HIRES-CPS layout: rows 1-3 are template labels, row 4 is the canonical
-    header, row 5+ is data.
 
-    Returns a DataFrame with exactly ``REQUEST_COLS_READ`` columns.
-
-    Raises ``ValueError`` for malformed URLs, HTML responses (sharing not set
-    to "Anyone with the link"), missing ``program_code`` header, or any
-    missing required columns.
-    """
-    url = (url or "").strip()
-    sheet_match = _SHEET_ID_RE.search(url)
-    if not sheet_match:
-        raise ValueError(f"No Google Sheet ID in URL: {url[:80]}...")
-    gid_match = _GID_RE.search(url)
-    if not gid_match:
-        raise ValueError(
-            "URL must include a tab-specific gid (e.g. .../edit?gid=12345#gid=12345). "
-            f"Got: {url[:120]}..."
-        )
-    sheet_id, gid = sheet_match.group(1), gid_match.group(1)
-
-    csv_url = (
-        f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
-    )
-    print(f"downloading requests from {url}")
-    resp = requests.get(csv_url, timeout=15)
-    resp.raise_for_status()
-
-    # Log label from Content-Disposition (``<workbook> - <tab>.csv``), else the sheet URL.
-    cd = resp.headers.get("Content-Disposition", "")
-    m = re.search(r"filename\*=UTF-8''([^;]+)", cd, re.I) or re.search(
-        r'filename="([^"]+)"', cd, re.I
-    )
-    title = url
-    if m:
-        name = urllib.parse.unquote(m.group(1).strip())
-        if name.endswith(".csv"):
-            name = name[:-4]
-        if " - " in name:
-            name = name.rsplit(" - ", 1)[0]
-        title = name
-
-    text = resp.text
-    stripped = text.lstrip()
-    if not stripped or stripped.startswith("<!") or "<html" in stripped[:200].lower():
-        raise ValueError(
-            f"Sheet {sheet_id} (gid={gid}): export endpoint returned HTML, "
-            "not CSV. Verify sharing is set to 'Anyone with the link'."
-        )
-
+def _parse_cps_sheet_text(text: str, title: str, skip_rows: int = 3) -> pd.DataFrame:
+    """Parse CPS template CSV text into ``REQUEST_COLS_READ`` columns."""
     human_labels = _human_header_labels(text)
     df = pd.read_csv(io.StringIO(text), skiprows=skip_rows, dtype=str)
     df = df.dropna(how="all")
     df.columns = [str(c).strip() for c in df.columns]
     df = _canonicalize_sheet_columns(df, human_labels)
-    # Google Sheets still use legacy column name; normalize to canonical schema.
     if "starname" in df.columns and "target" not in df.columns:
         df = df.rename(columns={"starname": "target"})
     elif "starname" in df.columns and "target" in df.columns:
@@ -256,11 +215,66 @@ def _fetch_sheet_dataframe(url, skip_rows=3):
         )
     df = df[df["program_code"].astype(str).str.strip() != ""]
     df = df[df["program_code"].astype(str).str.lower() != "nan"]
-    missing = set(REQUEST_COLS_READ) - set(df.columns)
+    missing = _REQUEST_COLS_READ_REQUIRED - set(df.columns)
     if missing:
         raise ValueError(f"CSV missing required columns: {sorted(missing)}")
+    if "jump_name" not in df.columns:
+        df["jump_name"] = ""
     print(f"read {len(df)} records from {title}\n")
     return df[REQUEST_COLS_READ].copy()
+
+
+def _load_request_tab(source: str) -> pd.DataFrame:
+    """Load one CPS request tab from a Google Sheet URL or local path."""
+    source = (source or "").strip()
+    if source.startswith("http"):
+        url = source
+        sheet_match = _SHEET_ID_RE.search(url)
+        if not sheet_match:
+            raise ValueError(f"No Google Sheet ID in URL: {url[:80]}...")
+        gid_match = _GID_RE.search(url)
+        if not gid_match:
+            raise ValueError(
+                "URL must include a tab-specific gid (e.g. .../edit?gid=12345#gid=12345). "
+                f"Got: {url[:120]}..."
+            )
+        sheet_id, gid = sheet_match.group(1), gid_match.group(1)
+        csv_url = (
+            f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv&gid={gid}"
+        )
+        print(f"downloading requests from {url}")
+        resp = requests.get(csv_url, timeout=60)
+        resp.raise_for_status()
+        cd = resp.headers.get("Content-Disposition", "")
+        m = re.search(r"filename\*=UTF-8''([^;]+)", cd, re.I) or re.search(
+            r'filename="([^"]+)"', cd, re.I
+        )
+        title = url
+        if m:
+            name = urllib.parse.unquote(m.group(1).strip())
+            if name.endswith(".csv"):
+                name = name[:-4]
+            if " - " in name:
+                name = name.rsplit(" - ", 1)[0]
+            title = name
+        text = resp.text
+    else:
+        path = os.path.abspath(source)
+        print(f"reading requests from local file {path}")
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        title = os.path.basename(path)
+
+    stripped = text.lstrip()
+    if stripped.startswith("<!") or "<html" in stripped[:200].lower():
+        raise ValueError(f"Expected CSV for {title}, got HTML.")
+    return _parse_cps_sheet_text(text, title)
+
+
+def _fetch_sheet_dataframe(url, skip_rows=3):
+    """Fetch one tab of a HIRES-CPS Google Sheet as a DataFrame."""
+    del skip_rows  # fixed CPS layout: skip 3 label rows in :func:`_parse_cps_sheet_text`
+    return _load_request_tab(url)
 
 
 def _dedup_requests_by_hash(requests_df, custom_df):
@@ -402,41 +416,34 @@ def attach_splan_weight(requests_df):
 
 def pull_requests(request_urls_path):
     """
-    Pull HIRES-CPS request and custom-window data from the per-program Google
-    Sheets listed in ``request_urls_path`` (column ``url``).
+    Pull HIRES-CPS request and custom-window data from Google Sheets or local
+    CPS template CSVs listed in ``request_urls_path``.
 
-    For each URL, fetches the relevant tab via :func:`_fetch_sheet_dataframe`
-    (Google's ``export?format=csv&gid=<GID>`` endpoint) and parses it using
-    the fixed HIRES-CPS layout. Each tab must expose the columns in
-    ``REQUEST_COLS_READ`` (canonical fields through ``priority`` plus
-    ``start``, ``stop``, ``comments``); a missing ``comments`` column is
-    backfilled as empty strings.
-
-    Args:
-        request_urls_path: Path to CSV with a ``url`` column listing sheet URLs.
-
-    Returns:
-        tuple: ``(requests_df, custom_df)`` where ``requests_df`` has
-        ``REQUEST_COLS`` and ``custom_df`` has
-        ``[unique_id, target, start, stop]``.
-
-    Raises:
-        ValueError: If ``request_urls_path`` is unset or empty.
+    Each row must have ``url`` (Google Sheet) and/or ``local_path`` (file).
     """
-    sheet_urls = pd.read_csv(request_urls_path, comment="#")["url"].tolist()
+    ru = pd.read_csv(request_urls_path)
+    urls_dir = os.path.dirname(os.path.abspath(request_urls_path))
+    if "url" not in ru.columns and "local_path" not in ru.columns:
+        raise ValueError("request_urls.csv must include 'url' and/or 'local_path'.")
 
     request_dfs = []
     custom_dfs = []
-    for url in sheet_urls:
-        url = (url or "").strip()
-        df = _fetch_sheet_dataframe(url)
-
+    for _, row in ru.iterrows():
+        source = ""
+        if "local_path" in ru.columns and pd.notna(row.get("local_path")):
+            source = str(row["local_path"]).strip()
+            if source and not os.path.isabs(source):
+                source = os.path.join(urls_dir, source)
+        if not source and "url" in ru.columns and pd.notna(row.get("url")):
+            source = str(row["url"]).strip()
+        if not source:
+            continue
+        df = _load_request_tab(source)
         if df.empty:
             continue
 
-        # Convert ra/dec (HH:MM:SS.s/+DD:MM:SS.s) to decimal degrees
         c = SkyCoord(
-            ra=df["ra"].astype(str), 
+            ra=df["ra"].astype(str),
             dec=df["dec"].astype(str),
             unit=(u.hourangle, u.deg),
         )
@@ -451,6 +458,7 @@ def pull_requests(request_urls_path):
 
     requests_df = pd.concat(request_dfs, ignore_index=True)
     custom_df = pd.concat(custom_dfs, ignore_index=True)
+    requests_df = backfill_jump_name(requests_df)
     requests_df, custom_df = _dedup_requests_by_hash(requests_df, custom_df)
     requests_df = attach_splan_weight(requests_df)
     requests_df = standardize_request_strategy(requests_df)
@@ -685,15 +693,10 @@ JUMP_PAST_QUERY_TMP_FILENAME = "past_jump-query-tmp.csv"
 def jump_query_to_past(data, request_csv_path, semester_start_day=None):
     """Convert raw JUMP frame rows to ``past.csv`` visit rows.
 
-    JUMP ``starname`` values are matched to ``request.csv`` ``unique_id`` via a
-    lowercase join (all rows, incl. inactive); unmatched names are kept as-is.
-    Template frames (B1/B3 decker, iodine out) get a ``_t`` suffix before
-    matching. Frames are grouped per target/night and counted as a visit when
-    ``len(frames) >= ceil(0.5 * n_exp)``.
-
-    When ``semester_start_day`` is set (``YYYY-MM-DD`` from config
-    ``[global] semester_start_day``), frames on nights before that date are
-    dropped. Frames on ``current_day`` and later in-semester nights are kept.
+    JUMP ``starname`` values are matched to ``request.csv`` via ``jump_name``
+    (defaulting to ``unique_id`` when blank). One JUMP visit fans out to every
+    request row sharing that ``jump_name``. Template frames (B1/B3 decker,
+    iodine out) get a ``_t`` suffix before matching.
     """
     cols = ["unique_id", "target", "timestamp", "exposure_time"]
     if data.empty:
@@ -709,25 +712,38 @@ def jump_query_to_past(data, request_csv_path, semester_start_day=None):
 
     req = pd.read_csv(request_csv_path)
     req["unique_id"] = req["unique_id"].astype(str)
+    req = backfill_jump_name(req)
     n_exp_by_uid = req.groupby("unique_id")["n_exp"].max().astype(int).to_dict()
-    canon_by_lower = dict(zip(req["unique_id"].str.lower(), req["unique_id"]))
-    df["unique_id"] = df["jump_name"].map(
-        lambda n: canon_by_lower.get(n.lower(), n)
-    )
 
+    jump_canon = {}
+    jump_to_uids = {}
+    for _, row in req.iterrows():
+        jn = str(row["jump_name"]).strip()
+        uid = str(row["unique_id"]).strip()
+        jump_canon[jn.lower()] = jn
+        jump_to_uids.setdefault(jn.lower(), [])
+        if uid not in jump_to_uids[jn.lower()]:
+            jump_to_uids[jn.lower()].append(uid)
+
+    def _resolve_jump(name):
+        key = str(name).lower()
+        return jump_canon.get(key, str(name))
+
+    df["jump_key"] = df["jump_name"].map(_resolve_jump)
     renames = {
-        jn: uid for jn, uid in zip(df["jump_name"], df["unique_id"]) if jn != uid
+        jn: jk
+        for jn, jk in zip(df["jump_name"], df["jump_key"])
+        if str(jn) != str(jk)
     }
     if renames:
-        print("JUMP rename (jump_name -> request unique_id):")
-        for jn, uid in sorted(renames.items()):
-            print(f"  {jn} -> {uid}")
-        n_lines = int((df["jump_name"] != df["unique_id"]).sum())
-        print(f"JUMP rename: {n_lines} frame line(s) where jump_name != unique_id")
+        print("JUMP rename (jump_name -> request jump_name):")
+        for jn, jk in sorted(renames.items()):
+            print(f"  {jn} -> {jk}")
+        n_lines = int((df["jump_name"] != df["jump_key"]).sum())
+        print(f"JUMP rename: {n_lines} frame line(s) where jump_name != jump_key")
     else:
         print("JUMP rename: no jump_name required renaming")
 
-    df["target"] = df["unique_id"]
     df["exposure_time"] = (
         pd.to_numeric(df["exposure_time"], errors="coerce").fillna(0).astype(int)
     )
@@ -750,23 +766,26 @@ def jump_query_to_past(data, request_csv_path, semester_start_day=None):
             return pd.DataFrame(columns=cols)
 
     rows, rejected = [], []
-    for (uid, night), grp in df.groupby(["unique_id", "_night"], sort=False):
-        n_exp = n_exp_by_uid.get(uid, 1)
-        min_frames = math.ceil(0.5 * n_exp)
-        if len(grp) < min_frames:
-            rejected.append(
-                f"  {uid} {night}: {len(grp)}/{n_exp} frames (need {min_frames})"
-            )
-            continue
+    for (jump_key, night), grp in df.groupby(["jump_key", "_night"], sort=False):
+        uids = jump_to_uids.get(str(jump_key).lower(), [str(jump_key)])
         first = grp.sort_values("_ts").iloc[0]
-        rows.append(
-            {
-                "unique_id": uid,
-                "target": uid,
-                "timestamp": first["timestamp"],
-                "exposure_time": int(grp["exposure_time"].sum()),
-            }
-        )
+        total_exptime = int(grp["exposure_time"].sum())
+        for uid in uids:
+            n_exp = n_exp_by_uid.get(uid, 1)
+            min_frames = math.ceil(0.5 * n_exp)
+            if len(grp) < min_frames:
+                rejected.append(
+                    f"  {uid} {night}: {len(grp)}/{n_exp} frames (need {min_frames})"
+                )
+                continue
+            rows.append(
+                {
+                    "unique_id": uid,
+                    "target": uid,
+                    "timestamp": first["timestamp"],
+                    "exposure_time": total_exptime,
+                }
+            )
 
     summary = (
         f"{len(df)} raw frame(s) -> {len(rows)} accounted visit(s) "
@@ -820,45 +839,13 @@ def get_hires_past_history(
 
     raw_path = os.path.join(os.path.dirname(path_to_csv), JUMP_PAST_QUERY_TMP_FILENAME)
 
-    login_url = f"{JUMP_BASE_URL}/user/login/"
-    username = os.environ.get("KPFCC_JUMP_USERNAME")
-    password = os.environ.get("KPFCC_JUMP_PASSWORD")
-    if not username or not password:
-        raise RuntimeError(
-            "Missing JUMP credentials. Set KPFCC_JUMP_USERNAME and "
-            "KPFCC_JUMP_PASSWORD in the environment or in the workspace .env file."
-        )
-
-    session = requests.Session()
-    login_page = session.get(login_url, timeout=60)
-    login_page.raise_for_status()
-    login_resp = session.post(
-        login_url,
-        data={
-            "action": "login",
-            "username": username,
-            "password": password,
-            "csrfmiddlewaretoken": session.cookies["csrftoken"],
-        },
-        headers={"Referer": login_url},
-        timeout=60,
-    )
-    login_resp.raise_for_status()
-    if login_resp.url.rstrip("/") == login_url.rstrip("/"):
-        raise RuntimeError(
-            "JUMP login appears to have failed: still on login page after submitting credentials. "
-            "Check KPFCC_JUMP_USERNAME/KPFCC_JUMP_PASSWORD."
-        )
-
+    session = jump_client.jump_session()
     param_str = (
         f"start_date:{semester_start_day}|end_date:{semester_end_day}"
     )
     param_slug = urllib.parse.quote(param_str, safe="")
-    # Build the download URL directly. Scraping the page's download <a href>
-    # corrupts the query string: HTML parsers decode ``&params`` as ``&para``
-    # -> ``¶``, yielding ``¶ms=`` and a 500 from JUMP.
     download_url = (
-        f"{JUMP_BASE_URL}/explorer/{JUMP_HIRES_PAST_EXPLORER_ID}/download"
+        f"{jump_client.JUMP_BASE_URL}/explorer/{jump_client.JUMP_HIRES_PAST_EXPLORER_ID}/download"
         f"?format=csv&params={param_slug}"
     )
     print(f"JUMP download URL: {download_url}")

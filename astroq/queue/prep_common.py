@@ -10,6 +10,7 @@ before writing it to disk.
 import os
 
 import numpy as np
+import pandas as pd
 
 import astroq.io
 
@@ -47,6 +48,46 @@ def write_programs_csv(programs_df, savepath):
     out = out[list(PROGRAMS_COLS) + extra]
     out.to_csv(os.path.join(savepath, "programs.csv"), index=False)
     return out
+
+
+def merge_program_overrides_from_request_urls(programmatics, request_urls_path):
+    """Apply optional ``hours``, ``min_fill``, ``max_fill`` from ``request_urls.csv``.
+
+    Programs listed in the URLs file but absent from Keck allocation are added
+    when ``hours`` is set; otherwise they receive 0 hours (legacy behavior).
+    """
+    ru = pd.read_csv(request_urls_path)
+    if "program_code" not in ru.columns:
+        return programmatics
+
+    out = programmatics.copy()
+    fill_cols = ("hours", "min_fill", "max_fill")
+    for _, row in ru.iterrows():
+        prog = row.get("program_code")
+        if pd.isna(prog) or str(prog).strip() == "":
+            continue
+        prog = str(prog).strip()
+        mask = out["program"].astype(str) == prog
+        if mask.any():
+            for col in fill_cols:
+                if col not in ru.columns or col not in out.columns:
+                    continue
+                val = row[col] if col in row.index else row.get(col)
+                if pd.notna(val):
+                    out.loc[mask, col] = float(val)
+            continue
+
+        hours = (
+            float(row["hours"])
+            if "hours" in ru.columns and pd.notna(row.get("hours"))
+            else 0.0
+        )
+        new_row = {"program": prog, "hours": hours}
+        for col in ("min_fill", "max_fill"):
+            if col in ru.columns and pd.notna(row.get(col)):
+                new_row[col] = float(row[col])
+        out = pd.concat([out, pd.DataFrame([new_row])], ignore_index=True)
+    return out.copy()
 
 
 def standardize_request_strategy(df):

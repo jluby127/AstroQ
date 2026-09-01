@@ -717,6 +717,10 @@ class SemesterPlanner:
         if getattr(self, "model", None) is not None:
             self.model.update()
 
+    def _programs_max_fill_cap(self):
+        """Per-program fill ceiling for shortfall/balance (never above 1.0)."""
+        return self.programs["max_fill"].clip(upper=1.0)
+
     # ==================================================================
     # Objectives.
     # ==================================================================
@@ -830,7 +834,7 @@ class SemesterPlanner:
 
     def solve_shortfall(self):
         """Minimize weighted theta. Writes nothing and emits no run report."""
-        self._constraint_fillfactor(max_fill=1.0)
+        self._constraint_fillfactor(max_fill=self._programs_max_fill_cap())
         self.model.setObjective(self._objective_weighted_theta(), GRB.MINIMIZE)
         self.optimize_model("shortfall")
 
@@ -863,7 +867,7 @@ class SemesterPlanner:
         maff = self._max_feasible_fill()
 
         # ===== shortfall =====
-        self._constraint_fillfactor(max_fill=1.0)
+        self._constraint_fillfactor(max_fill=self._programs_max_fill_cap())
         self.model.setObjective(self._objective_weighted_theta(), GRB.MINIMIZE)
         self.optimize_model("shortfall")
         objective_shortfall_min = self.model.ObjVal
@@ -901,7 +905,7 @@ class SemesterPlanner:
             # the worst program means lowering another, so flooring F at the
             # shortfall solution here would make this step a no-op. The result
             # is locked in by the prioritize step below.
-            self._constraint_fillfactor(max_fill=1.0)
+            self._constraint_fillfactor(max_fill=self._programs_max_fill_cap())
             logs.info("Objective: Minimize the worst per-program fill shortfall.")
             self.fsf_max = self.model.addVar(lb=0.0, name="fsf_max")
             for p in self.F:

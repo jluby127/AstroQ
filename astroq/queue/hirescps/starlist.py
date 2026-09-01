@@ -260,11 +260,23 @@ def format_hires_row(
     """
 
     equinox = "2000"
-    # Treat missing/NaN proper motions as zero so apply_space_motion stays finite.
+    # Treat missing/NaN/none proper motions as zero so apply_space_motion stays finite.
     pmra_raw = row.get("pmra", pd.Series([0.0])).iloc[0] if "pmra" in row else 0.0
     pmdec_raw = row.get("pmdec", pd.Series([0.0])).iloc[0] if "pmdec" in row else 0.0
-    pmra = 0.0 if pd.isna(pmra_raw) else float(pmra_raw)
-    pmdec = 0.0 if pd.isna(pmdec_raw) else float(pmdec_raw)
+
+    def _pm_or_zero(val):
+        try:
+            if val is None or pd.isna(val):
+                return 0.0
+            text = str(val).strip().lower()
+            if text in ("", "none", "nan"):
+                return 0.0
+            return float(val)
+        except (TypeError, ValueError):
+            return 0.0
+
+    pmra = _pm_or_zero(pmra_raw)
+    pmdec = _pm_or_zero(pmdec_raw)
 
     current_time = Time(current_day)
     coord = SkyCoord(

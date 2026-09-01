@@ -21,6 +21,7 @@ from astroq.queue.hirescps.prep import (
     _fetch_sheet_dataframe,
     _human_header_labels,
     attach_splan_weight,
+    backfill_jump_name,
     jump_query_to_past,
     priority_token_to_splan_weight,
 )
@@ -181,6 +182,54 @@ class TestJumpPastRename(unittest.TestCase):
             sorted(out["timestamp"].tolist()),
             ["2026-06-25 14:15", "2026-06-26 06:46"],
         )
+
+    def test_jump_name_fans_out_to_multiple_unique_ids(self):
+        self._write_request([
+            {"unique_id": "190360", "target": "190360", "jump_name": "190360", "n_exp": 1},
+            {"unique_id": "190360_rc1", "target": "190360_rc1", "jump_name": "190360", "n_exp": 1},
+        ])
+        frames = pd.DataFrame([{
+            "starname": "190360",
+            "timestamp": "2026-08-02 06:46",
+            "exposure_time": 1200,
+            "decker": "C2",
+            "iodine_in": False,
+        }])
+        out = jump_query_to_past(frames, str(self.tmp / "request.csv"))
+        self.assertEqual(len(out), 2)
+        self.assertEqual(sorted(out["unique_id"].tolist()), ["190360", "190360_rc1"])
+
+
+class TestBackfillJumpName(unittest.TestCase):
+    def test_blank_jump_name_defaults_to_unique_id(self):
+        df = pd.DataFrame([
+            {"unique_id": "A", "jump_name": ""},
+            {"unique_id": "B"},
+        ])
+        out = backfill_jump_name(df)
+        self.assertListEqual(out["jump_name"].tolist(), ["A", "B"])
+
+
+class TestMergeProgramOverrides(unittest.TestCase):
+    def test_request_urls_hours_and_max_fill(self):
+        from astroq.queue.prep_common import merge_program_overrides_from_request_urls
+
+        td = tempfile.TemporaryDirectory()
+        self.addCleanup(td.cleanup)
+        ru = Path(td.name) / "request_urls.csv"
+        ru.write_text(
+            "url,program_code,hours,min_fill,max_fill\n"
+            ",2026B_E999,12.0,0.85,1.25\n"
+            ",2026B_N144,,,0\n"
+        )
+        programmatics = pd.DataFrame(
+            {"program": ["2026B_N144"], "hours": [10.0], "min_fill": [0.0], "max_fill": [1.25]}
+        )
+        out = merge_program_overrides_from_request_urls(programmatics, str(ru))
+        self.assertEqual(out.loc[out.program == "2026B_N144", "max_fill"].iloc[0], 0.0)
+        e999 = out.loc[out.program == "2026B_E999"].iloc[0]
+        self.assertEqual(e999["hours"], 12.0)
+        self.assertEqual(e999["min_fill"], 0.85)
 
 
 class TestSheetCommentColumns(unittest.TestCase):

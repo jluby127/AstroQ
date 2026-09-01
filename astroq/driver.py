@@ -21,7 +21,7 @@ import astroq.io
 import astroq.queue
 import astroq.queue.kpfcc.prep as kpfcc
 import astroq.queue.hirescps.prep as hirescps
-from astroq.queue.prep_common import write_programs_csv
+from astroq.queue.prep_common import merge_program_overrides_from_request_urls, write_programs_csv
 import astroq.nplan as nplan
 import astroq.plot as pl
 import astroq.splan as splan
@@ -33,6 +33,28 @@ log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)  # Lower level to capture more messages
 
 _REQUEST_CSV_TTL_SEC = 3600
+
+
+def _apply_request_url_program_overrides(programmatics, request_urls_path, enabled):
+    if not enabled or not request_urls_path:
+        return programmatics
+    ru = pd.read_csv(request_urls_path)
+    if "program_code" not in ru.columns:
+        return programmatics
+    missing = [
+        p
+        for p in ru["program_code"].dropna().unique()
+        if p not in set(programmatics["program"])
+    ]
+    if missing:
+        programmatics = pd.concat(
+            [
+                programmatics,
+                pd.DataFrame({"program": missing, "hours": [0.0] * len(missing)}),
+            ],
+            ignore_index=True,
+        )
+    return merge_program_overrides_from_request_urls(programmatics, request_urls_path)
 
 
 def bench(args):
@@ -154,6 +176,9 @@ def hirescps_prep(args):
             ],
             ignore_index=True,
         )
+        programmatics = _apply_request_url_program_overrides(
+            programmatics, request_urls_path, need_request_urls
+        )
         write_programs_csv(programmatics, savepath)
     else:
         if not allo_source:
@@ -198,29 +223,21 @@ def hirescps_prep(args):
                 ],
                 ignore_index=True,
             )
-        if need_request_urls and request_urls_path:
-            ru_progs = pd.read_csv(request_urls_path)["program_code"].dropna().unique()
-            missing = [p for p in ru_progs if p not in set(programmatics["program"])]
-            if missing:
-                programmatics = pd.concat(
-                    [
-                        programmatics,
-                        pd.DataFrame(
-                            {"program": missing, "hours": [0.0] * len(missing)}
-                        ),
-                    ],
-                    ignore_index=True,
-                )
+        programmatics = _apply_request_url_program_overrides(
+            programmatics, request_urls_path, need_request_urls
+        )
         write_programs_csv(programmatics, savepath)
 
     allocation_frame["comment"] = [""] * len(allocation_frame)
+    queue = astroq.queue.from_config(config)
     # Update allocation times for tonight if this is a full-band
     if is_full_band:
         print("Updating allocation.csv for full-band")
-        allocation_frame = kpfcc.update_allocation_file(allocation_frame, current_date)
+        allocation_frame = kpfcc.update_allocation_file(
+            allocation_frame, current_date, queue.observatory
+        )
     if band_number == 3:
         print("Expanding allocation.csv for band-3 twilight buffer")
-        queue = astroq.queue.from_config(config)
         allocation_frame = kpfcc.expand_allocation_for_band3(
             allocation_frame, queue.observatory
         )
@@ -394,13 +411,15 @@ def kpfcc_prep(args):
     #         logging.warning(f"Allocation file '{allo_source}' does not exist")
 
     allocation_frame["comment"] = [""] * len(allocation_frame)
+    queue = astroq.queue.from_config(config)
     # Update allocation times for tonight if this is a full-band
     if is_full_band:
         print("Updating allocation.csv for full-band")
-        allocation_frame = kpfcc.update_allocation_file(allocation_frame, current_date)
+        allocation_frame = kpfcc.update_allocation_file(
+            allocation_frame, current_date, queue.observatory
+        )
     if band_number == 3:
         print("Expanding allocation.csv for band-3 twilight buffer")
-        queue = astroq.queue.from_config(config)
         allocation_frame = kpfcc.expand_allocation_for_band3(
             allocation_frame, queue.observatory
         )
