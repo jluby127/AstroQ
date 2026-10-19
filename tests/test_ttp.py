@@ -217,17 +217,27 @@ class TestEncoderGeometry(unittest.TestCase):
         self.assertEqual(names, ["N", "S"])
 
     def test_encoder_az_overlap_two_states(self):
-        for az in (215.0, 250.0, 280.0, 315.0):
-            n = self.q._encoder_az(az, -145.0, 90.0)
-            s = self.q._encoder_az(az, 90.0, 315.0)
+        n_lo, n_hi = self.q.wrap_states[0][1], self.q.wrap_states[0][2]
+        s_lo, s_hi = self.q.wrap_states[1][1], self.q.wrap_states[1][2]
+        for az in (235.0, 250.0, 280.0, 325.0):
+            n = self.q._encoder_az(az, n_lo, n_hi)
+            s = self.q._encoder_az(az, s_lo, s_hi)
             self.assertTrue(np.isfinite(n), f"N-wrap should reach az={az}")
             self.assertTrue(np.isfinite(s), f"S-wrap should reach az={az}")
 
     def test_encoder_az_neutral_single_state(self):
-        self.assertTrue(np.isnan(self.q._encoder_az(150.0, -145.0, 90.0)))
-        self.assertTrue(np.isfinite(self.q._encoder_az(150.0, 90.0, 315.0)))
-        self.assertTrue(np.isfinite(self.q._encoder_az(30.0, -145.0, 90.0)))
-        self.assertTrue(np.isnan(self.q._encoder_az(30.0, 90.0, 315.0)))
+        n_lo, n_hi = self.q.wrap_states[0][1], self.q.wrap_states[0][2]
+        s_lo, s_hi = self.q.wrap_states[1][1], self.q.wrap_states[1][2]
+        self.assertTrue(np.isnan(self.q._encoder_az(150.0, n_lo, n_hi)))
+        self.assertTrue(np.isfinite(self.q._encoder_az(150.0, s_lo, s_hi)))
+        self.assertTrue(np.isfinite(self.q._encoder_az(30.0, n_lo, n_hi)))
+        self.assertTrue(np.isnan(self.q._encoder_az(30.0, s_lo, s_hi)))
+
+    def test_encoder_az_wrap_boundary_shift(self):
+        n_lo, n_hi = self.q.wrap_states[0][1], self.q.wrap_states[0][2]
+        s_lo, s_hi = self.q.wrap_states[1][1], self.q.wrap_states[1][2]
+        self.assertTrue(np.isnan(self.q._encoder_az(215.0, n_lo, n_hi)))
+        self.assertTrue(np.isfinite(self.q._encoder_az(320.0, s_lo, s_hi)))
 
     def test_below_horizon_is_inaccessible(self):
         alt = np.array([-90.0, -30.0, -0.1, 5.0, 27.9, 28.1, 45.0, 84.9, 85.1])
@@ -237,9 +247,12 @@ class TestEncoderGeometry(unittest.TestCase):
         self.assertTrue(ok[(alt >= 28.0) & (alt <= 85.0)].all())
 
     def test_encoder_az_values(self):
-        self.assertAlmostEqual(self.q._encoder_az(235.0, -145.0, 90.0), -125.0)
-        self.assertAlmostEqual(self.q._encoder_az(45.0, -145.0, 90.0), 45.0)
-        self.assertAlmostEqual(self.q._encoder_az(270.0, 90.0, 315.0), 270.0)
+        n_lo, n_hi = self.q.wrap_states[0][1], self.q.wrap_states[0][2]
+        s_lo, s_hi = self.q.wrap_states[1][1], self.q.wrap_states[1][2]
+        self.assertAlmostEqual(self.q._encoder_az(235.0, n_lo, n_hi), -125.0)
+        self.assertAlmostEqual(self.q._encoder_az(45.0, n_lo, n_hi), 45.0)
+        self.assertAlmostEqual(self.q._encoder_az(270.0, s_lo, s_hi), 270.0)
+        self.assertAlmostEqual(self.q._encoder_az(325.0, s_lo, s_hi), 325.0)
 
 
 class TestSlewFnState(unittest.TestCase):
