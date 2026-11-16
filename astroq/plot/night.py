@@ -5,6 +5,7 @@ import os
 import pandas as pd
 from astropy.time import TimeDelta
 
+from astroq.access import _observatory_tz
 from astroq.nplan import get_nightly_times_from_allocation
 from astroq.plot.tables import NIGHTPLAN_COLUMNS
 
@@ -82,15 +83,18 @@ def get_script_plan(night_planner):
 
     # Convert time fields from "minutes from start of night" to HST timestamps
     try:
+        access_obj = night_planner.semester_planner.access_obj
         night_start_time, _ = get_nightly_times_from_allocation(
-            night_planner.allocation_file, night_planner.current_day
+            night_planner.allocation_file,
+            night_planner.current_day,
+            access_obj=access_obj,
         )
+        local_tz = _observatory_tz(access_obj.observatory)
 
         def _minutes_to_hhmm(minutes):
             if pd.notna(minutes):
-                return str(TimeDelta(minutes * 60, format="sec") + night_start_time)[
-                    11:16
-                ]
+                t = TimeDelta(minutes * 60, format="sec") + night_start_time
+                return t.to_datetime(timezone=local_tz).strftime("%H:%M")
             return ""
 
         for col in ("Start Exposure", "Earliest Start", "Latest Finish"):

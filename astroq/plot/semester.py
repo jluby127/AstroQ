@@ -351,13 +351,13 @@ def get_tau_inter_line(plot_data, selection, use_program_colors=False):
 
     fig = go.Figure()
 
-    def add_target_trace(group):
+    def add_target_trace(name, group):
         fig.add_trace(
             go.Scatter(
                 x=group["tau_inter"],
                 y=group["onsky_tau_inter"],
                 mode="markers",
-                name=_legend_target_name(group.name),
+                name=_legend_target_name(name),
                 marker=dict(size=10, color=group["color"].tolist()),
                 text=[
                     f"{t} in {p}"
@@ -368,7 +368,8 @@ def get_tau_inter_line(plot_data, selection, use_program_colors=False):
         )
 
     if not points.empty:
-        points.groupby("target", sort=False).apply(add_target_trace)
+        for name, group in points.groupby("target", sort=False):
+            add_target_trace(name, group)
 
     # Add 1-to-1 line
     min_val = 0
@@ -957,8 +958,7 @@ def get_football(plot_data, selection, use_program_colors=False):
         marker = "star"
         size = 20 if len(sel.ids) == 1 else 10
 
-        def add_program_trace(group):
-            program = group.name
+        def add_program_trace(program, group):
             fig.add_trace(
                 go.Scattergeo(
                     lon=group["ra"] - 180,
@@ -976,7 +976,8 @@ def get_football(plot_data, selection, use_program_colors=False):
                 )
             )
 
-        program_frame.groupby("program_code").apply(add_program_trace)
+        for program, group in program_frame.groupby("program_code"):
+            add_program_trace(program, group)
 
     fig.update_layout(
         shapes=[

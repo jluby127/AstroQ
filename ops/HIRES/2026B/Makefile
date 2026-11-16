@@ -28,6 +28,9 @@ START_DATE ?= 2026-08-01
 END_DATE ?= 2027-01-31
 BANDS ?= band1 full-band1
 FILLER_PROGRAM ?= 2026B_E475
+# Offline allocation CSV (absolute path) passed to prep as -as; unset = query the Keck schedule live.
+ALLO_SOURCE ?=
+ALLO_SOURCE_ARG = $(if $(ALLO_SOURCE),-as "$(ALLO_SOURCE)")
 # Bright-star cut: mark targets with Vmag > VMAG_MAX inactive after prep (unset = no cut).
 VMAG_MAX ?=
 MODE ?= normal
@@ -111,10 +114,10 @@ $(DATE_DIR)/%/prep-run: $(DATE_DIR)/%/config.ini
 	IS_FULL_BAND=$$(echo $(notdir $(@D)) | grep -q '^full-' && echo "true" || echo "false"); \
 	if [ "$$IS_FULL_BAND" = "true" ]; then \
 		echo "Prep full-band $$BAND_NUM (queue=$$QUEUE)..."; \
-		cd $(@D) && $(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -fillers $(FILLER_PROGRAM) -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
+		cd $(@D) && $(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -fillers $(FILLER_PROGRAM) $(ALLO_SOURCE_ARG) -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
 	else \
 		echo "Prep band $$BAND_NUM (queue=$$QUEUE)..."; \
-		cd $(@D) && $(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -fillers $(FILLER_PROGRAM) -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
+		cd $(@D) && $(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -fillers $(FILLER_PROGRAM) $(ALLO_SOURCE_ARG) -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
 	fi; \
 	touch $@
 
