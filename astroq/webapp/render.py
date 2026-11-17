@@ -229,6 +229,12 @@ def build_admin_html(
     else:
         request_table_html = pl.request_frame_to_html(request_df)
 
+    past_df = loaded.semester_planner.past
+    past_table_html = pl.past_frame_to_html(
+        past_df, requests_df=loaded.semester_planner.requests
+    )
+    past_caption = _past_caption(past_df)
+
     fig_cof1 = pl.get_cof(pd, programs=all_programs)
     fig_cof2 = pl.get_cof(pd, programs=all_programs, units="time")
     fig_completion_hist = pl.get_completion_histogram_by_weight(pd, sel_all)
@@ -254,8 +260,22 @@ def build_admin_html(
     return _render(
         "admin.html",
         tables_html=[request_table_html],
+        past_table_html=past_table_html,
+        past_caption=past_caption,
         figures_html=figures_html,
         timestamp=loaded.semester_planner_timestamp,
+    )
+
+
+def _past_caption(past_df) -> str:
+    """One-line summary of past visits: total and count on the latest UT date."""
+    if past_df is None or past_df.empty:
+        return "No past visits recorded."
+    nights = past_df["timestamp"].astype(str).str[:10]
+    last = nights.max()
+    return (
+        f"{len(past_df)} visit(s) total; latest UT date {last}: "
+        f"{int((nights == last).sum())} visit(s)"
     )
 
 

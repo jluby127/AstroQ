@@ -298,10 +298,12 @@ def hirescps_prep(args):
             semester_end_day=end_date,
             request_csv_path=os.path.join(savepath, request_file),
         )
+        _print_past_summary(os.path.join(savepath, past_file))
 
     else:
         print(f"Using past history information from file: {past_source}")
         _validate_past_csv_columns(past_source)
+        _print_past_summary(past_source)
 
     return
 
@@ -515,9 +517,11 @@ def kpfcc_prep(args):
         raw_history = kpfcc.pull_OB_histories(semester)
         obhist = kpfcc.write_OB_histories_to_csv(raw_history)
         obhist.to_csv(os.path.join(savepath, past_file), index=False)
+        _print_past_summary(os.path.join(savepath, past_file))
     else:
         print(f"Using past history information from file: {past_source}")
         _validate_past_csv_columns(past_source)
+        _print_past_summary(past_source)
 
     return
 
@@ -539,6 +543,36 @@ def _validate_past_csv_columns(past_source):
         )
     else:
         print("Past history file columns validated: all required columns present")
+
+
+def _print_past_summary(past_path, n=10, n_nights=5):
+    """Print visit counts for the latest nights plus head/tail of ``past_path``.
+
+    Lets the operator confirm last night's observations were ingested. Goes to
+    stdout so the ops Makefile ``tee`` captures it in ``astroq.log``.
+    """
+    if not os.path.exists(past_path):
+        print(f"WARNING: past history file '{past_path}' does not exist")
+        return
+    df = pd.read_csv(past_path)
+    if df.empty:
+        print(f"WARNING: past history file '{past_path}' has no visits")
+        return
+    df = df.sort_values("timestamp").reset_index(drop=True)
+    ts = df["timestamp"].astype(str)
+    print(
+        f"past.csv summary: {len(df)} visit(s) in {past_path}, "
+        f"{ts.iloc[0]} -> {ts.iloc[-1]}"
+    )
+    per_night = ts.str[:10].value_counts().sort_index().tail(n_nights)
+    print(f"Visits per UT date (last {len(per_night)}):")
+    for night, count in per_night.items():
+        print(f"  {night}: {count}")
+    with pd.option_context("display.width", 200, "display.max_columns", None):
+        print(f"--- past.csv head ({min(n, len(df))} rows) ---")
+        print(df.head(n).to_string(index=False))
+        print(f"--- past.csv tail ({min(n, len(df))} rows) ---")
+        print(df.tail(n).to_string(index=False))
 
 
 def kpfcc_webapp(args):

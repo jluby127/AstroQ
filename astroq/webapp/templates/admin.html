@@ -60,6 +60,14 @@
         </div>
     {% endif %}
 
+    {% if past_table_html %}
+        <div class="table-container">
+            <h2>Past visits</h2>
+            <p style="color: #666; font-size: 0.9em;">{{ past_caption }}</p>
+            {{ past_table_html | safe }}
+        </div>
+    {% endif %}
+
     <script>
         document.addEventListener("DOMContentLoaded", function () {
             const tables = document.querySelectorAll("table");

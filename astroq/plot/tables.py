@@ -284,6 +284,73 @@ def nightplan_table_to_html(script_df, table_id="script-table", page_size=100):
     )
 
 
+PAST_COLUMNS = [
+    "timestamp",
+    "night",
+    "unique_id",
+    "target",
+    "program_code",
+    "exposure_time",
+]
+PAST_COLUMN_TOOLTIPS = {
+    "timestamp": "UT timestamp of the first frame of the visit",
+    "night": "UT date of the visit",
+    "unique_id": "Request unique ID (blank program_code = no matching request)",
+    "target": "Name of the target",
+    "program_code": "Program Code (joined from request.csv)",
+    "exposure_time": "Summed exposure time of the visit in seconds",
+}
+
+
+def past_frame_to_html(past_df, requests_df=None, table_id="past-table", page_size=25):
+    """
+    Convert a past-visit frame (from past.csv) to HTML, newest visit first.
+
+    ``program_code`` is joined from ``requests_df`` on ``unique_id`` when given;
+    visits with no matching request get a blank program_code.
+    """
+    df = past_df.copy().reset_index(drop=True)
+    df["timestamp"] = df["timestamp"].astype(str)
+    df["night"] = df["timestamp"].str[:10]
+    if requests_df is not None and "program_code" in requests_df.columns:
+        prog = (
+            requests_df.assign(unique_id=requests_df["unique_id"].astype(str))
+            .drop_duplicates("unique_id")
+            .set_index("unique_id")["program_code"]
+        )
+        df["program_code"] = df["unique_id"].astype(str).map(prog)
+    cols = [c for c in PAST_COLUMNS if c in df.columns]
+    df = df[cols].sort_values("timestamp", ascending=False).fillna("")
+    for col in df.columns:
+        if df[col].dtype == "object":
+            df[col] = df[col].astype(str).replace("nan", "").replace("None", "")
+
+    widths = []
+    for col in df.columns:
+        content_max = max((_visible_len(c) for c in df[col]), default=0)
+        widths.append(f"{max(content_max, len(str(col)), 1) + 2}ch")
+
+    column_defs = [{"target": i, "width": w} for i, w in enumerate(widths)]
+    tooltips = [PAST_COLUMN_TOOLTIPS.get(col, "") for col in df.columns]
+
+    return _render_datatable(
+        df,
+        template_name="nightplan_table.html.j2",
+        table_id=table_id,
+        variant="compact",
+        column_widths=widths,
+        column_defs=column_defs,
+        tooltips=tooltips,
+        page_size=page_size,
+        sort_column=0,
+        sort_dir="desc",
+        numeric_cols=[cols.index("exposure_time")] if "exposure_time" in cols else [],
+        has_column_filters=True,
+        filter_placeholder="Filter... (use > < >= <= for numbers)",
+        add_tfoot=True,
+    )
+
+
 # Default per-column widths for `dataframe_to_html` (legacy generic table).
 _GENERIC_WIDTH_MAP = {
     "Earliest Start": "80px",
