@@ -200,7 +200,9 @@ class Access:
 
         self.slot_size_time = TimeDelta(self.slot_size * u.min)
         coords = apy.coordinates.SkyCoord(
-            self.request_frame.ra * u.deg, self.request_frame.dec * u.deg, frame="icrs"
+            self.request_frame.ra.to_numpy() * u.deg,
+            self.request_frame.dec.to_numpy() * u.deg,
+            frame="icrs",
         )
         self.targets = apl.FixedTarget(name=self.request_frame.unique_id, coord=coords)
 
@@ -344,8 +346,8 @@ class Access:
 
     def compute_moon(self):
         """Per-target moon-separation gating, evaluated once per night at slot 0."""
-        moon = apy.coordinates.get_moon(
-            self.slotmidpoints[:, 0], self.observatory.location
+        moon = apy.coordinates.get_body(
+            "moon", self.slotmidpoints[:, 0], self.observatory.location
         )
         ang_dist = apy.coordinates.angular_separation(
             self.targets.ra.reshape(-1, 1),

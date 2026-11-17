@@ -31,6 +31,7 @@ from astroq.plot.night import get_script_plan
 from astroq.plot.tables import (
     dataframe_to_html,
     nightplan_table_to_html,
+    past_frame_to_html,
     request_frame_to_html,
 )
 
@@ -52,6 +53,7 @@ __all__ = [
     "get_timebar_by_program",
     "dataframe_to_html",
     "nightplan_table_to_html",
+    "past_frame_to_html",
     "request_frame_to_html",
     "_football_cache_dir",
     "programs_ledger_for_plot",
