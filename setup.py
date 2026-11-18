@@ -14,6 +14,7 @@ setup(
     include_package_data=True,
     package_data={
         "astroq.data": ["*.csv", "*.json"],
+        "astroq.queue.hirescps": ["bstars.txt", "bstars_simbad.csv"],
         "astroq.webapp": ["templates/*.html", "templates/*.j2", "templates/partials/*"],
     },
     install_requires=[],

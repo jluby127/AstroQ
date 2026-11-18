@@ -66,6 +66,25 @@ class ComputeMaxFillCase(unittest.TestCase):
 class TestComputeMaxFill(ComputeMaxFillCase):
     @patch("astroq.driver.splan.SemesterPlanner")
     @patch("astroq.driver.astroq.io.read_csv")
+    def test_all_inactive_requests_sets_zero(self, mock_read_csv, mock_planner_cls):
+        mock_read_csv.return_value = self.build_run_dir(
+            pd.DataFrame({"program": ["P1"], "hours": [10.0]}),
+            pd.DataFrame(
+                {
+                    "program_code": ["P1", "P1"],
+                    "unique_id": ["R0", "R1"],
+                    "inactive": [True, True],
+                }
+            ),
+        )
+
+        programs = self.run_driver()
+
+        self.assertEqual(programs.loc[0, "max_feasible_fill"], 0.0)
+        mock_planner_cls.assert_not_called()
+
+    @patch("astroq.driver.splan.SemesterPlanner")
+    @patch("astroq.driver.astroq.io.read_csv")
     def test_no_request_rows_sets_zero(self, mock_read_csv, mock_planner_cls):
         mock_read_csv.return_value = self.build_run_dir(
             pd.DataFrame({"program": ["P1"], "hours": [10.0]}),
@@ -153,6 +172,7 @@ class TestComputeMaxFill(ComputeMaxFillCase):
         self.assertIsInstance(passed, pd.DataFrame)
         self.assertEqual(set(passed["program_code"]), {"P5"})
         self.assertEqual(len(passed), 2)
+        self.assertFalse(passed["inactive"].any())
 
     @patch("astroq.driver.splan.SemesterPlanner")
     @patch("astroq.driver.astroq.io.read_csv")

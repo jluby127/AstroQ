@@ -27,6 +27,9 @@ logs = logging.getLogger(__name__)
 
 _BSTARS_FILE = Path(__file__).with_name("bstars.txt")
 _CACHE_FILENAME = "bstars_simbad.csv"
+# SIMBAD fields for every bstars.txt entry, shipped so runs do not depend on
+# SIMBAD being reachable. Seeds a run's cache when it has none.
+_BUNDLED_CACHE = Path(__file__).with_name(_CACHE_FILENAME)
 _BSTARS_HEADER = format_section_header("B-Stars-Coordinates-Advanced")
 _CACHE_COLS = [
     "name",
@@ -162,7 +165,11 @@ def _write_cache(cache_path: Path, df: pd.DataFrame) -> None:
 def _resolve_bstars(names_df: pd.DataFrame, cache_dir: str | Path) -> pd.DataFrame:
     """Return cached + freshly queried SIMBAD rows for all names."""
     cache_path = Path(cache_dir) / _CACHE_FILENAME
+    source = cache_path
     cache = _read_cache(cache_path)
+    if cache.empty:
+        source = _BUNDLED_CACHE
+        cache = _read_cache(source)
     cached_names = set(cache["name"].astype(str)) if not cache.empty else set()
     missing = [n for n in names_df["name"].astype(str) if n not in cached_names]
     if missing:
@@ -171,7 +178,7 @@ def _resolve_bstars(names_df: pd.DataFrame, cache_dir: str | Path) -> pd.DataFra
         _write_cache(cache_path, cache)
         logs.info("Wrote %d B-star row(s) to %s", len(fresh), cache_path)
     else:
-        logs.info("Using cached B-star catalog (%s).", cache_path)
+        logs.info("Using cached B-star catalog (%s).", source)
 
     merged = names_df.merge(cache, on="name", how="left")
     missing_rows = merged[merged["ra_deg"].isna()]

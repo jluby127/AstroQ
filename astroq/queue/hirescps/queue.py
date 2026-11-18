@@ -19,13 +19,14 @@ class HIRESCPS(Queue):
 
     slew_rate = 0.6  # deg/s; matches TTP Keck1 (6./10.)
     wrap_limit = 235.0  # deg azimuth (legacy single-cut plot line)
-    # Cable-wrap states for the state-aware TTP slew model. The two windings
-    # overlap in the west (sky az ~215-315 deg); see Queue.wrap_states.
-    #   North wrap: encoder az [-145, 90]  -> sky az [0,90] U [215,360)
-    #   South wrap: encoder az [90, 315]   -> sky az [90,315]
+    # Cable-wrap states for the state-aware TTP slew model. Hard pointing
+    # boxes follow TelLimits; wrap overlap follows operational cable limits.
+    # The two windings overlap in the west (sky az ~235-325 deg).
+    #   North wrap: encoder az [-125, 90]  -> sky az [0,90] U [235,360)
+    #   South wrap: encoder az [90, 325]   -> sky az [90,325]
     wrap_states = [
-        ("N", -145.0, 90.0),
-        ("S", 90.0, 315.0),
+        ("N", -125.0, 90.0),
+        ("S", 90.0, 325.0),
     ]
     nSlots = 4  # TTP slew-slot granularity
     readout_time = 30.0  # seconds; per-shot detector readout

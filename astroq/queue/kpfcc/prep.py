@@ -1000,35 +1000,48 @@ def filter_request_csv(request_df, weather_band_num):
     return filtered_df
 
 
-def update_allocation_file(allocation_df, current_date):
+def update_allocation_file(allocation_df, current_date, observatory):
     """
-    Update allocation.csv file with today's 12-degree twilight times
+    Update allocation.csv with 12-degree twilight for the civil night labeled
+    ``current_day``.
+
+    ``current_date`` is the civil noon-start night label (see
+    :func:`astroq.access.build_date_dictionary`). Matching rows overlap that
+    night's local-noon window, not the UTC calendar date of ``start``.
 
     Args:
-        allocation_file_path (str): Path to the allocation.csv file
-        current_date (str): Current date in YYYY-MM-DD format
+        allocation_df (pandas.DataFrame): allocation frame with ISO ``start`` /
+            ``stop`` columns.
+        current_date (str): civil night-start label ``YYYY-MM-DD``.
+        observatory (astroplan.Observer): site timezone and coordinates.
 
     Returns:
-        bool: True if update was successful, False otherwise
+        pandas.DataFrame: updated allocation frame.
     """
+    from datetime import datetime, timedelta
+
+    from astroq.access import local_noon_time
+
     date_exists = False
     date_idx = -1
 
-    # Check if current date exists in allocation file
+    night_start = local_noon_time(current_date, observatory)
+    next_date = (
+        datetime.strptime(current_date, "%Y-%m-%d") + timedelta(days=1)
+    ).strftime("%Y-%m-%d")
+    night_end = local_noon_time(next_date, observatory)
+
     for idx, row in allocation_df.iterrows():
-        row_date = str(row["start"])[:10]  # Get YYYY-MM-DD portion
-        if row_date == current_date:
+        row_start = Time(row["start"])
+        row_stop = Time(row["stop"])
+        if row_start < night_end and row_stop >= night_start:
             date_exists = True
             date_idx = idx
             break
 
-    # Get 12-degree twilight times for current date
-    observatory = "Keck Observatory"
-    keck = apl.Observer.at_site(observatory)
-    day = Time(current_date, format="isot", scale="utc")
-
-    evening_12 = keck.twilight_evening_nautical(day, which="next")
-    morning_12 = keck.twilight_morning_nautical(day, which="next")
+    anchor = night_start
+    evening_12 = observatory.twilight_evening_nautical(anchor, which="next")
+    morning_12 = observatory.twilight_morning_nautical(anchor, which="next")
 
     if not date_exists:
         print(f"Adding allocation row for current_day: {current_date}")

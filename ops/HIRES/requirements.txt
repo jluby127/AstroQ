@@ -1,0 +1,10 @@
+# Extra Python packages for running the HIRES CPS queue (not needed for the
+# rest of AstroQ). Installed by `bash ops/HIRES/setup_env.sh`, or directly:
+#   pip install -U -r ops/HIRES/requirements.txt
+#
+# jump2-client pulls HIRES frame history (past.csv) from jump2 at
+# cannon.caltech.edu. Needs Python >= 3.11 and a jump2 API key: create one
+# under Profile -> API Keys on cannon.caltech.edu (365-day expiry is the max)
+# and export JUMP_API_KEY, or run `jump2 scripts login` once per machine.
+--extra-index-url https://cannon.caltech.edu/client/simple/
+jump2-client>=0.16

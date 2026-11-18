@@ -1,10 +1,16 @@
 # HIRES 2026B production Makefile. Run from repo root, e.g.:
 #   conda activate astroq
-#   make -C ops/HIRES/2026B DATE=2026-08-01 BANDS=full-band1
+#   make -C ops/HIRES/2026B DATE=2026-09-02 BAND=full-band1 MODE=recomm VMAG_MAX=8.0 plan-night
 #
 # One-time per machine (sets CC_OUTPUT_PATH in the astroq env):
 #   conda env config vars set CC_OUTPUT_PATH=/Users/petigura/code/AstroQ-hires26a
 #   conda deactivate && conda activate astroq
+#
+# prep pulls past.csv from jump2, which needs jump2-client in $(CONDA_ENV)
+# (bash ops/HIRES/setup_env.sh) and a jump2 API key: JUMP_API_KEY in
+# ops/HIRES/.env, or `jump2 scripts login`. Keys are made under Profile -> API
+# Keys on cannon.caltech.edu. KPFCC_JUMP_USERNAME/PASSWORD (jump1) are now only
+# used by select_recommissioning.py.
 
 SHELL := /bin/bash
 
@@ -21,7 +27,6 @@ SHARED_ENV_FILE ?= $(MAKEFILE_DIR)../.env
 LOAD_ENV = if [ -f "$(SHARED_ENV_FILE)" ]; then set -a; . "$(SHARED_ENV_FILE)"; set +a; fi; if [ -f "$(ENV_FILE)" ]; then set -a; . "$(ENV_FILE)"; set +a; fi
 
 ALLOCATION_FILE ?= $(MAKEFILE_DIR)allocation_hires_cps.csv
-REQUEST_URLS_CSV ?= $(MAKEFILE_DIR)request_urls.csv
 CONFIG_TEMPLATE ?= $(MAKEFILE_DIR)../common/config_template.ini
 
 SEMESTER ?= 2026B
@@ -29,28 +34,31 @@ START_DATE ?= 2026-08-01
 END_DATE ?= 2027-01-31
 BANDS ?= band1 full-band1
 FILLER_PROGRAM ?= 2026B_E475
+# Offline allocation CSV (absolute path) passed to prep as -as; unset = query the Keck schedule live.
+ALLO_SOURCE ?=
+ALLO_SOURCE_ARG = $(if $(ALLO_SOURCE),-as "$(ALLO_SOURCE)")
+# Bright-star cut: mark targets with Vmag > VMAG_MAX inactive after prep (unset = no cut).
+VMAG_MAX ?=
+MODE ?= normal
+ifeq ($(MODE),recomm)
+  REQUEST_URLS_CSV ?= $(MAKEFILE_DIR)request_urls_recomm.csv
+else
+  REQUEST_URLS_CSV ?= $(MAKEFILE_DIR)request_urls.csv
+endif
 
 ifdef BAND
   BANDS := $(BAND)
 endif
 
-BOOST_UIDS ?=
-BOOST_FACTOR ?= 5.0
-ifneq ($(strip $(BOOST_UIDS)),)
-  BOOST_ARGS = --boost "$(BOOST_UIDS)" $(BOOST_FACTOR)
-else
-  BOOST_ARGS =
+DATE ?= $(shell date +%Y-%m-%d)
+ifdef date
+	DATE := $(date)
 endif
 
 UNAME_S := $(shell uname)
 SED_I_FLAG :=
 ifeq ($(UNAME_S),Darwin)
   SED_I_FLAG := ''
-endif
-
-DATE ?= $(shell date +%Y-%m-%d)
-ifdef date
-	DATE := $(date)
 endif
 
 .PRECIOUS: $(foreach band,$(BANDS),$(DATE_DIR)/$(band)/config.ini)
@@ -79,32 +87,46 @@ $(DATE_DIR)/%/plan-night-run: $(DATE_DIR)/%/plan-semester-run
 $(DATE_DIR)/%/plan-semester-run: $(DATE_DIR)/%/compute-max-fill-run
 	@set -euo pipefail; \
 	echo "Running plan-semester for band $(notdir $(@D))..."; \
-	$(if $(strip $(BOOST_UIDS)),echo "   Boost: $(BOOST_UIDS) (factor $(BOOST_FACTOR))";,) \
-	cd $(@D) && $(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq plan-semester -cf config.ini $(BOOST_ARGS) 2>&1 | tee -a astroq.log; \
+	cd $(@D) && $(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq plan-semester -cf config.ini 2>&1 | tee -a astroq.log; \
 	touch $@
 
 # Per-program solo fill ceilings written to programs.csv as max_feasible_fill;
 # the balance step of plan-semester requires them.
-$(DATE_DIR)/%/compute-max-fill-run: $(DATE_DIR)/%/prep-run
+$(DATE_DIR)/%/compute-max-fill-run: $(DATE_DIR)/%/filter-vmag-run
 	@set -euo pipefail; \
 	echo "Running compute-max-fill for band $(notdir $(@D))..."; \
 	cd $(@D) && $(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq compute-max-fill -cf config.ini 2>&1 | tee -a astroq.log; \
 	touch $@
 
+ifneq ($(strip $(VMAG_MAX)),)
+$(DATE_DIR)/%/filter-vmag-run: $(DATE_DIR)/%/prep-run
+	@set -euo pipefail; \
+	echo "Applying Vmag cut: keeping V <= $(VMAG_MAX)..."; \
+	cd $(@D) && $(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) python -m astroq.scripts.filter_request_vmag -cf config.ini --vmag-max $(VMAG_MAX) 2>&1 | tee -a astroq.log; \
+	echo "$(VMAG_MAX)" > $(@D)/.vmag_max; \
+	touch $@
+else
+$(DATE_DIR)/%/filter-vmag-run: $(DATE_DIR)/%/prep-run
+	@touch $@
+endif
+
 $(DATE_DIR)/%/prep-run: $(DATE_DIR)/%/config.ini
 	@set -euo pipefail; \
 	echo "Running prep for band $(notdir $(@D))..."; \
 	test -f "$(REQUEST_URLS_CSV)"; \
+	conda run -n $(CONDA_ENV) python -c "import jump2_client" >/dev/null 2>&1 || { \
+		echo "jump2-client is not installed in conda env $(CONDA_ENV); run: bash ops/HIRES/setup_env.sh" >&2; \
+		exit 1; }; \
 	: > $(@D)/astroq.log; \
 	QUEUE=$$(sed -n 's/^[[:space:]]*queue[[:space:]]*=[[:space:]]*//p' $(@D)/config.ini | tr -d ' \r\n'); \
 	BAND_NUM=$$(echo $(notdir $(@D)) | sed 's/band//' | sed 's/full-//'); \
 	IS_FULL_BAND=$$(echo $(notdir $(@D)) | grep -q '^full-' && echo "true" || echo "false"); \
 	if [ "$$IS_FULL_BAND" = "true" ]; then \
 		echo "Prep full-band $$BAND_NUM (queue=$$QUEUE)..."; \
-		cd $(@D) && $(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -fillers $(FILLER_PROGRAM) -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
+		cd $(@D) && $(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -fillers $(FILLER_PROGRAM) $(ALLO_SOURCE_ARG) -band $$BAND_NUM -full 2>&1 | tee -a astroq.log; \
 	else \
 		echo "Prep band $$BAND_NUM (queue=$$QUEUE)..."; \
-		cd $(@D) && $(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -fillers $(FILLER_PROGRAM) -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
+		cd $(@D) && $(LOAD_ENV) && PYTHONPATH=$(REPO_ROOT) PYTHONUNBUFFERED=1 conda run --no-capture-output -n $(CONDA_ENV) astroq prep $$QUEUE -cf config.ini -ru "$(REQUEST_URLS_CSV)" -fillers $(FILLER_PROGRAM) $(ALLO_SOURCE_ARG) -band $$BAND_NUM 2>&1 | tee -a astroq.log; \
 	fi; \
 	touch $@
 
@@ -170,7 +192,9 @@ status:
 	@echo "Date:         $(DATE)"
 	@echo "Start/End:    $(START_DATE) .. $(END_DATE)"
 	@echo "Bands:        $(BANDS)"
+	@echo "Mode:         $(MODE)"
 	@echo "Filler:       $(FILLER_PROGRAM)"
+	@echo "Vmag cut:     $(if $(strip $(VMAG_MAX)),V <= $(VMAG_MAX),off)"
 	@echo "Conda env:    $(CONDA_ENV)"
 	@echo "Request URLs: $(REQUEST_URLS_CSV)"
 	@echo "WORKDIR:      $(WORKDIR)"

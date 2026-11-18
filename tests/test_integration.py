@@ -71,7 +71,7 @@ class TestClass(unittest.TestCase):
             argparse.Namespace(
                 config_file="examples/hello_world/config_hello_world_prep.ini",
                 allo_source="examples/hello_world/prepped/observatory_schedule.csv",
-                past_source="examples/hello_world/prepped/jump_past_history.csv",
+                past_source="examples/hello_world/2018B/2018-08-05/band1/past.csv",
                 request_source="examples/hello_world/prepped/request.csv",
                 filler_programs="2025B_E473",
                 band_number=1,
@@ -82,7 +82,7 @@ class TestClass(unittest.TestCase):
             argparse.Namespace(
                 config_file="examples/hello_world/config_hello_world_prep.ini",
                 allo_source="examples/hello_world/prepped/observatory_schedule.csv",
-                past_source="examples/hello_world/prepped/jump_past_history.csv",
+                past_source="examples/hello_world/2018B/2018-08-05/band1/past.csv",
                 request_source="examples/hello_world/prepped/request.csv",
                 filler_programs="2025B_E473",
                 band_number=3,
@@ -370,13 +370,15 @@ class TestClass(unittest.TestCase):
         self.assertNotIn("2026-04-04 06:20", out["timestamp"].tolist())
 
     def test15_hires_past_history_query(self):
-        """JUMP pull writes tmp file and collapses frames to visit rows."""
+        """jump2 pull writes tmp file and collapses frames to visit rows."""
+        import io
         import tempfile
         from unittest.mock import MagicMock, patch
 
         import astroq.queue.hirescps.prep as prep
+        from astroq.queue.hirescps import jump
 
-        raw_csv = (
+        frames = pd.read_csv(io.StringIO(
             "starname,timestamp,exposure_time,decker,iodine_in,counts\n"
             "109358,2026-03-02 14:15,95,C2,True,250000\n"
             "109358,2026-03-02 14:17,128,C2,True,250000\n"
@@ -384,30 +386,18 @@ class TestClass(unittest.TestCase):
             "109358,2026-04-04 06:20,95,C2,True,250000\n"
             "156079,2026-05-31 13:46,85,B3,False,2000\n"
             "T004478,2026-05-31 13:46,1799,B3,False,2000\n"
+        ), dtype={"starname": str})
+        counts = pd.DataFrame(
+            {"night": ["2026-03-02", "2026-04-04", "2026-05-31"], "n": [3, 1, 2]}
         )
-        captured = {}
+        sqls = []
 
-        login_resp = MagicMock()
-        login_resp.raise_for_status = lambda: None
+        def fake_query(sql):
+            sqls.append(sql)
+            return counts if "GROUP BY" in sql else frames
 
-        post_resp = MagicMock()
-        post_resp.raise_for_status = lambda: None
-        post_resp.url = f"{prep.JUMP_BASE_URL}/explorer/"
-
-        download_resp = MagicMock()
-        download_resp.content = raw_csv.encode("utf-8")
-        download_resp.raise_for_status = lambda: None
-
-        def fake_get(url, *args, **kwargs):
-            if "/download" in url:
-                captured["url"] = url
-                return download_resp
-            return login_resp
-
-        fake_session = MagicMock()
-        fake_session.cookies = {"csrftoken": "test-token"}
-        fake_session.get.side_effect = fake_get
-        fake_session.post.return_value = post_resp
+        client = MagicMock()
+        client.data.query.side_effect = fake_query
 
         tmp = tempfile.mkdtemp(prefix="astroq_past_")
         out_csv = os.path.join(tmp, "past.csv")
@@ -419,7 +409,7 @@ class TestClass(unittest.TestCase):
             }
         ).to_csv(req_csv, index=False)
 
-        with patch.object(prep.requests, "Session", return_value=fake_session):
+        with patch.object(jump, "jump2_client", return_value=client):
             prep.get_hires_past_history(
                 out_csv,
                 semester_start_day="2026-02-01",
@@ -427,17 +417,20 @@ class TestClass(unittest.TestCase):
                 request_csv_path=req_csv,
             )
 
-        tmp_csv = os.path.join(tmp, prep.JUMP_PAST_QUERY_TMP_FILENAME)
+        tmp_csv = os.path.join(tmp, jump.JUMP_PAST_QUERY_TMP_FILENAME)
         self.assertTrue(os.path.isfile(tmp_csv))
-        self.assertIn(
-            f"/explorer/{prep.JUMP_HIRES_PAST_EXPLORER_ID}/download", captured["url"]
-        )
-        # Download URL must carry a real ``&params=`` (regression: BeautifulSoup
-        # turned it into ``¶ms=``).
-        self.assertIn("&params=", captured["url"])
-        self.assertNotIn("\u00b6", captured["url"])
-        self.assertIn("start_date%3A2026-02-01", captured["url"])
-        self.assertIn("end_date%3A2026-07-31", captured["url"])
+        # One per-night count, then one frame batch (6 rows fit under the cap).
+        self.assertEqual(len(sqls), 2)
+        for sql in sqls:
+            self.assertIn(f"ILIKE '{jump.JUMP2_HIRES_INSTRUMENT}'", sql)
+            self.assertIn("isjunk IS NOT TRUE", sql)
+            self.assertIn("'stars' = ANY(core_observation.exposure_types)", sql)
+        self.assertIn("'2026-02-01 00:00+00'", sqls[0])
+        # semester_end_day is inclusive: the window stops at the next UTC day.
+        self.assertIn("'2026-08-01 00:00+00'", sqls[0])
+        self.assertIn("DISTINCT ON (core_observation.id)", sqls[1])
+        self.assertIn("'2026-03-02 00:00+00'", sqls[1])
+        self.assertIn("'2026-06-01 00:00+00'", sqls[1])
 
         out = pd.read_csv(out_csv)
         self.assertEqual(
@@ -454,8 +447,62 @@ class TestClass(unittest.TestCase):
             "2026-03-02 14:15",
         )
 
+    def test15b_hires_frames_batches_under_row_cap(self):
+        """Nights are batched so no frame query reaches the old-client row cap."""
+        from unittest.mock import MagicMock, patch
+
+        from astroq.queue.hirescps import jump
+
+        counts = pd.DataFrame(
+            {"night": ["2026-08-01", "2026-08-02", "2026-08-03"], "n": [4, 4, 4]}
+        )
+        cols = ["starname", "timestamp", "exposure_time", "decker", "iodine_in", "counts"]
+        sqls = []
+
+        def fake_query(sql):
+            sqls.append(sql)
+            if "GROUP BY" in sql:
+                return counts
+            return pd.DataFrame([["1", "2026-08-01 05:00", 60, "C2", True, 1]] * 4, columns=cols)
+
+        client = MagicMock()
+        client.data.query.side_effect = fake_query
+        with patch.object(jump, "JUMP2_SQL_ROW_CAP", 10):
+            out = jump.hires_frames(client, "2026-08-01", "2026-08-04")
+        # 4+4 = 8 fits under 10, adding the third night (12) would not.
+        self.assertEqual(len(sqls), 3)
+        self.assertIn("'2026-08-03 00:00+00'", sqls[1])
+        self.assertIn("'2026-08-03 00:00+00'", sqls[2])
+        self.assertEqual(len(out), 8)
+
+        def capped(sql):
+            if "GROUP BY" in sql:
+                return counts
+            return pd.DataFrame([["1", "2026-08-01 05:00", 60, "C2", True, 1]] * 10, columns=cols)
+
+        client.data.query.side_effect = capped
+        with patch.object(jump, "JUMP2_SQL_ROW_CAP", 10):
+            with self.assertRaises(RuntimeError):
+                jump.hires_frames(client, "2026-08-01", "2026-08-04")
+
+    def test15c_hires_frames_auth_error_hint(self):
+        """An expired or missing API key names how to renew it."""
+        from unittest.mock import MagicMock
+
+        try:
+            from jump2_client import AuthError
+        except ImportError:
+            self.skipTest("jump2-client not installed")
+        from astroq.queue.hirescps import jump
+
+        client = MagicMock()
+        client.data.query.side_effect = AuthError("401")
+        with self.assertRaises(RuntimeError) as ctx:
+            jump.hires_frames(client, "2026-08-01", "2026-08-04")
+        self.assertIn("JUMP_API_KEY", str(ctx.exception))
+
     def test16_hires_past_history_requires_dates(self):
-        """Live JUMP pull needs both semester dates."""
+        """Live jump2 pull needs both semester dates."""
         import astroq.queue.hirescps.prep as prep
 
         with self.assertRaises(ValueError):

@@ -21,7 +21,7 @@ import astroq.io
 import astroq.queue
 import astroq.queue.kpfcc.prep as kpfcc
 import astroq.queue.hirescps.prep as hirescps
-from astroq.queue.prep_common import write_programs_csv
+from astroq.queue.prep_common import merge_program_overrides_from_request_urls, write_programs_csv
 import astroq.nplan as nplan
 import astroq.plot as pl
 import astroq.splan as splan
@@ -33,6 +33,28 @@ log = logging.getLogger(__name__)
 log.setLevel(logging.INFO)  # Lower level to capture more messages
 
 _REQUEST_CSV_TTL_SEC = 3600
+
+
+def _apply_request_url_program_overrides(programmatics, request_urls_path, enabled):
+    if not enabled or not request_urls_path:
+        return programmatics
+    ru = pd.read_csv(request_urls_path)
+    if "program_code" not in ru.columns:
+        return programmatics
+    missing = [
+        p
+        for p in ru["program_code"].dropna().unique()
+        if p not in set(programmatics["program"])
+    ]
+    if missing:
+        programmatics = pd.concat(
+            [
+                programmatics,
+                pd.DataFrame({"program": missing, "hours": [0.0] * len(missing)}),
+            ],
+            ignore_index=True,
+        )
+    return merge_program_overrides_from_request_urls(programmatics, request_urls_path)
 
 
 def bench(args):
@@ -154,6 +176,9 @@ def hirescps_prep(args):
             ],
             ignore_index=True,
         )
+        programmatics = _apply_request_url_program_overrides(
+            programmatics, request_urls_path, need_request_urls
+        )
         write_programs_csv(programmatics, savepath)
     else:
         if not allo_source:
@@ -198,29 +223,21 @@ def hirescps_prep(args):
                 ],
                 ignore_index=True,
             )
-        if need_request_urls and request_urls_path:
-            ru_progs = pd.read_csv(request_urls_path)["program_code"].dropna().unique()
-            missing = [p for p in ru_progs if p not in set(programmatics["program"])]
-            if missing:
-                programmatics = pd.concat(
-                    [
-                        programmatics,
-                        pd.DataFrame(
-                            {"program": missing, "hours": [0.0] * len(missing)}
-                        ),
-                    ],
-                    ignore_index=True,
-                )
+        programmatics = _apply_request_url_program_overrides(
+            programmatics, request_urls_path, need_request_urls
+        )
         write_programs_csv(programmatics, savepath)
 
     allocation_frame["comment"] = [""] * len(allocation_frame)
+    queue = astroq.queue.from_config(config)
     # Update allocation times for tonight if this is a full-band
     if is_full_band:
         print("Updating allocation.csv for full-band")
-        allocation_frame = kpfcc.update_allocation_file(allocation_frame, current_date)
+        allocation_frame = kpfcc.update_allocation_file(
+            allocation_frame, current_date, queue.observatory
+        )
     if band_number == 3:
         print("Expanding allocation.csv for band-3 twilight buffer")
-        queue = astroq.queue.from_config(config)
         allocation_frame = kpfcc.expand_allocation_for_band3(
             allocation_frame, queue.observatory
         )
@@ -396,13 +413,15 @@ def kpfcc_prep(args):
     #         logging.warning(f"Allocation file '{allo_source}' does not exist")
 
     allocation_frame["comment"] = [""] * len(allocation_frame)
+    queue = astroq.queue.from_config(config)
     # Update allocation times for tonight if this is a full-band
     if is_full_band:
         print("Updating allocation.csv for full-band")
-        allocation_frame = kpfcc.update_allocation_file(allocation_frame, current_date)
+        allocation_frame = kpfcc.update_allocation_file(
+            allocation_frame, current_date, queue.observatory
+        )
     if band_number == 3:
         print("Expanding allocation.csv for band-3 twilight buffer")
-        queue = astroq.queue.from_config(config)
         allocation_frame = kpfcc.expand_allocation_for_band3(
             allocation_frame, queue.observatory
         )
@@ -526,7 +545,7 @@ def _validate_past_csv_columns(past_source):
         print("Past history file columns validated: all required columns present")
 
 
-def _print_past_summary(past_path, n=10, n_nights=5):
+def _print_past_summary(past_path, n=5, n_nights=5):
     """Print visit counts for the latest nights plus head/tail of ``past_path``.
 
     Lets the operator confirm last night's observations were ingested. Goes to
@@ -549,11 +568,24 @@ def _print_past_summary(past_path, n=10, n_nights=5):
     print(f"Visits per UT date (last {len(per_night)}):")
     for night, count in per_night.items():
         print(f"  {night}: {count}")
-    with pd.option_context("display.width", 200, "display.max_columns", None):
-        print(f"--- past.csv head ({min(n, len(df))} rows) ---")
-        print(df.head(n).to_string(index=False))
-        print(f"--- past.csv tail ({min(n, len(df))} rows) ---")
-        print(df.tail(n).to_string(index=False))
+    show = df if len(df) <= 2 * n else pd.concat([df.head(n), df.tail(n)])
+    cols = list(show.columns)
+    cells = show.astype(str).replace("nan", "")
+    widths = {c: max(len(c), cells[c].str.len().max()) for c in cols}
+    numeric = {c for c in cols if pd.api.types.is_numeric_dtype(df[c])}
+
+    def _fmt(values):
+        return "  ".join(
+            str(v).rjust(widths[c]) if c in numeric else str(v).ljust(widths[c])
+            for c, v in zip(cols, values)
+        ).rstrip()
+
+    print(f"--- past.csv first/last {min(n, len(df))} of {len(df)} visits ---")
+    print(_fmt(cols))
+    rows = [_fmt(r) for r in cells.itertuples(index=False)]
+    if len(df) > 2 * n:
+        rows.insert(n, "...")
+    print("\n".join(rows))
 
 
 def kpfcc_webapp(args):
@@ -657,10 +689,11 @@ def compute_max_fill(args):
 
     for program in programs:
         prog_requests = requests_all[
-            requests_all["program_code"].astype(str) == program
+            (requests_all["program_code"].astype(str) == program)
+            & (~requests_all["inactive"])
         ]
         if prog_requests.empty:
-            record(program, 0.0, "no requests")
+            record(program, 0.0, "no active requests")
             continue
 
         semester_planner = splan.SemesterPlanner(
