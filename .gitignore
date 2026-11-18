@@ -22,6 +22,7 @@ astroq/data/*
 !astroq/data/KPF_Empirical_ETC_Feb2026_fits.h5
 
 # Local/generated artifacts (do not commit)
+scripts/
 /data/
 examples/**/outputs/
 examples/**/prepped/
