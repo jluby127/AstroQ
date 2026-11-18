@@ -639,15 +639,8 @@ def crossmatch_allocation(scheduled_df, request_urls_path, semester, output_path
 # =============================================================================
 # JUMP — past.csv
 # =============================================================================
-# Authenticated explorer download of HIRES frame history; collapsed to one
-# row per visit attempt for the semester planner.
-
-JUMP_BASE_URL = "https://jump.caltech.edu"
-# Parameterized JUMP explorer query returning all HIRES observations between
-# ``start_date`` and ``end_date`` (UTC). Replaces the legacy named saved query
-# "HIRES2026A - All Observations".
-JUMP_HIRES_PAST_EXPLORER_ID = 285
-JUMP_PAST_QUERY_TMP_FILENAME = "past_jump-query-tmp.csv"
+# HIRES frame history from jump2 (cannon.caltech.edu); collapsed to one row
+# per visit attempt for the semester planner.
 
 
 def jump_query_to_past(data, request_csv_path, semester_start_day=None):
@@ -763,12 +756,14 @@ def get_hires_past_history(
     semester_end_day=None,
     request_csv_path=None,
 ):
-    """Pull HIRES past history from JUMP and write processed ``path_to_csv``.
+    """Pull HIRES past history from jump2 and write processed ``path_to_csv``.
 
-    Fetches the parameterized JUMP explorer query
-    :data:`JUMP_HIRES_PAST_EXPLORER_ID` (285). Downloads the raw explorer CSV
-    to ``past_jump-query-tmp.csv`` beside ``path_to_csv`` (preserved for
-    inspection), then groups frames into visit attempts. A group counts toward
+    Queries jump2's ``core_observation`` for HIRES frames over the semester
+    through ``jump2-client`` (see :func:`jump.hires_frames`); calibration frames and frames flagged
+    junk are excluded. Requires a jump2 API key (``JUMP_API_KEY`` or
+    ``jump2 scripts login``). The raw frames are saved to
+    ``past_jump2-query-tmp.csv`` beside ``path_to_csv`` (preserved for
+    inspection), then grouped into visit attempts. A group counts toward
     ``past.csv`` only when ``len(frames) >= ceil(0.5 * n_exp)`` where ``n_exp``
     comes from ``request_csv_path``.
 
@@ -781,9 +776,9 @@ def get_hires_past_history(
     Args:
         path_to_csv (str): Output CSV path.
         semester_start_day (str): ``YYYY-MM-DD`` from config
-            ``[global] semester_start_day``; passed to JUMP as ``start_date``.
+            ``[global] semester_start_day``; first UTC night queried.
         semester_end_day (str): ``YYYY-MM-DD`` from config
-            ``[global] semester_end_day``; passed to JUMP as ``end_date``.
+            ``[global] semester_end_day``; last UTC night queried (inclusive).
         request_csv_path (str, optional): ``request.csv`` path supplying
             ``unique_id`` / ``n_exp`` for visit-collapse thresholds.
 
@@ -794,29 +789,31 @@ def get_hires_past_history(
     if not semester_start_day or not semester_end_day:
         raise ValueError(
             "get_hires_past_history requires both semester_start_day and "
-            "semester_end_day to build the JUMP explorer query window."
+            "semester_end_day to build the jump2 query window."
         )
 
-    raw_path = os.path.join(os.path.dirname(path_to_csv), JUMP_PAST_QUERY_TMP_FILENAME)
-
-    session = jump_client.jump_session()
-    param_str = (
-        f"start_date:{semester_start_day}|end_date:{semester_end_day}"
+    raw_path = os.path.join(
+        os.path.dirname(path_to_csv), jump_client.JUMP_PAST_QUERY_TMP_FILENAME
     )
-    param_slug = urllib.parse.quote(param_str, safe="")
-    download_url = (
-        f"{jump_client.JUMP_BASE_URL}/explorer/{jump_client.JUMP_HIRES_PAST_EXPLORER_ID}/download"
-        f"?format=csv&params={param_slug}"
-    )
-    print(f"JUMP download URL: {download_url}")
 
-    csv_response = session.get(download_url, timeout=60)
-    csv_response.raise_for_status()
-    with open(raw_path, "wb") as f:
-        f.write(csv_response.content)
-    print(f"Raw JUMP pull saved to {raw_path}")
+    client = jump_client.jump2_client()
+    stop_day = (pd.Timestamp(semester_end_day) + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+    base_url = os.environ.get("JUMP_BASE_URL") or jump_client.JUMP2_BASE_URL
+    print(
+        f"Querying jump2 ({base_url}) for HIRES frames "
+        f"{semester_start_day} .. {semester_end_day} (UTC)"
+    )
+    frames = jump_client.hires_frames(client, semester_start_day, stop_day)
+    frames.to_csv(raw_path, index=False)
+    print(f"Raw jump2 pull ({len(frames)} frames) saved to {raw_path}")
 
     data = pd.read_csv(raw_path)
+    n_iodine_unknown = int(data["iodine_in"].isna().sum())
+    if n_iodine_unknown:
+        print(
+            f"jump2: {n_iodine_unknown} frame(s) have no iodine_in yet (raw frame "
+            "not ingested); treated as non-template."
+        )
 
     visits = jump_query_to_past(
         data, request_csv_path, semester_start_day=semester_start_day

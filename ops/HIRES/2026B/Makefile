@@ -5,6 +5,12 @@
 # One-time per machine (sets CC_OUTPUT_PATH in the astroq env):
 #   conda env config vars set CC_OUTPUT_PATH=/Users/petigura/code/AstroQ-hires26a
 #   conda deactivate && conda activate astroq
+#
+# prep pulls past.csv from jump2, which needs jump2-client in $(CONDA_ENV)
+# (bash ops/HIRES/setup_env.sh) and a jump2 API key: JUMP_API_KEY in
+# ops/HIRES/.env, or `jump2 scripts login`. Keys are made under Profile -> API
+# Keys on cannon.caltech.edu. KPFCC_JUMP_USERNAME/PASSWORD (jump1) are now only
+# used by select_recommissioning.py.
 
 SHELL := /bin/bash
 
@@ -108,6 +114,9 @@ $(DATE_DIR)/%/prep-run: $(DATE_DIR)/%/config.ini
 	@set -euo pipefail; \
 	echo "Running prep for band $(notdir $(@D))..."; \
 	test -f "$(REQUEST_URLS_CSV)"; \
+	conda run -n $(CONDA_ENV) python -c "import jump2_client" >/dev/null 2>&1 || { \
+		echo "jump2-client is not installed in conda env $(CONDA_ENV); run: bash ops/HIRES/setup_env.sh" >&2; \
+		exit 1; }; \
 	: > $(@D)/astroq.log; \
 	QUEUE=$$(sed -n 's/^[[:space:]]*queue[[:space:]]*=[[:space:]]*//p' $(@D)/config.ini | tr -d ' \r\n'); \
 	BAND_NUM=$$(echo $(notdir $(@D)) | sed 's/band//' | sed 's/full-//'); \

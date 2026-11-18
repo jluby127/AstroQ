@@ -545,7 +545,7 @@ def _validate_past_csv_columns(past_source):
         print("Past history file columns validated: all required columns present")
 
 
-def _print_past_summary(past_path, n=10, n_nights=5):
+def _print_past_summary(past_path, n=5, n_nights=5):
     """Print visit counts for the latest nights plus head/tail of ``past_path``.
 
     Lets the operator confirm last night's observations were ingested. Goes to
@@ -568,11 +568,24 @@ def _print_past_summary(past_path, n=10, n_nights=5):
     print(f"Visits per UT date (last {len(per_night)}):")
     for night, count in per_night.items():
         print(f"  {night}: {count}")
-    with pd.option_context("display.width", 200, "display.max_columns", None):
-        print(f"--- past.csv head ({min(n, len(df))} rows) ---")
-        print(df.head(n).to_string(index=False))
-        print(f"--- past.csv tail ({min(n, len(df))} rows) ---")
-        print(df.tail(n).to_string(index=False))
+    show = df if len(df) <= 2 * n else pd.concat([df.head(n), df.tail(n)])
+    cols = list(show.columns)
+    cells = show.astype(str).replace("nan", "")
+    widths = {c: max(len(c), cells[c].str.len().max()) for c in cols}
+    numeric = {c for c in cols if pd.api.types.is_numeric_dtype(df[c])}
+
+    def _fmt(values):
+        return "  ".join(
+            str(v).rjust(widths[c]) if c in numeric else str(v).ljust(widths[c])
+            for c, v in zip(cols, values)
+        ).rstrip()
+
+    print(f"--- past.csv first/last {min(n, len(df))} of {len(df)} visits ---")
+    print(_fmt(cols))
+    rows = [_fmt(r) for r in cells.itertuples(index=False)]
+    if len(df) > 2 * n:
+        rows.insert(n, "...")
+    print("\n".join(rows))
 
 
 def kpfcc_webapp(args):
